@@ -702,21 +702,29 @@ function renderTestQuestion() {
                 btn.classList.add('wrong'); btn.innerHTML = `❌ ${opt}`; 
             }
         } else {
-            btn.onclick = () => { 
+            // --- THÊM ASYNC Ở ĐÂY ---
+            btn.onclick = async () => { 
                 const correctKey = c.Mat_sau.trim().toUpperCase(); 
                 const isCorrect = opt.trim().toUpperCase().startsWith(correctKey); 
                 
                 quizState.answers[c.ID] = { chosenText: opt, isCorrect: isCorrect };
                 if(isCorrect) quizState.correctCount++; 
                 
-                // Tự động lưu tiến trình ngầm (Không hiện loading)
-                google.script.run.saveQuizProgressServer(currentDeckName, JSON.stringify(quizState));
+                // --- GỌI API THAY CHO google.script.run ---
+                // Lưu tiến trình trắc nghiệm vào Sheet bí mật ngay lập tức
+                await callAPI('saveQuizProgress', { 
+                    deckName: currentDeckName, 
+                    data: JSON.stringify(quizState) 
+                });
                 
-                showCard(); // Rerender
+                // Vẽ lại card để hiện kết quả Đúng/Sai vừa chọn
+                showCard(); 
                 
-                // Kiểm tra xem đã làm hết chưa
+                // Kiểm tra xem đã làm hết toàn bộ đề chưa
                 if(Object.keys(quizState.answers).length === sessionCards.length) {
-                    setTimeout(() => customAlert(`🎉 Bạn đã hoàn thành bài thi!\nTổng điểm: ${quizState.correctCount} / ${sessionCards.length}`), 500);
+                    setTimeout(() => {
+                        customAlert(`🎉 Bạn đã hoàn thành bài thi!\nTổng điểm: ${quizState.correctCount} / ${sessionCards.length}`);
+                    }, 500);
                 }
             };
         }
@@ -728,20 +736,46 @@ function prevCard() { if(currentIndex > 0) { currentIndex--; showCard(); } }
 function nextCard() { if(mode === 'test') { if(currentIndex < sessionCards.length-1) { currentIndex++; showCard(); } } else { if(currentIndex < filteredCards.length-1) { currentIndex++; showCard(); } } }
 
 function shuffleQuiz() {
-    customConfirm('🔀 Đảo câu hỏi', 'Hành động này sẽ đảo lộn thứ tự các câu hỏi. Bạn có muốn tiếp tục?', '#3498db', () => {
+    customConfirm('🔀 Đảo câu hỏi', 'Hành động này sẽ đảo lộn thứ tự các câu hỏi. Bạn có muốn tiếp tục?', '#3498db', async () => {
+        // 1. Xáo trộn thứ tự câu hỏi trong bộ nhớ tạm
         quizState.orderSequence.sort(() => Math.random() - 0.5);
+        
+        // 2. Đưa người dùng về câu hỏi đầu tiên của danh sách đã đảo
         currentIndex = 0;
-        google.script.run.saveQuizProgressServer(currentDeckName, JSON.stringify(quizState));
+        
+        // --- THAY THẾ google.script.run TẠI ĐÂY ---
+        // Gửi thứ tự mới này lên Server để lưu lại vĩnh viễn
+        await callAPI('saveQuizProgress', { 
+            deckName: currentDeckName, 
+            data: JSON.stringify(quizState) 
+        });
+        
+        // 3. Thông báo và vẽ lại giao diện
         showToast('Đã đảo thứ tự câu hỏi!');
         showCard();
     });
 }
 
 function confirmResetQuiz() {
-    customConfirm('⚠️ Làm lại từ đầu', 'Toàn bộ tiến trình làm bài sẽ bị xóa sạch. Bạn có chắc chắn?', '#e53e3e', () => {
-        quizState = { answers: {}, correctCount: 0, orderSequence: Array.from({length: sessionCards.length}, (_, i) => i) };
+    customConfirm('⚠️ Làm lại từ đầu', 'Toàn bộ tiến trình làm bài sẽ bị xóa sạch. Bạn có chắc chắn?', '#e53e3e', async () => {
+        // 1. Khởi tạo lại toàn bộ bộ nhớ tạm (về trạng thái trống)
+        quizState = { 
+            answers: {}, 
+            correctCount: 0, 
+            orderSequence: Array.from({length: sessionCards.length}, (_, i) => i) 
+        };
+        
+        // 2. Đưa người dùng về câu hỏi số 1
         currentIndex = 0;
-        google.script.run.saveQuizProgressServer(currentDeckName, JSON.stringify(quizState));
+        
+        // --- THAY THẾ google.script.run TẠI ĐÂY ---
+        // Ghi đè bản lưu trống lên Server để xóa sạch lịch sử cũ trên Google Sheets
+        await callAPI('saveQuizProgress', { 
+            deckName: currentDeckName, 
+            data: JSON.stringify(quizState) 
+        });
+        
+        // 3. Thông báo Toast và cập nhật màn hình
         showToast('Đã reset toàn bộ tiến trình!');
         showCard();
     });
@@ -802,18 +836,69 @@ async function answerCurrent(q) {
 function processCram(ok) { const c = filteredCards[currentIndex]; if(ok) c.cramLevel++; else c.cramLevel = 1; applyFilter(); }
 
 function startEdit(e, field) { e.stopPropagation(); isEditing = true; let c = filteredCards[currentIndex]; document.getElementById('cardArea').innerHTML = `<textarea class="edit-textarea" id="editBox">${c[field]}</textarea><div class="card-controls"><div class="ctrl-icon" onclick="saveEdit(event, '${field}')">💾</div><div class="ctrl-icon" onclick="renderStudyContent()">❌</div></div>`; document.getElementById('editBox').focus(); }
-function saveEdit(e, field) { e.stopPropagation(); const newVal = document.getElementById('editBox').value; let c = filteredCards[currentIndex]; showLoading(); google.script.run.withSuccessHandler(() => { hideLoading(); c[field] = newVal; isEditing = false; showToast("Đã sửa thẻ!"); renderStudyContent(); }).updateCardFieldServer(c.FileID, c.SourceSheet, c.ID, field, newVal); }
+// 1. Hàm Lưu chỉnh sửa thẻ bài
+async function saveEdit(e, field) {
+    e.stopPropagation();
+    const newVal = document.getElementById('editBox').value;
+    
+    // Xác định đúng đối tượng thẻ đang được sửa (dựa theo chế độ học)
+    let c = (mode === 'test') ? sessionCards[quizState.orderSequence[currentIndex]] : filteredCards[currentIndex];
+    if (!c) return;
+
+    // --- THAY THẾ google.script.run TẠI ĐÂY ---
+    await callAPI('editField', { 
+        fid: c.FileID, 
+        sname: c.SourceSheet, 
+        id: c.ID, 
+        field: field, 
+        val: newVal 
+    });
+
+    // Cập nhật lại dữ liệu ngay trong bộ nhớ trình duyệt để hiển thị
+    c[field] = newVal;
+    isEditing = false;
+    showToast("Đã cập nhật nội dung!");
+    renderStudyContent();
+}
+
+// 2. Hàm Yêu cầu xóa thẻ bài
 function reqDeleteCard(e) { 
     e.stopPropagation(); 
-    customConfirm('⚠️ Xóa thẻ', 'Bạn có chắc chắn muốn xóa vĩnh viễn thẻ này khỏi cơ sở dữ liệu?', '#e53e3e', () => {
-        let c = filteredCards[currentIndex]; showLoading("Đang xóa..."); 
-        google.script.run.withSuccessHandler(() => { 
-            hideLoading(); showToast("Đã xóa thẻ!"); sessionCards = sessionCards.filter(x => x.ID != c.ID); 
-            if(mode === 'test') { quizState.orderSequence = quizState.orderSequence.filter(idx => sessionCards[idx] && sessionCards[idx].ID != c.ID); }
-            else { filteredCards = filteredCards.filter(x => x.ID != c.ID); }
-            if (currentIndex >= (mode==='test'?quizState.orderSequence.length:filteredCards.length)) currentIndex = Math.max(0, (mode==='test'?quizState.orderSequence.length:filteredCards.length) - 1); 
-            showCard(); 
-        }).deleteCardServer(c.FileID, c.SourceSheet, c.ID);
+    
+    customConfirm('⚠️ Xóa thẻ', 'Bạn có chắc chắn muốn xóa vĩnh viễn thẻ này khỏi cơ sở dữ liệu?', '#e53e3e', async () => {
+        // Xác định đúng đối tượng thẻ đang xem
+        let c = (mode === 'test') ? sessionCards[quizState.orderSequence[currentIndex]] : filteredCards[currentIndex];
+        if (!c) return;
+
+        // --- THAY THẾ google.script.run TẠI ĐÂY ---
+        await callAPI('deleteCard', { 
+            fid: c.FileID, 
+            sname: c.SourceSheet, 
+            id: c.ID 
+        });
+
+        showToast("Đã xóa thẻ vĩnh viễn!");
+
+        // Xóa thẻ khỏi danh sách sessionCards gốc
+        sessionCards = sessionCards.filter(x => x.ID != c.ID); 
+        
+        // Xử lý cập nhật danh sách hiển thị tùy theo chế độ
+        if(mode === 'test') {
+            // Trong chế độ Test: Loại bỏ index đó khỏi chuỗi thứ tự (orderSequence)
+            quizState.orderSequence = quizState.orderSequence.filter(idx => sessionCards[idx] && sessionCards[idx].ID != c.ID);
+        } else {
+            // Trong chế độ Ôn tập/Nhồi nhét: Lọc bỏ thẻ khỏi danh sách đang học
+            filteredCards = filteredCards.filter(x => x.ID != c.ID);
+        }
+
+        // Nếu xóa thẻ cuối cùng, lùi vị trí về 1 đơn vị để không bị lỗi màn hình trống
+        let currentTotal = (mode === 'test') ? quizState.orderSequence.length : filteredCards.length;
+        if (currentIndex >= currentTotal) {
+            currentIndex = Math.max(0, currentTotal - 1);
+        }
+
+        // Vẽ lại thẻ mới
+        showCard(); 
     });
 }
 
@@ -915,15 +1000,65 @@ function showTodayList() {
 function jumpToCardInSession(i) { closeModal('todayModal'); currentIndex = i; showCard(); }
 function showInfoModal() { const c = (mode==='test') ? sessionCards[quizState.orderSequence[currentIndex]] : filteredCards[currentIndex]; if(!c) return; document.getElementById('infoText').innerHTML = `<div style="white-space: pre-wrap;">${c.Thong_tin || 'Không có ghi chú'}</div><div class="card-controls" style="position: relative; margin-top: 20px; float: right; opacity: 1;"><div class="ctrl-icon" onclick="startEditInfo()">✏️</div></div>`; document.getElementById('infoModal').style.display = 'flex'; }
 function startEditInfo() { const c = (mode==='test') ? sessionCards[quizState.orderSequence[currentIndex]] : filteredCards[currentIndex]; document.getElementById('infoText').innerHTML = `<textarea id="editInfoBox" style="height:120px; width:100%">${c.Thong_tin || ''}</textarea><button onclick="saveInfoEdit()" style="width:100%; background:#2ecc71; color:#fff; border:none; padding:12px; margin-top:10px; border-radius:12px; font-weight:bold; cursor:pointer">LƯU</button>`; }
-function saveInfoEdit() { const newVal = document.getElementById('editInfoBox').value; const c = (mode==='test') ? sessionCards[quizState.orderSequence[currentIndex]] : filteredCards[currentIndex]; showLoading(); google.script.run.withSuccessHandler(() => { hideLoading(); c.Thong_tin = newVal; showToast("Đã sửa ghi chú!"); showInfoModal(); }).updateCardFieldServer(c.FileID, c.SourceSheet, c.ID, 'Thong_tin', newVal); }
+// Thêm từ khóa 'async' để xử lý chờ dữ liệu từ Server
+async function saveInfoEdit() {
+    // 1. Lấy nội dung mới từ ô nhập liệu trong Modal
+    const newVal = document.getElementById('editInfoBox').value;
+
+    // 2. Xác định chính xác đối tượng thẻ đang sửa (dựa theo chế độ Ôn tập hay Luyện đề)
+    const c = (mode === 'test') ? sessionCards[quizState.orderSequence[currentIndex]] : filteredCards[currentIndex];
+    if (!c) return;
+
+    // --- THAY THẾ google.script.run TẠI ĐÂY ---
+    // Gọi lệnh 'editField' để cập nhật cột 'Thong_tin' trên Google Sheets
+    await callAPI('editField', { 
+        fid: c.FileID, 
+        sname: c.SourceSheet, 
+        id: c.ID, 
+        field: 'Thong_tin', 
+        val: newVal 
+    });
+
+    // --- Sau khi Server báo đã lưu thành công ---
+
+    // 3. Cập nhật ngay nội dung vào bộ nhớ tạm để hiển thị tức thì
+    c.Thong_tin = newVal;
+
+    // 4. Thông báo Toast mượt mà
+    showToast("Đã sửa ghi chú thành công!");
+
+    // 5. Vẽ lại Modal thông tin để hiển thị nội dung mới nhất
+    showInfoModal();
+}
 
 // ==================== THÊM MỚI & IMPORT ====================
-function showLearnPage() { 
-    showPage('learnPage'); updateBreadcrumb([{label: 'Thêm & Import'}]); 
-    document.getElementById('learnMenu').classList.remove('hidden'); document.getElementById('newForm').classList.add('hidden'); document.getElementById('importForm').classList.add('hidden'); 
-    google.script.run.withSuccessHandler(tags => {
-        const dl = document.getElementById('tag-suggestions'); dl.innerHTML = ''; tags.forEach(d => dl.appendChild(new Option(d, d)));
-    }).getAllCombinedTags();
+// Thêm từ khóa 'async' để có thể đợi dữ liệu trả về từ Server
+async function showLearnPage() { 
+    // 1. Chuyển sang trang "Thêm & Import"
+    showPage('learnPage'); 
+    
+    // 2. Cập nhật thanh điều hướng
+    updateBreadcrumb([{label: 'Thêm & Import'}]); 
+    
+    // 3. Reset giao diện (Hiện menu chọn, ẩn các form nhập liệu dở dang)
+    document.getElementById('learnMenu').classList.remove('hidden'); 
+    document.getElementById('newForm').classList.add('hidden'); 
+    document.getElementById('importForm').classList.add('hidden'); 
+    
+    // --- GỌI API THAY CHO google.script.run ---
+    // Server sẽ trả về danh sách tên tất cả các Sheet trong cả 2 file Google Sheet
+    const tags = await callAPI('getAllTags');
+
+    // 4. Đổ dữ liệu vào ô Gợi ý (Datalist)
+    if (tags && Array.isArray(tags)) {
+        const dl = document.getElementById('tag-suggestions'); 
+        dl.innerHTML = ''; // Xóa danh sách gợi ý cũ
+        tags.forEach(d => {
+            const option = document.createElement('option');
+            option.value = d;
+            dl.appendChild(option);
+        });
+    }
 }
 function showNewForm(type) { currentAddType = type; document.getElementById('learnMenu').classList.add('hidden'); document.getElementById('newForm').classList.remove('hidden'); document.getElementById('formTitle').innerText = (type==='quiz') ? "➕ Thêm Trắc nghiệm" : "➕ Thêm Thẻ bài mới"; document.getElementById('labelBack').innerText = (type==='quiz') ? "Đáp án đúng (A, B...)" : "Mặt sau *"; document.getElementById('labelInfo').innerText = (type==='quiz') ? "Các lựa chọn (Mỗi dòng 1 đáp án)" : "Thông tin phụ"; document.getElementById('nInfo').placeholder = (type==='quiz') ? "A. Lựa chọn 1\nB. Lựa chọn 2..." : "Ghi chú..."; updateBreadcrumb([{label: 'Thêm & Import', action: 'showLearnPage()'}, {label: (type==='quiz'?'Trắc nghiệm':'Thẻ bài')}]); }
 function showImportForm() { document.getElementById('learnMenu').classList.add('hidden'); document.getElementById('importForm').classList.remove('hidden'); updateBreadcrumb([{label: 'Thêm & Import', action: 'showLearnPage()'}, {label: 'Import JSON'}]); }
@@ -933,8 +1068,77 @@ function copyJsonTemplate() {
     showToast("Đã Copy mã mẫu vào bộ nhớ tạm!"); 
 }
 
-function saveCard() { let data = { front: document.getElementById('nFront').value, back: document.getElementById('nBack').value, info: document.getElementById('nInfo').value, tags: document.getElementById('nTag').value }; if(!data.front || !data.back || !data.tags) return showToast("Thiếu thông tin bắt buộc!", "error"); showLoading(); google.script.run.withSuccessHandler(msg => { hideLoading(); showToast(msg); document.getElementById('nFront').value=''; document.getElementById('nBack').value=''; document.getElementById('nInfo').value=''; document.getElementById('nFront').focus(); }).addNewCard(data, currentAddType); }
-function importJson() { let t = document.getElementById('iTag').value, j = document.getElementById('iJson').value, type = document.getElementById('importType').value; if(!t || !j) return showToast("Thiếu Tag hoặc Dữ liệu!", "error"); try { let arr = JSON.parse(j); showLoading("Đang Import..."); google.script.run.withSuccessHandler(m => { hideLoading(); showToast(m); showHome(); }).importCardsFromJson(t, arr, type); } catch(e) { customAlert("Lỗi định dạng JSON! Hãy kiểm tra lại dấu ngoặc hoặc dấu phẩy."); } }
+// Thêm từ khóa 'async' để xử lý chờ phản hồi từ Server Google
+async function saveCard() {
+    // 1. Thu thập dữ liệu từ các ô nhập liệu
+    const data = { 
+        front: document.getElementById('nFront').value, 
+        back: document.getElementById('nBack').value, 
+        info: document.getElementById('nInfo').value, 
+        tags: document.getElementById('nTag').value 
+    };
+
+    // 2. Kiểm tra tính hợp lệ: Mặt trước, Mặt sau và Tag là bắt buộc
+    if(!data.front || !data.back || !data.tags) {
+        return showToast("Vui lòng điền đủ thông tin có dấu (*)", "error");
+    }
+
+    // --- GỌI API THAY THẾ CHO google.script.run ---
+    // Chúng ta gửi chuỗi dữ liệu kèm theo 'currentAddType' 
+    // để Server biết nên lưu vào file Thẻ bài hay file Trắc nghiệm
+    const msg = await callAPI('addNewCard', { 
+        cardData: JSON.stringify(data), 
+        targetType: currentAddType 
+    });
+
+    // --- Sau khi Server báo đã lưu thành công ---
+
+    // 3. Hiển thị thông báo Toast mượt mà
+    showToast(msg || "Đã lưu thành công!");
+
+    // 4. Xóa trắng các ô nhập liệu để sẵn sàng cho thẻ tiếp theo
+    document.getElementById('nFront').value = ''; 
+    document.getElementById('nBack').value = '';
+    document.getElementById('nInfo').value = '';
+
+    // 5. Tự động đưa con trỏ chuột về ô đầu tiên để nhập tiếp (Rất tiện!)
+    document.getElementById('nFront').focus();
+}
+// Thêm từ khóa 'async' để xử lý quá trình Import hàng loạt
+async function importJson() {
+    // 1. Lấy dữ liệu từ giao diện
+    const t = document.getElementById('iTag').value;
+    const j = document.getElementById('iJson').value;
+    const type = document.getElementById('importType').value;
+
+    // 2. Kiểm tra nhanh xem đã điền đủ thông tin chưa
+    if(!t || !j) {
+        return showToast("Vui lòng nhập tên Tag và dán mã JSON!", "error");
+    }
+
+    try {
+        // 3. Kiểm tra định dạng JSON ngay tại trình duyệt trước khi gửi đi
+        let arr = JSON.parse(j);
+
+        // --- GỌI API THAY THẾ CHO google.script.run ---
+        // Gửi toàn bộ mảng dữ liệu kèm theo chỉ dẫn lưu vào file nào (type)
+        const msg = await callAPI('importCardsFromJson', { 
+            tagName: t, 
+            jsonArray: JSON.stringify(arr), 
+            targetType: type 
+        });
+
+        // --- Sau khi Server báo đã Import thành công ---
+
+        // 4. Thông báo kết quả và quay về trang chủ để bắt đầu học
+        showToast(msg || "Đã import thành công!");
+        showHome();
+
+    } catch(e) {
+        // 5. Nếu JSON bị sai cú pháp (thiếu dấu ngoặc, dấu phẩy...)
+        customAlert("Lỗi định dạng JSON! Hãy nhấn vào nút 'Xem Form JSON mẫu' để đối chiếu lại dấu ngoặc [] {} và dấu phẩy.");
+    }
+}
 
 // Keyboard Shortcuts
 document.addEventListener('keydown', e => {
