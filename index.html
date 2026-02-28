@@ -513,7 +513,35 @@ function openSearchDetail(encodedData) {
 function resumeLastSession() { if (!pausedSession) return; sessionCards = pausedSession.sessionCards; filteredCards = pausedSession.filteredCards; quizState = pausedSession.quizState; currentIndex = pausedSession.currentIndex; mode = pausedSession.mode; isJumpMode = false; showPage('reviewPage'); let mLabel = (mode==='review') ? 'Ôn tập' : (mode==='cram') ? 'Nhồi nhét' : 'Luyện đề'; updateBreadcrumb([{label: mLabel, action: "openDeckSelection('" + mode + "')"}, {label: pausedSession.currentDeckName}]); showCard(); pausedSession = null; }
 
 function returnToSearch() { showPage('searchResultPage'); updateBreadcrumb([{label: "Tìm: " + currentSearchQuery, action: "showHome()"}]); }
-function showTodayList() { showFilteredList(true); } // Placeholder
+function showTodayList() {
+    // Nếu đang ở chế độ Trắc nghiệm (Test), hiển thị danh sách câu hỏi theo thứ tự đã đảo
+    if (mode === 'test') {
+        if (!sessionCards.length) return showToast("Chưa có câu hỏi nào!", "error");
+        document.getElementById('listModalTitle').innerText = "📋 Danh sách câu hỏi đề thi";
+        let h = '<ul class="modal-card-list">';
+        quizState.orderSequence.forEach((actualIdx, i) => {
+            let c = sessionCards[actualIdx];
+            let statusIcon = "";
+            if (quizState.answers[c.ID]) {
+                statusIcon = quizState.answers[c.ID].isCorrect ? " ✅" : " ❌";
+            }
+            h += `<li onclick="jumpToCardInSession(${i})"><span class="list-idx">${i + 1}</span><span style="flex-grow:1">${c.Mat_truoc || '(Trống)'}${statusIcon}</span><span>▸</span></li>`;
+        });
+        document.getElementById('todayListContent').innerHTML = h + '</ul>';
+        document.getElementById('todayModal').style.display = 'flex';
+    } 
+    // Nếu đang ở chế độ Ôn tập hoặc Nhồi nhét
+    else {
+        if (!filteredCards.length) return showToast("Chưa có thẻ nào!", "error");
+        document.getElementById('listModalTitle').innerText = "📋 Danh sách thẻ hiện tại";
+        let h = '<ul class="modal-card-list">';
+        filteredCards.forEach((c, i) => {
+            h += `<li onclick="jumpToCardInSession(${i})"><span class="list-idx">${i + 1}</span><span style="flex-grow:1">${c.Mat_truoc || '(Trống)'}</span><span>▸</span></li>`;
+        });
+        document.getElementById('todayListContent').innerHTML = h + '</ul>';
+        document.getElementById('todayModal').style.display = 'flex';
+    }
+}    
 function jumpToCardInSession(i) { closeModal('todayModal'); currentIndex = i; showCard(); }
 function showInfoModal() { const c = (mode==='test') ? sessionCards[quizState.orderSequence[currentIndex]] : filteredCards[currentIndex]; if(!c) return; document.getElementById('infoText').innerHTML = `<div style="white-space: pre-wrap;">${c.Thong_tin || 'Không có ghi chú'}</div><div class="card-controls" style="position: relative; margin-top: 20px; float: right; opacity: 1;"><div class="ctrl-icon" onclick="startEditInfo()">✏️</div></div>`; document.getElementById('infoModal').style.display = 'flex'; }
 function startEditInfo() { let c = (mode==='test') ? sessionCards[quizState.orderSequence[currentIndex]] : filteredCards[currentIndex]; document.getElementById('infoText').innerHTML = `<textarea id="editInfoBox" style="height:120px; width:100%">${c.Thong_tin || ''}</textarea><button onclick="saveInfoEdit()" style="width:100%; background:#2ecc71; color:#fff; border:none; padding:12px; margin-top:10px; border-radius:12px; font-weight:bold; cursor:pointer">LƯU</button>`; }
@@ -543,4 +571,5 @@ document.addEventListener('keydown', e => {
 });
 </script>
 </body>
+
 </html>
