@@ -369,6 +369,42 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
+async function getDecks(type) {
+    if (!currentUser) return [];
+
+    try {
+        // Lấy bài CÔNG KHAI
+        const publicSnap = await db.collection("decks")
+            .where("type", "==", type)
+            .where("isPublic", "==", true)
+            .get();
+
+        // Lấy bài RIÊNG TƯ của chính User hiện tại
+        const privateSnap = await db.collection("decks")
+            .where("type", "==", type)
+            .where("ownerId", "==", currentUser.uid)
+            .where("isPublic", "==", false)
+            .get();
+
+        let decks = [];
+        publicSnap.forEach(doc => decks.push({ id: doc.id, ...doc.data() }));
+        privateSnap.forEach(doc => decks.push({ id: doc.id, ...doc.data() }));
+
+        // Lọc trùng (trong trường hợp bạn là chủ của bộ bài công khai)
+        const uniqueDecks = [];
+        const map = new Map();
+        for (const item of decks) {
+            if(!map.has(item.id)){
+                map.set(item.id, true);
+                uniqueDecks.push(item);
+            }
+        }
+        return uniqueDecks;
+    } catch (e) {
+        console.error("Lỗi lấy danh sách bộ bài:", e);
+        return [];
+    }
+}
 
 // ==================== STATE ====================
 let currentUser = null, sessionCards = [], filteredCards = [], currentIndex = 0, showBack = false;
@@ -403,17 +439,45 @@ function updateBreadcrumb(paths) {
 
 // ==================== DATABASE ====================
 async function openDeckSelection(m) {
-    mode = m; isJumpMode = false; showPage('deckSelectionPage');
-    updateBreadcrumb([{label: m==='test'?'Luyện đề':m==='cram'?'Nhồi nhét':'Ôn tập'}]);
-    const snap = await db.collection("decks").where("type", "==", (m==='test'?'quiz':'flashcard')).get();
-    const mySnap = await db.collection("decks").where("ownerId", "==", currentUser.uid).where("type", "==", (m==='test'?'quiz':'flashcard')).get();
-    let decks = [...new Set([...snap.docs, ...mySnap.docs].map(d => d.id))];
-    const list = document.getElementById('deckList'); list.innerHTML = '';
-    decks.forEach(d => { let b = document.createElement('button'); b.className='deck-btn'; b.innerText=d; b.onclick=()=>loadCards(d); list.appendChild(b); });
+    mode = m; isJumpMode = false; pausedSession = null; 
+    showPage('deckSelectionPage');
+    
+    let label = (m==='review') ? 'Chọn bộ ôn tập' : (m==='cram') ? 'Chọn bộ nhồi nhét' : 'Chọn đề thi';
+    updateBreadcrumb([{label: label}]);
+    
+    const list = document.getElementById('deckList');
+    list.innerHTML = '<p style="text-align:center; grid-column: 1/-1;">🔍 Đang quét kho dữ liệu bảo mật...</p>';
+    
+    // Gọi hàm getDecks ở trên
+    const decks = await getDecks(m === 'test' ? 'quiz' : 'flashcard');
+    
+    list.innerHTML = '';
+    if (decks.length === 0) {
+        list.innerHTML = '<p style="text-align:center; color:#718096; grid-column: 1/-1;">Bạn chưa có bộ bài nào. Hãy vào mục "Thêm & Import" để tạo nhé!</p>';
+        return;
+    }
+
+    decks.forEach(d => {
+        let b = document.createElement('button');
+        b.className = 'deck-btn';
+        
+        // Thiết kế nhãn hiển thị trạng thái
+        let statusTag = d.isPublic ? 
+            '<span style="background:#e0f2fe; color:#0369a1; font-size:10px; padding:2px 6px; border-radius:4px; margin-bottom:5px;">🌐 Công khai</span>' : 
+            '<span style="background:#f1f5f9; color:#475569; font-size:10px; padding:2px 6px; border-radius:4px; margin-bottom:5px;">🔒 Riêng tư</span>';
+        
+        b.innerHTML = `
+            ${statusTag}
+            <div style="font-weight:bold;">${d.id}</div>
+        `;
+        b.onclick = () => loadCards(d.id);
+        list.appendChild(b);
+    });
 }
 
+
 async function loadCards(d) {
-    currentDeckName = d; showLoading();
+    currentDeckName = d; showLoading(`Đang mở "${d}"...`);
     const snap = await db.collection("decks").doc(d).collection("cards").get();
     const cards = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     const progDoc = await db.collection("users").doc(currentUser.uid).collection("progress").doc(d).get();
@@ -651,5 +715,6 @@ document.addEventListener('keydown', e => {
 </script>
 </body>
 </html>
+
 
 
