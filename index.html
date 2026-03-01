@@ -622,19 +622,21 @@ async function loadCards(d) {
     showLoading(`Đang mở "${d}"...`);
 
     try {
-        // CHẠY SONG SONG: Lấy cả nội dung thẻ và tiến trình học cùng một lúc
-        const [cardsSnap, progDoc, testProgDoc] = await Promise.all([
-            db.collection("decks").doc(d).collection("cards").get(),
-            db.collection("users").doc(currentUser.uid).collection("progress").doc(d).get(),
-            db.collection("users").doc(currentUser.uid).collection("test_progress").doc(d).get()
-        ]);
-
+        // 1. Tải danh sách thẻ (Nội dung)
+        const cardsSnap = await db.collection("decks").doc(d).collection("cards").get();
         const cards = cardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const userProg = progDoc.exists ? progDoc.data() : {};
+
+        // 2. Tải tiến trình học (Chỉ lấy những gì cần thiết)
+        const progSnap = await db.collection("users").doc(currentUser.uid)
+                           .collection("progress").doc(d).collection("cards_srs").get();
         
-        // Gán tiến trình học vào thẻ bài
+        const userProg = {};
+        progSnap.forEach(doc => { userProg[doc.id] = doc.data(); });
+        
+        const now = new Date();
+        // Lọc thẻ đến hạn nếu là chế độ Review
         sessionCards = (mode === 'review') 
-            ? cards.filter(c => !userProg[c.id] || userProg[c.id].due.toDate() <= new Date()) 
+            ? cards.filter(c => !userProg[c.id] || userProg[c.id].due.toDate() <= now) 
             : cards;
             
         sessionCards.forEach(c => { 
@@ -642,30 +644,28 @@ async function loadCards(d) {
             if(userProg[c.id]) Object.assign(c, userProg[c.id]); 
         });
 
-        if(mode === 'cram') sessionCards.forEach(c => c.cramLevel = 1);
-        
-        if(mode === 'test') {
+        // 3. Xử lý Quiz State (nếu có)
+        if(mode==='test') {
+            const testProgDoc = await db.collection("users").doc(currentUser.uid).collection("test_progress").doc(d).get();
             quizState = testProgDoc.exists ? testProgDoc.data().state : { 
-                answers: {}, 
-                correctCount: 0, 
-                orderSequence: Array.from({length: sessionCards.length}, (_, i) => i) 
+                answers: {}, correctCount: 0, orderSequence: Array.from({length: sessionCards.length}, (_, i) => i) 
             };
         }
 
         hideLoading();
         showPage('reviewPage');
         applyFilter();
-
-        // Cập nhật thanh điều hướng
+        
         let mLabel = (mode==='review') ? 'Ôn tập' : (mode==='cram') ? 'Nhồi nhét' : 'Luyện đề';
         updateBreadcrumb([{label: mLabel, action: `openDeckSelection('${mode}')`}, {label: d}]);
 
     } catch (error) {
         hideLoading();
-        console.error("Lỗi khi load bài học:", error);
-        showToast("Không thể tải bài học. Vui lòng thử lại!", "error");
+        console.error(error);
+        showToast("Lỗi kết nối. Hãy kiểm tra mạng và thử lại!", "error");
     }
 }
+
 
 function applyFilter() {
     isEditing = false;
@@ -735,12 +735,36 @@ function handleCardClick(e) { if(!e.target.closest('.ctrl-icon') && !e.target.cl
 async function answerCurrent(q) {
     const c = filteredCards[currentIndex];
     let { ef = 2.5, interval = 1, intervalCount = 0 } = c;
-    if (q >= 2) { if (q == 2) ef = Math.max(1.3, ef - 0.15); else if (q == 5) ef += 0.1; intervalCount++; if (intervalCount == 1) interval = 1; else if (intervalCount == 2) interval = 6; else interval = Math.round(interval * ef); }
-    else { ef = Math.max(1.3, ef - 0.2); intervalCount = 0; interval = 1; }
-    const nextDue = new Date(); nextDue.setDate(nextDue.getDate() + interval);
-    await db.collection("users").doc(currentUser.uid).collection("progress").doc(currentDeckName).set({ [c.id]: { ef, interval, intervalCount, due: firebase.firestore.Timestamp.fromDate(nextDue) } }, { merge: true });
-    sessionCards = sessionCards.filter(x => x.id !== c.id); applyFilter(); showToast("Đã lưu!");
+
+    if (q >= 2) {
+        if (q == 2) ef = Math.max(1.3, ef - 0.15);
+        else if (q == 5) ef += 0.1;
+        intervalCount++;
+        if (intervalCount == 1) interval = 1;
+        else if (intervalCount == 2) interval = 6;
+        else interval = Math.round(interval * ef);
+    } else {
+        ef = Math.max(1.3, ef - 0.2);
+        intervalCount = 0;
+        interval = 1;
+    }
+
+    const nextDue = new Date();
+    nextDue.setDate(nextDue.getDate() + interval);
+
+    // LƯU RIÊNG LẺ: Giúp thao tác cực nhanh và không lag
+    await db.collection("users").doc(currentUser.uid)
+            .collection("progress").doc(currentDeckName)
+            .collection("cards_srs").doc(c.id).set({
+                ef, interval, intervalCount, 
+                due: firebase.firestore.Timestamp.fromDate(nextDue)
+            });
+
+    sessionCards = sessionCards.filter(x => x.id !== c.id);
+    applyFilter();
+    showToast("Đã lưu!");
 }
+
 
 function processCram(ok) { const c = filteredCards[currentIndex]; if(ok) c.cramLevel = (c.cramLevel||1)+1; else c.cramLevel = 1; applyFilter(); }
 function prevCard() { if(currentIndex > 0) { currentIndex--; showCard(); } }
@@ -891,6 +915,7 @@ document.addEventListener('keydown', e => {
 </script>
 </body>
 </html>
+
 
 
 
