@@ -446,7 +446,36 @@ async function getDecks(type) {
         return [];
     }
 }
+// Hàm lấy tất cả Tag (Bộ bài) mà User có quyền truy cập để gợi ý
+async function updateAllTagSuggestions() {
+    if (!currentUser) return;
+    
+    try {
+        // 1. Lấy danh sách các bộ bài CÔNG KHAI
+        const publicSnap = await db.collection("decks").where("isPublic", "==", true).get();
+        
+        // 2. Lấy danh sách các bộ bài RIÊNG TƯ của chính bạn
+        const mySnap = await db.collection("decks").where("ownerId", "==", currentUser.uid).get();
 
+        // Gộp tên các bộ bài vào một tập hợp (Set) để không bị trùng
+        const tagSet = new Set();
+        publicSnap.forEach(doc => tagSet.add(doc.id));
+        mySnap.forEach(doc => tagSet.add(doc.id));
+
+        // Đổ dữ liệu vào datalist để trình duyệt tự động gợi ý
+        const dl = document.getElementById('tag-suggestions');
+        if (dl) {
+            dl.innerHTML = '';
+            tagSet.forEach(tagName => {
+                const option = document.createElement('option');
+                option.value = tagName;
+                dl.appendChild(option);
+            });
+        }
+    } catch (e) {
+        console.error("Lỗi cập nhật gợi ý Tag:", e);
+    }
+}
 // ==================== STATE ====================
 let currentUser = null, sessionCards = [], filteredCards = [], currentIndex = 0, showBack = false;
 let mode = 'review', isEditing = false, isJumpMode = false, currentAddType = 'flashcard', currentDeckName = "", currentSearchQuery = "";
@@ -650,9 +679,14 @@ async function saveInfoEdit() { const newVal = document.getElementById('editInfo
 function showLearnPage() { 
     showPage('learnPage'); 
     updateBreadcrumb([{label: 'Thêm & Import'}]); 
+    
+    // Kích hoạt Menu chọn
     document.getElementById('learnMenu').classList.remove('hidden');
     document.getElementById('newForm').classList.add('hidden');
     document.getElementById('importForm').classList.add('hidden');
+
+    // CẬP NHẬT GỢI Ý TAG NGAY KHI VÀO TRANG
+    updateAllTagSuggestions(); 
 }
 function showNewForm(type) { 
     currentAddType = type;
@@ -758,6 +792,7 @@ document.addEventListener('keydown', e => {
 </script>
 </body>
 </html>
+
 
 
 
