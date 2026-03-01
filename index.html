@@ -309,40 +309,39 @@ input:focus, textarea:focus { border-color: #3498db; outline: none; box-shadow: 
         <!-- Form thêm Thẻ/Trắc nghiệm -->
         <div id="newForm" class="form-container hidden">
             <h4 id="formTitle">Thêm mới</h4>
-            <label>Mặt trước (Câu hỏi) *</label>
-            <textarea id="nFront" rows="3" placeholder="Nhập nội dung..."></textarea>
+            <label>Mặt trước *</label><textarea id="nFront" rows="3"></textarea>
+            <label id="labelBack">Mặt sau *</label><textarea id="nBack" rows="3"></textarea>
+            <label id="labelInfo">Thông tin phụ</label><textarea id="nInfo" rows="4"></textarea>
+            <label>Tag (Tên bộ bài) *</label><input type="text" id="nTag" list="tag-suggestions">
             
-            <label id="labelBack">Mặt sau *</label>
-            <textarea id="nBack" rows="3" placeholder="Nhập đáp án..."></textarea>
-            
-            <label id="labelInfo">Thông tin phụ</label>
-            <textarea id="nInfo" rows="4" placeholder="Nhập ghi chú hoặc các lựa chọn A, B, C, D..."></textarea>
-            
-            <label>Chọn bộ bài (Tag) *</label>
-            <input type="text" id="nTag" list="tag-suggestions" placeholder="Nhập tên bộ bài">
-            
-            <button onclick="saveCard()" style="width:100%; padding:18px; background:linear-gradient(135deg, #48bb78, #38a169); color:#fff; border:none; border-radius:12px; font-weight:800; cursor:pointer; margin-top:15px;">LƯU VÀO DATABASE</button>
-            <p id="saveStatus" style="text-align:center; margin-top:10px;"></p>
+            <!-- Tùy chọn quyền riêng tư mới -->
+            <label>Chế độ hiển thị</label>
+            <select id="nVisibility">
+                <option value="false">🔒 Riêng tư (Chỉ mình tôi thấy)</option>
+                <option value="true">🌐 Công khai (Mọi người đều học được)</option>
+            </select>
+        
+            <button onclick="saveCard()" style="width:100%; padding:16px; background:linear-gradient(135deg, #48bb78, #38a169); color:#fff; border:none; border-radius:12px; font-weight:bold; cursor:pointer; margin-top:15px">LƯU DỮ LIỆU</button>
+            <p id="saveStatus" style="text-align:center; color:#2ecc71; font-weight:bold"></p>
         </div>
     
         <!-- Form Import JSON -->
         <div id="importForm" class="form-container hidden">
-            <h4>📥 Import hàng loạt</h4>
+            <h4 style="text-align:center">📥 Import hàng loạt</h4>
             <button onclick="showJsonTemplateModal()" style="width:100%; padding:12px; background:#ed8936; color:#fff; border:none; border-radius:10px; font-weight:bold; cursor:pointer; margin-bottom:20px;">📋 Xem Form JSON mẫu</button>
             
             <label>Nơi lưu trữ</label>
-            <select id="importType">
-                <option value="flashcard">File Thẻ bài (Ôn tập)</option>
-                <option value="quiz">File Trắc nghiệm (Luyện đề)</option>
+            <select id="importType"><option value="flashcard">File Thẻ bài</option><option value="quiz">File Trắc nghiệm</option></select>
+            
+            <label>Chế độ hiển thị bài học</label>
+            <select id="iVisibility">
+                <option value="false">🔒 Riêng tư (Chỉ dành cho tôi)</option>
+                <option value="true">🌐 Công khai (Chia sẻ cho mọi người)</option>
             </select>
-            
-            <label>Tên bộ bài (Tag)</label>
-            <input type="text" id="iTag" list="tag-suggestions">
-            
-            <label>Dán mã JSON</label>
-            <textarea id="iJson" rows="12" style="font-family:monospace; font-size:13px; background:#f8fafc"></textarea>
-            
-            <button onclick="importJson()" style="width:100%; padding:18px; background:linear-gradient(135deg, #805ad5, #6b46c1); color:#fff; border:none; border-radius:12px; font-weight:800;">BẮT ĐẦU IMPORT</button>
+        
+            <label>Tên bộ bài (Tag)</label><input type="text" id="iTag" list="tag-suggestions">
+            <textarea id="iJson" rows="12" placeholder='Dán mã JSON...'></textarea>
+            <button onclick="importJson()" style="width:100%; padding:15px; background:linear-gradient(135deg, #805ad5, #6b46c1); color:#fff; border:none; border-radius:12px; font-weight:bold">BẮT ĐẦU IMPORT</button>
         </div>
     </div>
 </div>
@@ -567,23 +566,67 @@ function showJsonTemplateModal() { document.getElementById('jsonModal').style.di
 function copyJsonTemplate() { const txt = document.getElementById('jsonTemplateText'); txt.select(); document.execCommand('copy'); showToast("Đã Copy!"); }
 
 async function saveCard() {
-    const front = document.getElementById('nFront').value, back = document.getElementById('nBack').value, info = document.getElementById('nInfo').value, tag = document.getElementById('nTag').value;
+    const front = document.getElementById('nFront').value, 
+          back = document.getElementById('nBack').value, 
+          info = document.getElementById('nInfo').value, 
+          tag = document.getElementById('nTag').value,
+          isPublic = document.getElementById('nVisibility').value === 'true'; // Lấy giá trị
+
     if(!front || !back || !tag) return showToast("Thiếu thông tin!", "error");
-    showLoading(); await db.collection("decks").doc(tag).set({ type: currentAddType, ownerId: currentUser.uid, isPublic: false }, {merge:true});
-    await db.collection("decks").doc(tag).collection("cards").add({ front, back, info, created: new Date() });
-    hideLoading(); showToast("Đã lưu!"); document.getElementById('nFront').value = ''; document.getElementById('nBack').value = '';
+    
+    showLoading();
+    // Cập nhật thông tin bộ bài (Chủ sở hữu và quyền công khai)
+    await db.collection("decks").doc(tag).set({ 
+        type: currentAddType, 
+        ownerId: currentUser.uid, 
+        isPublic: isPublic 
+    }, {merge:true});
+
+    // Thêm thẻ vào bộ bài
+    await db.collection("decks").doc(tag).collection("cards").add({ 
+        front, back, info, created: new Date() 
+    });
+
+    hideLoading();
+    showToast("Đã lưu thành công!");
+    document.getElementById('nFront').value = ''; 
+    document.getElementById('nBack').value = '';
 }
 async function importJson() {
-    const t = document.getElementById('iTag').value, j = document.getElementById('iJson').value, type = document.getElementById('importType').value;
+    const t = document.getElementById('iTag').value, 
+          j = document.getElementById('iJson').value, 
+          type = document.getElementById('importType').value,
+          isPublic = document.getElementById('iVisibility').value === 'true'; // Lấy giá trị
+
     if(!t || !j) return showToast("Thiếu dữ liệu!", "error");
+
     try { 
-        let arr = JSON.parse(j); showLoading(`Import ${arr.length} thẻ...`);
-        await db.collection("decks").doc(t).set({ type: type, ownerId: currentUser.uid, isPublic: false }, {merge:true});
+        let arr = JSON.parse(j);
+        showLoading(`Đang xử lý ${arr.length} thẻ...`);
+
+        // Cập nhật bộ bài
+        await db.collection("decks").doc(t).set({ 
+            type: type, 
+            ownerId: currentUser.uid, 
+            isPublic: isPublic 
+        }, {merge:true});
+
         let batch = db.batch();
-        arr.forEach(c => batch.set(db.collection("decks").doc(t).collection("cards").doc(), { front: c.front, back: c.back, info: c.info || "", created: new Date() }));
-        await batch.commit(); hideLoading(); showToast("Xong!"); showHome();
-    } catch(e) { customAlert("Lỗi JSON!"); hideLoading(); }
+        arr.forEach(c => {
+            const ref = db.collection("decks").doc(t).collection("cards").doc();
+            batch.set(ref, { front: c.front, back: c.back, info: c.info || "", created: new Date() });
+        });
+
+        await batch.commit();
+        hideLoading();
+        showToast("Đã import thành công!");
+        showHome();
+    } catch(e) { 
+        customAlert("Lỗi định dạng JSON!"); 
+        hideLoading(); 
+    }
 }
+
 
 function shuffleQuiz() { customConfirm('🔀 Đảo câu', 'Đảo thứ tự câu hỏi?', '#3498db', async () => { quizState.orderSequence.sort(() => Math.random() - 0.5); currentIndex = 0; await db.collection("users").doc(currentUser.uid).collection("test_progress").doc(currentDeckName).set({ state: quizState }); showCard(); }); }
 function confirmResetQuiz() { customConfirm('⚠️ Reset', 'Làm lại từ đầu?', '#e53e3e', async () => { quizState = { answers: {}, correctCount: 0, orderSequence: Array.from({length: sessionCards.length}, (_, i) => i) }; currentIndex = 0; await db.collection("users").doc(currentUser.uid).collection("test_progress").doc(currentDeckName).set({ state: quizState }); showCard(); }); }
@@ -608,4 +651,5 @@ document.addEventListener('keydown', e => {
 </script>
 </body>
 </html>
+
 
