@@ -29,7 +29,45 @@ body { font-family: 'Noto Sans JP', sans-serif; margin: 0; padding: 0; backgroun
 .search-btn-header:hover { transform: scale(1.2); filter: grayscale(0%) opacity(1); }
 
 /* User Profile on Header */
-.user-profile { display: flex; align-items: center; gap: 10px; cursor: pointer; position: relative; }
+.user-profile { position: relative; }
+.user-dropdown {
+    position: absolute;
+    top: 50px;
+    right: 0;
+    background: #fff;
+    min-width: 220px;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    border: 1px solid #edf2f7;
+    z-index: 1200;
+    padding: 15px;
+    display: none; /* Ẩn mặc định */
+    flex-direction: column;
+    text-align: left;
+    animation: slideIn 0.2s ease-out;
+}
+.user-dropdown.show { display: flex; }
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.dropdown-info { margin-bottom: 5px; }
+.dropdown-name { font-weight: 700; font-size: 16px; color: #2d3748; display: block; }
+.dropdown-email { font-size: 13px; color: #718096; display: block; margin-top: 2px; }
+.dropdown-divider { height: 1px; background: #edf2f7; margin: 12px 0; }
+.btn-logout-dropdown {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #e53e3e;
+    font-weight: 700;
+    padding: 10px;
+    border-radius: 8px;
+    transition: 0.2s;
+    cursor: pointer;
+}
+.btn-logout-dropdown:hover { background: #fff5f5; }
+
 .user-avatar { width: 35px; height: 35px; border-radius: 50%; border: 2px solid #e2e8f0; background: #edf2f7; overflow: hidden; }
 .user-avatar img { width: 100%; height: 100%; object-fit: cover; }
 
@@ -174,7 +212,20 @@ input, textarea, select { width: 100%; padding: 14px; margin: 8px 0 15px 0; bord
             <button onclick="handleGlobalSearch()" class="search-btn-header">🔍</button>
         </div>
         <div id="userSection" class="user-profile hidden">
-            <div id="userAvatar" class="user-avatar" title="Đăng xuất"></div>
+            <!-- Nhấn vào Avatar để hiện menu -->
+            <div id="userAvatar" class="user-avatar" onclick="toggleUserDropdown(event)"></div>
+            
+            <!-- Menu thả xuống -->
+            <div id="userDropdown" class="user-dropdown">
+                <div class="dropdown-info">
+                    <span id="userNameDisp" class="dropdown-name"></span>
+                    <span id="userEmailDisp" class="dropdown-email"></span>
+                </div>
+                <div class="dropdown-divider"></div>
+                <div class="btn-logout-dropdown" onclick="logout()">
+                    <span style="font-size: 20px;">↪</span> Đăng xuất
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -335,16 +386,26 @@ auth.onAuthStateChanged(user => {
         document.getElementById('homePage').classList.remove('hidden');
         document.getElementById('headerSearch').classList.remove('hidden');
         document.getElementById('userSection').classList.remove('hidden');
-        document.getElementById('userAvatar').innerHTML = `<img src="${user.photoURL}" onclick="logout()">`;
+        document.getElementById('userAvatar').innerHTML = `<img src="${user.photoURL}">`;
+        document.getElementById('userNameDisp').innerText = user.displayName;
+        document.getElementById('userEmailDisp').innerText = user.email;
         showToast("Chào mừng " + user.displayName);
     } else {
-        currentUser = null;
+        closeModal('userDropdown');
         showPage('loginPage');
-        document.getElementById('headerSearch').classList.add('hidden');
-        document.getElementById('userSection').classList.add('hidden');
     }
 });
-
+// 2. Thêm hàm đóng mở Menu
+function toggleUserDropdown(event) {
+    event.stopPropagation(); // Ngăn sự kiện click lan ra ngoài
+    document.getElementById('userDropdown').classList.toggle('show');
+}
+// 3. Tự động đóng menu khi nhấn ra ngoài vùng menu
+window.onclick = function(event) {
+    if (!event.target.closest('.user-profile')) {
+        document.getElementById('userDropdown').classList.remove('show');
+    }
+}
 function login() { const p = new firebase.auth.GoogleAuthProvider(); auth.signInWithPopup(p); }
 function logout() { customConfirm("🚪 Đăng xuất", "Bạn muốn đăng xuất khỏi tài khoản?", "#e53e3e", () => auth.signOut()); }
 
@@ -594,5 +655,6 @@ async function saveCard() {
 </script>
 </body>
 </html>
+
 
 
