@@ -410,11 +410,24 @@ input, textarea, select { width: 100%; padding: 14px; margin: 8px 0 15px 0; bord
                 <p id="saveStatus" style="text-align:center; color:#2ecc71; font-weight:bold"></p>
             </div>
             <div id="importForm" class="form-container hidden">
-                <h4 style="text-align:center">📥 Import hàng loạt</h4>
+                <h4 style="text-align:center; margin-top:0">📥 Import hàng loạt</h4>
+                
+                <!-- Nút xem mẫu màu cam -->
                 <button onclick="showJsonTemplateModal()" style="width:100%; padding:12px; background:#ed8936; color:#fff; border:none; border-radius:10px; font-weight:bold; cursor:pointer; margin-bottom:20px; display:flex; justify-content:center; align-items:center; gap:8px;">📋 Xem Form JSON mẫu</button>
-                <label>Tag</label><input type="text" id="iTag" list="tag-suggestions">
-                <textarea id="iJson" rows="12" placeholder='Dán mã JSON...'></textarea>
-                <button onclick="importJson()" style="width:100%; padding:15px; background:#8e44ad; color:#fff; border:none; border-radius:12px; font-weight:bold">IMPORT</button>
+            
+                <label>Nơi lưu trữ *</label>
+                <select id="importType" style="width:100%; padding:12px; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:15px; font-size:16px;">
+                    <option value="flashcard">File Thẻ bài (Ôn tập & Nhồi nhét)</option>
+                    <option value="quiz">File Trắc nghiệm (Luyện đề)</option>
+                </select>
+            
+                <label>Tên bộ bài (Tag) *</label>
+                <input type="text" id="iTag" list="tag-suggestions" placeholder="Nhập tên bộ bài">
+            
+                <label>Dán mã JSON *</label>
+                <textarea id="iJson" rows="12" placeholder='Dán đoạn mã đã export từ Google Sheets vào đây...' style="font-family:monospace; font-size:13px; background:#f8fafc"></textarea>
+                
+                <button onclick="importJson()" style="width:100%; padding:18px; background:linear-gradient(135deg, #805ad5, #6b46c1); color:#fff; border:none; border-radius:12px; font-weight:800; font-size:16px; cursor:pointer; margin-top:10px">BẮT ĐẦU IMPORT</button>
             </div>
         </div>
     </div>
@@ -725,9 +738,67 @@ async function saveCard() {
 }
 
 // ... Các hàm bổ trợ khác tương tự bản trước ...
+// Hàm hiển thị Modal mẫu JSON
+function showJsonTemplateModal() {
+    document.getElementById('jsonModal').style.display = 'flex';
+}
+
+// Hàm copy mã mẫu
+function copyJsonTemplate() {
+    const txt = document.getElementById('jsonTemplateText');
+    txt.select();
+    document.execCommand('copy');
+    showToast("Đã Copy mã mẫu!");
+}
+
+// Hàm xử lý Import vào Firebase
+async function importJson() {
+    const tagName = document.getElementById('iTag').value.trim();
+    const jsonInput = document.getElementById('iJson').value.trim();
+    const type = document.getElementById('importType').value;
+
+    if (!tagName || !jsonInput) return showToast("Vui lòng điền đủ thông tin!", "error");
+    if (!currentUser) return showToast("Vui lòng đăng nhập!", "error");
+
+    try {
+        const cards = JSON.parse(jsonInput);
+        showLoading(`Đang chuyển ${cards.length} thẻ...`);
+
+        const deckRef = db.collection("users").doc(currentUser.uid).collection("decks").doc(tagName);
+        await deckRef.set({ type: type, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+
+        let batch = db.batch();
+        let count = 0;
+
+        for (const card of cards) {
+            const cardRef = deckRef.collection("cards").doc();
+            batch.set(cardRef, {
+                front: card.front,
+                back: card.back,
+                info: card.info || "",
+                due: firebase.firestore.Timestamp.now(),
+                ef: 2.5,
+                interval: 1,
+                intervalCount: 0,
+                created: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            count++;
+            if (count === 500) { await batch.commit(); batch = db.batch(); count = 0; }
+        }
+
+        if (count > 0) await batch.commit();
+        hideLoading();
+        showToast(`Đã import thành công ${cards.length} thẻ!`);
+        showHome();
+    } catch (e) {
+        hideLoading();
+        customAlert("Lỗi dữ liệu JSON! Hãy kiểm tra lại mã copy.");
+    }
+}
 </script>
 </body>
 </html>
+
 
 
 
