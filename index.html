@@ -408,6 +408,13 @@ const firebaseConfig = {
   appId: "1:171184488784:web:e7dce919cb67d1a9caac55"
 };
 firebase.initializeApp(firebaseConfig);
+db.enablePersistence().catch((err) => {
+    if (err.code == 'failed-precondition') {
+        console.warn("Chỉ có thể bật bộ nhớ đệm trên 1 tab trình duyệt duy nhất.");
+    } else if (err.code == 'unimplemented') {
+        console.warn("Trình duyệt này không hỗ trợ bộ nhớ đệm.");
+    }
+});
 const db = firebase.firestore();
 const auth = firebase.auth();
 async function getDecks(type) {
@@ -549,23 +556,53 @@ async function openDeckSelection(m) {
 
 
 async function loadCards(d) {
-    currentDeckName = d; showLoading(`Đang mở "${d}"...`);
-    const snap = await db.collection("decks").doc(d).collection("cards").get();
-    const cards = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    const progDoc = await db.collection("users").doc(currentUser.uid).collection("progress").doc(d).get();
-    const userProg = progDoc.exists ? progDoc.data() : {};
-    
-    sessionCards = (mode === 'review') ? cards.filter(c => !userProg[c.id] || userProg[c.id].due.toDate() <= new Date()) : cards;
-    sessionCards.forEach(c => { if(userProg[c.id]) Object.assign(c, userProg[c.id]); });
+    currentDeckName = d;
+    showLoading(`Đang mở "${d}"...`);
 
-    if(mode==='cram') sessionCards.forEach(c => c.cramLevel = 1);
-    if(mode==='test') {
-        const testProgDoc = await db.collection("users").doc(currentUser.uid).collection("test_progress").doc(d).get();
-        quizState = testProgDoc.exists ? testProgDoc.data().state : { answers: {}, correctCount: 0, orderSequence: Array.from({length: sessionCards.length}, (_, i) => i) };
+    try {
+        // CHẠY SONG SONG: Lấy cả nội dung thẻ và tiến trình học cùng một lúc
+        const [cardsSnap, progDoc, testProgDoc] = await Promise.all([
+            db.collection("decks").doc(d).collection("cards").get(),
+            db.collection("users").doc(currentUser.uid).collection("progress").doc(d).get(),
+            db.collection("users").doc(currentUser.uid).collection("test_progress").doc(d).get()
+        ]);
+
+        const cards = cardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const userProg = progDoc.exists ? progDoc.data() : {};
+        
+        // Gán tiến trình học vào thẻ bài
+        sessionCards = (mode === 'review') 
+            ? cards.filter(c => !userProg[c.id] || userProg[c.id].due.toDate() <= new Date()) 
+            : cards;
+            
+        sessionCards.forEach(c => { 
+            c.deckName = d;
+            if(userProg[c.id]) Object.assign(c, userProg[c.id]); 
+        });
+
+        if(mode === 'cram') sessionCards.forEach(c => c.cramLevel = 1);
+        
+        if(mode === 'test') {
+            quizState = testProgDoc.exists ? testProgDoc.data().state : { 
+                answers: {}, 
+                correctCount: 0, 
+                orderSequence: Array.from({length: sessionCards.length}, (_, i) => i) 
+            };
+        }
+
+        hideLoading();
+        showPage('reviewPage');
+        applyFilter();
+
+        // Cập nhật thanh điều hướng
+        let mLabel = (mode==='review') ? 'Ôn tập' : (mode==='cram') ? 'Nhồi nhét' : 'Luyện đề';
+        updateBreadcrumb([{label: mLabel, action: `openDeckSelection('${mode}')`}, {label: d}]);
+
+    } catch (error) {
+        hideLoading();
+        console.error("Lỗi khi load bài học:", error);
+        showToast("Không thể tải bài học. Vui lòng thử lại!", "error");
     }
-    hideLoading(); showPage('reviewPage'); applyFilter();
-    let mLabel = (mode==='review') ? 'Ôn tập' : (mode==='cram') ? 'Nhồi nhét' : 'Luyện đề';
-    updateBreadcrumb([{label: mLabel, action: `openDeckSelection('${mode}')`}, {label: d}]);
 }
 
 function applyFilter() {
@@ -792,6 +829,7 @@ document.addEventListener('keydown', e => {
 </script>
 </body>
 </html>
+
 
 
 
