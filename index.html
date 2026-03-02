@@ -327,6 +327,38 @@ body {
     background: #fff;
     border-color: #3498db;
 }
+.deck-btn-container {
+    position: relative;
+    transition: 0.3s;
+}
+.btn-delete-deck {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    width: 32px;
+    height: 32px;
+    background: #fff;
+    border: 2px solid #fed7d7;
+    color: #e53e3e;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    transition: 0.2s;
+    opacity: 0; /* Mặc định ẩn, chỉ hiện khi hover vào thẻ */
+}
+.deck-btn-container:hover .btn-delete-deck {
+    opacity: 1;
+    transform: scale(1.1);
+}
+.btn-delete-deck:hover {
+    background: #e53e3e;
+    color: #fff;
+    border-color: #e53e3e;
+}
 
 </style>
 </head>
@@ -639,19 +671,41 @@ function updateBreadcrumb(paths) {
 
 /* ================= 5. CORE LOGIC ================= */
 async function openDeckSelection(m) {
-    mode = m; showPage('deckSelectionPage');
-    const list = document.getElementById('deckList'); list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Đang nạp bộ bài...</p>';
+    mode = m; 
+    showPage('deckSelectionPage');
+    const list = document.getElementById('deckList'); 
+    list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Đang nạp bộ bài...</p>';
+    
     const type = m === 'test' ? 'quiz' : 'flashcard';
     const { data: decks } = await sb.from('decks').select('*').eq('type', type);
+    
     list.innerHTML = '';
-    if(!decks || !decks.length) { list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Chưa có bộ bài nào.</p>'; return; }
+    if(!decks || !decks.length) { 
+        list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Chưa có bộ bài nào.</p>'; 
+        return; 
+    }
+
     decks.forEach(d => {
-        const b = document.createElement('button'); b.className = 'deck-btn';
-        b.innerHTML = `<div class="deck-status-badge ${d.is_public?'badge-public':'badge-private'}">${d.is_public?'🌐':'🔒'}</div>${d.id}`;
-        b.onclick = () => loadCards(d.id);
-        list.appendChild(b);
+        const container = document.createElement('div');
+        container.className = 'deck-btn-container';
+        
+        // Kiểm tra quyền sở hữu
+        const isOwner = d.owner_id === currentUser.id;
+        let deleteBtn = isOwner ? `<button class="btn-delete-deck" onclick="confirmDeleteDeck(event, '${d.id}')">🗑️</button>` : '';
+
+        container.innerHTML = `
+            ${deleteBtn}
+            <button class="deck-btn" onclick="loadCards('${d.id}')">
+                <div class="deck-status-badge ${d.is_public?'badge-public':'badge-private'}">
+                    ${d.is_public?'🌐':'🔒'}
+                </div>
+                <b>${d.id}</b>
+            </button>
+        `;
+        list.appendChild(container);
     });
 }
+
 
 async function loadCards(d) {
     currentDeckName = d; showLoading("Đang tải thẻ...");
@@ -973,11 +1027,51 @@ async function smartImport() {
         customAlert("Lỗi: " + e.message);
     }
 }
+function confirmDeleteDeck(event, deckId) {
+    event.stopPropagation(); // Ngăn việc nhấn vào nút xóa lại kích hoạt hàm loadCards của thẻ
+    if (confirm(`Bạn có chắc chắn muốn xóa vĩnh viễn bộ bài "${deckId}"? Hành động này không thể hoàn tác!`)) {
+        executeDeleteDeck(deckId);
+    }
+}
+async function executeDeleteDeck(deckId) {
+    showLoading(`Đang xóa bộ bài ${deckId}...`);
+    
+    try {
+        // Thứ tự xóa nếu không bật Cascade: Progress -> Cards -> Decks
+        // Ở đây tôi viết gộp lại, Supabase sẽ xử lý theo chính sách của bạn
+        
+        // Bước A: Tìm tất cả card_id của bộ bài này để xóa progress
+        const { data: cards } = await sb.from('cards').select('id').eq('deck_id', deckId);
+        const cardIds = cards.map(c => c.id);
+
+        if (cardIds.length > 0) {
+            await sb.from('progress').delete().in('card_id', cardIds);
+            await sb.from('cards').delete().eq('deck_id', deckId);
+        }
+
+        // Bước B: Xóa chính bộ bài
+        const { error } = await sb.from('decks').delete().eq('id', deckId);
+
+        if (error) throw error;
+
+        hideLoading();
+        showToast("Đã xóa bộ bài thành công!");
+        
+        // Refresh lại danh sách bộ bài sau khi xóa
+        openDeckSelection(mode);
+
+    } catch (e) {
+        hideLoading();
+        console.error(e);
+        customAlert("Không thể xóa bộ bài: " + e.message);
+    }
+}
 
 
 </script>
 </body>
 </html>
+
 
 
 
