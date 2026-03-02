@@ -118,7 +118,23 @@ body, button, input, textarea, select { font-family: 'Noto Sans JP', sans-serif 
 .menu-card .title { font-size: 17px; font-weight: bold; color: #2c3e50; }
 .menu-card .desc { font-size: 13px; color: #718096; margin-top: 8px; }
 .deck-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 20px; }
-.deck-btn { background: #fff; border: 1.5px solid #edf2f7; padding: 35px 15px; font-size: 16px; font-weight: 700; border-radius: 12px; cursor: pointer; transition: 0.3s; min-height: 110px; position: relative; display: flex; align-items: center; justify-content: center; text-align: center; }
+.deck-btn {
+    width: 100%; 
+    background: #fff;
+    border: 1.5px solid #edf2f7;
+    padding: 35px 15px;
+    font-size: 16px;
+    font-weight: 700;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: 0.3s;
+    min-height: 110px;
+    position: relative; /* Để badge không bị lệch */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
 .deck-btn:hover { transform: translateY(-5px); border-color: #3498db; box-shadow: 0 10px 20px rgba(52, 152, 219, 0.12); }
 .deck-status-badge { position: absolute; top: 8px; left: 8px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 14px; }
 .badge-public { background: #e0f2fe; border: 1px solid #bae6fd; }
@@ -329,36 +345,38 @@ body {
 }
 .deck-btn-container {
     position: relative;
-    transition: 0.3s;
+    width: 100%; /* Đảm bảo chiếm hết ô trong Grid */
+    display: flex;
+    flex-direction: column;
 }
 .btn-delete-deck {
     position: absolute;
-    top: -8px;
-    right: -8px;
-    width: 35px;
-    height: 35px;
-    background: #fff;
-    border: 2px solid #e2e8f0; /* Màu nhẹ nhàng hơn */
+    top: 5px; /* Nhích vào trong một chút cho đẹp */
+    right: 5px;
+    width: 32px;
+    height: 32px;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1.5px solid #fed7d7;
     color: #e53e3e;
-    border-radius: 50%;
+    border-radius: 8px; /* Bo góc 8px cho đồng bộ */
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    z-index: 100; /* Đảm bảo nằm trên cùng */
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    opacity: 1; /* CHO HIỆN LUÔN ĐỂ KIỂM TRA */
+    z-index: 20; /* Luôn nằm trên thẻ */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    transition: 0.2s;
+    opacity: 0.8;
 }
 .deck-btn-container:hover .btn-delete-deck {
     opacity: 1;
     transform: scale(1.1);
 }
 .btn-delete-deck:hover {
-    transform: scale(1.2) rotate(15deg);
     background: #e53e3e;
     color: #fff;
-    border-color: #e53e3e;
+    transform: scale(1.1);
+    opacity: 1;
 }
 
 </style>
@@ -699,34 +717,27 @@ async function openDeckSelection(m) {
     }
 
     decks.forEach(d => {
-        const container = document.createElement('div');
-        container.className = 'deck-btn-container';
-        
-        // --- PHẦN KIỂM TRA QUYỀN SỞ HỮU (DEBUG) ---
-        // Chúng ta in ra Console để xem tại sao không khớp
-        console.log(`Kiểm tra bộ bài: ${d.id}`);
-        console.log(`- ID Chủ sở hữu trong DB: ${d.owner_id}`);
-        console.log(`- ID Của bạn hiện tại: ${currentUser.id}`);
+    const container = document.createElement('div');
+    container.className = 'deck-btn-container';
+    
+    const isOwner = d.owner_id && d.owner_id.toString() === currentUser.id.toString();
+    
+    // Nút xóa được đặt cùng cấp với .deck-btn bên trong container
+    let deleteBtnHtml = (isOwner || !d.owner_id) ? 
+        `<button class="btn-delete-deck" title="Xóa bộ bài" onclick="confirmDeleteDeck(event, '${d.id}')">🗑️</button>` : '';
 
-        // So sánh (Dùng == để linh hoạt hoặc .toString() cho chắc chắn)
-        const isOwner = d.owner_id && d.owner_id.toString() === currentUser.id.toString();
-        
-        // Nếu là chủ nhân THÌ HIỆN, nếu không có owner_id (bộ bài cũ) cũng cho hiện để quản lý
-        let deleteBtn = (isOwner || !d.owner_id) ? 
-            `<button class="btn-delete-deck" onclick="confirmDeleteDeck(event, '${d.id}')">🗑️</button>` : '';
+    container.innerHTML = `
+        ${deleteBtnHtml}
+        <button class="deck-btn" onclick="loadCards('${d.id}')">
+            <div class="deck-status-badge ${d.is_public?'badge-public':'badge-private'}">
+                ${d.is_public?'🌐':'🔒'}
+            </div>
+            <b>${d.id}</b>
+        </button>
+    `;
+    list.appendChild(container);
+});
 
-        container.innerHTML = `
-            ${deleteBtn}
-            <button class="deck-btn" onclick="loadCards('${d.id}')">
-                <div class="deck-status-badge ${d.is_public?'badge-public':'badge-private'}">
-                    ${d.is_public?'🌐':'🔒'}
-                </div>
-                <b>${d.id}</b>
-            </button>
-        `;
-        list.appendChild(container);
-    });
-}
 
 
 async function loadCards(d) {
@@ -1093,6 +1104,7 @@ async function executeDeleteDeck(deckId) {
 </script>
 </body>
 </html>
+
 
 
 
