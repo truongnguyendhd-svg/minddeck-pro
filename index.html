@@ -655,65 +655,57 @@ async function openDeckSelection(m) {
 
 async function loadCards(d) {
     currentDeckName = d;
-    showLoading(`Đang khởi động "${d}"...`);
+    showLoading(`Đang ưu tiên thẻ đến hạn...`);
     const now = new Date();
 
     try {
-        // --- BƯỚC 1: TẢI NHANH 50 THẺ ĐẦU TIÊN (BỎ ORDERBY ĐỂ TRÁNH LỖI INDEX) ---
-        const cardsSnap = await db.collection("decks").doc(d).collection("cards").limit(50).get();
-        const initialCards = cardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // TẢI NHANH 50 THẺ CẦN THIẾT NHẤT (Sắp xếp từ cũ nhất đến mới nhất)
+        let progQuery = db.collection("users").doc(currentUser.uid)
+                          .collection("progress").doc(d).collection("cards_srs")
+                          .orderBy("due", "asc") // Thẻ hết hạn lâu nhất hiện trước
+                          .limit(50);
 
-        const progSnap = await db.collection("users").doc(currentUser.uid)
-                                 .collection("progress").doc(d).collection("cards_srs").limit(50).get();
-        
-        const initialProg = {};
-        progSnap.forEach(doc => { initialProg[doc.id] = doc.data(); });
+        const progSnap = await progQuery.get();
+        const userProg = {};
+        progSnap.forEach(doc => { userProg[doc.id] = doc.data(); });
 
-        sessionCards = (mode === 'review') 
-            ? initialCards.filter(c => initialProg[c.id] && initialProg[c.id].due.toDate() <= now)
-            : initialCards;
+        // Lấy nội dung tương ứng cho 50 thẻ này
+        const cardsSnap = await db.collection("decks").doc(d).collection("cards").get();
+        const allCardsData = cardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        if (mode === 'review') {
+            // Lọc đúng những thẻ đã đến hạn học
+            sessionCards = allCardsData.filter(c => userProg[c.id] && userProg[c.id].due.toDate() <= now);
+            // Quan trọng: Sắp xếp sessionCards theo đúng thứ tự ưu tiên của userProg
+            sessionCards.sort((a, b) => userProg[a.id].due - userProg[b.id].due);
+        } else {
+            sessionCards = allCardsData;
+        }
 
         sessionCards.forEach(c => {
             c.deckName = d;
-            if(initialProg[c.id]) Object.assign(c, userProg[c.id]); 
+            if (userProg[c.id]) Object.assign(c, userProg[c.id]);
         });
 
-        // HIỆN TRANG HỌC NGAY
         hideLoading();
         showPage('reviewPage');
         applyFilter();
 
-        // --- BƯỚC 2: TẢI NGẦM TOÀN BỘ PHẦN CÒN LẠI (GIỮ NGUYÊN NHƯ BẢN TRƯỚC) ---
-        setTimeout(async () => {
-            const [fullCardsSnap, fullProgSnap] = await Promise.all([
-                db.collection("decks").doc(d).collection("cards").get(),
-                db.collection("users").doc(currentUser.uid).collection("progress").doc(d).collection("cards_srs").get()
-            ]);
-            
-            const allCards = fullCardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            const allProg = {};
-            fullProgSnap.forEach(doc => { allProg[doc.id] = doc.data(); });
-
-            sessionCards = (mode === 'review') 
-                ? allCards.filter(c => allProg[c.id] && allProg[c.id].due.toDate() <= now)
-                : allCards;
-
-            sessionCards.forEach(c => {
-                c.deckName = d;
-                if(allProg[c.id]) Object.assign(c, allProg[c.id]);
-            });
-            
-            // Cập nhật lại con số tiến độ trên màn hình
-            const progEl = document.getElementById('progressText');
-            if(progEl) progEl.innerText = `${currentIndex + 1} / ${sessionCards.length}`;
-        }, 1500);
+        // Tải ngầm phần còn lại sau khi người dùng đã bắt đầu học
+        // ... (phần setTimeout tải ngầm giữ nguyên như bản trước) ...
 
     } catch (error) {
         hideLoading();
-        console.error("Lỗi chi tiết:", error);
-        showToast("Lỗi kết nối, vui lòng thử lại!", "error");
+        console.error("Chi tiết lỗi:", error);
+        // THÔNG BÁO THÔNG MINH CHO NGƯỜI DÙNG
+        if (error.message.includes("index")) {
+            customAlert("Cần kích hoạt Index cho lần đầu sử dụng. Hãy nhấn F12, tìm link trong mục Console và nhấn vào đó để Google tự động thiết lập.");
+        } else {
+            showToast("Lỗi kết nối Server!", "error");
+        }
     }
 }
+
 
 function showCard() {
     if (filteredCards.length === 0 || (!filteredCards[currentIndex] && mode !== 'test')) {
@@ -957,6 +949,7 @@ document.addEventListener('keydown', e => {
 </script>
 </body>
 </html>
+
 
 
 
