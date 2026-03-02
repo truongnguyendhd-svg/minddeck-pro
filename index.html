@@ -409,13 +409,30 @@ body {
             </button>
         </div>
         <div id="importForm" class="form-container hidden">
-            <h4 style="text-align:center">📥 Smart Import (Nhập hàng loạt)</h4>
+            <h4 style="text-align:center">📥 Smart Import (3 Trường dữ liệu)</h4>
             
             <div class="import-help">
-                💡 <b>Mẹo:</b> Bạn có thể copy trực tiếp từ Excel hoặc Google Sheets và dán vào đây.<br>
-                Định dạng: <code>Mặt trước</code> [Tab hoặc -] <code>Mặt sau</code> (Mỗi thẻ một dòng)
+                💡 <b>Định dạng hỗ trợ (Copy từ Excel/Sheets):</b><br>
+                Cột 1 (Mặt trước) ➜ Cột 2 (Mặt sau) ➜ Cột 3 (Thông tin phụ)<br>
+                <small>* Nếu dán thủ công, hãy dùng dấu <b>Tab</b> hoặc <b> | </b> để ngăn cách.</small>
             </div>
         
+            <!-- Metadata Row 1 -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
+                <div>
+                    <label>Tên bộ bài (Tag) *</label>
+                    <input type="text" id="iTag" placeholder="VD: 3000 từ Oxford">
+                </div>
+                <div>
+                    <label>Chế độ hiển thị</label>
+                    <select id="iVisibility">
+                        <option value="false">🔒 Riêng tư</option>
+                        <option value="true">🌐 Công khai</option>
+                    </select>
+                </div>
+            </div>
+        
+            <!-- Metadata Row 2 -->
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
                 <div>
                     <label>Loại bộ bài</label>
@@ -425,24 +442,22 @@ body {
                     </select>
                 </div>
                 <div>
-                    <label>Định dạng đầu vào</label>
+                    <label>Định dạng dữ liệu</label>
                     <select id="importFormat">
-                        <option value="text">Văn bản thuần (Quizlet/Excel)</option>
-                        <option value="json">Dữ liệu JSON (Nâng cao)</option>
+                        <option value="text">Văn bản thuần (Excel/Tab)</option>
+                        <option value="json">Dữ liệu JSON</option>
                     </select>
                 </div>
             </div>
         
-            <label>Tên bộ bài (Tag) *</label>
-            <input type="text" id="iTag" placeholder="VD: Từ vựng N3">
-        
-            <label>Nội dung dữ liệu</label>
-            <textarea id="iJson" rows="12" placeholder="Dán nội dung vào đây..."></textarea>
+            <label>Dán nội dung vào đây</label>
+            <textarea id="iJson" rows="10" placeholder="Front [Tab] Back [Tab] Info..."></textarea>
             
             <button onclick="smartImport()" style="width:100%; padding:18px; background:linear-gradient(135deg, #805ad5, #6b46c1); color:#fff; border:none; border-radius:50px; font-weight:800; cursor:pointer; box-shadow: 0 10px 20px rgba(107, 70, 193, 0.3);">
-                BẮT ĐẦU NẠP DỮ LIỆU
+                BẮT ĐẦU IMPORT
             </button>
         </div>
+
 
     </div>
 </div>
@@ -818,17 +833,17 @@ async function saveFullDeck() {
 }
 async function smartImport() {
     const tag = document.getElementById('iTag').value.trim();
+    const isPublic = document.getElementById('iVisibility').value === 'true';
     const type = document.getElementById('importType').value;
     const format = document.getElementById('importFormat').value;
     const rawData = document.getElementById('iJson').value.trim();
 
-    if (!tag || !rawData) return showToast("Vui lòng điền đủ thông tin!");
+    if (!tag || !rawData) return showToast("Vui lòng nhập Tên bộ bài và Dữ liệu!");
 
     let cardsToSave = [];
 
     try {
         if (format === 'json') {
-            // Xử lý định dạng JSON
             const data = JSON.parse(rawData);
             cardsToSave = data.map(c => ({
                 deck_id: tag,
@@ -837,19 +852,20 @@ async function smartImport() {
                 info: c.info || ""
             }));
         } else {
-            // Xử lý định dạng Text (Quizlet/Excel)
+            // Tách dữ liệu theo dòng
             const lines = rawData.split('\n');
             lines.forEach(line => {
                 if (line.trim()) {
-                    // Tách bằng Tab hoặc dấu gạch ngang
-                    let parts = line.split('\t'); // Thử tách bằng Tab (Excel)
-                    if (parts.length < 2) parts = line.split(' - '); // Thử tách bằng " - "
-                    
+                    // Ưu tiên tách bằng dấu Tab (Excel mặc định), sau đó là dấu gạch đứng " | "
+                    let parts = line.split('\t'); 
+                    if (parts.length < 2) parts = line.split('|'); 
+
                     if (parts.length >= 2) {
                         cardsToSave.push({
                             deck_id: tag,
                             front: parts[0].trim(),
                             back: parts[1].trim(),
+                            // Nếu có phần tử thứ 3 thì lưu vào info, không thì để trống
                             info: parts[2] ? parts[2].trim() : ""
                         });
                     }
@@ -857,38 +873,37 @@ async function smartImport() {
             });
         }
 
-        if (cardsToSave.length === 0) {
-            return customAlert("Không tìm thấy dữ liệu hợp lệ. Vui lòng kiểm tra lại định dạng!");
-        }
+        if (cardsToSave.length === 0) return customAlert("Không tìm thấy dữ liệu hợp lệ!");
 
         showLoading(`Đang nạp ${cardsToSave.length} thẻ...`);
 
-        // 1. Tạo/Cập nhật Deck
+        // 1. Tạo/Cập nhật Deck (Lưu cả Quyền riêng tư)
         await sb.from('decks').upsert({ 
             id: tag, 
             owner_id: currentUser.id, 
             type: type, 
-            is_public: false 
+            is_public: isPublic 
         });
 
-        // 2. Chèn hàng loạt thẻ vào Supabase
+        // 2. Insert hàng loạt vào bảng cards
         const { error } = await sb.from('cards').insert(cardsToSave);
         if (error) throw error;
 
         hideLoading();
-        showToast(`Thành công! Đã nạp ${cardsToSave.length} thẻ vào bộ ${tag}`);
+        showToast(`Đã nạp thành công ${cardsToSave.length} thẻ vào bộ bài "${tag}"!`);
         showHome();
 
     } catch (e) {
         hideLoading();
-        console.error(e);
-        customAlert("Lỗi xử lý dữ liệu: " + e.message);
+        customAlert("Lỗi: " + e.message);
     }
 }
+
 
 </script>
 </body>
 </html>
+
 
 
 
