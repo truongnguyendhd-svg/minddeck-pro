@@ -325,6 +325,7 @@ const auth = firebase.auth();
 db.enablePersistence().catch(err => console.warn("Lỗi Persistence:", err.code));
 
 /* ================= 2. GLOBAL STATE ================= */
+let currentSearchQuery = "";
 let currentUser = null, sessionCards = [], filteredCards = [], currentIndex = 0, showBack = false;
 let mode = 'review', isEditing = false, isJumpMode = false, currentAddType = 'flashcard', currentDeckName = "";
 let quizState = { answers: {}, correctCount: 0, orderSequence: [] }, pausedSession = null;
@@ -435,36 +436,63 @@ async function loadCards(d) {
     }
 }
 
-// Tối ưu Global Search: Thêm .limit(150) để tránh bị tính phí cao nếu kho dữ liệu quá lớn
 async function handleGlobalSearch() {
-    const q = document.getElementById('globalSearchInput').value.trim(); if(!q) return;
+    const q = document.getElementById('globalSearchInput').value.trim(); 
+    if(!q) return;
+    
+    currentSearchQuery = q;
+
     if (!document.getElementById('reviewPage').classList.contains('hidden')) { 
         pausedSession = { sessionCards, filteredCards, quizState: JSON.parse(JSON.stringify(quizState)), currentIndex, mode, currentDeckName }; 
     }
-    showLoading("Đang tra cứu...");
+    
+    showLoading("Đang tra cứu trên toàn hệ thống...");
+    
     try {
-        // Giới hạn Query để tiết kiệm băng thông và phí Read Firestore
-        const snap = await db.collectionGroup("cards").limit(150).get();
+        const snap = await db.collectionGroup("cards").get();
         let res = [];
         const qLower = q.toLowerCase();
+        
         snap.docs.forEach(doc => { 
             const d = doc.data(); 
-            if(d.front.toLowerCase().includes(qLower) || d.back.toLowerCase().includes(qLower)) {
+            const frontText = (d.front || "").toLowerCase();
+            const backText = (d.back || "").toLowerCase();
+            const infoText = (d.info || "").toLowerCase(); 
+
+            if(frontText.includes(qLower) || backText.includes(qLower) || infoText.includes(qLower)) {
                 res.push({ id: doc.id, ...d, deckName: doc.ref.parent.parent.id }); 
             }
         });
         
-        hideLoading(); showPage('searchResultPage'); updateBreadcrumb([{label: "Tìm: " + q, action: "showHome()"}]);
+        hideLoading(); 
+        showPage('searchResultPage'); 
+        updateBreadcrumb([{label: "Tìm kiếm: " + q, action: "showHome()"}]);
+        
         document.getElementById('resumeSessionBtnContainer').classList.toggle('hidden', !pausedSession);
         
         if(res.length === 0) {
-            document.getElementById('searchResultList').innerHTML = "<p style='text-align:center'>Không tìm thấy thẻ nào!</p>";
+            document.getElementById('searchResultList').innerHTML = `<p style="text-align:center; padding:30px; color:#718096; font-weight:500;">Không tìm thấy thẻ nào chứa từ khóa "<b style="color:#2d3748">${q}</b>"!</p>`;
         } else {
-            document.getElementById('searchResultList').innerHTML = res.map(c => `<li class="menu-card" style="padding:15px; flex-direction:row; justify-content:flex-start; gap:15px;" onclick="openSearchDetail('${encodeURIComponent(JSON.stringify(c))}')"><span class="list-idx">🔍</span><b>${c.front}</b><small>(${c.deckName})</small></li>`).join('');
+            document.getElementById('searchResultList').innerHTML = res.map(c => `
+                <li class="menu-card" style="padding:15px; flex-direction:row; justify-content:flex-start; gap:15px;" onclick="openSearchDetail('${encodeURIComponent(JSON.stringify(c))}')">
+                    <span class="list-idx">🔍</span>
+                    <div style="text-align: left;">
+                        <b style="color:#2d3748; font-size:16px;">${c.front}</b>
+                        <div style="font-size:13px; color:#718096; margin-top:4px;">📁 Thuộc bộ: <span style="font-weight:bold">${c.deckName}</span></div>
+                    </div>
+                </li>
+            `).join('');
         }
-    } catch (e) { hideLoading(); showToast("Lỗi tìm kiếm", "error"); }
+    } catch (e) { 
+        console.error("Lỗi tìm kiếm:", e);
+        hideLoading(); 
+        showToast("Lỗi tìm kiếm dữ liệu!", "error"); 
+    }
 }
-
+function returnToSearch() { 
+    showPage('searchResultPage'); 
+    updateBreadcrumb([{label: "Tìm kiếm: " + currentSearchQuery, action: "showHome()"}]); 
+}
 /* ================= 5. UI CONTROLLERS & RENDER LOGIC ================= */
 function showLoading(t) { document.getElementById('loadingText').innerText = t || "Đang xử lý..."; document.getElementById('loadingOverlay').style.display = 'flex'; }
 function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
@@ -665,3 +693,4 @@ document.addEventListener('keydown', e => {
 </script>
 </body>
 </html>
+
