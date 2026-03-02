@@ -153,11 +153,13 @@ body, button, input, textarea, select {
     border-color: #bae6fd;
 }
 /* ==================== STUDY TOOLS ==================== */
-.study-tools-box { background: #fff; padding: 20px; border-radius: 18px; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #edf2f7; }
+.study-tools-box { background: #fff; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 2px solid #edf2f7; }
 .btn-list-current { width: 100%; background: #fff; border: 1px solid #ddd; padding: 12px; border-radius: 10px; cursor: pointer; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 15px; }
-.study-meta-row { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; }
-.checkbox-wrapper { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 15px; color: #4a5568; font-weight: 500; white-space: nowrap; }
-#progressText, #testProgressText { font-weight: 800; color: #2d3748; font-size: 20px; letter-spacing: 0.5px; }
+.study-meta-row { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+.checkbox-wrapper { display: flex; align-items: center; gap: 8px; white-space: nowrap; flex-shrink: 0; }
+.checkbox-wrapper input { width: 18px; height: 18px; margin: 0; }
+
+#progressText { font-weight: 800; color: #2d3748; font-size: 18px; margin-left: auto; }
 
 .test-nav-container { display: flex; align-items: center; justify-content: space-between; width: 100%; }
 .nav-arrow-circle { width: 40px; height: 40px; border-radius: 50%; border: 1.5px solid #e2e8f0; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; background: #fff; font-size: 20px; color: #718096; font-weight: bold; }
@@ -248,7 +250,13 @@ body, button, input, textarea, select {
 
 .hidden { display: none !important; }
 #loadingOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.85); z-index: 10000; display: none; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(2px); }
-.spinner { border: 4px solid #edf2f7; border-top: 4px solid #3498db; border-radius: 50%; width: 45px; height: 45px; animation: spin 1s linear infinite; }
+.spinner { 
+    border: 4px solid rgba(0,0,0,0.1); 
+    border-top: 4px solid #3498db; 
+    border-radius: 50%; 
+    width: 45px; height: 45px; 
+    animation: spin 1s linear infinite !important; /* Thêm !important */
+}
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
 input, textarea, select { width: 100%; padding: 14px; margin: 8px 0 15px 0; border-radius: 12px; border: 1.5px solid #e2e8f0; box-sizing: border-box; font-size: 16px; font-family: inherit; transition: 0.3s;}
@@ -667,56 +675,54 @@ async function openDeckSelection(m) {
 
 async function loadCards(d) {
     currentDeckName = d;
-    showLoading(`Đang ưu tiên thẻ đến hạn...`);
+    showLoading(`Đang khởi động...`);
     const now = new Date();
-
     try {
-        // TẢI NHANH 50 THẺ CẦN THIẾT NHẤT (Sắp xếp từ cũ nhất đến mới nhất)
-        let progQuery = db.collection("users").doc(currentUser.uid)
-                          .collection("progress").doc(d).collection("cards_srs")
-                          .orderBy("due", "asc") // Thẻ hết hạn lâu nhất hiện trước
-                          .limit(50);
+        let query = db.collection("decks").doc(d).collection("cards");
+        let progQuery = db.collection("users").doc(currentUser.uid).collection("progress").doc(d).collection("cards_srs");
 
-        const progSnap = await progQuery.get();
+        // CHỈ dùng orderBy khi học Review để ép Google nhả Link Index
+        if (mode === 'review') { progQuery = progQuery.orderBy("due", "asc"); }
+
+        const [cardsSnap, progSnap] = await Promise.all([query.get(), progQuery.get()]);
+        const allCards = cardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         const userProg = {};
         progSnap.forEach(doc => { userProg[doc.id] = doc.data(); });
 
-        // Lấy nội dung tương ứng cho 50 thẻ này
-        const cardsSnap = await db.collection("decks").doc(d).collection("cards").get();
-        const allCardsData = cardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        sessionCards = (mode === 'review') ? allCards.filter(c => userProg[c.id] && userProg[c.id].due.toDate() <= now) : allCards;
+        sessionCards.forEach(c => { c.deckName = d; if(userProg[c.id]) Object.assign(c, userProg[c.id]); });
 
-        if (mode === 'review') {
-            // Lọc đúng những thẻ đã đến hạn học
-            sessionCards = allCardsData.filter(c => userProg[c.id] && userProg[c.id].due.toDate() <= now);
-            // Quan trọng: Sắp xếp sessionCards theo đúng thứ tự ưu tiên của userProg
-            sessionCards.sort((a, b) => userProg[a.id].due - userProg[b.id].due);
-        } else {
-            sessionCards = allCardsData;
+        // Tải lịch sử trắc nghiệm
+        if(mode === 'test') {
+            const tDoc = await db.collection("users").doc(currentUser.uid).collection("test_progress").doc(d).get();
+            quizState = tDoc.exists ? tDoc.data().state : { answers: {}, correctCount: 0, orderSequence: Array.from({length: sessionCards.length}, (_, i) => i) };
         }
 
-        sessionCards.forEach(c => {
-            c.deckName = d;
-            if (userProg[c.id]) Object.assign(c, userProg[c.id]);
-        });
-
         hideLoading();
-        showPage('reviewPage');
-        applyFilter();
-
-        // Tải ngầm phần còn lại sau khi người dùng đã bắt đầu học
-        // ... (phần setTimeout tải ngầm giữ nguyên như bản trước) ...
-
+        if (sessionCards.length === 0 && mode === 'review') {
+            customAlert("🎉 Tuyệt vời! Bạn đã hoàn thành hết các thẻ đến hạn của bộ bài này.");
+            showHome();
+        } else {
+            showPage('reviewPage');
+            applyFilter();
+            let mName = (mode==='review') ? 'Ôn tập' : (mode==='cram') ? 'Nhồi nhét' : 'Luyện đề';
+            updateBreadcrumb([{label: mName, action: `openDeckSelection('${mode}')`}, {label: d}]);
+        }
     } catch (error) {
         hideLoading();
-        console.error("Chi tiết lỗi:", error);
-        // THÔNG BÁO THÔNG MINH CHO NGƯỜI DÙNG
-        if (error.message.includes("index")) {
-            customAlert("Cần kích hoạt Index cho lần đầu sử dụng. Hãy nhấn F12, tìm link trong mục Console và nhấn vào đó để Google tự động thiết lập.");
+        console.error("FIREBASE ERROR:", error);
+        // ÉP HIỆN LINK RA MÀN HÌNH
+        const errorMsg = error.message || "";
+        if (errorMsg.includes("index")) {
+            const link = errorMsg.match(/https:\/\/console\.firebase\.google\.com[^\s]*/);
+            customAlert("THIẾU INDEX! Hãy nhấn F12 -> Console -> Nhấn vào link Google cung cấp để kích hoạt bộ bài.");
+            if(link) console.log("LINK TẠO INDEX ĐÂY BẠN ƠI:", link[0]);
         } else {
-            showToast("Lỗi kết nối Server!", "error");
+            showToast("Lỗi tải dữ liệu: " + errorMsg, "error");
         }
     }
 }
+
 
 
 function showCard() {
@@ -813,8 +819,13 @@ async function answerCurrent(q) {
 
 
 function processCram(ok) { const c = filteredCards[currentIndex]; if(ok) c.cramLevel = (c.cramLevel||1)+1; else c.cramLevel = 1; applyFilter(); }
-function prevCard() { if(currentIndex > 0) { currentIndex--; showCard(); } }
-function nextCard() { if(currentIndex < (mode==='test'?sessionCards.length:filteredCards.length)-1) { currentIndex++; showCard(); } }
+function prevCard() {
+    if (currentIndex > 0) { currentIndex--; showCard(); }
+}
+function nextCard() {
+    let max = (mode === 'test') ? sessionCards.length : filteredCards.length;
+    if (currentIndex < max - 1) { currentIndex++; showCard(); }
+}
 
 async function handleGlobalSearch() {
     const q = document.getElementById('globalSearchInput').value.trim(); if(!q) return;
@@ -828,7 +839,17 @@ async function handleGlobalSearch() {
     document.getElementById('resumeSessionBtnContainer').classList.toggle('hidden', !pausedSession);
     document.getElementById('searchResultList').innerHTML = res.map(c => `<li class="menu-card" style="padding:15px; flex-direction:row; justify-content:flex-start; gap:15px;" onclick="openSearchDetail('${encodeURIComponent(JSON.stringify(c))}')"><span class="list-idx">🔍</span><b>${c.front}</b><small>(${c.deckName})</small></li>`).join('');
 }
-function openSearchDetail(encoded) { const c = JSON.parse(decodeURIComponent(encoded)); document.getElementById('searchCardDetails').innerHTML = `<div class="card"><b>${c.front}</b><i>${c.back}</i><p style="white-space:pre-wrap; margin-top:20px;">${c.info||''}</p></div>`; document.getElementById('searchCardModal').style.display = 'flex'; }
+function openSearchDetail(encoded) {
+    const c = JSON.parse(decodeURIComponent(encoded));
+    document.getElementById('searchCardDetails').innerHTML = `
+        <div style="background:#fff; padding:20px; border-radius:12px; text-align:left; border:2px solid #3498db;">
+            <div style="margin-bottom:15px;"><small style="color:#718096;">Mặt trước:</small><br><b style="font-size:24px;">${c.front}</b></div>
+            <div style="margin-bottom:15px; border-top:1px dashed #eee; padding-top:10px;"><small style="color:#718096;">Mặt sau:</small><br><i style="font-size:20px; font-style:normal; color:#2d3748;">${c.back}</i></div>
+            <div style="border-top:1px dashed #eee; padding-top:10px;"><small style="color:#718096;">Thông tin phụ:</small><br><div style="font-size:15px; white-space:pre-wrap;">${c.info || "Không có ghi chú"}</div></div>
+        </div>
+    `;
+    document.getElementById('searchCardModal').style.display = 'flex';
+}
 function resumeLastSession() { if (!pausedSession) return; Object.assign(window, pausedSession); isJumpMode = false; showPage('reviewPage'); let mLabel = (mode==='review') ? 'Ôn tập' : (mode==='cram') ? 'Nhồi nhét' : 'Luyện đề'; updateBreadcrumb([{label: mLabel, action: `openDeckSelection('${mode}')`}, {label: currentDeckName}]); showCard(); pausedSession = null; }
 function returnToSearch() { showPage('searchResultPage'); updateBreadcrumb([{label: "Tìm: " + currentSearchQuery, action: "showHome()"}]); }
 
@@ -961,6 +982,7 @@ document.addEventListener('keydown', e => {
 </script>
 </body>
 </html>
+
 
 
 
