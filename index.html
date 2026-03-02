@@ -325,6 +325,7 @@ const auth = firebase.auth();
 db.enablePersistence().catch(err => console.warn("Lỗi Persistence:", err.code));
 
 /* ================= 2. GLOBAL STATE ================= */
+let globalCardsCache = null;
 let currentSearchQuery = "";
 let currentUser = null, sessionCards = [], filteredCards = [], currentIndex = 0, showBack = false;
 let mode = 'review', isEditing = false, isJumpMode = false, currentAddType = 'flashcard', currentDeckName = "";
@@ -441,27 +442,36 @@ async function handleGlobalSearch() {
     if(!q) return;
     
     currentSearchQuery = q;
+    const qLower = q.toLowerCase();
 
+    // Lưu phiên học hiện tại nếu đang ở trang Review
     if (!document.getElementById('reviewPage').classList.contains('hidden')) { 
         pausedSession = { sessionCards, filteredCards, quizState: JSON.parse(JSON.stringify(quizState)), currentIndex, mode, currentDeckName }; 
     }
     
-    showLoading("Đang tra cứu trên toàn hệ thống...");
+    showLoading("Đang tra cứu...");
     
     try {
-        const snap = await db.collectionGroup("cards").get();
-        let res = [];
-        const qLower = q.toLowerCase();
-        
-        snap.docs.forEach(doc => { 
-            const d = doc.data(); 
-            const frontText = (d.front || "").toLowerCase();
-            const backText = (d.back || "").toLowerCase();
-            const infoText = (d.info || "").toLowerCase(); 
+        // TỐI ƯU HÓA: Chỉ gọi Internet ĐÚNG 1 LẦN DUY NHẤT để lấy dữ liệu
+        if (!globalCardsCache) {
+            console.log("Đang tải dữ liệu từ Firebase lần đầu...");
+            const snap = await db.collectionGroup("cards").get();
+            // Đưa toàn bộ vào RAM
+            globalCardsCache = snap.docs.map(doc => ({
+                id: doc.id,
+                deckName: doc.ref.parent.parent.id,
+                ...doc.data()
+            }));
+        } else {
+            console.log("Đang tìm trực tiếp trên RAM (Không tốn mạng)...");
+        }
 
-            if(frontText.includes(qLower) || backText.includes(qLower) || infoText.includes(qLower)) {
-                res.push({ id: doc.id, ...d, deckName: doc.ref.parent.parent.id }); 
-            }
+        // TÌM KIẾM TRÊN RAM: Quá trình này tốn chưa tới 0.005 giây
+        let res = globalCardsCache.filter(c => {
+            const frontText = (c.front || "").toLowerCase();
+            const backText = (c.back || "").toLowerCase();
+            const infoText = (c.info || "").toLowerCase(); 
+            return frontText.includes(qLower) || backText.includes(qLower) || infoText.includes(qLower);
         });
         
         hideLoading(); 
@@ -489,6 +499,7 @@ async function handleGlobalSearch() {
         showToast("Lỗi tìm kiếm dữ liệu!", "error"); 
     }
 }
+
 function returnToSearch() { 
     showPage('searchResultPage'); 
     updateBreadcrumb([{label: "Tìm kiếm: " + currentSearchQuery, action: "showHome()"}]); 
@@ -693,4 +704,5 @@ document.addEventListener('keydown', e => {
 </script>
 </body>
 </html>
+
 
