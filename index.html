@@ -655,58 +655,73 @@ async function openDeckSelection(m) {
 
 async function loadCards(d) {
     currentDeckName = d;
-    showLoading(`Đang mở "${d}"...`);
+    showLoading(`Đang khởi động "${d}"...`);
+    const now = new Date();
 
     try {
-        // 1. Tải danh sách thẻ (Nội dung)
-        const cardsSnap = await db.collection("decks").doc(d).collection("cards").get();
-        const cards = cardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // --- BƯỚC 1: TẢI NHANH 30 THẺ ĐẦU TIÊN ĐỂ HỌC NGAY ---
+        let query = db.collection("decks").doc(d).collection("cards").limit(30);
+        
+        // Nếu là Review, chỉ lấy 30 thẻ quá hạn nhất
+        let progQuery = db.collection("users").doc(currentUser.uid)
+                          .collection("progress").doc(d).collection("cards_srs")
+                          .orderBy("due", "asc").limit(30);
 
-        // 2. Tải tiến trình học (Chỉ lấy những gì cần thiết)
-        const progSnap = await db.collection("users").doc(currentUser.uid)
-                           .collection("progress").doc(d).collection("cards_srs").get();
-        
-        const userProg = {};
-        progSnap.forEach(doc => { userProg[doc.id] = doc.data(); });
-        
-        const now = new Date();
-        // Lọc thẻ đến hạn nếu là chế độ Review
+        const [cardsSnap, progSnap] = await Promise.all([
+            query.get({ source: 'default' }),
+            progQuery.get({ source: 'default' })
+        ]);
+
+        // Xử lý dữ liệu của 30 thẻ đầu
+        const initialCards = cardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const initialProg = {};
+        progSnap.forEach(doc => { initialProg[doc.id] = doc.data(); });
+
         sessionCards = (mode === 'review') 
-            ? cards.filter(c => !userProg[c.id] || userProg[c.id].due.toDate() <= now) 
-            : cards;
-            
-        sessionCards.forEach(c => { 
+            ? initialCards.filter(c => initialProg[c.id] && initialProg[c.id].due.toDate() <= now)
+            : initialCards;
+
+        sessionCards.forEach(c => {
             c.deckName = d;
-            if(userProg[c.id]) Object.assign(c, userProg[c.id]); 
+            if(initialProg[c.id]) Object.assign(c, initialProg[c.id]);
         });
 
-        // 3. Xử lý Quiz State (nếu có)
-        if(mode==='test') {
-            const testProgDoc = await db.collection("users").doc(currentUser.uid).collection("test_progress").doc(d).get();
-            quizState = testProgDoc.exists ? testProgDoc.data().state : { 
-                answers: {}, correctCount: 0, orderSequence: Array.from({length: sessionCards.length}, (_, i) => i) 
-            };
-        }
-
+        // HIỆN TRANG HỌC NGAY LẬP TỨC (Người dùng không phải chờ lâu)
         hideLoading();
         showPage('reviewPage');
         applyFilter();
-        
-        let mLabel = (mode==='review') ? 'Ôn tập' : (mode==='cram') ? 'Nhồi nhét' : 'Luyện đề';
-        updateBreadcrumb([{label: mLabel, action: `openDeckSelection('${mode}')`}, {label: d}]);
+
+        // --- BƯỚC 2: TẢI NGẦM (BACKGROUND FETCH) TOÀN BỘ PHẦN CÒN LẠI ---
+        setTimeout(async () => {
+            console.log("Đang tải ngầm các thẻ còn lại...");
+            const fullCardsSnap = await db.collection("decks").doc(d).collection("cards").get();
+            const fullProgSnap = await db.collection("users").doc(currentUser.uid)
+                                   .collection("progress").doc(d).collection("cards_srs").get();
+            
+            const allCards = fullCardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const allProg = {};
+            fullProgSnap.forEach(doc => { allProg[doc.id] = doc.data(); });
+
+            // Cập nhật lại sessionCards với dữ liệu đầy đủ mà không làm gián đoạn việc học
+            let newSessionCards = (mode === 'review') 
+                ? allCards.filter(c => allProg[c.id] && allProg[c.id].due.toDate() <= now)
+                : allCards;
+
+            newSessionCards.forEach(c => {
+                c.deckName = d;
+                if(allProg[c.id]) Object.assign(c, allProg[c.id]);
+            });
+
+            sessionCards = newSessionCards;
+            // Cập nhật lại con số tổng trên giao diện
+            document.getElementById('progressText').innerText = `${currentIndex + 1} / ${sessionCards.length}`;
+            console.log("Đã tải xong toàn bộ bộ thẻ.");
+        }, 1000); // Đợi 1 giây sau khi trang hiện ra mới tải ngầm
 
     } catch (error) {
         hideLoading();
-        console.error(error);
-        showToast("Lỗi kết nối. Hãy kiểm tra mạng và thử lại!", "error");
+        showToast("Lỗi tải nhanh, vui lòng thử lại!", "error");
     }
-}
-
-
-function applyFilter() {
-    isEditing = false;
-    filteredCards = (mode === 'cram') ? sessionCards.filter(c => (c.cramLevel||1) < 5).sort(() => Math.random() - 0.5) : [...sessionCards];
-    currentIndex = 0; showCard();
 }
 
 function showCard() {
@@ -951,6 +966,7 @@ document.addEventListener('keydown', e => {
 </script>
 </body>
 </html>
+
 
 
 
