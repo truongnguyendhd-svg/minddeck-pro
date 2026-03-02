@@ -675,53 +675,92 @@ async function openDeckSelection(m) {
 
 async function loadCards(d) {
     currentDeckName = d;
-    showLoading(`Đang khởi động...`);
+    showLoading(`Đang nạp dữ liệu siêu tốc...`);
     const now = new Date();
+
     try {
-        let query = db.collection("decks").doc(d).collection("cards");
-        let progQuery = db.collection("users").doc(currentUser.uid).collection("progress").doc(d).collection("cards_srs");
+        // --- BƯỚC 1: TẢI NHANH NỘI DUNG VÀ TIẾN TRÌNH ĐẦU TIÊN ---
+        const [cardsSnap, progSnap] = await Promise.all([
+            db.collection("decks").doc(d).collection("cards").limit(100).get({ source: 'default' }),
+            db.collection("users").doc(currentUser.uid).collection("progress").doc(d).collection("cards_srs").limit(100).get({ source: 'default' })
+        ]);
 
-        // CHỈ dùng orderBy khi học Review để ép Google nhả Link Index
-        if (mode === 'review') { progQuery = progQuery.orderBy("due", "asc"); }
+        const initialCards = cardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const initialProg = {};
+        progSnap.forEach(doc => { initialProg[doc.id] = doc.data(); });
 
-        const [cardsSnap, progSnap] = await Promise.all([query.get(), progQuery.get()]);
-        const allCards = cardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const userProg = {};
-        progSnap.forEach(doc => { userProg[doc.id] = doc.data(); });
-
-        sessionCards = (mode === 'review') ? allCards.filter(c => userProg[c.id] && userProg[c.id].due.toDate() <= now) : allCards;
-        sessionCards.forEach(c => { c.deckName = d; if(userProg[c.id]) Object.assign(c, userProg[c.id]); });
-
-        // Tải lịch sử trắc nghiệm
-        if(mode === 'test') {
-            const tDoc = await db.collection("users").doc(currentUser.uid).collection("test_progress").doc(d).get();
-            quizState = tDoc.exists ? tDoc.data().state : { answers: {}, correctCount: 0, orderSequence: Array.from({length: sessionCards.length}, (_, i) => i) };
-        }
-
-        hideLoading();
-        if (sessionCards.length === 0 && mode === 'review') {
-            customAlert("🎉 Tuyệt vời! Bạn đã hoàn thành hết các thẻ đến hạn của bộ bài này.");
-            showHome();
+        if (mode === 'review') {
+            // FIX TRIỆT ĐỂ: Lấy thẻ CHƯA HỌC (!initialProg[c.id]) HOẶC thẻ ĐẾN HẠN
+            sessionCards = initialCards.filter(c => {
+                const p = initialProg[c.id];
+                return !p || p.due.toDate() <= now;
+            });
+            // Sắp xếp ưu tiên thẻ cũ lên trước cho đúng SRS
+            sessionCards.sort((a, b) => {
+                const pA = initialProg[a.id]; const pB = initialProg[b.id];
+                if (!pA) return 1; if (!pB) return -1;
+                return pA.due.toDate() - pB.due.toDate();
+            });
         } else {
-            showPage('reviewPage');
-            applyFilter();
-            let mName = (mode==='review') ? 'Ôn tập' : (mode==='cram') ? 'Nhồi nhét' : 'Luyện đề';
-            updateBreadcrumb([{label: mName, action: `openDeckSelection('${mode}')`}, {label: d}]);
+            sessionCards = initialCards;
         }
+
+        sessionCards.forEach(c => { 
+            c.deckName = d;
+            if(initialProg[c.id]) Object.assign(c, initialProg[c.id]); 
+        });
+
+        // HIỆN TRANG ĐỂ HỌC NGAY (CHỈ MẤT < 1 GIÂY)
+        hideLoading();
+        showPage('reviewPage');
+        applyFilter();
+        let mLabel = (mode==='review') ? 'Ôn tập' : (mode==='cram') ? 'Nhồi nhét' : 'Luyện đề';
+        updateBreadcrumb([{label: mLabel, action: `openDeckSelection('${mode}')`}, {label: d}]);
+
+        // --- BƯỚC 2: TẢI NGẦM TOÀN BỘ PHẦN CÒN LẠI (BACKGROUND FETCHING) ---
+        setTimeout(async () => {
+            console.log("Đang tải ngầm dữ liệu đầy đủ...");
+            const [fullCardsSnap, fullProgSnap] = await Promise.all([
+                db.collection("decks").doc(d).collection("cards").get(),
+                db.collection("users").doc(currentUser.uid).collection("progress").doc(d).collection("cards_srs").get()
+            ]);
+
+            const allCards = fullCardsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const allProg = {};
+            fullProgSnap.forEach(doc => { allProg[doc.id] = doc.data(); });
+
+            if (mode === 'review') {
+                sessionCards = allCards.filter(c => {
+                    const p = allProg[c.id];
+                    return !p || p.due.toDate() <= now;
+                });
+                sessionCards.sort((a, b) => {
+                    const pA = allProg[a.id]; const pB = allProg[b.id];
+                    if (!pA) return 1; if (!pB) return -1;
+                    return pA.due.toDate() - pB.due.toDate();
+                });
+            } else {
+                sessionCards = allCards;
+            }
+
+            sessionCards.forEach(c => { 
+                c.deckName = d;
+                if(allProg[c.id]) Object.assign(c, allProg[c.id]); 
+            });
+
+            // Cập nhật lại thanh tiến trình trên giao diện mà không làm gián đoạn việc học
+            const progText = (mode==='cram') ? `${sessionCards.filter(x=>(x.cramLevel||1)>=5).length}/${sessionCards.length}` : `${currentIndex+1} / ${sessionCards.length}`;
+            document.getElementById('progressText').innerText = progText;
+            console.log("Đã nạp xong toàn bộ " + sessionCards.length + " thẻ.");
+        }, 1000);
+
     } catch (error) {
         hideLoading();
-        console.error("FIREBASE ERROR:", error);
-        // ÉP HIỆN LINK RA MÀN HÌNH
-        const errorMsg = error.message || "";
-        if (errorMsg.includes("index")) {
-            const link = errorMsg.match(/https:\/\/console\.firebase\.google\.com[^\s]*/);
-            customAlert("THIẾU INDEX! Hãy nhấn F12 -> Console -> Nhấn vào link Google cung cấp để kích hoạt bộ bài.");
-            if(link) console.log("LINK TẠO INDEX ĐÂY BẠN ƠI:", link[0]);
-        } else {
-            showToast("Lỗi tải dữ liệu: " + errorMsg, "error");
-        }
+        console.error(error);
+        showToast("Lỗi tải nhanh, vui lòng thử lại!", "error");
     }
 }
+
 
 
 
@@ -982,6 +1021,7 @@ document.addEventListener('keydown', e => {
 </script>
 </body>
 </html>
+
 
 
 
