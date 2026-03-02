@@ -333,28 +333,29 @@ body {
 }
 .btn-delete-deck {
     position: absolute;
-    top: -10px;
-    right: -10px;
-    width: 32px;
-    height: 32px;
+    top: -8px;
+    right: -8px;
+    width: 35px;
+    height: 35px;
     background: #fff;
-    border: 2px solid #fed7d7;
+    border: 2px solid #e2e8f0; /* Màu nhẹ nhàng hơn */
     color: #e53e3e;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    z-index: 10;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-    transition: 0.2s;
-    opacity: 0; /* Mặc định ẩn, chỉ hiện khi hover vào thẻ */
+    z-index: 100; /* Đảm bảo nằm trên cùng */
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    opacity: 1; /* CHO HIỆN LUÔN ĐỂ KIỂM TRA */
 }
 .deck-btn-container:hover .btn-delete-deck {
     opacity: 1;
     transform: scale(1.1);
 }
 .btn-delete-deck:hover {
+    transform: scale(1.2) rotate(15deg);
     background: #e53e3e;
     color: #fff;
     border-color: #e53e3e;
@@ -673,15 +674,27 @@ function updateBreadcrumb(paths) {
 async function openDeckSelection(m) {
     mode = m; 
     showPage('deckSelectionPage');
+    
+    // Cập nhật Breadcrumb để không bị trống
+    updateBreadcrumb([{label: m === 'test' ? 'Luyện đề thi' : (m === 'review' ? 'Ôn tập' : 'Học nhồi nhét')}]);
+
     const list = document.getElementById('deckList'); 
     list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Đang nạp bộ bài...</p>';
     
     const type = m === 'test' ? 'quiz' : 'flashcard';
-    const { data: decks } = await sb.from('decks').select('*').eq('type', type);
     
+    // Lấy dữ liệu từ Supabase
+    const { data: decks, error } = await sb.from('decks').select('*').eq('type', type);
+    
+    if (error) {
+        console.error("Lỗi lấy dữ liệu decks:", error);
+        list.innerHTML = '<p style="text-align:center; color:red;">Lỗi tải dữ liệu!</p>';
+        return;
+    }
+
     list.innerHTML = '';
     if(!decks || !decks.length) { 
-        list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Chưa có bộ bài nào.</p>'; 
+        list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Chưa có bộ bài nào trong mục này.</p>'; 
         return; 
     }
 
@@ -689,9 +702,18 @@ async function openDeckSelection(m) {
         const container = document.createElement('div');
         container.className = 'deck-btn-container';
         
-        // Kiểm tra quyền sở hữu
-        const isOwner = d.owner_id === currentUser.id;
-        let deleteBtn = isOwner ? `<button class="btn-delete-deck" onclick="confirmDeleteDeck(event, '${d.id}')">🗑️</button>` : '';
+        // --- PHẦN KIỂM TRA QUYỀN SỞ HỮU (DEBUG) ---
+        // Chúng ta in ra Console để xem tại sao không khớp
+        console.log(`Kiểm tra bộ bài: ${d.id}`);
+        console.log(`- ID Chủ sở hữu trong DB: ${d.owner_id}`);
+        console.log(`- ID Của bạn hiện tại: ${currentUser.id}`);
+
+        // So sánh (Dùng == để linh hoạt hoặc .toString() cho chắc chắn)
+        const isOwner = d.owner_id && d.owner_id.toString() === currentUser.id.toString();
+        
+        // Nếu là chủ nhân THÌ HIỆN, nếu không có owner_id (bộ bài cũ) cũng cho hiện để quản lý
+        let deleteBtn = (isOwner || !d.owner_id) ? 
+            `<button class="btn-delete-deck" onclick="confirmDeleteDeck(event, '${d.id}')">🗑️</button>` : '';
 
         container.innerHTML = `
             ${deleteBtn}
@@ -1071,6 +1093,7 @@ async function executeDeleteDeck(deckId) {
 </script>
 </body>
 </html>
+
 
 
 
