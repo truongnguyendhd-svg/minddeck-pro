@@ -762,19 +762,26 @@ body {
             <button class="add-row-btn" onclick="addNewRow()">+ THÊM THẺ MỚI</button>
         
             <!-- Khu vực nút bấm cuối Form -->
-            <div class="footer-actions">
-                <!-- Nút này sẽ chỉ hiện khi Tạo mới hoặc Copy -->
-                <button id="btnSaveAll" onclick="saveFullDeck()" style="width:100%; padding:18px; background:linear-gradient(135deg, #48bb78, #38a169); color:#fff; border:none; border-radius:50px; font-weight:800; cursor:pointer; box-shadow: 0 10px 20px rgba(72, 187, 120, 0.3); margin-bottom: 25px; display: none;">
-                    🚀 TẠO BỘ BÀI & LƯU TẤT CẢ
-                </button>
-            
-                <div style="display: flex; justify-content: center; gap: 15px;">
-                    <button onclick="cancelEdit()" style="flex:1; padding: 15px; border-radius: 50px; border: 1.5px solid #e2e8f0; background: #fff; font-weight: 800; cursor: pointer;">
-                        🏠 HỦY & QUAY LẠI
+            <div class="footer-actions" style="margin-top: 50px; padding-top: 30px; border-top: 2px dashed #edf2f7;">
+                
+                <!-- CHẾ ĐỘ TẠO MỚI / COPY: Hiện nút Lưu tất cả -->
+                <div id="groupSaveAll" style="display: none; margin-bottom: 20px;">
+                    <button onclick="saveFullDeck()" style="width:100%; padding:18px; background:linear-gradient(135deg, #48bb78, #38a169); color:#fff; border:none; border-radius:50px; font-weight:800; cursor:pointer; box-shadow: 0 10px 20px rgba(72, 187, 120, 0.3);">
+                        🚀 TẠO BỘ BÀI & LƯU TẤT CẢ
                     </button>
+                </div>
+            
+                <!-- Hàng nút điều hướng bên dưới -->
+                <div style="display: flex; gap: 15px; flex-wrap: wrap;">
                     
-                    <button id="btnDeleteInForm" class="btn-delete-full hidden" onclick="deleteCurrentDeck()" style="flex:1; background: #fff5f5; color: #e53e3e; border: 1.5px solid #feb2b2; border-radius: 50px; font-weight: 800;">
-                        🗑️ XÓA BỘ BÀI
+                    <!-- Nút Về trang trước (Hiện ở cả 2 chế độ) -->
+                    <button onclick="goBackToSelection()" style="flex: 1; padding: 16px; border-radius: 50px; border: 1.5px solid #e2e8f0; background: #fff; color: #4a5568; font-weight: 800; cursor: pointer; transition: 0.3s;">
+                        ⬅️ VỀ TRANG TRƯỚC
+                    </button>
+            
+                    <!-- Nút Xóa học phần (Chỉ hiện khi đang Sửa) -->
+                    <button id="btnDeleteInForm" class="btn-delete-full hidden" onclick="deleteCurrentDeck()" style="flex: 1; background: #fff5f5; color: #e53e3e; border: 1.5px solid #feb2b2; border-radius: 50px; font-weight: 800; cursor: pointer;">
+                        🗑️ XOÁ CẢ HỌC PHẦN NÀY
                     </button>
                 </div>
             </div>
@@ -999,31 +1006,27 @@ async function openEditDeck(event, deckId) {
     editingDeckId = deckId;
     showLoading(`Đang nạp bộ bài...`);
 
-    try {
-        const { data: deck, error: deckErr } = await sb.from('decks').select('*').eq('id', deckId).single();
-        if (deckErr) throw deckErr;
+    const { data: deck } = await sb.from('decks').select('*').eq('id', deckId).single();
+    const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
 
-        // QUAN TRỌNG: Cập nhật mode toàn cục bằng type thực tế của bộ bài trong DB
-        mode = deck.type; 
+    // Cài đặt Metadata
+    mode = deck.type;
+    document.getElementById('nTag').value = deck.id;
+    document.getElementById('nTag').disabled = true;
+    document.getElementById('nVisibility').value = deck.is_public.toString();
+    document.getElementById('formTitle').innerText = `Chỉnh sửa: ${deckId}`;
 
-        const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
+    // --- ĐIỀU KHIỂN NÚT ---
+    document.getElementById('groupSaveAll').style.display = 'none'; // Ẩn Lưu tất cả
+    document.getElementById('btnDeleteInForm').classList.remove('hidden'); // Hiện Xóa bộ bài
 
-        document.getElementById('nTag').value = deck.id;
-        document.getElementById('nTag').disabled = true;
-        document.getElementById('nVisibility').value = deck.is_public.toString();
-        document.getElementById('formTitle').innerText = `Chỉnh sửa: ${deckId}`;
-        
-        renderCardsToForm(cards);
-        
-        showPage('learnPage');
-        document.getElementById('learnMenu').classList.add('hidden');
-        document.getElementById('newForm').classList.remove('hidden');
-    } catch (e) {
-        customAlert("Lỗi: " + e.message);
-    } finally {
-        hideLoading();
-    }
+    renderCardsToForm(cards);
+    showPage('learnPage');
+    document.getElementById('learnMenu').classList.add('hidden');
+    document.getElementById('newForm').classList.remove('hidden');
+    hideLoading();
 }
+
 
 async function cancelEdit() {
     const ok = await showConfirm("Hủy bỏ?", "Mọi thay đổi chưa lưu sẽ bị mất. Bạn có chắc chắn muốn thoát?");
@@ -1034,55 +1037,28 @@ async function cancelEdit() {
 
 async function openCopyDeck(event, deckId) {
     if (event) event.stopPropagation();
-    editingDeckId = null; // Copy là tạo mới hoàn toàn
+    editingDeckId = null; 
     showLoading("Đang chuẩn bị bản sao...");
 
-    try {
-        // 1. Lấy thông tin bộ bài gốc để biết nó là loại gì (flashcard hay quiz)
-        const { data: originalDeck, error: dErr } = await sb.from('decks').select('*').eq('id', deckId).single();
-        if (dErr) throw dErr;
+    const { data: deck } = await sb.from('decks').select('*').eq('id', deckId).single();
+    const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
 
-        // Cập nhật mode toàn cục để khi lưu nó lưu đúng loại
-        mode = originalDeck.type; 
+    mode = deck.type;
+    document.getElementById('nTag').value = deckId + " (Copy)";
+    document.getElementById('nTag').disabled = false;
+    document.getElementById('formTitle').innerText = "Sao chép bộ bài";
 
-        // 2. Lấy danh sách thẻ
-        const { data: cards, error: cErr } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
-        if (cErr) throw cErr;
+    // --- ĐIỀU KHIỂN NÚT ---
+    document.getElementById('groupSaveAll').style.display = 'block'; // Hiện Lưu tất cả
+    document.getElementById('btnDeleteInForm').classList.add('hidden'); // Ẩn Xóa bộ bài
 
-        // 3. Đổ dữ liệu vào Form
-        document.getElementById('nTag').value = deckId + " (Copy)";
-        document.getElementById('nTag').disabled = false;
-        document.getElementById('nVisibility').value = "false"; // Mặc định bản sao là riêng tư
-        document.getElementById('formTitle').innerText = "Sao chép bộ bài";
-        
-        // Hiện nút Lưu tất cả, ẩn nút Xóa
-        document.getElementById('btnSaveAll').style.display = 'block';
-        document.getElementById('btnDeleteInForm').classList.add('hidden');
-
-        // Vẽ các thẻ ở trạng thái MỚI (không có data-db-id)
-        const container = document.getElementById('cardRowsContainer');
-        container.innerHTML = ''; 
-        rowCount = 0;
-        cards.forEach(c => {
-            // addNewRow không truyền tham số để thẻ ở trạng thái MỚI hoàn toàn
-            addNewRow(); 
-            const rows = container.querySelectorAll('.card-row');
-            const lastRow = rows[rows.length - 1];
-            lastRow.querySelector('.r-front').value = c.front;
-            lastRow.querySelector('.r-back').value = c.back;
-            lastRow.querySelector('.r-info').value = c.info;
-        });
-
-        showPage('learnPage');
-        document.getElementById('learnMenu').classList.add('hidden');
-        document.getElementById('newForm').classList.remove('hidden');
-
-    } catch (e) {
-        customAlert("Lỗi khi chuẩn bị bản sao: " + e.message, "❌");
-    } finally {
-        hideLoading();
-    }
+    renderCardsToForm(cards, false); // false để thẻ hiện ở chế độ Sửa luôn (isNew)
+    showPage('learnPage');
+    document.getElementById('learnMenu').classList.add('hidden');
+    document.getElementById('newForm').classList.remove('hidden');
+    hideLoading();
 }
+
 
 
 function renderCardsToForm(cards) {
@@ -1205,25 +1181,25 @@ function showLearnPage() {
     // 3. Cập nhật Breadcrumb
     updateBreadcrumb([{label:'Thêm mới'}]); 
 }
-function showNewForm(type) { 
-    mode = type; 
-    editingDeckId = null; // QUAN TRỌNG: Reset về null
-    
+function showNewForm(type) {
+    mode = type; editingDeckId = null;
     document.getElementById('nTag').value = '';
     document.getElementById('nTag').disabled = false;
-    document.getElementById('btnSaveAll').style.display = 'block';
-    document.getElementById('btnDeleteInForm').classList.add('hidden');
-    document.getElementById('formTitle').innerText = type === 'quiz' ? "Soạn Đề Trắc Nghiệm" : "Tạo Flashcard Mới";
-    document.getElementById('formIcon').innerText = type === 'quiz' ? "❓" : "🃏";
+    document.getElementById('formTitle').innerText = "Tạo bộ bài mới";
 
-    document.getElementById('learnMenu').classList.add('hidden'); 
-    document.getElementById('newForm').classList.remove('hidden');
-    
+    // --- ĐIỀU KHIỂN NÚT ---
+    document.getElementById('groupSaveAll').style.display = 'block';
+    document.getElementById('btnDeleteInForm').classList.add('hidden');
+
     document.getElementById('cardRowsContainer').innerHTML = '';
     rowCount = 0;
-    addNewRow(); addNewRow(); // Tạo sẵn 2 dòng trống
-
-    updateBreadcrumb([{label: 'Thêm mới', action: 'showLearnPage()'}, {label: 'Tạo mới'}]);
+    addNewRow(); addNewRow();
+    showPage('learnPage');
+    document.getElementById('learnMenu').classList.add('hidden');
+    document.getElementById('newForm').classList.remove('hidden');
+}
+function goBackToSelection() {
+    openDeckSelection(mode);
 }
 
 function showImportForm() { 
@@ -1642,6 +1618,26 @@ function enableRowEdit(id) {
     row.querySelector('.r-front').focus();
     row.setAttribute('data-is-dirty', 'true'); // Đánh dấu thẻ này đã bị thay đổi
 }
+function renderCardsToForm(cards, isEditMode = true) {
+    const container = document.getElementById('cardRowsContainer');
+    container.innerHTML = ''; rowCount = 0;
+    cardsToDelete = [];
+    
+    cards.forEach(c => {
+        // Nếu là isEditMode (Chỉnh sửa) -> Truyền dữ liệu để hiện Readonly
+        // Nếu là Copy (false) -> Truyền dữ liệu nhưng KHÔNG gán ID để thẻ ở chế độ Mới
+        if (isEditMode) {
+            addNewRow(c); 
+        } else {
+            addNewRow(); // Tạo dòng mới tinh
+            const rows = container.querySelectorAll('.card-row');
+            const lastRow = rows[rows.length - 1];
+            lastRow.querySelector('.r-front').value = c.front;
+            lastRow.querySelector('.r-back').value = c.back;
+            lastRow.querySelector('.r-info').value = c.info;
+        }
+    });
+}
 
 </script>
 <!-- Modal Thông Báo (Thay thế alert) -->
@@ -1669,6 +1665,7 @@ function enableRowEdit(id) {
 </div>
 </body>
 </html>
+
 
 
 
