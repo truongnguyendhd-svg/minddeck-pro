@@ -542,6 +542,33 @@ body {
     margin-top: 30px;
     gap: 15px;
 }
+.card-row.readonly-mode {
+    background: #fdfdfd;
+    border-style: dashed;
+    opacity: 0.8;
+}
+.card-row.readonly-mode textarea {
+    background: transparent;
+    border-color: transparent;
+    resize: none;
+    cursor: default;
+    color: #718096;
+}
+.row-action-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    cursor: pointer;
+    transition: 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.row-action-btn:hover { transform: scale(1.1); background: #f8fafc; }
+.btn-row-edit:hover { color: #3182ce; border-color: #bee3f8; }
+.btn-row-delete:hover { color: #e53e3e; border-color: #fed7d7; }
 
 </style>
 </head>
@@ -972,18 +999,12 @@ function renderCardsToForm(cards) {
     const container = document.getElementById('cardRowsContainer');
     container.innerHTML = ''; 
     rowCount = 0;
+    cardsToDelete = []; // Reset danh sách xóa khi bắt đầu sửa bộ mới
     
     if (!cards || cards.length === 0) {
         addNewRow();
     } else {
-        cards.forEach(c => {
-            addNewRow();
-            const rows = container.querySelectorAll('.card-row');
-            const lastRow = rows[rows.length - 1];
-            lastRow.querySelector('.r-front').value = c.front;
-            lastRow.querySelector('.r-back').value = c.back;
-            lastRow.querySelector('.r-info').value = c.info;
-        });
+        cards.forEach(c => addNewRow(c));
     }
 }
 
@@ -1192,35 +1213,61 @@ function addNewRow() {
 }
 function removeRow(id) {
     const row = document.getElementById(`row-${id}`);
-    if (row) row.remove();
+    const dbId = row.getAttribute('data-db-id');
+    if (dbId) cardsToDelete.push(dbId); // Cho vào danh sách chờ xóa trên server
+    row.remove();
 }
 async function saveFullDeck() {
     const tag = document.getElementById('nTag').value.trim();
     const isPublic = document.getElementById('nVisibility').value === 'true';
     if(!tag) return showToast("Vui lòng nhập tên bộ bài!");
 
-    const cardsToSave = [];
-    document.querySelectorAll('.card-row').forEach(row => {
-        const f = row.querySelector('.r-front').value.trim();
-        const b = row.querySelector('.r-back').value.trim();
-        if(f && b) cardsToSave.push({ deck_id: tag, front: f, back: b, info: row.querySelector('.r-info').value });
+    let cardsToUpsert = [];
+    const rows = document.querySelectorAll('.card-row');
+    
+    rows.forEach(row => {
+        const dbId = row.getAttribute('data-db-id');
+        const isDirty = row.getAttribute('data-is-dirty') === 'true';
+        const isNew = !dbId;
+
+        // Chỉ xử lý những thẻ MỚI hoặc thẻ CŨ ĐÃ BỊ SỬA
+        if (isNew || isDirty) {
+            const f = row.querySelector('.r-front').value.trim();
+            const b = row.querySelector('.r-back').value.trim();
+            const i = row.querySelector('.r-info').value.trim();
+
+            if (f && b) {
+                let cardObj = { deck_id: tag, front: f, back: b, info: i };
+                if (dbId) cardObj.id = dbId; // Gửi kèm ID để Supabase ghi đè (Update)
+                cardsToUpsert.push(cardObj);
+            }
+        }
     });
 
-    showLoading("Đang lưu...");
+    showLoading("Đang cập nhật dữ liệu...");
     try {
-        // Nếu là EDIT: Xóa các thẻ cũ trước để ghi đè sạch sẽ
-        if (editingDeckId) {
-            await sb.from('cards').delete().eq('deck_id', editingDeckId);
+        // A. Xóa các thẻ người dùng đã nhấn thùng rác
+        if (cardsToDelete.length > 0) {
+            await sb.from('cards').delete().in('id', cardsToDelete);
         }
 
-        // Tạo/Cập nhật Deck (Lúc này chủ sở hữu sẽ là người hiện tại)
+        // B. Cập nhật thông tin Bộ bài
         await sb.from('decks').upsert({ id: tag, owner_id: currentUser.id, type: mode, is_public: isPublic });
-        await sb.from('cards').insert(cardsToSave);
+
+        // C. Lưu đè/Thêm mới các thẻ (Sử dụng ID để tránh nhân đôi)
+        if (cardsToUpsert.length > 0) {
+            const { error } = await sb.from('cards').upsert(cardsToUpsert);
+            if (error) throw error;
+        }
 
         hideLoading();
-        showToast("Lưu thành công!");
+        showToast("Đã lưu mọi thay đổi!");
+        cardsToDelete = []; // Reset danh sách xóa
         showHome();
-    } catch (e) { hideLoading(); customAlert(e.message); }
+    } catch (e) {
+        hideLoading();
+        customAlert("Lỗi: " + e.message);
+    }
 }
 async function deleteCurrentDeck() {
     if (!editingDeckId) return;
@@ -1367,7 +1414,50 @@ function showConfirm(title, message) {
     });
 }
 let editingDeckId = null; // null = tạo mới, có giá trị = đang sửa bộ đó
+let cardsToDelete = []; // Lưu ID các thẻ người dùng muốn xóa hẳn khỏi DB
+function addNewRow(cardData = null) {
+    rowCount++;
+    const container = document.getElementById('cardRowsContainer');
+    const rowDiv = document.createElement('div');
+    rowDiv.className = 'card-row' + (cardData ? ' readonly-mode' : '');
+    rowDiv.id = `row-${rowCount}`;
+    
+    // Lưu ID thẻ vào thuộc tính dữ liệu (nếu có)
+    if (cardData && cardData.id) rowDiv.setAttribute('data-db-id', cardData.id);
 
+    const isReadOnly = cardData ? 'disabled' : '';
+
+    rowDiv.innerHTML = `
+        <div class="card-row-header">
+            <span>THẺ #${rowCount} ${cardData ? '(Đã lưu)' : '(Mới)'}</span>
+            <div style="display:flex; gap:8px;">
+                ${cardData ? `<button class="row-action-btn btn-row-edit" title="Sửa thẻ này" onclick="enableRowEdit(${rowCount})">✏️</button>` : ''}
+                <button class="row-action-btn btn-row-delete" title="Xóa thẻ này" onclick="removeRow(${rowCount})">🗑️</button>
+            </div>
+        </div>
+        <div>
+            <label>Mặt trước</label>
+            <textarea class="r-front" rows="2" ${isReadOnly}>${cardData ? cardData.front : ''}</textarea>
+        </div>
+        <div>
+            <label>Mặt sau</label>
+            <textarea class="r-back" rows="2" ${isReadOnly}>${cardData ? cardData.back : ''}</textarea>
+        </div>
+        <div class="info-field">
+            <label>Thông tin phụ</label>
+            <textarea class="r-info" rows="2" ${isReadOnly}>${cardData ? (cardData.info || '') : ''}</textarea>
+        </div>
+    `;
+    container.appendChild(rowDiv);
+}
+function enableRowEdit(id) {
+    const row = document.getElementById(`row-${id}`);
+    row.classList.remove('readonly-mode');
+    row.querySelectorAll('textarea').forEach(t => t.disabled = false);
+    row.querySelector('.btn-row-edit').style.display = 'none'; // Ẩn nút bút chì sau khi bấm
+    row.querySelector('.r-front').focus();
+    row.setAttribute('data-is-dirty', 'true'); // Đánh dấu thẻ này đã bị thay đổi
+}
 
 </script>
 <!-- Modal Thông Báo (Thay thế alert) -->
@@ -1395,6 +1485,7 @@ let editingDeckId = null; // null = tạo mới, có giá trị = đang sửa b�
 </div>
 </body>
 </html>
+
 
 
 
