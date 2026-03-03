@@ -494,8 +494,9 @@ window.onclick = () => document.getElementById('userDropdown').classList.remove(
 async function openDeckSelection(m, skipHash = false) {
     if (!skipHash) window.location.hash = `decks/${m}`;
     mode = m; showPage('deckSelectionPage');
-    const labels = { 'review': 'Ôn tập Today', 'cram': 'Học nhồi nhét', 'test': 'Luyện đề thi' };
-    updateBreadcrumb([{label: labels[m] || 'Học tập'}]);
+    const labels = { 'review': 'Ôn tập hôm nay', 'cram': 'Học nhồi nhét', 'test': 'Luyện đề thi' };
+    const currentLabel = labels[m] || 'Học tập';
+    updateBreadcrumb([{label: currentLabel}]);
     const list = document.getElementById('deckList'); list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Đang tải...</p>';
     const type = m === 'test' ? 'quiz' : 'flashcard';
     const { data: decks } = await sb.from('decks').select('*').eq('type', type).or(`is_public.eq.true,owner_id.eq.${currentUser.id}`);
@@ -549,7 +550,12 @@ async function loadCards(d, skipHash = false) {
     if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/${mode}`;
     currentDeckName = d; showLoading("Đang tải thẻ...");
     const { data: cards } = await sb.from('cards').select('*, progress(*)').eq('deck_id', d);
-    updateBreadcrumb([{label: mode==='test'?'Luyện đề':'Học tập', action:'openDeckSelection(mode)'}, {label: getCleanName(d)}]);
+    const labels = { 'review': 'Ôn tập hôm nay', 'cram': 'Học nhồi nhét', 'test': 'Luyện đề thi' };
+    const parentLabel = labels[mode] || 'Học tập';
+    updateBreadcrumb([
+        {label: parentLabel, action: `openDeckSelection('${mode}')`}, 
+        {label: getCleanName(d)}
+    ]);
     sessionCards = (mode === 'review') ? cards.filter(c => { const p = c.progress.find(x => x.user_id === currentUser.id); return !p || p.due <= new Date().toISOString(); }) : cards;
     hideLoading();
     if (!sessionCards.length) return customAlert("Hết thẻ rồi!");
@@ -752,4 +758,5 @@ async function smartImport() {
 </script>
 </body>
 </html>
+
 
