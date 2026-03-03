@@ -339,7 +339,11 @@ function showPage(p) {
     window.scrollTo(0, 0);
 }
 
-function showHome() { showPage('homePage'); updateBreadcrumb([]); }
+function showHome(updateHash = true) { 
+    showPage('homePage'); 
+    updateBreadcrumb([]); 
+    if(updateHash) window.location.hash = '#/home';
+}
 function showLoading(t) { document.getElementById('loadingText').innerText = t; document.getElementById('loadingOverlay').style.display = 'flex'; }
 function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
 function showToast(msg) { const c = document.getElementById('toast-container'); const t = document.createElement('div'); t.className = 'toast'; t.innerText = msg; c.appendChild(t); setTimeout(() => t.remove(), 3000); }
@@ -372,15 +376,22 @@ function updateBreadcrumb(paths) {
 
 /* ================= 4. AUTH ================= */
 sb.auth.onAuthStateChange((event, session) => {
-    const loginPage = document.getElementById('loginPage'), headerSearch = document.getElementById('headerSearch'), userSection = document.getElementById('userSection');
+    const loginPage = document.getElementById('loginPage');
     if (session) {
         currentUser = session.user;
         document.getElementById('userAvatar').innerHTML = `<img src="${currentUser.user_metadata.avatar_url || currentUser.user_metadata.picture}">`;
-        headerSearch.classList.remove('hidden'); userSection.classList.remove('hidden');
-        if (!loginPage.classList.contains('hidden')) showHome();
+        document.getElementById('headerSearch').classList.remove('hidden');
+        document.getElementById('userSection').classList.remove('hidden');
+        
+        // CẬP NHẬT: Thay vì luôn về Home, hãy chạy Router
+        if (!loginPage.classList.contains('hidden') || window.location.hash) {
+            handleRouting();
+        }
     } else {
-        currentUser = null; showPage('loginPage');
-        headerSearch.classList.add('hidden'); userSection.classList.add('hidden');
+        currentUser = null;
+        showPage('loginPage');
+        document.getElementById('headerSearch').classList.add('hidden');
+        document.getElementById('userSection').classList.add('hidden');
     }
 });
 
@@ -390,8 +401,9 @@ function toggleUserDropdown(e) { e.stopPropagation(); document.getElementById('u
 window.onclick = () => document.getElementById('userDropdown').classList.remove('show');
 
 /* ================= 5. CORE ================= */
-async function openDeckSelection(m) {
+async function openDeckSelection(m, updateHash = true) {
     mode = m; showPage('deckSelectionPage');
+    if(updateHash) window.location.hash = `#/selection/${m}`;
     const labels = { 'review': 'Ôn tập Today', 'cram': 'Học nhồi nhét', 'test': 'Luyện đề thi' };
     updateBreadcrumb([{label: labels[m] || 'Học tập'}]);
     const list = document.getElementById('deckList'); list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Đang tải...</p>';
@@ -441,8 +453,9 @@ async function openCopyDeck(event, deckId) {
     hideLoading();
 }
 
-async function loadCards(d) {
+async function loadCards(d, updateHash = true) {
     currentDeckName = d; showLoading("Đang tải thẻ...");
+    if(updateHash) window.location.hash = `#/study/${d}/${mode}`;
     const { data: cards } = await sb.from('cards').select('*, progress(*)').eq('deck_id', d);
     updateBreadcrumb([{label: mode==='test'?'Luyện đề':'Học tập', action:'openDeckSelection(mode)'}, {label: getCleanName(d)}]);
     sessionCards = (mode === 'review') ? cards.filter(c => { const p = c.progress.find(x => x.user_id === currentUser.id); return !p || p.due <= new Date().toISOString(); }) : cards;
@@ -505,7 +518,14 @@ async function handleGlobalSearch() {
         </div>`).join('');
 }
 
-function showLearnPage() { showPage('learnPage'); document.getElementById('learnMenu').classList.remove('hidden'); document.getElementById('newForm').classList.add('hidden'); document.getElementById('importForm').classList.add('hidden'); updateBreadcrumb([{label:'Thêm mới'}]); }
+function showLearnPage(updateHash = true) { 
+    showPage('learnPage'); 
+    document.getElementById('learnMenu').classList.remove('hidden'); 
+    document.getElementById('newForm').classList.add('hidden'); 
+    document.getElementById('importForm').classList.add('hidden');
+    updateBreadcrumb([{label:'Thêm mới'}]); 
+    if(updateHash) window.location.hash = '#/learn';
+}
 function showNewForm(type) {
     mode = type; editingDeckId = null; activeDeckId = null; // Reset phiên tạo mới
     document.getElementById('nTag').value = ''; document.getElementById('nTag').disabled = false;
@@ -621,6 +641,35 @@ async function smartImport() {
         hideLoading(); showToast("Thành công!"); showHome();
     } catch(e) { hideLoading(); customAlert("Lỗi: " + e.message); }
 }
+// HÀM ĐIỀU HƯỚNG DỰA TRÊN URL
+async function handleRouting() {
+    const hash = window.location.hash;
+    
+    // Nếu chưa đăng nhập thì không cho đi đâu cả
+    if (!currentUser) return;
+
+    if (!hash || hash === '#/home') {
+        showHome(false); // false để tránh lặp hash
+    } else if (hash === '#/learn') {
+        showLearnPage(false);
+    } else if (hash.startsWith('#/selection/')) {
+        const m = hash.replace('#/selection/', '');
+        openDeckSelection(m, false);
+    } else if (hash.startsWith('#/study/')) {
+        // Cấu trúc: #/study/deckId/mode
+        const parts = hash.split('/');
+        const deckId = parts[2];
+        mode = parts[3] || 'review';
+        loadCards(deckId, false);
+    } else {
+        showHome(false);
+    }
+}
+
+// Lắng nghe sự kiện thay đổi Hash (khi người dùng bấm Back/Forward của trình duyệt)
+window.addEventListener('hashchange', handleRouting);
+
 </script>
 </body>
 </html>
+
