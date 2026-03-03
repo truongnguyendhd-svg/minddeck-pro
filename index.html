@@ -962,7 +962,11 @@ async function openDeckSelection(m) {
     
     const type = m === 'test' ? 'quiz' : 'flashcard';
 
-    // CẬP NHẬT TRUY VẤN: Chỉ lấy bài công khai HOẶC bài của chính mình
+    // Cập nhật Breadcrumb cho chuyên nghiệp
+    const labels = { 'review': 'Ôn tập', 'cram': 'Học nhồi nhét', 'test': 'Luyện đề thi' };
+    updateBreadcrumb([{label: labels[m] || 'Học tập'}]);
+
+    // Truy vấn dữ liệu: Lấy bài công khai HOẶC bài của chính mình
     const { data: decks, error } = await sb
         .from('decks')
         .select('*')
@@ -982,14 +986,19 @@ async function openDeckSelection(m) {
 
     decks.forEach(d => {
         const isOwner = d.owner_id === currentUser.id;
+
+        // --- BƯỚC CẬP NHẬT TÊN SẠCH ---
+        // Nếu ID là "user_123:Tango N1" -> displayName sẽ chỉ là "Tango N1"
+        // Chúng ta dùng split(':').slice(1).join(':') để đề phòng trường hợp tên bộ bài cũng có dấu hai chấm
+        const displayName = d.id.includes(':') ? d.id.split(':').slice(1).join(':') : d.id;
+
         const card = document.createElement('div');
         card.className = 'deck-card';
+        
+        // CỰC KỲ QUAN TRỌNG: Vẫn dùng d.id (ID đầy đủ kèm mã user) cho các hàm logic
         card.onclick = () => loadCards(d.id);
 
-        // Nút Sửa: Chỉ hiện cho chủ sở hữu
         let editBtn = isOwner ? `<button class="action-btn btn-edit" data-tooltip="Chỉnh sửa" onclick="openEditDeck(event, '${d.id}')">✏️</button>` : '';
-        
-        // Nút Copy: Hiện cho tất cả mọi người
         let copyBtn = `<button class="action-btn btn-copy" data-tooltip="Copy về máy" onclick="openCopyDeck(event, '${d.id}')">📋</button>`;
 
         card.innerHTML = `
@@ -997,7 +1006,7 @@ async function openDeckSelection(m) {
                 ${d.is_public?'🌐':'🔒'}
             </div>
             <div class="deck-actions">${editBtn} ${copyBtn}</div>
-            <div class="deck-title">${d.id}</div>
+            <div class="deck-title">${displayName}</div>
         `;
         list.appendChild(card);
     });
@@ -1290,6 +1299,9 @@ async function saveFullDeck() {
     const isPublic = document.getElementById('nVisibility').value === 'true';
     if(!tag) return customAlert("Vui lòng nhập tên bộ bài!", "⚠️");
 
+    // 1. MỚI: XÁC ĐỊNH ID DUY NHẤT (Nếu đang sửa thì giữ ID cũ, nếu tạo mới thì ghép UserID:Tên)
+    const internalId = editingDeckId ? editingDeckId : `${currentUser.id}:${tag}`;
+
     let cardsToProcess = [];
     const rows = document.querySelectorAll('.card-row');
     
@@ -1299,21 +1311,19 @@ async function saveFullDeck() {
         const i = row.querySelector('.r-info').value.trim();
 
         if (f && b) {
-            let cardObj = { deck_id: tag, front: f, back: b, info: i };
+            // 2. MỚI: SỬ DỤNG internalId thay cho tag ở deck_id
+            let cardObj = { deck_id: internalId, front: f, back: b, info: i };
 
             if (editingDeckId) {
-                // --- CHẾ ĐỘ SỬA (GIỮ LOGIC CỦA BẠN) ---
                 const dbId = row.getAttribute('data-db-id');
                 const isDirty = row.getAttribute('data-is-dirty') === 'true';
                 const isNew = !dbId;
 
                 if (isNew || isDirty) {
-                    if (dbId) cardObj.id = dbId; // Có ID thì Upsert sẽ ghi đè (không nhân đôi)
+                    if (dbId) cardObj.id = dbId; 
                     cardsToProcess.push(cardObj);
                 }
             } else {
-                // --- CHẾ ĐỘ COPY HOẶC TẠO MỚI ---
-                // Lưu tất cả, không cần check isDirty, và TUYỆT ĐỐI không gửi kèm ID cũ
                 cardsToProcess.push(cardObj);
             }
         }
@@ -1325,29 +1335,26 @@ async function saveFullDeck() {
 
     showLoading("Đang xử lý dữ liệu...");
     try {
-        // 1. Xử lý xóa thẻ (chỉ áp dụng khi đang Sửa)
         if (editingDeckId && cardsToDelete.length > 0) {
             await sb.from('cards').delete().in('id', cardsToDelete);
         }
 
-        // 2. Cập nhật/Tạo mới Bộ bài (Deck)
+        // 3. MỚI: SỬ DỤNG internalId trong hàm upsert bảng decks
         const { error: dErr } = await sb.from('decks').upsert({ 
-            id: tag, 
+            id: internalId, 
             owner_id: currentUser.id, 
             type: mode, 
             is_public: isPublic 
         });
         if (dErr) throw dErr;
 
-        // 3. Lưu thẻ (Cards)
         if (cardsToProcess.length > 0) {
-            // Dùng upsert: Nếu có ID nó sẽ ghi đè (Sửa), nếu không có ID nó sẽ tạo mới (Copy)
             const { error: cErr } = await sb.from('cards').upsert(cardsToProcess);
             if (cErr) throw cErr;
         }
 
         hideLoading();
-        showToast(editingDeckId ? "Đã cập nhật bộ bài!" : "Đã sao chép bộ bài thành công!");
+        showToast(editingDeckId ? "Đã cập nhật bộ bài!" : "Đã tạo bộ bài thành công!");
         cardsToDelete = []; 
         showHome();
     } catch (e) {
@@ -1355,7 +1362,6 @@ async function saveFullDeck() {
         customAlert("Lỗi: " + e.message);
     }
 }
-
 async function deleteCurrentDeck() {
     if (!editingDeckId) return;
     const confirmed = await showConfirm("Xóa vĩnh viễn?", `Xác nhận xóa bộ bài "${editingDeckId}"?`);
@@ -1545,34 +1551,37 @@ async function saveSingleRow(id) {
     const tag = document.getElementById('nTag').value.trim();
     const isPublic = document.getElementById('nVisibility').value === 'true';
 
+    if (!tag) return customAlert("Vui lòng nhập Tên bộ bài!", "⚠️");
     if (!f || !b) return customAlert("Vui lòng điền đủ nội dung thẻ!", "⚠️");
 
-    // Sử dụng tên nút OK và Cancel như bạn yêu cầu
+    // XÁC ĐỊNH ID NỘI BỘ (Để không bao giờ trùng giữa các User)
+    // Nếu đang sửa bộ bài cũ, dùng lại editingDeckId. Nếu mới hoàn toàn, tạo mã mới.
+    const internalId = editingDeckId ? editingDeckId : `${currentUser.id}:${tag}`;
+
     const ok = await showConfirm("Lưu thay đổi?", "Bạn muốn cập nhật nội dung cho thẻ này?", "OK", "Hủy");
     
     if (ok) {
         showLoading("Đang lưu...");
         try {
-            // Đảm bảo mode không bị null/undefined
-            if (!mode) {
-                // Nếu mode bị trống, thử lấy lại từ thông tin hiển thị hoặc mặc định
-                mode = 'flashcard'; 
-            }
+            if (!mode) mode = 'flashcard'; 
 
-            // 1. Cập nhật Deck trước
-            await sb.from('decks').upsert({ 
-                id: tag, 
+            // 1. Cập nhật Deck với ID duy nhất (internalId)
+            const { error: dErr } = await sb.from('decks').upsert({ 
+                id: internalId, // Đây là khóa chính duy nhất
                 owner_id: currentUser.id, 
-                type: mode, // Giờ đây mode đã được đảm bảo có giá trị
+                type: mode,
                 is_public: isPublic 
             });
+            if (dErr) throw dErr;
 
-            // 2. Lưu Card
-            const cardObj = { deck_id: tag, front: f, back: b, info: i };
+            // 2. Lưu Card gắn với internalId
+            const cardObj = { deck_id: internalId, front: f, back: b, info: i };
             if (dbId) cardObj.id = dbId;
-            const { data: savedCard, error } = await sb.from('cards').upsert(cardObj).select();
             
-            if (error) throw error;
+            const { data: savedCard, error: cErr } = await sb.from('cards').upsert(cardObj).select();
+            if (cErr) throw cErr;
+
+            // Gán ID để lần sau thành Sửa
             if (!dbId && savedCard) row.setAttribute('data-db-id', savedCard[0].id);
 
             hideLoading();
@@ -1581,7 +1590,7 @@ async function saveSingleRow(id) {
             row.querySelectorAll('textarea').forEach(t => t.disabled = true);
         } catch (e) {
             hideLoading();
-            customAlert("Lỗi: " + e.message);
+            customAlert("Lỗi: " + e.message, "❌");
         }
     }
 }
@@ -1666,6 +1675,7 @@ function renderCardsToForm(cards, isEditMode = true) {
 </div>
 </body>
 </html>
+
 
 
 
