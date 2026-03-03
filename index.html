@@ -1479,28 +1479,58 @@ async function saveSingleRow(id) {
     const f = row.querySelector('.r-front').value.trim();
     const b = row.querySelector('.r-back').value.trim();
     const i = row.querySelector('.r-info').value.trim();
-    const tag = document.getElementById('nTag').value;
+    
+    // Lấy thông tin metadata của bộ bài
+    const tag = document.getElementById('nTag').value.trim();
+    const isPublic = document.getElementById('nVisibility').value === 'true';
 
-    if (!f || !b) return customAlert("Mặt trước và sau không được để trống!", "⚠️");
+    if (!tag) return customAlert("Vui lòng nhập Tên bộ bài trước khi lưu thẻ!", "⚠️");
+    if (!f || !b) return customAlert("Vui lòng điền đủ Mặt trước và Mặt sau!", "⚠️");
 
-    const ok = await showConfirm("Lưu thay đổi?", "Bạn muốn cập nhật nội dung mới cho thẻ này?", "OK", "Hủy");
+    const ok = await showConfirm("Lưu thay đổi?", "Bạn muốn cập nhật nội dung cho thẻ này?", "OK", "Hủy");
+    
     if (ok) {
-        showLoading("Đang lưu thẻ...");
-        const cardObj = { deck_id: tag, front: f, back: b, info: i };
-        if (dbId) cardObj.id = dbId; // Upsert nếu đã có ID
+        showLoading("Đang xử lý...");
+        try {
+            // BƯỚC 1: Đảm bảo bộ bài (Deck) đã tồn tại trong DB
+            // Chúng ta dùng upsert cho Deck để tạo mới nếu chưa có
+            const { error: deckError } = await sb.from('decks').upsert({ 
+                id: tag, 
+                owner_id: currentUser.id, 
+                type: mode, 
+                is_public: isPublic 
+            });
 
-        const { error } = await sb.from('cards').upsert(cardObj);
-        hideLoading();
-        
-        if (!error) {
-            showToast("Đã lưu thẻ!");
+            if (deckError) throw deckError;
+
+            // BƯỚC 2: Sau khi Deck đã chắc chắn tồn tại, mới lưu Card
+            const cardObj = { deck_id: tag, front: f, back: b, info: i };
+            if (dbId) cardObj.id = dbId; // Nếu là sửa thẻ cũ thì đính kèm ID
+
+            const { data: savedCard, error: cardError } = await sb.from('cards').upsert(cardObj).select();
+            
+            if (cardError) throw cardError;
+
+            // Nếu là thẻ mới lưu lần đầu, hãy gán ID từ DB vào thuộc tính để lần sau thành Sửa (không phải nhân đôi)
+            if (!dbId && savedCard) {
+                row.setAttribute('data-db-id', savedCard[0].id);
+            }
+
+            hideLoading();
+            showToast("Đã lưu thẻ thành công!");
+            
+            // Chuyển về chế độ xem (readonly)
             row.classList.add('readonly-mode');
             row.querySelectorAll('textarea').forEach(t => t.disabled = true);
-        } else {
-            customAlert("Lỗi: " + error.message, "❌");
+
+        } catch (e) {
+            hideLoading();
+            console.error(e);
+            customAlert("Lỗi lưu dữ liệu: " + e.message, "❌");
         }
     }
 }
+
 async function deleteSingleRow(id) {
     const row = document.getElementById(`row-${id}`);
     const dbId = row.getAttribute('data-db-id');
@@ -1560,6 +1590,7 @@ function enableRowEdit(id) {
 </div>
 </body>
 </html>
+
 
 
 
