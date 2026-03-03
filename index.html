@@ -310,6 +310,45 @@ body { margin: 0 !important; padding: 0 !important; background-color: #f8fafc; }
 <div id="confirmModal" class="modal"><div class="modal-content" style="max-width: 400px; text-align: center; padding: 30px;"><div id="confirmTitle" style="font-weight: 800; color: #2d3748; font-size: 20px;">Xác nhận</div><p id="confirmMsg" style="color: #718096; line-height: 1.5; margin-bottom: 25px;"></p><div style="display: flex; gap: 10px;"><button id="confirmCancelBtn" style="flex: 1; padding: 12px; border-radius: 50px; border: none; background: #edf2f7; color: #4a5568; font-weight: 700; cursor: pointer;">Hủy</button><button id="confirmOkBtn" style="flex: 1; padding: 12px; border-radius: 50px; border: none; background: linear-gradient(135deg, #f56565, #e53e3e); color: white; font-weight: 700; cursor: pointer;">OK</button></div></div></div>
 
 <script>
+/* ================= HỆ THỐNG ROUTER (LƯU TRẠNG THÁI F5) ================= */
+async function handleRoute() {
+    const hash = window.location.hash.substring(1); // Lấy phần sau dấu #
+    if (!hash) return showHome(); // Nếu không có #, về trang chủ
+
+    const parts = hash.split('/');
+    const route = parts[0];
+
+    try {
+        if (route === 'home') { 
+            showHome(); 
+        } 
+        else if (route === 'decks') { 
+            openDeckSelection(parts[1], true); 
+        } 
+        else if (route === 'study') { 
+            mode = parts[2];
+            await loadCards(decodeURIComponent(parts[1]), true); 
+        } 
+        else if (route === 'edit') { 
+            await openEditDeck(null, decodeURIComponent(parts[1]), true); 
+        } 
+        else if (route === 'learn') { 
+            showLearnPage(true); 
+        } 
+        else if (route === 'new') { 
+            showNewForm(parts[1], true); 
+        } 
+        else if (route === 'import') { 
+            showImportForm(true); 
+        } 
+        else { 
+            showHome(); 
+        }
+    } catch (error) {
+        console.error("Lỗi khi khôi phục trang:", error);
+        showHome();
+    }
+}
 /* ================= 1. CONFIG ================= */
 const SUPABASE_URL = 'https://qdbvtftixwrpskqmjjrg.supabase.co'; 
 const SUPABASE_KEY = 'sb_publishable_wZNeMpesqSKpLP7OiN3GkQ_1XinDqyc'; 
@@ -339,7 +378,11 @@ function showPage(p) {
     window.scrollTo(0, 0);
 }
 
-function showHome() { showPage('homePage'); updateBreadcrumb([]); }
+function showHome(skipHash = false) { 
+    if (!skipHash) window.location.hash = 'home';
+    showPage('homePage'); 
+    updateBreadcrumb([]); 
+}
 function showLoading(t) { document.getElementById('loadingText').innerText = t; document.getElementById('loadingOverlay').style.display = 'flex'; }
 function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
 function showToast(msg) { const c = document.getElementById('toast-container'); const t = document.createElement('div'); t.className = 'toast'; t.innerText = msg; c.appendChild(t); setTimeout(() => t.remove(), 3000); }
@@ -372,17 +415,29 @@ function updateBreadcrumb(paths) {
 
 /* ================= 4. AUTH ================= */
 sb.auth.onAuthStateChange((event, session) => {
-    const loginPage = document.getElementById('loginPage'), headerSearch = document.getElementById('headerSearch'), userSection = document.getElementById('userSection');
+    const loginPage = document.getElementById('loginPage');
+    const headerSearch = document.getElementById('headerSearch');
+    const userSection = document.getElementById('userSection');
+
     if (session) {
         currentUser = session.user;
         document.getElementById('userAvatar').innerHTML = `<img src="${currentUser.user_metadata.avatar_url || currentUser.user_metadata.picture}">`;
-        headerSearch.classList.remove('hidden'); userSection.classList.remove('hidden');
-        if (!loginPage.classList.contains('hidden')) showHome();
+        headerSearch.classList.remove('hidden'); 
+        userSection.classList.remove('hidden');
+        
+        // CẬP NHẬT: Thay vì gọi showHome(), ta gọi handleRoute() để khôi phục trang
+        if (!loginPage.classList.contains('hidden')) {
+            handleRoute(); 
+        }
+
     } else {
-        currentUser = null; showPage('loginPage');
-        headerSearch.classList.add('hidden'); userSection.classList.add('hidden');
+        currentUser = null; 
+        showPage('loginPage');
+        headerSearch.classList.add('hidden'); 
+        userSection.classList.add('hidden');
     }
 });
+
 
 async function login() { await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin, queryParams: { prompt: 'select_account', access_type: 'offline' } } }); }
 async function logout() { showLoading("Đang đăng xuất..."); await sb.auth.signOut(); hideLoading(); window.location.reload(); }
@@ -390,7 +445,8 @@ function toggleUserDropdown(e) { e.stopPropagation(); document.getElementById('u
 window.onclick = () => document.getElementById('userDropdown').classList.remove('show');
 
 /* ================= 5. CORE ================= */
-async function openDeckSelection(m) {
+async function openDeckSelection(m, skipHash = false) {
+    if (!skipHash) window.location.hash = `decks/${m}`;
     mode = m; showPage('deckSelectionPage');
     const labels = { 'review': 'Ôn tập Today', 'cram': 'Học nhồi nhét', 'test': 'Luyện đề thi' };
     updateBreadcrumb([{label: labels[m] || 'Học tập'}]);
@@ -410,7 +466,9 @@ async function openDeckSelection(m) {
     });
 }
 
-async function openEditDeck(event, deckId) {
+async function openEditDeck(event, deckId, skipHash = false) {
+    if (event) event.stopPropagation(); 
+    if (!skipHash) window.location.hash = `edit/${encodeURIComponent(deckId)}`;
     if (event) event.stopPropagation(); editingDeckId = deckId; activeDeckId = deckId; showLoading("Đang nạp...");
     const { data: deck } = await sb.from('decks').select('*').eq('id', deckId).single();
     const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
@@ -441,7 +499,8 @@ async function openCopyDeck(event, deckId) {
     hideLoading();
 }
 
-async function loadCards(d) {
+async function loadCards(d, skipHash = false) {
+    if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/${mode}`;
     currentDeckName = d; showLoading("Đang tải thẻ...");
     const { data: cards } = await sb.from('cards').select('*, progress(*)').eq('deck_id', d);
     updateBreadcrumb([{label: mode==='test'?'Luyện đề':'Học tập', action:'openDeckSelection(mode)'}, {label: getCleanName(d)}]);
@@ -505,8 +564,10 @@ async function handleGlobalSearch() {
         </div>`).join('');
 }
 
-function showLearnPage() { showPage('learnPage'); document.getElementById('learnMenu').classList.remove('hidden'); document.getElementById('newForm').classList.add('hidden'); document.getElementById('importForm').classList.add('hidden'); updateBreadcrumb([{label:'Thêm mới'}]); }
-function showNewForm(type) {
+function showLearnPage(skipHash = false) { 
+    if (!skipHash) window.location.hash = 'learn'; showPage('learnPage'); document.getElementById('learnMenu').classList.remove('hidden'); document.getElementById('newForm').classList.add('hidden'); document.getElementById('importForm').classList.add('hidden'); updateBreadcrumb([{label:'Thêm mới'}]); }
+function showNewForm(type, skipHash = false) {
+    if (!skipHash) window.location.hash = `new/${type}`;
     mode = type; editingDeckId = null; activeDeckId = null; // Reset phiên tạo mới
     document.getElementById('nTag').value = ''; document.getElementById('nTag').disabled = false;
     document.getElementById('formTitle').innerText = "Tạo bộ bài mới";
@@ -515,7 +576,8 @@ function showNewForm(type) {
     showPage('learnPage'); document.getElementById('learnMenu').classList.add('hidden'); document.getElementById('newForm').classList.remove('hidden');
 }
 function goBackToSelection() { openDeckSelection(mode); }
-function showImportForm() { document.getElementById('learnMenu').classList.add('hidden'); document.getElementById('importForm').classList.remove('hidden'); updateBreadcrumb([{label: 'Thêm mới', action: 'showLearnPage()'}, {label: 'Smart Import'}]); }
+function showImportForm(skipHash = false) { 
+    if (!skipHash) window.location.hash = 'import'; document.getElementById('learnMenu').classList.add('hidden'); document.getElementById('importForm').classList.remove('hidden'); updateBreadcrumb([{label: 'Thêm mới', action: 'showLearnPage()'}, {label: 'Smart Import'}]); }
 
 async function saveFullDeck() {
     const tag = document.getElementById('nTag').value.trim();
@@ -624,3 +686,4 @@ async function smartImport() {
 </script>
 </body>
 </html>
+
