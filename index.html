@@ -945,14 +945,31 @@ function updateBreadcrumb(paths) {
 
 /* ================= 5. CORE LOGIC ================= */
 async function openDeckSelection(m) {
-    mode = m; showPage('deckSelectionPage');
+    mode = m; 
+    showPage('deckSelectionPage');
     const list = document.getElementById('deckList'); 
-    list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Đang tải...</p>';
+    list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Đang tải dữ liệu...</p>';
     
     const type = m === 'test' ? 'quiz' : 'flashcard';
-    const { data: decks } = await sb.from('decks').select('*').eq('type', type);
-    
+
+    // CẬP NHẬT TRUY VẤN: Chỉ lấy bài công khai HOẶC bài của chính mình
+    const { data: decks, error } = await sb
+        .from('decks')
+        .select('*')
+        .eq('type', type)
+        .or(`is_public.eq.true,owner_id.eq.${currentUser.id}`);
+
+    if (error) {
+        console.error(error);
+        return customAlert("Lỗi tải dữ liệu!");
+    }
+
     list.innerHTML = '';
+    if(!decks || !decks.length) { 
+        list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Chưa có bộ bài nào dành cho bạn.</p>'; 
+        return; 
+    }
+
     decks.forEach(d => {
         const isOwner = d.owner_id === currentUser.id;
         const card = document.createElement('div');
@@ -1590,6 +1607,7 @@ function enableRowEdit(id) {
 </div>
 </body>
 </html>
+
 
 
 
