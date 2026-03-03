@@ -569,6 +569,28 @@ body {
 .row-action-btn:hover { transform: scale(1.1); background: #f8fafc; }
 .btn-row-edit:hover { color: #3182ce; border-color: #bee3f8; }
 .btn-row-delete:hover { color: #e53e3e; border-color: #fed7d7; }
+.btn-row-delete, .btn-row-save, .btn-row-cancel {
+    display: none !important;
+}
+.card-row:not(.readonly-mode) .btn-row-delete,
+.card-row:not(.readonly-mode) .btn-row-save,
+.card-row:not(.readonly-mode) .btn-row-cancel {
+    display: flex !important;
+}
+.card-row.readonly-mode .btn-row-edit {
+    display: flex !important;
+}
+.card-row:not(.readonly-mode) .btn-row-edit {
+    display: none !important;
+}
+.btn-row-save:hover { background: #f0fff4; border-color: #68d391; color: #38a169; }
+.btn-row-cancel:hover { background: #edf2f7; color: #4a5568; }
+.footer-actions {
+    margin-top: 50px;
+    padding: 30px;
+    border-top: 2px dashed #e2e8f0;
+    text-align: center;
+}
 
 </style>
 </head>
@@ -711,21 +733,19 @@ body {
             <button class="add-row-btn" onclick="addNewRow()">+ THÊM THẺ MỚI</button>
         
             <!-- Khu vực nút bấm cuối Form -->
-            <div class="form-actions" style="display: flex; gap: 15px; margin-top: 30px; flex-wrap: wrap;">
-                <!-- Nút Hủy (Màu trắng xám) -->
-                <button onclick="cancelEdit()" style="padding:16px 30px; border-radius:50px; border:1.5px solid #e2e8f0; background:#fff; color:#4a5568; font-weight:800; cursor:pointer; transition:0.3s;">
-                    ✖️ HỦY BỎ
-                </button>
-            
-                <!-- Nút Xóa (Chỉ hiện khi đang Sửa) -->
-                <button id="btnDeleteInForm" class="btn-delete-full hidden" onclick="deleteCurrentDeck()">
-                    🗑️ XÓA BỘ BÀI
-                </button>
-            
-                <!-- Nút Lưu (Chính) -->
-                <button onclick="saveFullDeck()" style="flex-grow:1; padding:16px; background:linear-gradient(135deg, #4299e1, #3182ce); color:#fff; border:none; border-radius:50px; font-weight:800; cursor:pointer; box-shadow: 0 10px 20px rgba(66, 153, 225, 0.3);">
-                    🚀 LƯU THAY ĐỔI
-                </button>
+            <div class="footer-actions">
+                <p style="color: #a0aec0; font-size: 13px; margin-bottom: 20px;">
+                    * Các thay đổi được lưu trực tiếp trên từng thẻ bài.
+                </p>
+                <div style="display: flex; justify-content: center; gap: 20px;">
+                    <button onclick="showHome()" style="padding: 15px 35px; border-radius: 50px; border: 1.5px solid #e2e8f0; background: #fff; font-weight: 800; cursor: pointer;">
+                        🏠 QUAY LẠI TRANG CHỦ
+                    </button>
+                    
+                    <button id="btnDeleteInForm" class="btn-delete-full" onclick="deleteCurrentDeck()" style="background: #fff5f5; color: #e53e3e; border: 1.5px solid #feb2b2;">
+                        🗑️ XÓA VĨNH VIỄN BỘ BÀI
+                    </button>
+                </div>
             </div>
 
         </div>
@@ -927,48 +947,24 @@ async function openDeckSelection(m) {
     });
 }
 async function openEditDeck(event, deckId) {
-    if (event) event.stopPropagation(); // Ngăn việc load bộ bài để học
+    if (event) event.stopPropagation();
+    editingDeckId = deckId;
+    showLoading(`Đang nạp bộ bài...`);
+
+    const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
+    const { data: deck } = await sb.from('decks').select('*').eq('id', deckId).single();
+
+    document.getElementById('nTag').value = deck.id;
+    document.getElementById('nTag').disabled = true;
+    document.getElementById('nVisibility').value = deck.is_public.toString();
+    document.getElementById('formTitle').innerText = `Chỉnh sửa: ${deckId}`;
     
-    editingDeckId = deckId; // Lưu lại ID bộ bài đang sửa
-    showLoading(`Đang tải dữ liệu "${deckId}"...`);
-
-    try {
-        // Lấy thông tin bộ bài
-        const { data: deck, error: deckErr } = await sb.from('decks').select('*').eq('id', deckId).single();
-        if (deckErr) throw deckErr;
-
-        // Lấy danh sách thẻ
-        const { data: cards, error: cardsErr } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
-        if (cardsErr) throw cardsErr;
-
-        // Đổ dữ liệu vào Form
-        document.getElementById('nTag').value = deck.id;
-        document.getElementById('nTag').disabled = true; // Không cho sửa tên (ID) khi đang Edit
-        document.getElementById('nVisibility').value = deck.is_public.toString();
-        document.getElementById('formTitle').innerText = `Chỉnh sửa: ${deckId}`;
-        document.getElementById('formIcon').innerText = "✏️";
-        
-        // Hiện nút Xóa
-        document.getElementById('btnDeleteInForm').classList.remove('hidden');
-
-        // Vẽ các dòng thẻ
-        renderCardsToForm(cards);
-
-        // Chuyển trang
-        showPage('learnPage');
-        document.getElementById('learnMenu').classList.add('hidden');
-        document.getElementById('newForm').classList.remove('hidden');
-        
-        updateBreadcrumb([
-            {label: 'Thêm mới', action: 'showLearnPage()'},
-            {label: 'Chỉnh sửa'}
-        ]);
-
-    } catch (e) {
-        customAlert("Lỗi khi tải bộ bài: " + e.message);
-    } finally {
-        hideLoading();
-    }
+    renderCardsToForm(cards);
+    
+    showPage('learnPage');
+    document.getElementById('learnMenu').classList.add('hidden');
+    document.getElementById('newForm').classList.remove('hidden');
+    hideLoading();
 }
 async function cancelEdit() {
     const ok = await showConfirm("Hủy bỏ?", "Mọi thay đổi chưa lưu sẽ bị mất. Bạn có chắc chắn muốn thoát?");
@@ -1421,35 +1417,78 @@ function addNewRow(cardData = null) {
     const rowDiv = document.createElement('div');
     rowDiv.className = 'card-row' + (cardData ? ' readonly-mode' : '');
     rowDiv.id = `row-${rowCount}`;
-    
-    // Lưu ID thẻ vào thuộc tính dữ liệu (nếu có)
     if (cardData && cardData.id) rowDiv.setAttribute('data-db-id', cardData.id);
 
     const isReadOnly = cardData ? 'disabled' : '';
 
     rowDiv.innerHTML = `
         <div class="card-row-header">
-            <span>THẺ #${rowCount} ${cardData ? '(Đã lưu)' : '(Mới)'}</span>
+            <span>THẺ #${rowCount}</span>
             <div style="display:flex; gap:8px;">
-                ${cardData ? `<button class="row-action-btn btn-row-edit" title="Sửa thẻ này" onclick="enableRowEdit(${rowCount})">✏️</button>` : ''}
-                <button class="row-action-btn btn-row-delete" title="Xóa thẻ này" onclick="removeRow(${rowCount})">🗑️</button>
+                <button class="row-action-btn btn-row-edit" data-tooltip="Sửa thẻ này" onclick="enableRowEdit(${rowCount})">✏️</button>
+                <button class="row-action-btn btn-row-save" data-tooltip="Lưu thay đổi" onclick="saveSingleRow(${rowCount})">✅</button>
+                <button class="row-action-btn btn-row-cancel" data-tooltip="Hủy" onclick="cancelRowEdit(${rowCount})">✖️</button>
+                <button class="row-action-btn btn-row-delete" data-tooltip="Xóa thẻ này" onclick="deleteSingleRow(${rowCount})">🗑️</button>
             </div>
         </div>
-        <div>
-            <label>Mặt trước</label>
-            <textarea class="r-front" rows="2" ${isReadOnly}>${cardData ? cardData.front : ''}</textarea>
-        </div>
-        <div>
-            <label>Mặt sau</label>
-            <textarea class="r-back" rows="2" ${isReadOnly}>${cardData ? cardData.back : ''}</textarea>
-        </div>
-        <div class="info-field">
-            <label>Thông tin phụ</label>
-            <textarea class="r-info" rows="2" ${isReadOnly}>${cardData ? (cardData.info || '') : ''}</textarea>
-        </div>
+        <div><label>Mặt trước</label><textarea class="r-front" rows="2" ${isReadOnly}>${cardData ? cardData.front : ''}</textarea></div>
+        <div><label>Mặt sau</label><textarea class="r-back" rows="2" ${isReadOnly}>${cardData ? cardData.back : ''}</textarea></div>
+        <div class="info-field"><label>Thông tin phụ</label><textarea class="r-info" rows="2" ${isReadOnly}>${cardData ? (cardData.info || '') : ''}</textarea></div>
     `;
     container.appendChild(rowDiv);
 }
+async function saveSingleRow(id) {
+    const row = document.getElementById(`row-${id}`);
+    const dbId = row.getAttribute('data-db-id');
+    const f = row.querySelector('.r-front').value.trim();
+    const b = row.querySelector('.r-back').value.trim();
+    const i = row.querySelector('.r-info').value.trim();
+    const tag = document.getElementById('nTag').value;
+
+    if (!f || !b) return customAlert("Mặt trước và sau không được để trống!", "⚠️");
+
+    const ok = await showConfirm("Lưu thay đổi?", "Bạn muốn cập nhật nội dung mới cho thẻ này?");
+    if (ok) {
+        showLoading("Đang lưu thẻ...");
+        const cardObj = { deck_id: tag, front: f, back: b, info: i };
+        if (dbId) cardObj.id = dbId; // Upsert nếu đã có ID
+
+        const { error } = await sb.from('cards').upsert(cardObj);
+        hideLoading();
+        
+        if (!error) {
+            showToast("Đã lưu thẻ!");
+            row.classList.add('readonly-mode');
+            row.querySelectorAll('textarea').forEach(t => t.disabled = true);
+        } else {
+            customAlert("Lỗi: " + error.message, "❌");
+        }
+    }
+}
+async function deleteSingleRow(id) {
+    const row = document.getElementById(`row-${id}`);
+    const dbId = row.getAttribute('data-db-id');
+
+    const ok = await showConfirm("Xóa thẻ này?", "Hành động này sẽ xóa vĩnh viễn thẻ khỏi hệ thống.");
+    if (ok) {
+        if (dbId) {
+            showLoading("Đang xóa...");
+            await sb.from('cards').delete().eq('id', dbId);
+            hideLoading();
+        }
+        row.remove();
+        showToast("Đã xóa thẻ!");
+    }
+}
+function cancelRowEdit(id) {
+    const row = document.getElementById(`row-${id}`);
+    const dbId = row.getAttribute('data-db-id');
+    if (!dbId) { row.remove(); return; } // Nếu là thẻ mới tạo mà chưa lưu thì xóa luôn
+
+    row.classList.add('readonly-mode');
+    row.querySelectorAll('textarea').forEach(t => t.disabled = true);
+}
+
 function enableRowEdit(id) {
     const row = document.getElementById(`row-${id}`);
     row.classList.remove('readonly-mode');
@@ -1485,6 +1524,7 @@ function enableRowEdit(id) {
 </div>
 </body>
 </html>
+
 
 
 
