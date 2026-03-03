@@ -763,16 +763,18 @@ body {
         
             <!-- Khu vực nút bấm cuối Form -->
             <div class="footer-actions">
-                <p style="color: #a0aec0; font-size: 13px; margin-bottom: 20px;">
-                    * Các thay đổi được lưu trực tiếp trên từng thẻ bài.
-                </p>
-                <div style="display: flex; justify-content: center; gap: 20px;">
-                    <button onclick="showHome()" style="padding: 15px 35px; border-radius: 50px; border: 1.5px solid #e2e8f0; background: #fff; font-weight: 800; cursor: pointer;">
-                        🏠 QUAY LẠI TRANG CHỦ
+                <!-- Nút này sẽ chỉ hiện khi Tạo mới hoặc Copy -->
+                <button id="btnSaveAll" onclick="saveFullDeck()" style="width:100%; padding:18px; background:linear-gradient(135deg, #48bb78, #38a169); color:#fff; border:none; border-radius:50px; font-weight:800; cursor:pointer; box-shadow: 0 10px 20px rgba(72, 187, 120, 0.3); margin-bottom: 25px; display: none;">
+                    🚀 TẠO BỘ BÀI & LƯU TẤT CẢ
+                </button>
+            
+                <div style="display: flex; justify-content: center; gap: 15px;">
+                    <button onclick="cancelEdit()" style="flex:1; padding: 15px; border-radius: 50px; border: 1.5px solid #e2e8f0; background: #fff; font-weight: 800; cursor: pointer;">
+                        🏠 HỦY & QUAY LẠI
                     </button>
                     
-                    <button id="btnDeleteInForm" class="btn-delete-full" onclick="deleteCurrentDeck()" style="background: #fff5f5; color: #e53e3e; border: 1.5px solid #feb2b2;">
-                        🗑️ XÓA VĨNH VIỄN BỘ BÀI
+                    <button id="btnDeleteInForm" class="btn-delete-full hidden" onclick="deleteCurrentDeck()" style="flex:1; background: #fff5f5; color: #e53e3e; border: 1.5px solid #feb2b2; border-radius: 50px; font-weight: 800;">
+                        🗑️ XÓA BỘ BÀI
                     </button>
                 </div>
             </div>
@@ -1005,13 +1007,17 @@ async function openEditDeck(event, deckId) {
     document.getElementById('nVisibility').value = deck.is_public.toString();
     document.getElementById('formTitle').innerText = `Chỉnh sửa: ${deckId}`;
     
+    // ẨN nút Lưu tất cả, HIỆN nút Xóa
+    document.getElementById('btnSaveAll').style.display = 'none';
+    document.getElementById('btnDeleteInForm').classList.remove('hidden');
+
     renderCardsToForm(cards);
-    
     showPage('learnPage');
     document.getElementById('learnMenu').classList.add('hidden');
     document.getElementById('newForm').classList.remove('hidden');
     hideLoading();
 }
+
 async function cancelEdit() {
     const ok = await showConfirm("Hủy bỏ?", "Mọi thay đổi chưa lưu sẽ bị mất. Bạn có chắc chắn muốn thoát?");
     if (ok) {
@@ -1020,23 +1026,38 @@ async function cancelEdit() {
 }
 
 async function openCopyDeck(event, deckId) {
-    event.stopPropagation();
-    editingDeckId = null; // Copy bản chất là tạo mới
+    if (event) event.stopPropagation();
+    editingDeckId = null; // Copy coi như tạo mới
     showLoading("Đang chuẩn bị bản sao...");
 
-    const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId);
+    const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
     
-    document.getElementById('nTag').value = deckId + " (Bản sao)";
+    document.getElementById('nTag').value = deckId + " (Copy)";
     document.getElementById('nTag').disabled = false;
-    document.getElementById('btnDeleteInForm').classList.add('hidden'); // Ẩn nút xóa vì đây là bộ mới
-    document.getElementById('formTitle').innerText = "Sao chép bộ bài về máy";
+    document.getElementById('formTitle').innerText = "Sao chép bộ bài";
+    
+    // HIỆN nút Lưu tất cả, ẨN nút Xóa
+    document.getElementById('btnSaveAll').style.display = 'block';
+    document.getElementById('btnDeleteInForm').classList.add('hidden');
 
-    renderCardsToForm(cards);
-    hideLoading();
+    // Khi copy, chúng ta vẽ các dòng ở chế độ SỬA LUÔN (không readonly) để người dùng sửa nhanh
+    const container = document.getElementById('cardRowsContainer');
+    container.innerHTML = ''; rowCount = 0;
+    cards.forEach(c => {
+        addNewRow(); // Tạo dòng mới (mặc định mở khóa)
+        const rows = container.querySelectorAll('.card-row');
+        const lastRow = rows[rows.length - 1];
+        lastRow.querySelector('.r-front').value = c.front;
+        lastRow.querySelector('.r-back').value = c.back;
+        lastRow.querySelector('.r-info').value = c.info;
+    });
+
     showPage('learnPage');
     document.getElementById('learnMenu').classList.add('hidden');
     document.getElementById('newForm').classList.remove('hidden');
+    hideLoading();
 }
+
 function renderCardsToForm(cards) {
     const container = document.getElementById('cardRowsContainer');
     container.innerHTML = ''; 
@@ -1163,7 +1184,8 @@ function showNewForm(type) {
     
     document.getElementById('nTag').value = '';
     document.getElementById('nTag').disabled = false;
-    document.getElementById('btnDeleteInForm').classList.add('hidden'); // Ẩn nút xóa
+    document.getElementById('btnSaveAll').style.display = 'block';
+    document.getElementById('btnDeleteInForm').classList.add('hidden');
     document.getElementById('formTitle').innerText = type === 'quiz' ? "Soạn Đề Trắc Nghiệm" : "Tạo Flashcard Mới";
     document.getElementById('formIcon').innerText = type === 'quiz' ? "❓" : "🃏";
 
@@ -1262,55 +1284,74 @@ function removeRow(id) {
 async function saveFullDeck() {
     const tag = document.getElementById('nTag').value.trim();
     const isPublic = document.getElementById('nVisibility').value === 'true';
-    if(!tag) return showToast("Vui lòng nhập tên bộ bài!");
+    if(!tag) return customAlert("Vui lòng nhập tên bộ bài!", "⚠️");
 
-    let cardsToUpsert = [];
+    let cardsToProcess = [];
     const rows = document.querySelectorAll('.card-row');
     
     rows.forEach(row => {
-        const dbId = row.getAttribute('data-db-id');
-        const isDirty = row.getAttribute('data-is-dirty') === 'true';
-        const isNew = !dbId;
+        const f = row.querySelector('.r-front').value.trim();
+        const b = row.querySelector('.r-back').value.trim();
+        const i = row.querySelector('.r-info').value.trim();
 
-        // Chỉ xử lý những thẻ MỚI hoặc thẻ CŨ ĐÃ BỊ SỬA
-        if (isNew || isDirty) {
-            const f = row.querySelector('.r-front').value.trim();
-            const b = row.querySelector('.r-back').value.trim();
-            const i = row.querySelector('.r-info').value.trim();
+        if (f && b) {
+            let cardObj = { deck_id: tag, front: f, back: b, info: i };
 
-            if (f && b) {
-                let cardObj = { deck_id: tag, front: f, back: b, info: i };
-                if (dbId) cardObj.id = dbId; // Gửi kèm ID để Supabase ghi đè (Update)
-                cardsToUpsert.push(cardObj);
+            if (editingDeckId) {
+                // --- CHẾ ĐỘ SỬA (GIỮ LOGIC CỦA BẠN) ---
+                const dbId = row.getAttribute('data-db-id');
+                const isDirty = row.getAttribute('data-is-dirty') === 'true';
+                const isNew = !dbId;
+
+                if (isNew || isDirty) {
+                    if (dbId) cardObj.id = dbId; // Có ID thì Upsert sẽ ghi đè (không nhân đôi)
+                    cardsToProcess.push(cardObj);
+                }
+            } else {
+                // --- CHẾ ĐỘ COPY HOẶC TẠO MỚI ---
+                // Lưu tất cả, không cần check isDirty, và TUYỆT ĐỐI không gửi kèm ID cũ
+                cardsToProcess.push(cardObj);
             }
         }
     });
 
-    showLoading("Đang cập nhật dữ liệu...");
+    if (cardsToProcess.length === 0 && !editingDeckId) {
+        return customAlert("Vui lòng nhập nội dung thẻ!", "⚠️");
+    }
+
+    showLoading("Đang xử lý dữ liệu...");
     try {
-        // A. Xóa các thẻ người dùng đã nhấn thùng rác
-        if (cardsToDelete.length > 0) {
+        // 1. Xử lý xóa thẻ (chỉ áp dụng khi đang Sửa)
+        if (editingDeckId && cardsToDelete.length > 0) {
             await sb.from('cards').delete().in('id', cardsToDelete);
         }
 
-        // B. Cập nhật thông tin Bộ bài
-        await sb.from('decks').upsert({ id: tag, owner_id: currentUser.id, type: mode, is_public: isPublic });
+        // 2. Cập nhật/Tạo mới Bộ bài (Deck)
+        const { error: dErr } = await sb.from('decks').upsert({ 
+            id: tag, 
+            owner_id: currentUser.id, 
+            type: mode, 
+            is_public: isPublic 
+        });
+        if (dErr) throw dErr;
 
-        // C. Lưu đè/Thêm mới các thẻ (Sử dụng ID để tránh nhân đôi)
-        if (cardsToUpsert.length > 0) {
-            const { error } = await sb.from('cards').upsert(cardsToUpsert);
-            if (error) throw error;
+        // 3. Lưu thẻ (Cards)
+        if (cardsToProcess.length > 0) {
+            // Dùng upsert: Nếu có ID nó sẽ ghi đè (Sửa), nếu không có ID nó sẽ tạo mới (Copy)
+            const { error: cErr } = await sb.from('cards').upsert(cardsToProcess);
+            if (cErr) throw cErr;
         }
 
         hideLoading();
-        showToast("Đã lưu mọi thay đổi!");
-        cardsToDelete = []; // Reset danh sách xóa
+        showToast(editingDeckId ? "Đã cập nhật bộ bài!" : "Đã sao chép bộ bài thành công!");
+        cardsToDelete = []; 
         showHome();
     } catch (e) {
         hideLoading();
         customAlert("Lỗi: " + e.message);
     }
 }
+
 async function deleteCurrentDeck() {
     if (!editingDeckId) return;
     const confirmed = await showConfirm("Xóa vĩnh viễn?", `Xác nhận xóa bộ bài "${editingDeckId}"?`);
@@ -1607,6 +1648,7 @@ function enableRowEdit(id) {
 </div>
 </body>
 </html>
+
 
 
 
