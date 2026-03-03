@@ -120,42 +120,43 @@ body, button, input, textarea, select { font-family: 'Noto Sans JP', sans-serif 
 .deck-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 25px; /* Tăng khoảng cách cho thoáng */
-    align-items: stretch; /* Ép các thẻ trong cùng hàng dài bằng nhau */
+    gap: 20px;
 }
-.deck-btn {
+.deck-card {
+    position: relative;
     background: #fff;
     border: 1.5px solid #edf2f7;
-    padding: 40px 15px 25px 15px; /* Padding trên rộng để nhường chỗ cho badge */
-    font-size: 16px;
-    font-weight: 700;
     border-radius: 12px;
-    cursor: pointer;
+    height: 160px;
     transition: all 0.3s ease;
-    
-    /* CHIỀU CAO CỐ ĐỊNH */
-    height: 160px; 
-    width: 100%;
-    
+    cursor: pointer;
+    overflow: visible; /* Để hiện tooltip */
     display: flex;
     flex-direction: column;
-    justify-content: center; /* Căn giữa nội dung theo chiều dọc */
-    align-items: center;     /* Căn giữa nội dung theo chiều ngang */
+    justify-content: center;
+    align-items: center;
     text-align: center;
-    box-sizing: border-box;
+    padding: 15px;
 }
-.deck-btn b {
+.deck-title {
+    font-weight: 800;      /* Độ dày font chữ theo tiêu chuẩn Pro */
+    color: #2d3748;        /* Màu xám đậm sang trọng */
+    font-size: 16px;
+    line-height: 1.4;
+    width: 100%;           /* Đảm bảo chiếm hết chiều ngang thẻ */
+    
+    /* HIỆU ỨNG NGẮT DÒNG (Line Clamping) */
     display: -webkit-box;
-    -webkit-line-clamp: 3; /* Chỉ cho hiện tối đa 3 dòng chữ */
-    -webkit-box-orient: vertical;  
+    -webkit-line-clamp: 3; /* Hiện tối đa 3 dòng, dài hơn sẽ hiện ... */
+    -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 1.4;
-    color: #2d3748;
-    word-break: break-word;
+    
+    word-break: break-word; /* Đảm bảo từ quá dài không bị tràn khỏi thẻ */
+    margin-top: 10px;      /* Tạo khoảng cách với Badge và nút chức năng phía trên */
 }
 
-.deck-btn:hover {
+.deck-card:hover {
     transform: translateY(-8px);
     border-color: #3498db;
     box-shadow: 0 15px 30px rgba(52, 152, 219, 0.15);
@@ -175,6 +176,67 @@ body, button, input, textarea, select { font-family: 'Noto Sans JP', sans-serif 
     border: 1px solid #e2e8f0;
     z-index: 2;
 }
+.deck-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 5px;
+    z-index: 10;
+}
+.action-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid #edf2f7;
+    background: rgba(255,255,255,0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    cursor: pointer;
+    transition: 0.2s;
+    position: relative;
+}
+
+.action-btn:hover { transform: scale(1.1); }
+.btn-edit:hover { color: #3182ce; border-color: #bee3f8; background: #ebf8ff; }
+.btn-delete:hover { color: #e53e3e; border-color: #fed7d7; background: #fff5f5; }
+.action-btn::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 130%;
+    left: 50%;
+    transform: translateX(-50%) translateY(5px);
+    padding: 5px 10px;
+    background: #2d3748;
+    color: #fff;
+    font-size: 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+    transition: 0.2s;
+    pointer-events: none;
+}
+
+.action-btn:hover::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+.deck-title {
+    font-weight: 800;
+    color: #2d3748;
+    font-size: 16px;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-top: 10px;
+}
+
 .badge-public { background: #e0f2fe; border: 1px solid #bae6fd; }
 .badge-private { background: #f1f5f9; border: 1px solid #e2e8f0; }
 .study-tools-box { background: #fff; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 2px solid #edf2f7; }
@@ -734,58 +796,57 @@ async function openDeckSelection(m) {
     mode = m; 
     showPage('deckSelectionPage');
     
-    // Cập nhật Breadcrumb để không bị trống
-    updateBreadcrumb([{label: m === 'test' ? 'Luyện đề thi' : (m === 'review' ? 'Ôn tập' : 'Học nhồi nhét')}]);
+    // Cập nhật Breadcrumb
+    const labels = { 'review': 'Ôn tập', 'cram': 'Học nhồi nhét', 'test': 'Luyện đề thi' };
+    updateBreadcrumb([{label: labels[m] || 'Học tập'}]);
 
     const list = document.getElementById('deckList'); 
     list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Đang nạp bộ bài...</p>';
     
     const type = m === 'test' ? 'quiz' : 'flashcard';
+    const { data: decks } = await sb.from('decks').select('*').eq('type', type);
     
-    // Lấy dữ liệu từ Supabase
-    const { data: decks, error } = await sb.from('decks').select('*').eq('type', type);
-    
-    if (error) {
-        console.error("Lỗi lấy dữ liệu decks:", error);
-        list.innerHTML = '<p style="text-align:center; color:red;">Lỗi tải dữ liệu!</p>';
-        return;
-    }
-
     list.innerHTML = '';
     if(!decks || !decks.length) { 
-        list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Chưa có bộ bài nào trong mục này.</p>'; 
+        list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Chưa có bộ bài nào.</p>'; 
         return; 
     }
 
     decks.forEach(d => {
-        const container = document.createElement('div');
-        container.className = 'deck-btn-container';
+        const isOwner = d.owner_id === currentUser.id;
+        const card = document.createElement('div');
+        card.className = 'deck-card';
         
-        // --- PHẦN KIỂM TRA QUYỀN SỞ HỮU (DEBUG) ---
-        // Chúng ta in ra Console để xem tại sao không khớp
-        console.log(`Kiểm tra bộ bài: ${d.id}`);
-        console.log(`- ID Chủ sở hữu trong DB: ${d.owner_id}`);
-        console.log(`- ID Của bạn hiện tại: ${currentUser.id}`);
+        // Khi bấm vào vùng thẻ (trừ các nút chức năng) thì load bài
+        card.onclick = () => loadCards(d.id);
 
-        // So sánh (Dùng == để linh hoạt hoặc .toString() cho chắc chắn)
-        const isOwner = d.owner_id && d.owner_id.toString() === currentUser.id.toString();
-        
-        // Nếu là chủ nhân THÌ HIỆN, nếu không có owner_id (bộ bài cũ) cũng cho hiện để quản lý
-        let deleteBtn = (isOwner || !d.owner_id) ? 
-            `<button class="btn-delete-deck" onclick="confirmDeleteDeck(event, '${d.id}')">🗑️</button>` : '';
-
-        container.innerHTML = `
-            ${deleteBtn}
-            <button class="deck-btn" onclick="loadCards('${d.id}')">
-                <div class="deck-status-badge ${d.is_public?'badge-public':'badge-private'}">
-                    ${d.is_public?'🌐':'🔒'}
+        let actionHtml = '';
+        if (isOwner) {
+            actionHtml = `
+                <div class="deck-actions">
+                    <button class="action-btn btn-edit" data-tooltip="Chỉnh sửa bộ bài" onclick="openEditDeck(event, '${d.id}')">✏️</button>
+                    <button class="action-btn btn-delete" data-tooltip="Xóa bộ bài" onclick="confirmDeleteDeck(event, '${d.id}')">🗑️</button>
                 </div>
-                <b>${d.id}</b>
-            </button>
+            `;
+        }
+
+        card.innerHTML = `
+            <div class="deck-status-badge ${d.is_public?'badge-public':'badge-private'}" style="position:absolute; top:8px; left:8px;">
+                ${d.is_public?'🌐':'🔒'}
+            </div>
+            ${actionHtml}
+            <div class="deck-title">${d.id}</div>
         `;
-        list.appendChild(container);
+        list.appendChild(card);
     });
 }
+
+// Hàm xử lý nút Sửa (Tạm thời thông báo)
+function openEditDeck(event, deckId) {
+    event.stopPropagation(); // QUAN TRỌNG: Ngăn không cho loadCards chạy
+    customAlert(`Tính năng chỉnh sửa bộ bài "${deckId}" sắp ra mắt!`, "✏️");
+}
+
 
 
 async function loadCards(d) {
@@ -1201,6 +1262,7 @@ function showConfirm(title, message) {
 </div>
 </body>
 </html>
+
 
 
 
