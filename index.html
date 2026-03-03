@@ -999,23 +999,30 @@ async function openEditDeck(event, deckId) {
     editingDeckId = deckId;
     showLoading(`Đang nạp bộ bài...`);
 
-    const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
-    const { data: deck } = await sb.from('decks').select('*').eq('id', deckId).single();
+    try {
+        const { data: deck, error: deckErr } = await sb.from('decks').select('*').eq('id', deckId).single();
+        if (deckErr) throw deckErr;
 
-    document.getElementById('nTag').value = deck.id;
-    document.getElementById('nTag').disabled = true;
-    document.getElementById('nVisibility').value = deck.is_public.toString();
-    document.getElementById('formTitle').innerText = `Chỉnh sửa: ${deckId}`;
-    
-    // ẨN nút Lưu tất cả, HIỆN nút Xóa
-    document.getElementById('btnSaveAll').style.display = 'none';
-    document.getElementById('btnDeleteInForm').classList.remove('hidden');
+        // QUAN TRỌNG: Cập nhật mode toàn cục bằng type thực tế của bộ bài trong DB
+        mode = deck.type; 
 
-    renderCardsToForm(cards);
-    showPage('learnPage');
-    document.getElementById('learnMenu').classList.add('hidden');
-    document.getElementById('newForm').classList.remove('hidden');
-    hideLoading();
+        const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
+
+        document.getElementById('nTag').value = deck.id;
+        document.getElementById('nTag').disabled = true;
+        document.getElementById('nVisibility').value = deck.is_public.toString();
+        document.getElementById('formTitle').innerText = `Chỉnh sửa: ${deckId}`;
+        
+        renderCardsToForm(cards);
+        
+        showPage('learnPage');
+        document.getElementById('learnMenu').classList.add('hidden');
+        document.getElementById('newForm').classList.remove('hidden');
+    } catch (e) {
+        customAlert("Lỗi: " + e.message);
+    } finally {
+        hideLoading();
+    }
 }
 
 async function cancelEdit() {
@@ -1558,56 +1565,50 @@ async function saveSingleRow(id) {
     const b = row.querySelector('.r-back').value.trim();
     const i = row.querySelector('.r-info').value.trim();
     
-    // Lấy thông tin metadata của bộ bài
     const tag = document.getElementById('nTag').value.trim();
     const isPublic = document.getElementById('nVisibility').value === 'true';
 
-    if (!tag) return customAlert("Vui lòng nhập Tên bộ bài trước khi lưu thẻ!", "⚠️");
-    if (!f || !b) return customAlert("Vui lòng điền đủ Mặt trước và Mặt sau!", "⚠️");
+    if (!f || !b) return customAlert("Vui lòng điền đủ nội dung thẻ!", "⚠️");
 
+    // Sử dụng tên nút OK và Cancel như bạn yêu cầu
     const ok = await showConfirm("Lưu thay đổi?", "Bạn muốn cập nhật nội dung cho thẻ này?", "OK", "Hủy");
     
     if (ok) {
-        showLoading("Đang xử lý...");
+        showLoading("Đang lưu...");
         try {
-            // BƯỚC 1: Đảm bảo bộ bài (Deck) đã tồn tại trong DB
-            // Chúng ta dùng upsert cho Deck để tạo mới nếu chưa có
-            const { error: deckError } = await sb.from('decks').upsert({ 
+            // Đảm bảo mode không bị null/undefined
+            if (!mode) {
+                // Nếu mode bị trống, thử lấy lại từ thông tin hiển thị hoặc mặc định
+                mode = 'flashcard'; 
+            }
+
+            // 1. Cập nhật Deck trước
+            await sb.from('decks').upsert({ 
                 id: tag, 
                 owner_id: currentUser.id, 
-                type: mode, 
+                type: mode, // Giờ đây mode đã được đảm bảo có giá trị
                 is_public: isPublic 
             });
 
-            if (deckError) throw deckError;
-
-            // BƯỚC 2: Sau khi Deck đã chắc chắn tồn tại, mới lưu Card
+            // 2. Lưu Card
             const cardObj = { deck_id: tag, front: f, back: b, info: i };
-            if (dbId) cardObj.id = dbId; // Nếu là sửa thẻ cũ thì đính kèm ID
-
-            const { data: savedCard, error: cardError } = await sb.from('cards').upsert(cardObj).select();
+            if (dbId) cardObj.id = dbId;
+            const { data: savedCard, error } = await sb.from('cards').upsert(cardObj).select();
             
-            if (cardError) throw cardError;
-
-            // Nếu là thẻ mới lưu lần đầu, hãy gán ID từ DB vào thuộc tính để lần sau thành Sửa (không phải nhân đôi)
-            if (!dbId && savedCard) {
-                row.setAttribute('data-db-id', savedCard[0].id);
-            }
+            if (error) throw error;
+            if (!dbId && savedCard) row.setAttribute('data-db-id', savedCard[0].id);
 
             hideLoading();
-            showToast("Đã lưu thẻ thành công!");
-            
-            // Chuyển về chế độ xem (readonly)
+            showToast("Đã lưu thành công!");
             row.classList.add('readonly-mode');
             row.querySelectorAll('textarea').forEach(t => t.disabled = true);
-
         } catch (e) {
             hideLoading();
-            console.error(e);
-            customAlert("Lỗi lưu dữ liệu: " + e.message, "❌");
+            customAlert("Lỗi: " + e.message);
         }
     }
 }
+
 
 async function deleteSingleRow(id) {
     const row = document.getElementById(`row-${id}`);
@@ -1668,6 +1669,7 @@ function enableRowEdit(id) {
 </div>
 </body>
 </html>
+
 
 
 
