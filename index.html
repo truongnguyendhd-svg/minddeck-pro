@@ -1027,36 +1027,56 @@ async function cancelEdit() {
 
 async function openCopyDeck(event, deckId) {
     if (event) event.stopPropagation();
-    editingDeckId = null; // Copy coi như tạo mới
+    editingDeckId = null; // Copy là tạo mới hoàn toàn
     showLoading("Đang chuẩn bị bản sao...");
 
-    const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
-    
-    document.getElementById('nTag').value = deckId + " (Copy)";
-    document.getElementById('nTag').disabled = false;
-    document.getElementById('formTitle').innerText = "Sao chép bộ bài";
-    
-    // HIỆN nút Lưu tất cả, ẨN nút Xóa
-    document.getElementById('btnSaveAll').style.display = 'block';
-    document.getElementById('btnDeleteInForm').classList.add('hidden');
+    try {
+        // 1. Lấy thông tin bộ bài gốc để biết nó là loại gì (flashcard hay quiz)
+        const { data: originalDeck, error: dErr } = await sb.from('decks').select('*').eq('id', deckId).single();
+        if (dErr) throw dErr;
 
-    // Khi copy, chúng ta vẽ các dòng ở chế độ SỬA LUÔN (không readonly) để người dùng sửa nhanh
-    const container = document.getElementById('cardRowsContainer');
-    container.innerHTML = ''; rowCount = 0;
-    cards.forEach(c => {
-        addNewRow(); // Tạo dòng mới (mặc định mở khóa)
-        const rows = container.querySelectorAll('.card-row');
-        const lastRow = rows[rows.length - 1];
-        lastRow.querySelector('.r-front').value = c.front;
-        lastRow.querySelector('.r-back').value = c.back;
-        lastRow.querySelector('.r-info').value = c.info;
-    });
+        // Cập nhật mode toàn cục để khi lưu nó lưu đúng loại
+        mode = originalDeck.type; 
 
-    showPage('learnPage');
-    document.getElementById('learnMenu').classList.add('hidden');
-    document.getElementById('newForm').classList.remove('hidden');
-    hideLoading();
+        // 2. Lấy danh sách thẻ
+        const { data: cards, error: cErr } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
+        if (cErr) throw cErr;
+
+        // 3. Đổ dữ liệu vào Form
+        document.getElementById('nTag').value = deckId + " (Copy)";
+        document.getElementById('nTag').disabled = false;
+        document.getElementById('nVisibility').value = "false"; // Mặc định bản sao là riêng tư
+        document.getElementById('formTitle').innerText = "Sao chép bộ bài";
+        
+        // Hiện nút Lưu tất cả, ẩn nút Xóa
+        document.getElementById('btnSaveAll').style.display = 'block';
+        document.getElementById('btnDeleteInForm').classList.add('hidden');
+
+        // Vẽ các thẻ ở trạng thái MỚI (không có data-db-id)
+        const container = document.getElementById('cardRowsContainer');
+        container.innerHTML = ''; 
+        rowCount = 0;
+        cards.forEach(c => {
+            // addNewRow không truyền tham số để thẻ ở trạng thái MỚI hoàn toàn
+            addNewRow(); 
+            const rows = container.querySelectorAll('.card-row');
+            const lastRow = rows[rows.length - 1];
+            lastRow.querySelector('.r-front').value = c.front;
+            lastRow.querySelector('.r-back').value = c.back;
+            lastRow.querySelector('.r-info').value = c.info;
+        });
+
+        showPage('learnPage');
+        document.getElementById('learnMenu').classList.add('hidden');
+        document.getElementById('newForm').classList.remove('hidden');
+
+    } catch (e) {
+        customAlert("Lỗi khi chuẩn bị bản sao: " + e.message, "❌");
+    } finally {
+        hideLoading();
+    }
 }
+
 
 function renderCardsToForm(cards) {
     const container = document.getElementById('cardRowsContainer');
@@ -1648,6 +1668,7 @@ function enableRowEdit(id) {
 </div>
 </body>
 </html>
+
 
 
 
