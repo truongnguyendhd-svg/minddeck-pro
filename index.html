@@ -684,14 +684,23 @@ body {
             <button class="add-row-btn" onclick="addNewRow()">+ THÊM THẺ MỚI</button>
         
             <!-- Khu vực nút bấm cuối Form -->
-            <div class="form-actions">
+            <div class="form-actions" style="display: flex; gap: 15px; margin-top: 30px; flex-wrap: wrap;">
+                <!-- Nút Hủy (Màu trắng xám) -->
+                <button onclick="cancelEdit()" style="padding:16px 30px; border-radius:50px; border:1.5px solid #e2e8f0; background:#fff; color:#4a5568; font-weight:800; cursor:pointer; transition:0.3s;">
+                    ✖️ HỦY BỎ
+                </button>
+            
+                <!-- Nút Xóa (Chỉ hiện khi đang Sửa) -->
                 <button id="btnDeleteInForm" class="btn-delete-full hidden" onclick="deleteCurrentDeck()">
                     🗑️ XÓA BỘ BÀI
                 </button>
-                <button onclick="saveFullDeck()" style="flex-grow:1; padding:18px; background:linear-gradient(135deg, #4299e1, #3182ce); color:#fff; border:none; border-radius:50px; font-weight:800; cursor:pointer; box-shadow: 0 10px 20px rgba(66, 153, 225, 0.3);">
+            
+                <!-- Nút Lưu (Chính) -->
+                <button onclick="saveFullDeck()" style="flex-grow:1; padding:16px; background:linear-gradient(135deg, #4299e1, #3182ce); color:#fff; border:none; border-radius:50px; font-weight:800; cursor:pointer; box-shadow: 0 10px 20px rgba(66, 153, 225, 0.3);">
                     🚀 LƯU THAY ĐỔI
                 </button>
             </div>
+
         </div>
         <div id="importForm" class="form-container hidden">
             <div class="form-header">
@@ -891,26 +900,56 @@ async function openDeckSelection(m) {
     });
 }
 async function openEditDeck(event, deckId) {
-    event.stopPropagation();
-    editingDeckId = deckId; // Đánh dấu đang sửa
-    showLoading("Đang tải dữ liệu bộ bài...");
+    if (event) event.stopPropagation(); // Ngăn việc load bộ bài để học
     
-    const { data: deck } = await sb.from('decks').select('*').eq('id', deckId).single();
-    const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId);
-    
-    // Đổ dữ liệu vào Form
-    document.getElementById('nTag').value = deck.id;
-    document.getElementById('nTag').disabled = true; // Không cho sửa tên khi đang Edit (vì tên là ID)
-    document.getElementById('nVisibility').value = deck.is_public.toString();
-    document.getElementById('btnDeleteInForm').classList.remove('hidden'); // Hiện nút xóa
-    document.getElementById('formTitle').innerText = "Chỉnh sửa bộ bài";
+    editingDeckId = deckId; // Lưu lại ID bộ bài đang sửa
+    showLoading(`Đang tải dữ liệu "${deckId}"...`);
 
-    renderCardsToForm(cards);
-    hideLoading();
-    showPage('learnPage');
-    document.getElementById('learnMenu').classList.add('hidden');
-    document.getElementById('newForm').classList.remove('hidden');
+    try {
+        // Lấy thông tin bộ bài
+        const { data: deck, error: deckErr } = await sb.from('decks').select('*').eq('id', deckId).single();
+        if (deckErr) throw deckErr;
+
+        // Lấy danh sách thẻ
+        const { data: cards, error: cardsErr } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
+        if (cardsErr) throw cardsErr;
+
+        // Đổ dữ liệu vào Form
+        document.getElementById('nTag').value = deck.id;
+        document.getElementById('nTag').disabled = true; // Không cho sửa tên (ID) khi đang Edit
+        document.getElementById('nVisibility').value = deck.is_public.toString();
+        document.getElementById('formTitle').innerText = `Chỉnh sửa: ${deckId}`;
+        document.getElementById('formIcon').innerText = "✏️";
+        
+        // Hiện nút Xóa
+        document.getElementById('btnDeleteInForm').classList.remove('hidden');
+
+        // Vẽ các dòng thẻ
+        renderCardsToForm(cards);
+
+        // Chuyển trang
+        showPage('learnPage');
+        document.getElementById('learnMenu').classList.add('hidden');
+        document.getElementById('newForm').classList.remove('hidden');
+        
+        updateBreadcrumb([
+            {label: 'Thêm mới', action: 'showLearnPage()'},
+            {label: 'Chỉnh sửa'}
+        ]);
+
+    } catch (e) {
+        customAlert("Lỗi khi tải bộ bài: " + e.message);
+    } finally {
+        hideLoading();
+    }
 }
+async function cancelEdit() {
+    const ok = await showConfirm("Hủy bỏ?", "Mọi thay đổi chưa lưu sẽ bị mất. Bạn có chắc chắn muốn thoát?");
+    if (ok) {
+        showHome();
+    }
+}
+
 async function openCopyDeck(event, deckId) {
     event.stopPropagation();
     editingDeckId = null; // Copy bản chất là tạo mới
@@ -931,15 +970,21 @@ async function openCopyDeck(event, deckId) {
 }
 function renderCardsToForm(cards) {
     const container = document.getElementById('cardRowsContainer');
-    container.innerHTML = ''; rowCount = 0;
-    cards.forEach(c => {
+    container.innerHTML = ''; 
+    rowCount = 0;
+    
+    if (!cards || cards.length === 0) {
         addNewRow();
-        const rows = container.querySelectorAll('.card-row');
-        const lastRow = rows[rows.length - 1];
-        lastRow.querySelector('.r-front').value = c.front;
-        lastRow.querySelector('.r-back').value = c.back;
-        lastRow.querySelector('.r-info').value = c.info;
-    });
+    } else {
+        cards.forEach(c => {
+            addNewRow();
+            const rows = container.querySelectorAll('.card-row');
+            const lastRow = rows[rows.length - 1];
+            lastRow.querySelector('.r-front').value = c.front;
+            lastRow.querySelector('.r-back').value = c.back;
+            lastRow.querySelector('.r-info').value = c.info;
+        });
+    }
 }
 
 
@@ -1060,26 +1105,22 @@ function showLearnPage() {
 }
 function showNewForm(type) { 
     mode = type; 
-    const label = type === 'quiz' ? "Soạn Đề Trắc Nghiệm" : "Tạo Flashcard Mới";
-    const icon = type === 'quiz' ? "❓" : "🃏"; // Chọn icon
+    editingDeckId = null; // QUAN TRỌNG: Reset về null
     
+    document.getElementById('nTag').value = '';
+    document.getElementById('nTag').disabled = false;
+    document.getElementById('btnDeleteInForm').classList.add('hidden'); // Ẩn nút xóa
+    document.getElementById('formTitle').innerText = type === 'quiz' ? "Soạn Đề Trắc Nghiệm" : "Tạo Flashcard Mới";
+    document.getElementById('formIcon').innerText = type === 'quiz' ? "❓" : "🃏";
+
     document.getElementById('learnMenu').classList.add('hidden'); 
     document.getElementById('newForm').classList.remove('hidden');
     
-    // Cập nhật tiêu đề và icon
-    document.getElementById('formTitle').innerText = label;
-    document.getElementById('formIcon').innerText = icon;
-    
-    // Reset form
     document.getElementById('cardRowsContainer').innerHTML = '';
     rowCount = 0;
-    addNewRow(); // Tạo sẵn 2 dòng cho người dùng nhập luôn
-    addNewRow();
+    addNewRow(); addNewRow(); // Tạo sẵn 2 dòng trống
 
-    updateBreadcrumb([
-        {label: 'Thêm mới', action: 'showLearnPage()'},
-        {label: label}
-    ]);
+    updateBreadcrumb([{label: 'Thêm mới', action: 'showLearnPage()'}, {label: 'Tạo mới'}]);
 }
 
 function showImportForm() { 
@@ -1363,6 +1404,7 @@ let editingDeckId = null; // null = tạo mới, có giá trị = đang sửa b�
 </div>
 </body>
 </html>
+
 
 
 
