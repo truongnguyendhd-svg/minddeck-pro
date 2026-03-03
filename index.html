@@ -717,7 +717,11 @@ function showLoading(t) { document.getElementById('loadingText').innerText = t; 
 function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
 function showToast(msg) { const c = document.getElementById('toast-container'); const t = document.createElement('div'); t.className = 'toast'; t.innerText = msg; c.appendChild(t); setTimeout(() => t.remove(), 3000); }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-function customAlert(msg) { document.getElementById('alertMsg').innerText = msg; document.getElementById('customAlert').style.display = 'flex'; }
+function customAlert(msg, icon = "💡") {
+    document.getElementById('alertMsg').innerText = msg;
+    document.getElementById('alertIcon').innerText = icon;
+    document.getElementById('customAlert').style.display = 'flex';
+}
 function updateBreadcrumb(paths) {
     const bc = document.getElementById('breadcrumb'); if (!paths.length) { bc.style.display = 'none'; return; } bc.style.display = 'flex';
     let h = `<span class="bc-item" onclick="showHome()">🏠 Trang chủ</span>`;
@@ -1104,9 +1108,16 @@ async function smartImport() {
         customAlert("Lỗi: " + e.message);
     }
 }
-function confirmDeleteDeck(event, deckId) {
-    event.stopPropagation(); // Ngăn việc nhấn vào nút xóa lại kích hoạt hàm loadCards của thẻ
-    if (confirm(`Bạn có chắc chắn muốn xóa vĩnh viễn bộ bài "${deckId}"? Hành động này không thể hoàn tác!`)) {
+async function confirmDeleteDeck(event, deckId) {
+    event.stopPropagation(); // Ngăn load bộ bài
+    
+    // Sử dụng showConfirm thay cho confirm() mặc định
+    const confirmed = await showConfirm(
+        "Xóa bộ bài?", 
+        `Bạn có chắc chắn muốn xóa vĩnh viễn bộ bài "${deckId}"? Mọi dữ liệu sẽ mất và không thể khôi phục.`
+    );
+
+    if (confirmed) {
         executeDeleteDeck(deckId);
     }
 }
@@ -1143,11 +1154,54 @@ async function executeDeleteDeck(deckId) {
         customAlert("Không thể xóa bộ bài: " + e.message);
     }
 }
+function showConfirm(title, message) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirmModal');
+        document.getElementById('confirmTitle').innerText = title;
+        document.getElementById('confirmMsg').innerText = message;
+        modal.style.display = 'flex';
+
+        document.getElementById('confirmOkBtn').onclick = () => {
+            modal.style.display = 'none';
+            resolve(true);
+        };
+
+        document.getElementById('confirmCancelBtn').onclick = () => {
+            modal.style.display = 'none';
+            resolve(false);
+        };
+    });
+}
+
 
 
 </script>
+<!-- Modal Thông Báo (Thay thế alert) -->
+<div id="customAlert" class="modal">
+    <div class="modal-content" style="max-width: 400px; text-align: center; border-radius: 20px; overflow: hidden; border: none;">
+        <div class="modal-body" style="padding: 40px 30px;">
+            <div id="alertIcon" style="font-size: 50px; margin-bottom: 15px;">💡</div>
+            <div id="alertMsg" style="margin-bottom: 25px; font-weight: 800; font-size: 18px; color: #2d3748; line-height: 1.5;"></div>
+            <button onclick="closeModal('customAlert')" style="width: 100%; padding: 14px; background: linear-gradient(135deg, #4299e1, #3182ce); color: white; border: none; border-radius: 50px; font-weight: 800; cursor: pointer; box-shadow: 0 5px 15px rgba(66, 153, 225, 0.3);">Đã hiểu</button>
+        </div>
+    </div>
+</div>
+<!-- Modal Xác nhận (Confirm) -->
+<div id="confirmModal" class="modal">
+    <div class="modal-content" style="max-width: 400px; text-align: center; padding: 30px;">
+        <div style="font-size: 50px; margin-bottom: 15px;">⚠️</div>
+        <h3 id="confirmTitle" style="margin-top: 0; color: #2d3748;">Xác nhận xóa</h3>
+        <p id="confirmMsg" style="color: #718096; line-height: 1.5; margin-bottom: 25px;"></p>
+        
+        <div style="display: flex; gap: 10px;">
+            <button id="confirmCancelBtn" style="flex: 1; padding: 12px; border-radius: 50px; border: none; background: #edf2f7; color: #4a5568; font-weight: 700; cursor: pointer;">Hủy</button>
+            <button id="confirmOkBtn" style="flex: 1; padding: 12px; border-radius: 50px; border: none; background: linear-gradient(135deg, #f56565, #e53e3e); color: white; font-weight: 700; cursor: pointer;">Đồng ý xóa</button>
+        </div>
+    </div>
+</div>
 </body>
 </html>
+
 
 
 
