@@ -565,7 +565,36 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    
+    /* THÊM DÒNG NÀY VÀO ĐỂ LÀM ĐIỂM TỰA CHO TOOLTIP */
+    position: relative; 
 }
+.row-action-btn::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 130%; /* Hiện lên phía trên nút */
+    left: 50%;
+    transform: translateX(-50%) translateY(5px);
+    padding: 6px 10px;
+    background: #2d3748;
+    color: #fff;
+    font-size: 11px;
+    border-radius: 6px;
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+    transition: 0.2s;
+    z-index: 100;
+    pointer-events: none; /* Để chuột không bị khựng khi chạm vào tooltip */
+}
+
+/* Hiện Tooltip khi di chuột vào nút */
+.row-action-btn:hover::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
 .row-action-btn:hover { transform: scale(1.1); background: #f8fafc; }
 .btn-row-edit:hover { color: #3182ce; border-color: #bee3f8; }
 .btn-row-delete:hover { color: #e53e3e; border-color: #fed7d7; }
@@ -1391,22 +1420,29 @@ async function executeDeleteDeck(deckId) {
         customAlert("Không thể xóa bộ bài: " + e.message);
     }
 }
-function showConfirm(title, message) {
+function showConfirm(title, message, okText = "Đồng ý", cancelText = "Hủy") {
     return new Promise((resolve) => {
         const modal = document.getElementById('confirmModal');
         document.getElementById('confirmTitle').innerText = title;
         document.getElementById('confirmMsg').innerText = message;
+        
+        // Cập nhật văn bản cho nút bấm
+        const okBtn = document.getElementById('confirmOkBtn');
+        const cancelBtn = document.getElementById('confirmCancelBtn');
+        okBtn.innerText = okText;
+        cancelBtn.innerText = cancelText;
+        
+        // Đổi màu nút OK nếu là hành động xóa
+        if (okText === "Xóa") {
+            okBtn.style.background = "linear-gradient(135deg, #f56565, #e53e3e)";
+        } else {
+            okBtn.style.background = "linear-gradient(135deg, #48bb78, #38a169)"; // Màu xanh cho việc Lưu
+        }
+
         modal.style.display = 'flex';
 
-        document.getElementById('confirmOkBtn').onclick = () => {
-            modal.style.display = 'none';
-            resolve(true);
-        };
-
-        document.getElementById('confirmCancelBtn').onclick = () => {
-            modal.style.display = 'none';
-            resolve(false);
-        };
+        okBtn.onclick = () => { modal.style.display = 'none'; resolve(true); };
+        cancelBtn.onclick = () => { modal.style.display = 'none'; resolve(false); };
     });
 }
 let editingDeckId = null; // null = tạo mới, có giá trị = đang sửa bộ đó
@@ -1425,10 +1461,10 @@ function addNewRow(cardData = null) {
         <div class="card-row-header">
             <span>THẺ #${rowCount}</span>
             <div style="display:flex; gap:8px;">
-                <button class="row-action-btn btn-row-edit" data-tooltip="Sửa thẻ này" onclick="enableRowEdit(${rowCount})">✏️</button>
-                <button class="row-action-btn btn-row-save" data-tooltip="Lưu thay đổi" onclick="saveSingleRow(${rowCount})">✅</button>
-                <button class="row-action-btn btn-row-cancel" data-tooltip="Hủy" onclick="cancelRowEdit(${rowCount})">✖️</button>
-                <button class="row-action-btn btn-row-delete" data-tooltip="Xóa thẻ này" onclick="deleteSingleRow(${rowCount})">🗑️</button>
+                <button class="row-action-btn btn-row-edit" data-tooltip="Sửa thẻ" onclick="enableRowEdit(${rowCount})">✏️</button>
+                <button class="row-action-btn btn-row-save" data-tooltip="Lưu ngay" onclick="saveSingleRow(${rowCount})">✅</button>
+                <button class="row-action-btn btn-row-cancel" data-tooltip="Hủy bỏ" onclick="cancelRowEdit(${rowCount})">✖️</button>
+                <button class="row-action-btn btn-row-delete" data-tooltip="Xóa thẻ" onclick="deleteSingleRow(${rowCount})">🗑️</button>
             </div>
         </div>
         <div><label>Mặt trước</label><textarea class="r-front" rows="2" ${isReadOnly}>${cardData ? cardData.front : ''}</textarea></div>
@@ -1447,7 +1483,7 @@ async function saveSingleRow(id) {
 
     if (!f || !b) return customAlert("Mặt trước và sau không được để trống!", "⚠️");
 
-    const ok = await showConfirm("Lưu thay đổi?", "Bạn muốn cập nhật nội dung mới cho thẻ này?");
+    const ok = await showConfirm("Lưu thay đổi?", "Bạn muốn cập nhật nội dung mới cho thẻ này?", "OK", "Hủy");
     if (ok) {
         showLoading("Đang lưu thẻ...");
         const cardObj = { deck_id: tag, front: f, back: b, info: i };
@@ -1469,7 +1505,7 @@ async function deleteSingleRow(id) {
     const row = document.getElementById(`row-${id}`);
     const dbId = row.getAttribute('data-db-id');
 
-    const ok = await showConfirm("Xóa thẻ này?", "Hành động này sẽ xóa vĩnh viễn thẻ khỏi hệ thống.");
+    const ok = await showConfirm("Xóa thẻ này?", "Hành động này sẽ xóa vĩnh viễn thẻ khỏi hệ thống.", "Xóa", "Hủy");
     if (ok) {
         if (dbId) {
             showLoading("Đang xóa...");
@@ -1524,6 +1560,7 @@ function enableRowEdit(id) {
 </div>
 </body>
 </html>
+
 
 
 
