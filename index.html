@@ -785,36 +785,127 @@ async function openDeckSelection(m, skipHash = false) {
 }
 
 async function openEditDeck(event, deckId, skipHash = false) {
+    // 1. Ngăn nổi bọt sự kiện và cập nhật URL
     if (event) event.stopPropagation(); 
     if (!skipHash) window.location.hash = `edit/${encodeURIComponent(deckId)}`;
-    if (event) event.stopPropagation(); editingDeckId = deckId; activeDeckId = deckId; showLoading("Đang nạp...");
-    const { data: deck } = await sb.from('decks').select('*').eq('id', deckId).single();
-    const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
-    mode = deck.type;
-    document.getElementById('nTag').value = getCleanName(deck.id);
-    document.getElementById('nTag').disabled = true;
-    document.getElementById('nVisibility').value = deck.is_public.toString();
-    document.getElementById('formTitle').innerText = `Chỉnh sửa: ${getCleanName(deckId)}`;
-    document.getElementById('groupSaveAll').style.display = 'none';
-    document.getElementById('btnDeleteInForm').classList.remove('hidden');
-    renderCardsToForm(cards, true);
-    showPage('learnPage'); document.getElementById('learnMenu').classList.add('hidden'); document.getElementById('newForm').classList.remove('hidden');
-    hideLoading();
+    
+    // 2. Thiết lập trạng thái
+    editingDeckId = deckId; 
+    activeDeckId = deckId; 
+    showLoading("Đang nạp dữ liệu bộ bài...");
+
+    try {
+        // 3. Tải thông tin Deck từ Supabase (Kèm kiểm tra lỗi)
+        const { data: deck, error: deckError } = await sb.from('decks').select('*').eq('id', deckId).single();
+        
+        if (deckError) throw deckError;
+        if (!deck) throw new Error("Không tìm thấy bộ bài này hoặc bạn không có quyền truy cập.");
+
+        // 4. Tải danh sách Cards
+        const { data: cards, error: cardsError } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
+        if (cardsError) throw cardsError;
+
+        // 5. Cập nhật biến State
+        mode = deck.type || 'flashcard';
+
+        // 6. Cập nhật giao diện Form
+        document.getElementById('nTag').value = getCleanName(deck.id);
+        document.getElementById('nTag').disabled = true; // Khóa không cho đổi tên deck (tránh mất đồng bộ ID)
+        document.getElementById('nVisibility').value = deck.is_public.toString();
+        document.getElementById('formTitle').innerText = `Chỉnh sửa: ${getCleanName(deck.id)}`;
+        
+        // Cấu hình các nút bấm
+        document.getElementById('groupSaveAll').style.display = 'none'; // Ẩn nút "Tạo bộ bài mới"
+        document.getElementById('btnDeleteInForm').classList.remove('hidden'); // Hiện nút "Xóa bộ bài"
+
+        // 7. Render thẻ vào Form
+        renderCardsToForm(cards || [], true);
+
+        // 8. Chuyển đổi màn hình hiển thị
+        showPage('learnPage'); 
+        document.getElementById('learnMenu').classList.add('hidden'); 
+        document.getElementById('newForm').classList.remove('hidden');
+
+        // (Tùy chọn UX) Cập nhật lại thanh điều hướng Breadcrumb cho đẹp mắt
+        updateBreadcrumb([
+            { label: 'Thêm mới & Quản lý', action: 'showLearnPage()' }, 
+            { label: `Sửa: ${getCleanName(deck.id)}` }
+        ]);
+
+    } catch (error) {
+        // Bắt mọi lỗi (Mất mạng, không tìm thấy ID, lỗi truy vấn...)
+        console.error("Lỗi openEditDeck:", error);
+        customAlert("Đã xảy ra lỗi khi tải bộ bài: " + (error.message || "Lỗi không xác định"), "❌");
+        showHome(); // Đẩy người dùng về trang chủ cho an toàn
+    } finally {
+        // Luôn luôn tắt Loading dù thành công hay thất bại (Tránh treo App)
+        hideLoading();
+    }
 }
 
 async function openCopyDeck(event, deckId) {
-    if (event) event.stopPropagation(); editingDeckId = null; activeDeckId = null; showLoading("Đang chuẩn bị...");
-    const { data: deck } = await sb.from('decks').select('*').eq('id', deckId).single();
-    const { data: cards } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
-    mode = deck.type;
-    document.getElementById('nTag').value = getCleanName(deckId) + " (Copy)";
-    document.getElementById('nTag').disabled = false;
-    document.getElementById('formTitle').innerText = "Sao chép bộ bài";
-    document.getElementById('groupSaveAll').style.display = 'block';
-    document.getElementById('btnDeleteInForm').classList.add('hidden');
-    renderCardsToForm(cards, false);
-    showPage('learnPage'); document.getElementById('learnMenu').classList.add('hidden'); document.getElementById('newForm').classList.remove('hidden');
-    hideLoading();
+    // 1. Ngăn chặn sự kiện click lan truyền
+    if (event) event.stopPropagation(); 
+
+    // 2. Reset trạng thái hệ thống: 
+    // Quan trọng: Đặt null để app hiểu đây là tạo bộ bài MỚI, không phải sửa (Edit)
+    editingDeckId = null; 
+    activeDeckId = null; 
+    
+    showLoading("Đang chuẩn bị dữ liệu...");
+
+    try {
+        // 3. Truy vấn thông tin Deck (Bổ sung kiểm tra lỗi mạng hoặc deck bị xóa)
+        const { data: deck, error: deckErr } = await sb.from('decks').select('*').eq('id', deckId).single();
+        if (deckErr || !deck) {
+            throw new Error("Không tìm thấy bộ bài gốc hoặc bộ bài đã bị xóa.");
+        }
+
+        // 4. Truy vấn danh sách Cards của bộ bài đó
+        const { data: cards, error: cardsErr } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
+        if (cardsErr) {
+            throw new Error("Không thể tải danh sách thẻ từ bộ bài này.");
+        }
+
+        // 5. Cập nhật State
+        mode = deck.type || 'flashcard'; 
+
+        // 6. Thiết lập giao diện Form nhập liệu
+        const cleanName = getCleanName(deckId);
+        document.getElementById('nTag').value = cleanName + " (Copy)";
+        document.getElementById('nTag').disabled = false; // Mở khóa để người dùng đổi tên
+        document.getElementById('formTitle').innerText = "Sao chép bộ bài";
+        
+        // 7. Cập nhật Breadcrumb (Thanh điều hướng) cho chuyên nghiệp
+        updateBreadcrumb([
+            { label: 'Thêm mới', action: 'showLearnPage()' }, 
+            { label: 'Sao chép: ' + cleanName }
+        ]);
+
+        // 8. Cấu hình hiển thị Nút bấm
+        document.getElementById('groupSaveAll').style.display = 'block';      // Hiện nút Lưu tất cả
+        document.getElementById('btnDeleteInForm').classList.add('hidden'); // Ẩn nút Xóa bộ bài
+
+        // 9. Render thẻ ra Form 
+        // Tham số 'false' cực kỳ quan trọng: Nó báo cho app biết KHÔNG GẮN 'data-db-id' cũ vào, 
+        // để khi lưu nó sẽ tạo ra thẻ mới hoàn toàn (nhân bản).
+        renderCardsToForm(cards, false);
+
+        // 10. Chuyển đổi màn hình hiển thị
+        showPage('learnPage'); 
+        document.getElementById('learnMenu').classList.add('hidden'); 
+        document.getElementById('newForm').classList.remove('hidden');
+
+        // Đưa màn hình lên trên cùng để người dùng bắt đầu chỉnh sửa
+        window.scrollTo(0, 0);
+
+    } catch (error) {
+        console.error("Lỗi khi copy deck:", error);
+        customAlert(error.message, "❌");
+    } finally {
+        // Luôn luôn tắt Loading dù thành công hay thất bại
+        hideLoading();
+    }
 }
 
 async function loadCards(d, skipHash = false) {
@@ -828,7 +919,7 @@ async function loadCards(d, skipHash = false) {
         // Sử dụng .filter() thay vì .eq() trên bảng phụ để tránh biến nó thành INNER JOIN
         const { data: cards, error } = await sb.from('cards')
             .select('*, progress(*)')
-            .eq('deck_id', d)
+            .eq('deck_id', d);
         if (error) throw error;
 
         // 3. Cập nhật Breadcrumb (Thanh điều hướng)
@@ -973,66 +1064,92 @@ function nextCard() { if (currentIndex < sessionCards.length - 1) { currentIndex
 function flipCard() { if(mode==='test') return; showBack = !showBack; renderStudy(); }
 
 async function handleGlobalSearch() {
-    const q = document.getElementById('globalSearchInput').value.trim(); 
-    if (!q) return;
+    // 1. Lấy và làm sạch từ khóa
+    const rawQuery = document.getElementById('globalSearchInput').value.trim(); 
+    if (!rawQuery) return;
     
     showLoading("Đang tìm...");
 
-    // 1. Cập nhật Breadcrumb để người dùng có thể quay lại trang chủ
-    updateBreadcrumb([{ label: 'Kết quả tìm kiếm: ' + q }]);
+    // 2. Cập nhật Breadcrumb để người dùng có thể quay lại trang trước
+    updateBreadcrumb([{ label: 'Kết quả tìm kiếm: ' + rawQuery }]);
 
     try {
+        /* =========================================================
+           FIX LỖI CÚ PHÁP BẢO MẬT (POSTGREST SYNTAX ERROR):
+           - Supabase dùng dấu phẩy (,) để tách các điều kiện trong .or()
+           - Nếu người dùng gõ dấu phẩy, API sẽ hiểu sai cấu trúc và báo lỗi.
+           - Cách khắc phục: Bọc chuỗi tìm kiếm trong dấu ngoặc kép (") 
+             và escape các dấu ngoặc kép bên trong bằng ("").
+        ========================================================= */
+        const safeQuery = rawQuery.replace(/"/g, '""'); 
+        const orConditions = `front.ilike."%${safeQuery}%",back.ilike."%${safeQuery}%",info.ilike."%${safeQuery}%"`;
+
+        // 3. Gọi API Supabase
+        // Mẹo: Dùng decks!inner(id) tương đương với INNER JOIN, 
+        // đảm bảo chỉ lấy thẻ của những bộ bài vẫn còn tồn tại trong database.
         const { data: res, error } = await sb.from('cards')
-            .select('*, decks(id)')
-            .or(`front.ilike.%${q}%,back.ilike.%${q}%,info.ilike.%${q}%`)
+            .select('*, decks!inner(id)')
+            .or(orConditions)
             .limit(50);
         
         hideLoading(); 
         
+        // 4. Bắt lỗi từ Supabase
         if (error) {
-            customAlert("Lỗi khi tìm kiếm: " + error.message, "⚠️");
+            console.error("Supabase Search Error:", error);
+            customAlert("Lỗi truy xuất dữ liệu: " + error.message, "⚠️");
             return;
         }
 
+        // 5. Chuẩn bị giao diện hiển thị
         showPage('searchResultPage');
         const resultContainer = document.getElementById('searchResultList');
 
+        // Trường hợp không có kết quả
         if (!res || res.length === 0) {
             resultContainer.innerHTML = `
                 <div style="text-align:center; color:#718096; padding: 50px 20px;">
                     <span class="material-symbols-outlined" style="font-size: 48px; display: block; margin-bottom: 10px; opacity: 0.3;">search_off</span>
-                    Không tìm thấy thẻ nào khớp với từ khóa "${escapeHTML(q)}".
+                    Không tìm thấy thẻ nào khớp với từ khóa "<b>${escapeHTML(rawQuery)}</b>".
                 </div>`;
             return;
         }
 
-        // 2. Render danh sách kết quả
+        // 6. Render danh sách kết quả
         resultContainer.innerHTML = res.map(c => {
-            // Encode nội dung mặt sau để đưa vào thuộc tính onclick một cách an toàn
+            // Encode nội dung mặt sau để nhúng an toàn vào sự kiện onclick (Chống lỗi dấu nháy)
             const safeBack = encodeURIComponent(c.back || '');
-            // Xử lý an toàn cho nội dung hiển thị
+            
+            // Encode nội dung mặt trước để hiển thị HTML an toàn (Chống XSS)
             const safeFront = escapeHTML(c.front);        
+            
+            // Lấy tên bộ bài (đã được làm sạch)
             const safeDeckName = c.decks ? getCleanName(c.decks.id) : "Không xác định";
 
             return `
             <div class="menu-card" 
                  style="flex-direction:row; padding:15px; gap:15px; justify-content:flex-start; text-align:left; margin-bottom: 8px;" 
                  onclick="customAlert(decodeURIComponent('${safeBack}'), '💡 Đáp án')">
+                
                 <span class="icon" style="font-size: 24px; margin: 0;">🃏</span>
+                
                 <div style="overflow:hidden; flex: 1;">
-                    <b style="display:block; word-break:break-word; font-size: 16px; color: #2d3748;">${safeFront}</b>
+                    <b style="display:block; word-break:break-word; font-size: 16px; color: #2d3748;">
+                        ${safeFront}
+                    </b>
                     <small style="color:#3498db; display:flex; align-items:center; gap:4px; margin-top:4px; font-weight: 700;">
                         <span class="material-symbols-outlined" style="font-size: 14px;">folder</span> ${safeDeckName}
                     </small>
                 </div>
+                
                 <span class="material-symbols-outlined" style="color: #cbd5e0;">chevron_right</span>
             </div>`;
         }).join('');
 
     } catch (err) {
         hideLoading();
-        console.error("Search Error:", err);
-        customAlert("Đã xảy ra lỗi không xác định khi tìm kiếm.", "❌");
+        console.error("Search Logic Error:", err);
+        customAlert("Đã xảy ra lỗi hệ thống khi tìm kiếm. Vui lòng thử lại sau.", "❌");
     }
 }
 
@@ -1232,12 +1349,28 @@ async function deleteCurrentDeck() {
 }
 
 async function saveSingleRow(id) {
-    const row = document.getElementById(`row-${id}`), dbId = row.getAttribute('data-db-id'), f = row.querySelector('.r-front').value.trim(), b = row.querySelector('.r-back').value.trim(), i = row.querySelector('.r-info').value.trim();
-    const tag = document.getElementById('nTag').value.trim(), isPublic = document.getElementById('nVisibility').value === 'true';
-    if (!tag) return customAlert("Vui lòng nhập Tên bộ bài!", "⚠️");
-    if (!f || !b) return customAlert("Vui lòng điền đủ nội dung thẻ!", "⚠️");
+    // 1. KIỂM TRA BẢO MẬT: Ngăn lỗi crash nếu người dùng bị timeout (hết phiên đăng nhập)
+    if (!currentUser || !currentUser.id) {
+        return customAlert("Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang!", "⚠️");
+    }
 
-    // Logic ID DUY NHẤT: Nếu chưa có ID cho phiên này, tạo ID mới gắn timestamp
+    // 2. TÁCH BIẾN CHO DỄ ĐỌC VÀ DỄ BẢO TRÌ
+    const row = document.getElementById(`row-${id}`);
+    if (!row) return; // Đề phòng lỗi không tìm thấy DOM
+
+    const dbId = row.getAttribute('data-db-id');
+    const f = row.querySelector('.r-front').value.trim();
+    const b = row.querySelector('.r-back').value.trim();
+    const i = row.querySelector('.r-info').value.trim();
+
+    const tag = document.getElementById('nTag').value.trim();
+    const isPublic = document.getElementById('nVisibility').value === 'true';
+
+    // 3. KIỂM TRA DỮ LIỆU ĐẦU VÀO
+    if (!tag) return customAlert("Vui lòng nhập Tên bộ bài!", "⚠️");
+    if (!f || !b) return customAlert("Vui lòng điền đủ nội dung thẻ (Mặt trước/Mặt sau)!", "⚠️");
+
+    // 4. LOGIC TẠO ID DUY NHẤT CHO BỘ BÀI
     let targetId = editingDeckId || activeDeckId;
     if (!targetId) {
         const safeTagName = sanitizeTagName(tag) || "deck";
@@ -1245,19 +1378,49 @@ async function saveSingleRow(id) {
         activeDeckId = targetId; 
     }
 
+    // 5. XÁC NHẬN VÀ THỰC THI LƯU DỮ LIỆU
     const ok = await showConfirm("Lưu thay đổi?", "Bạn muốn cập nhật nội dung cho thẻ này?", "OK");
     if (ok) {
         showLoading("Đang lưu...");
         try {
             if (!mode) mode = 'flashcard'; 
-            await sb.from('decks').upsert({ id: targetId, owner_id: currentUser.id, type: mode, is_public: isPublic });
+            
+            // 5.1 Lưu thông tin bộ bài (Bổ sung bắt lỗi error cho an toàn)
+            const { error: deckError } = await sb.from('decks').upsert({ 
+                id: targetId, 
+                owner_id: currentUser.id, 
+                type: mode, 
+                is_public: isPublic 
+            });
+            if (deckError) throw new Error("Lỗi lưu bộ bài: " + deckError.message);
+
+            // 5.2 Lưu thẻ (Card)
             const cardObj = { deck_id: targetId, front: f, back: b, info: i };
-            if (dbId) cardObj.id = dbId;
-            const { data: savedCard, error } = await sb.from('cards').upsert(cardObj).select();
-            if (error) throw error;
-            if (!dbId && savedCard) row.setAttribute('data-db-id', savedCard[0].id);
-            hideLoading(); showToast("Đã lưu thẻ!"); row.classList.add('readonly-mode'); row.querySelectorAll('textarea').forEach(t => t.disabled = true);
-        } catch (e) { hideLoading(); customAlert("Lỗi: " + e.message); }
+            if (dbId) cardObj.id = dbId; // Nếu là thẻ đã có sẵn thì cập nhật
+            
+            const { data: savedCard, error: cardError } = await sb.from('cards').upsert(cardObj).select();
+            if (cardError) throw new Error("Lỗi lưu thẻ: " + cardError.message);
+
+            // 6. CẬP NHẬT GIAO DIỆN (UI) SAU KHI LƯU THÀNH CÔNG
+            if (!dbId && savedCard && savedCard.length > 0) {
+                row.setAttribute('data-db-id', savedCard[0].id); // Gắn ID từ database về HTML
+            }
+            
+            // QUAN TRỌNG: Gỡ bỏ trạng thái "đang sửa" để hàm saveFullDeck bỏ qua thẻ này, tránh bị lưu trùng lặp
+            row.removeAttribute('data-is-dirty'); 
+
+            // Chuyển thẻ về chế độ chỉ đọc
+            row.classList.add('readonly-mode'); 
+            row.querySelectorAll('textarea').forEach(t => t.disabled = true);
+
+            hideLoading(); 
+            showToast("Đã lưu thẻ thành công!");
+
+        } catch (e) { 
+            hideLoading(); 
+            console.error("Lỗi saveSingleRow:", e);
+            customAlert("Lỗi: " + e.message, "❌"); 
+        }
     }
 }
 
@@ -1298,11 +1461,54 @@ async function deleteSingleRow(id) {
 }
 
 function addNewRow(cardData = null) {
-    rowCount++; const container = document.getElementById('cardRowsContainer');
-    const rowDiv = document.createElement('div'); rowDiv.className = 'card-row' + (cardData ? ' readonly-mode' : '');
-    rowDiv.id = `row-${rowCount}`; if (cardData && cardData.id) rowDiv.setAttribute('data-db-id', cardData.id);
+    rowCount++; 
+    const container = document.getElementById('cardRowsContainer');
+    
+    // Tạo thẻ div bao bọc row
+    const rowDiv = document.createElement('div'); 
+    rowDiv.className = 'card-row' + (cardData ? ' readonly-mode' : '');
+    rowDiv.id = `row-${rowCount}`; 
+    
+    if (cardData && cardData.id) {
+        rowDiv.setAttribute('data-db-id', cardData.id);
+    }
+    
     const isReadOnly = cardData ? 'disabled' : '';
-    rowDiv.innerHTML = `<div class="card-row-header"><span>THẺ #${rowCount}</span><div style="display:flex; gap:8px;"><button class="row-action-btn btn-row-edit" data-tooltip="Sửa thẻ" onclick="enableRowEdit(${rowCount})">✏️</button><button class="row-action-btn btn-row-save" data-tooltip="Lưu ngay" onclick="saveSingleRow(${rowCount})"><span class="material-symbols-outlined">check</span></button><button class="row-action-btn btn-row-cancel" data-tooltip="Hủy bỏ" onclick="cancelRowEdit(${rowCount})">✖️</button><button class="row-action-btn btn-row-delete" data-tooltip="Xóa thẻ" onclick="deleteSingleRow(${rowCount})"><span class="material-symbols-outlined">delete</span></button></div></div><div><label>Mặt trước</label><textarea class="r-front" rows="2" ${isReadOnly}>${cardData ? cardData.front : ''}</textarea></div><div><label>Mặt sau</label><textarea class="r-back" rows="2" ${isReadOnly}>${cardData ? cardData.back : ''}</textarea></div><div class="info-field"><label>Thông tin phụ</label><textarea class="r-info" rows="2" ${isReadOnly}>${cardData ? (cardData.info || '') : ''}</textarea></div>`;
+
+    // Xử lý an toàn dữ liệu (Chống lỗi vỡ thẻ textarea và chống XSS)
+    const safeFront = cardData ? escapeHTML(cardData.front) : '';
+    const safeBack = cardData ? escapeHTML(cardData.back) : '';
+    const safeInfo = (cardData && cardData.info) ? escapeHTML(cardData.info) : '';
+
+    // Gắn HTML đã được định dạng rõ ràng, dễ bảo trì
+    rowDiv.innerHTML = `
+        <div class="card-row-header">
+            <span>THẺ #${rowCount}</span>
+            <div style="display:flex; gap:8px;">
+                <button class="row-action-btn btn-row-edit" data-tooltip="Sửa thẻ" onclick="enableRowEdit(${rowCount})">✏️</button>
+                <button class="row-action-btn btn-row-save" data-tooltip="Lưu ngay" onclick="saveSingleRow(${rowCount})">
+                    <span class="material-symbols-outlined">check</span>
+                </button>
+                <button class="row-action-btn btn-row-cancel" data-tooltip="Hủy bỏ" onclick="cancelRowEdit(${rowCount})">✖️</button>
+                <button class="row-action-btn btn-row-delete" data-tooltip="Xóa thẻ" onclick="deleteSingleRow(${rowCount})">
+                    <span class="material-symbols-outlined">delete</span>
+                </button>
+            </div>
+        </div>
+        <div>
+            <label>Mặt trước</label>
+            <textarea class="r-front" rows="2" ${isReadOnly}>${safeFront}</textarea>
+        </div>
+        <div>
+            <label>Mặt sau</label>
+            <textarea class="r-back" rows="2" ${isReadOnly}>${safeBack}</textarea>
+        </div>
+        <div class="info-field">
+            <label>Thông tin phụ</label>
+            <textarea class="r-info" rows="2" ${isReadOnly}>${safeInfo}</textarea>
+        </div>
+    `;
+    
     container.appendChild(rowDiv);
 }
 function enableRowEdit(id) { const row = document.getElementById(`row-${id}`); row.classList.remove('readonly-mode'); row.querySelectorAll('textarea').forEach(t => t.disabled = false); row.querySelector('.btn-row-edit').style.display = 'none'; row.querySelector('.r-front').focus(); row.setAttribute('data-is-dirty', 'true'); }
@@ -1310,7 +1516,35 @@ function cancelRowEdit(id) { const row = document.getElementById(`row-${id}`), d
 function renderCardsToForm(cards, isEditMode = true) { const container = document.getElementById('cardRowsContainer'); container.innerHTML = ''; rowCount = 0; cardsToDelete = []; if (!cards || cards.length === 0) addNewRow(); else cards.forEach(c => { if (isEditMode) addNewRow(c); else { addNewRow(); const rows = container.querySelectorAll('.card-row'), lastRow = rows[rows.length - 1]; lastRow.querySelector('.r-front').value = c.front; lastRow.querySelector('.r-back').value = c.back; lastRow.querySelector('.r-info').value = c.info; } }); }
 async function cancelEdit() { const ok = await showConfirm("Hủy bỏ?", "Mọi thay đổi chưa lưu sẽ bị mất."); if (ok) showHome(); }
 function showInfoModal() { const c = sessionCards[currentIndex]; document.getElementById('infoText').innerText = c.info || "Không có ghi chú."; document.getElementById('infoModal').style.display = 'flex'; }
-function showTodayList() { const list = sessionCards; document.getElementById('listModalTitle').innerText = "📋 Danh sách hiện tại"; let h = '<ul class="modal-card-list">'; list.forEach((c, i) => h += `<li onclick="closeModal('todayModal'); currentIndex=${i}; showCard();"><span class="list-idx">${i + 1}</span><span style="flex-grow:1">${c.front}</span><span>▸</span></li>`); document.getElementById('todayListContent').innerHTML = h + '</ul>'; document.getElementById('todayModal').style.display = 'flex'; }
+function showTodayList() { 
+    // 1. Kiểm tra an toàn: Nếu danh sách trống thì không làm gì cả
+    if (!sessionCards || sessionCards.length === 0) return;
+
+    const list = sessionCards; 
+    document.getElementById('listModalTitle').innerText = "📋 Danh sách hiện tại"; 
+    
+    let h = '<ul class="modal-card-list">'; 
+    
+    // 2. Lặp qua danh sách và tạo HTML
+    list.forEach((c, i) => {
+        // Sử dụng escapeHTML để chống lỗi hiển thị và chống Hack (XSS)
+        const safeFrontText = escapeHTML(c.front);
+        
+        h += `<li onclick="closeModal('todayModal'); currentIndex=${i}; showCard();">
+                <span class="list-idx" style="font-weight:800; color:#3498db; margin-right:12px; min-width:24px;">${i + 1}</span>
+                <span style="flex-grow:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:10px;" title="${safeFrontText}">
+                    ${safeFrontText}
+                </span>
+                <span class="material-symbols-outlined" style="color:#cbd5e0; font-size:18px;">chevron_right</span>
+              </li>`; 
+    });
+    
+    h += '</ul>';
+    
+    // 3. Đổ dữ liệu vào Modal và hiển thị
+    document.getElementById('todayListContent').innerHTML = h; 
+    document.getElementById('todayModal').style.display = 'flex'; 
+}
 
 async function smartImport() {
     const tag = document.getElementById('iTag').value.trim(), isPublic = document.getElementById('iVisibility').value === 'true', type = document.getElementById('importType').value, format = document.getElementById('importFormat').value, rawData = document.getElementById('iJson').value.trim();
@@ -1333,6 +1567,7 @@ window.addEventListener('hashchange', handleRoute);
 </script>
 </body>
 </html>
+
 
 
 
