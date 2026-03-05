@@ -215,7 +215,35 @@ body.study-mode #reviewPage {
     box-shadow: 0 10px 20px rgba(0, 0, 0, 0.02), 0 2px 6px rgba(0, 0, 0, 0.03);
 }
 .deck-card:hover { transform: scale(1.08); border-color: #3498db; box-shadow: 0 20px 30px rgba(52, 152, 219, 0.12); z-index: 100; }
-.deck-title { font-weight: 800; color: #2d3748; font-size: 16px; line-height: 1.4; width: 100%; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; word-break: break-word; margin-top: 10px; }
+.deck-title { font-weight: 800; color: #2d3748; font-size: 16px; line-height: 1.4; width: 100%; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; word-break: break-word; margin-top: 10px; margin-bottom: 25px; }
+/* Khối thông tin tác giả ở góc trái dưới */
+.deck-creator {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #718096;
+    font-weight: 500;
+}
+
+.creator-avatar-mini {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid #edf2f7;
+    background: #edf2f7;
+}
+
+.creator-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 80px; /* Giới hạn độ dài tên */
+}
 .deck-status-badge {
     position: absolute;
     top: 12px;
@@ -952,10 +980,8 @@ async function openDeckSelection(m, skipHash = false) {
     const deckPage = document.getElementById('deckSelectionPage');
     const list = document.getElementById('deckList');
     
-    // Nếu trang hiện tại đã là trang chọn bộ bài VÀ cùng chế độ (m) 
-    // VÀ danh sách đã có dữ liệu (không trống), thì thoát hàm luôn, không fetch lại.
     if (!deckPage.classList.contains('hidden') && mode === m && list.children.length > 0) {
-        console.log("Dữ liệu danh sách bộ bài đã có sẵn, bỏ qua fetch để tiết kiệm băng thông.");
+        console.log("Dữ liệu danh sách bộ bài đã có sẵn, bỏ qua fetch.");
         return;
     }
 
@@ -968,7 +994,6 @@ async function openDeckSelection(m, skipHash = false) {
     const currentLabel = labels[m] || 'Học tập';
     updateBreadcrumb([{label: currentLabel}]);
 
-    // Hiển thị trạng thái đang tải
     list.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#cbd5e0;">Đang tải dữ liệu...</p>';
 
     const type = m === 'test' ? 'quiz' : 'flashcard';
@@ -980,15 +1005,19 @@ async function openDeckSelection(m, skipHash = false) {
             return;
         }
 
-        // --- 4. TRUY VẤN DỮ LIỆU TỪ SUPABASE ---
+        // --- 4. TRUY VẤN DỮ LIỆU TỪ SUPABASE (CÓ JOIN PROFILES) ---
+        // profiles:owner_id(...) có nghĩa là lấy dữ liệu từ bảng profiles 
+        // dựa trên cột id của profile trùng với owner_id của deck.
         const { data: decks, error } = await sb.from('decks')
-            .select('*')
+            .select(`
+                *,
+                profiles:owner_id (full_name, avatar_url)
+            `)
             .eq('type', type)
             .or(`is_public.eq.true,owner_id.eq.${currentUser.id}`);
 
         if (error) throw error;
 
-        // Xóa nội dung cũ sau khi fetch thành công
         list.innerHTML = '';
 
         if (!decks || !decks.length) {
@@ -1007,6 +1036,10 @@ async function openDeckSelection(m, skipHash = false) {
             const statusIcon = d.is_public ? 'public' : 'lock';
             const statusTooltip = d.is_public ? 'Công khai' : 'Riêng tư';
 
+            // Lấy thông tin tác giả từ dữ liệu join (nếu có)
+            const authorName = d.profiles?.full_name || 'Ẩn danh';
+            const authorAvatar = d.profiles?.avatar_url || 'https://emojicdn.elk.sh/👤?size=40';
+
             // Nút sửa (Chỉ hiện nếu là chủ sở hữu)
             let editBtn = isOwner ? 
                 `<button class="action-btn btn-edit" data-tooltip="Chỉnh sửa" onclick="openEditDeck(event, decodeURIComponent('${safeId}'))">
@@ -1024,7 +1057,14 @@ async function openDeckSelection(m, skipHash = false) {
                      <span class="material-symbols-outlined">${statusIcon}</span>
                 </div>
                 <div class="deck-actions">${editBtn}${copyBtn}</div>
+                
                 <div class="deck-title">${getCleanName(d.id)}</div>
+
+                <!-- KHỐI TÁC GIẢ -->
+                <div class="deck-creator">
+                    <img src="${authorAvatar}" class="creator-avatar-mini" onerror="this.src='https://emojicdn.elk.sh/👤?size=40'">
+                    <span class="creator-name">${isOwner ? 'Tôi' : authorName}</span>
+                </div>
             `;
             list.appendChild(card);
         });
@@ -1892,6 +1932,7 @@ window.addEventListener('hashchange', handleRoute);
 </script>
 </body>
 </html>
+
 
 
 
