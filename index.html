@@ -315,12 +315,17 @@ body.study-mode #reviewPage {
 #practiceArea:focus { border-color: #3498db; outline: none; box-shadow: 0 0 0 4px rgba(52, 152, 219, 0.1); }
 .btn-group { display: flex; gap: 12px; width: 100%; margin-top: 10px; }
 #answer-group-standard {
-    transition: opacity 0.3s ease;
-    display: flex;
+    opacity: 1 !important;
+    pointer-events: auto !important;
 }
 .btn-group button { flex: 1; padding: 16px 10px; border-radius: 50px; border: none; font-weight: 800; color: white; cursor: pointer; font-size: 16px; transition: 0.2s; }
 .btn-group button:hover:not(:disabled) { transform: translateY(-4px); filter: brightness(1.1); }
-.btn-group button:disabled { opacity: 0.2; cursor: not-allowed; filter: grayscale(1); }
+.btn-group button:disabled {
+    opacity: 0.4; /* Không mờ hẳn, chỉ chìm đi */
+    filter: grayscale(0.5); /* Giữ lại một chút màu sắc mờ */
+    cursor: not-allowed;
+    transform: none !important;
+}
 .btn-sai { background: linear-gradient(135deg, #f56565, #e53e3e); }
 .btn-kho { background: linear-gradient(135deg, #ed8936, #dd6b20); }
 .btn-tot { background: linear-gradient(135deg, #48bb78, #38a169); }
@@ -403,25 +408,87 @@ body {
     background: #fff;
     width: 100%;
     max-width: 850px;
-    height: 100%; /* Fit hoàn toàn chiều cao còn lại */
+    height: 100%;
     max-height: 100%;
     display: flex;
     flex-direction: column;
     padding: 20px;
     border-radius: 12px;
     box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-    border: 1px solid #e2e8f0;
+    border: 2px solid #a0aec0; /* Sửa thành 2px và màu đậm hơn */
     box-sizing: border-box;
-    overflow: hidden; /* Không cho cuộn bên ngoài thẻ */
+    overflow: hidden;
 }
-
-
 .study-header-row {
     flex-shrink: 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 15px;
+}
+.study-action-btn {
+    background: #fff;
+    border: 1.5px solid #cbd5e0;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-weight: 600;
+    color: #4a5568;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+    font-size: 13px;
+    user-select: none;
+}
+.study-action-btn:hover {
+    border-color: #3498db;
+    color: #3498db;
+    background: #f0f9ff;
+}
+.study-action-btn.active-mode {
+    background: #ebf8ff;
+    color: #3182ce;
+    border-color: #3182ce;
+}
+.study-options-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 12px;
+}
+.type-answer-checkbox {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    color: #718096;
+    transition: 0.2s;
+    user-select: none;
+}
+.type-answer-checkbox:hover { color: #4a5568; }
+.type-answer-checkbox input { display: none; }
+.type-answer-checkbox .checkmark {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #cbd5e0;
+    border-radius: 4px;
+    margin-right: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: 0.2s;
+}
+.type-answer-checkbox input:checked + .checkmark {
+    background-color: #3498db;
+    border-color: #3498db;
+}
+.type-answer-checkbox input:checked + .checkmark::after {
+    content: "✔";
+    color: white;
+    font-size: 12px;
 }
 
 .main-card-display {
@@ -452,16 +519,11 @@ body {
     box-sizing: border-box;
 }
 
-.btn-info-link { background: none; border: none; color: #3498db; cursor: pointer; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 5px; justify-content: center; width: 100%; }
+.btn-info-link { display: none; } /* Xóa class cũ */
 
 /* Reset lại Practice Area cho gọn trong thẻ */
-#practiceArea {
-    height: 70px !important;
-    min-height: 70px !important;
-    margin-bottom: 15px !important;
-    border: 1.5px solid #e2e8f0;
-    border-radius: 10px;
-}
+#practiceArea { display: none; margin-bottom: 15px !important; }
+#practiceArea.show-typing { display: block; }
 /* ================= TỐI ƯU MOBILE (MÀN HÌNH DƯỚI 600PX) ================= */
 @media (max-width: 600px) {
     /* 1. Cập nhật biến độ cao và phản hồi chạm */
@@ -666,30 +728,50 @@ body {
     </div>
     <div id="reviewPage" class="hidden">
         <div class="unified-study-container">
+            <!-- HEADER ROW: Chứa Nút Danh sách và Học ngược -->
             <div class="study-header-row">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <button onclick="showTodayList()" class="btn-list-mini">📋 Danh sách</button>
-                    <div id="progressText" style="font-weight: 800;"></div>
+                    <button onclick="showTodayList()" class="study-action-btn">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">list</span> Danh sách
+                    </button>
+                    <div id="progressText" style="font-weight: 800; color:#4a5568;"></div>
                 </div>
-                <label style="font-size: 13px; font-weight: 600; color: #718096;">
-                    <input type="checkbox" id="reverseMode" onchange="showCard()"> Học ngược
+                
+                <label class="study-action-btn" id="reverseModeLabel">
+                    <input type="checkbox" id="reverseMode" onchange="toggleReverseMode()" style="display: none;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">sync_alt</span> Học ngược
                 </label>
             </div>
     
+            <!-- KHU VỰC TRẮC NGHIỆM -->
             <div id="testArea" class="hidden" style="flex: 1; display: flex; flex-direction: column;">
                 <div id="testQuestion" class="main-card-display" style="cursor: default;"></div>
                 <div id="testOptions" style="overflow-y: auto; flex: 1;"></div>
             </div>
     
+            <!-- KHU VỰC HỌC FLASHCARD -->
             <div id="studyArea" style="flex: 1; display: flex; flex-direction: column;">
                 <div class="main-card-display" id="cardArea" onclick="flipCard()"></div>
-                
-                <button onclick="showInfoModal()" class="btn-info-link">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">info</span> Thông tin phụ
-                </button>
     
                 <div class="study-footer-controls">
+                    
+                    <!-- Hàng tùy chọn: Gõ câu trả lời (Trái) & Thông tin phụ (Phải) -->
+                    <div class="study-options-row">
+                        <label class="type-answer-checkbox">
+                            <input type="checkbox" id="toggleTypeAnswer" onchange="togglePracticeArea()">
+                            <span class="checkmark"></span>
+                            GÕ CÂU TRẢ LỜI
+                        </label>
+                        
+                        <button onclick="showInfoModal()" class="study-action-btn">
+                            <span class="material-symbols-outlined" style="font-size: 18px;">info</span> Thông tin phụ
+                        </button>
+                    </div>
+    
+                    <!-- Ô nhập liệu: Ẩn/Hiện bằng Checkbox -->
                     <textarea id="practiceArea" placeholder="Nhập câu trả lời..."></textarea>
+                    
+                    <!-- Nhóm Nút Trả Lời: Luôn hiện nhưng bị mờ ở mặt trước -->
                     <div id="answer-group-standard" class="btn-group">
                         <button class="answer-btn btn-sai" onclick="answerCurrent(0)">Sai (1)</button>
                         <button class="answer-btn btn-kho" onclick="answerCurrent(2)">Khó (2)</button>
@@ -698,9 +780,8 @@ body {
                     </div>
                 </div>
             </div>
-    
         </div>
-</div>
+    </div>
 
     <div id="learnPage" class="hidden">
         <div id="learnMenu" class="main-menu-grid">
@@ -1355,6 +1436,28 @@ async function loadCards(d, skipHash = false) {
         customAlert("Không thể tải bộ bài. Vui lòng kiểm tra kết nối mạng của bạn.", "❌");
     }
 }
+function toggleReverseMode() {
+    const isChecked = document.getElementById('reverseMode').checked;
+    const label = document.getElementById('reverseModeLabel');
+    // Thêm hiệu ứng xanh lên viền nếu đang bật Học Ngược
+    if (isChecked) label.classList.add('active-mode');
+    else label.classList.remove('active-mode');
+    
+    showCard();
+}
+
+function togglePracticeArea() {
+    const isChecked = document.getElementById('toggleTypeAnswer').checked;
+    const practiceArea = document.getElementById('practiceArea');
+    
+    // Bật tắt class show-typing
+    if (isChecked) {
+        practiceArea.classList.add('show-typing');
+        practiceArea.focus(); // Tự động trỏ nháy chuột vào ô
+    } else {
+        practiceArea.classList.remove('show-typing');
+    }
+}
 function showCard() {
     const c = sessionCards[currentIndex];
     showBack = false; // Luôn bắt đầu bằng mặt hỏi
@@ -1379,7 +1482,7 @@ function showCard() {
 
 function renderStudy() {
     const c = sessionCards[currentIndex];
-    if (!c) return; // Bảo vệ nếu không có dữ liệu
+    if (!c) return; 
 
     const isRev = document.getElementById('reverseMode')?.checked;
     const cardArea = document.getElementById('cardArea');
@@ -1388,29 +1491,27 @@ function renderStudy() {
 
     if (!showBack) {
         // --- TRẠNG THÁI: ĐANG HỎI (Mặt trước) ---
-        // Nếu học ngược: Lấy Back làm câu hỏi. Bình thường: Lấy Front.
         const questionText = isRev ? c.back : c.front;
         cardArea.innerHTML = `<b>${escapeHTML(questionText)}</b>`;
 
-        // Ẩn nhóm nút đánh giá (Chỉ hiện khi đã biết đáp án)
+        // Làm chìm (Disable) các nút đánh giá ở mặt trước
         if (answerGroup) {
-            answerGroup.style.opacity = "0";
-            answerGroup.style.pointerEvents = "none";
+            answerGroup.querySelectorAll('button').forEach(btn => btn.disabled = true);
         }
         
-        // Focus vào ô nhập liệu để người dùng có thể gõ ngay mà không cần click
-        if (practiceArea) practiceArea.focus();
+        // Focus vào ô nhập liệu (Nếu checkbox Gõ đang được bật)
+        if (practiceArea && practiceArea.classList.contains('show-typing')) {
+            practiceArea.focus();
+        }
 
     } else {
         // --- TRẠNG THÁI: ĐÃ LẬT (Mặt sau/Đáp án) ---
-        // Nếu học ngược: Lấy Front làm đáp án. Bình thường: Lấy Back.
         const answerText = isRev ? c.front : c.back;
         cardArea.innerHTML = `<i>${escapeHTML(answerText)}</i>`;
 
-        // Hiện nhóm nút đánh giá với hiệu ứng mượt
+        // Làm sáng (Enable) lại các nút đánh giá ở mặt sau
         if (answerGroup) {
-            answerGroup.style.opacity = "1";
-            answerGroup.style.pointerEvents = "auto";
+            answerGroup.querySelectorAll('button').forEach(btn => btn.disabled = false);
         }
     }
 }
@@ -2008,6 +2109,7 @@ window.addEventListener('hashchange', handleRoute);
 </script>
 </body>
 </html>
+
 
 
 
