@@ -915,31 +915,32 @@ sb.auth.onAuthStateChange((event, session) => {
 
     if (session) {
         currentUser = session.user;
-
-        // 1. Cập nhật giao diện Header
+        
+        // Cập nhật UI Header
         const avatarImg = currentUser.user_metadata.avatar_url || currentUser.user_metadata.picture || '';
         document.getElementById('userAvatar').innerHTML = avatarImg ? `<img src="${avatarImg}">` : '👤';
         headerSearch.classList.remove('hidden'); 
         userSection.classList.remove('hidden');
-        
-        // 2. Xử lý Điều hướng (Routing)
-        // Điều kiện: Nếu ứng dụng chưa khởi tạo (F5) HOẶC người dùng vừa mới đăng nhập từ trang Login
-        if (!isAppInitialized || event === 'SIGNED_IN') {
-            console.log("Hệ thống: Bắt đầu điều hướng dựa trên URL...");
-            handleRoute(); 
-            isAppInitialized = true; // Đánh dấu đã khởi tạo xong, tránh chạy lại handleRoute vô lý
-        }
 
+        // CHỈ CHẠY handleRoute() khi App chưa khởi tạo 
+        // hoặc khi người dùng thực hiện hành động ĐĂNG NHẬP mới.
+        // Bỏ qua các sự kiện như TOKEN_REFRESHED (xảy ra khi quay lại tab)
+        if (!isAppInitialized) {
+            console.log("Hệ thống: Khởi tạo App lần đầu...");
+            handleRoute(); 
+            isAppInitialized = true;
+        } else if (event === 'SIGNED_IN') {
+            // Trường hợp người dùng vừa bấm nút đăng nhập xong
+            handleRoute();
+        }
     } else {
-        // 3. Xử lý khi Đăng xuất hoặc không có phiên làm việc
         currentUser = null; 
-        isAppInitialized = false; // Reset cờ để có thể khởi tạo lại khi login sau này
+        isAppInitialized = false; 
         showPage('loginPage');
         headerSearch.classList.add('hidden'); 
         userSection.classList.add('hidden');
     }
 });
-
 async function login() { await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin, queryParams: { prompt: 'select_account', access_type: 'offline' } } }); }
 async function logout() { showLoading("Đang đăng xuất..."); await sb.auth.signOut(); hideLoading(); window.location.reload(); }
 function toggleUserDropdown(e) { e.stopPropagation(); document.getElementById('userDropdown').classList.toggle('show'); document.getElementById('userNameDisp').innerText = currentUser.user_metadata.full_name; document.getElementById('userEmailDisp').innerText = currentUser.email; }
@@ -947,6 +948,18 @@ window.onclick = () => document.getElementById('userDropdown').classList.remove(
 
 /* ================= 5. CORE ================= */
 async function openDeckSelection(m, skipHash = false) {
+    // --- 1. KIỂM TRA CHẶN TẢI LẠI VÔ LÝ ---
+    const deckPage = document.getElementById('deckSelectionPage');
+    const list = document.getElementById('deckList');
+    
+    // Nếu trang hiện tại đã là trang chọn bộ bài VÀ cùng chế độ (m) 
+    // VÀ danh sách đã có dữ liệu (không trống), thì thoát hàm luôn, không fetch lại.
+    if (!deckPage.classList.contains('hidden') && mode === m && list.children.length > 0) {
+        console.log("Dữ liệu danh sách bộ bài đã có sẵn, bỏ qua fetch để tiết kiệm băng thông.");
+        return;
+    }
+
+    // --- 2. CẬP NHẬT TRẠNG THÁI VÀ UI ---
     if (!skipHash) window.location.hash = `decks/${m}`;
     mode = m; 
     showPage('deckSelectionPage');
@@ -955,17 +968,19 @@ async function openDeckSelection(m, skipHash = false) {
     const currentLabel = labels[m] || 'Học tập';
     updateBreadcrumb([{label: currentLabel}]);
 
-    const list = document.getElementById('deckList'); 
-    list.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#cbd5e0;">Đang tải...</p>';
+    // Hiển thị trạng thái đang tải
+    list.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#cbd5e0;">Đang tải dữ liệu...</p>';
 
     const type = m === 'test' ? 'quiz' : 'flashcard';
 
     try {
+        // --- 3. KIỂM TRA QUYỀN TRUY CẬP ---
         if (!currentUser) {
-            list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Vui lòng đăng nhập để xem bộ bài.</p>';
+            list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Vui lòng đăng nhập để xem nội dung.</p>';
             return;
         }
 
+        // --- 4. TRUY VẤN DỮ LIỆU TỪ SUPABASE ---
         const { data: decks, error } = await sb.from('decks')
             .select('*')
             .eq('type', type)
@@ -973,12 +988,15 @@ async function openDeckSelection(m, skipHash = false) {
 
         if (error) throw error;
 
+        // Xóa nội dung cũ sau khi fetch thành công
         list.innerHTML = '';
+
         if (!decks || !decks.length) {
-            list.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#cbd5e0;">Chưa có bộ bài nào.</p>';
+            list.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#718096; margin-top: 50px;">Bạn chưa có bộ bài nào trong mục này.</p>';
             return;
         }
 
+        // --- 5. RENDER DANH SÁCH BỘ BÀI ---
         decks.forEach(d => {
             const isOwner = d.owner_id === currentUser.id;
             const card = document.createElement('div'); 
@@ -986,25 +1004,23 @@ async function openDeckSelection(m, skipHash = false) {
             card.onclick = () => loadCards(d.id);
 
             const safeId = encodeURIComponent(d.id).replace(/'/g, "%27");
-
-            // Icon trạng thái (Yêu cầu 2: Dùng material icon, sẽ được làm nhạt bằng CSS)
             const statusIcon = d.is_public ? 'public' : 'lock';
             const statusTooltip = d.is_public ? 'Công khai' : 'Riêng tư';
 
-            // Nút sửa (Yêu cầu 3: Thanh mảnh, nhạt màu)
+            // Nút sửa (Chỉ hiện nếu là chủ sở hữu)
             let editBtn = isOwner ? 
                 `<button class="action-btn btn-edit" data-tooltip="Chỉnh sửa" onclick="openEditDeck(event, decodeURIComponent('${safeId}'))">
                     <span class="material-symbols-outlined">edit</span>
                 </button>` 
                 : '';
                 
-            // Nút copy (Yêu cầu 3: Thanh mảnh, nhạt màu)
+            // Nút copy
             let copyBtn = `<button class="action-btn btn-copy" data-tooltip="Copy về máy" onclick="openCopyDeck(event, decodeURIComponent('${safeId}'))">
                 <span class="material-symbols-outlined">content_copy</span>
             </button>`;
 
             card.innerHTML = `
-                <div class="deck-status-badge" data-tooltip="${statusTooltip}">
+                <div class="deck-status-badge ${d.is_public ? 'badge-public' : 'badge-private'}" data-tooltip="${statusTooltip}">
                      <span class="material-symbols-outlined">${statusIcon}</span>
                 </div>
                 <div class="deck-actions">${editBtn}${copyBtn}</div>
@@ -1014,7 +1030,7 @@ async function openDeckSelection(m, skipHash = false) {
         });
     } catch (err) {
         console.error("Lỗi khi tải danh sách bộ bài:", err);
-        list.innerHTML = '<p style="text-align:center; color:red; grid-column:1/-1">Đã xảy ra lỗi khi tải dữ liệu.</p>';
+        list.innerHTML = '<p style="text-align:center; color:#e53e3e; grid-column:1/-1">Lỗi kết nối dữ liệu. Vui lòng thử lại.</p>';
     }
 }
 
@@ -1143,21 +1159,31 @@ async function openCopyDeck(event, deckId) {
 }
 
 async function loadCards(d, skipHash = false) {
-    // 1. Cập nhật URL và trạng thái Loading
+    // --- 1. LOGIC TIẾT KIỆM BĂNG THÔNG & GIỮ TRẠNG THÁI ---
+    // Nếu bộ bài yêu cầu trùng với bộ bài đang hiển thị VÀ danh sách thẻ đã có dữ liệu
+    // thì không tải lại (fetch) từ Server nữa.
+    const isReviewPageVisible = !document.getElementById('reviewPage').classList.contains('hidden');
+    if (currentDeckName === d && sessionCards.length > 0 && isReviewPageVisible) {
+        console.log("MindDeck: Dữ liệu đã có sẵn, bỏ qua việc tải lại để tiết kiệm băng thông.");
+        return; 
+    }
+
+    // 2. Cập nhật URL và trạng thái Loading
     if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/${mode}`;
     currentDeckName = d; 
-    showLoading("Đang tải thẻ...");
+    showLoading("Đang tải dữ liệu học tập...");
 
     try {
-        // 2. Truy vấn dữ liệu từ Supabase
-        // Sử dụng .filter() thay vì .eq() trên bảng phụ để tránh biến nó thành INNER JOIN
+        // 3. Truy vấn dữ liệu từ Supabase
+        // Lấy cards và progress của user hiện tại trong 1 lần gọi duy nhất
         const { data: cards, error } = await sb.from('cards')
             .select('*, progress(*)')
             .eq('deck_id', d)
-            .eq('progress.user_id', currentUser.id); // Lọc progress ngay từ DB
+            .eq('progress.user_id', currentUser.id); 
+
         if (error) throw error;
 
-        // 3. Cập nhật Breadcrumb (Thanh điều hướng)
+        // 4. Cập nhật Breadcrumb (Thanh điều hướng)
         const labels = { 'review': 'Ôn tập hôm nay', 'cram': 'Học nhồi nhét', 'test': 'Luyện đề thi' };
         const parentLabel = labels[mode] || 'Học tập';
         updateBreadcrumb([
@@ -1165,47 +1191,54 @@ async function loadCards(d, skipHash = false) {
             {label: getCleanName(d)}
         ]);
 
-        // 4. Xử lý logic lọc thẻ theo chế độ học (Mode)
+        // 5. Xử lý logic lọc thẻ theo chế độ học (Mode)
         const now = new Date().toISOString();
         
         if (mode === 'review') {
-            // Chỉ lấy: Thẻ chưa từng học (mảng progress rỗng) HOẶC thẻ đã đến hạn ôn tập (due <= now)
+            // Chế độ SRS: Chỉ lấy thẻ chưa học hoặc đã đến hạn (due <= now)
             sessionCards = cards.filter(c => {
                 const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
                 return !p || p.due <= now;
             });
+            // Xáo trộn ngẫu nhiên để tăng hiệu quả ghi nhớ nếu là ôn tập
+            sessionCards.sort(() => Math.random() - 0.5);
         } else {
-            // Chế độ Học nhồi nhét (Cram) hoặc Trắc nghiệm (Test): Lấy tất cả thẻ có trong bộ bài
+            // Chế độ Cram/Test: Lấy toàn bộ thẻ
             sessionCards = cards;
         }
 
-        hideLoading();
-
-        // 5. Kiểm tra nếu không có thẻ nào
+        // 6. Kiểm tra nếu không có thẻ nào hợp lệ
         if (!sessionCards || sessionCards.length === 0) {
-            return customAlert("Hết thẻ rồi! Bạn đã hoàn thành mục tiêu hoặc bộ bài này đang trống.", "🎉");
+            hideLoading();
+            return customAlert("Tuyệt vời! Bạn đã hoàn thành hết các thẻ trong bộ bài này hoặc không có thẻ nào cần ôn tập hôm nay.", "🎉");
         }
 
-        // 6. Khởi tạo trạng thái phiên học và hiển thị trang
-        showPage('reviewPage'); 
+        // 7. Khởi tạo trạng thái phiên học
         currentIndex = 0; 
         
-        // Reset điểm số nếu đang ở chế độ trắc nghiệm
+        // Cấu hình UI đặc thù cho Quiz
         if (mode === 'test') {
             quizState.correctCount = 0;
-            document.getElementById('countCorrect').innerText = '0';
-            document.getElementById('countWrong').innerText = '0';
+            // Đảm bảo các phần tử hiển thị điểm tồn tại (nếu bạn có dùng)
+            const correctEl = document.getElementById('countCorrect');
+            const wrongEl = document.getElementById('countWrong');
+            if (correctEl) correctEl.innerText = '0';
+            if (wrongEl) wrongEl.innerText = '0';
         }
 
+        // 8. Hiển thị trang học và thẻ đầu tiên
+        showPage('reviewPage'); 
         showCard();
+        
+        // Tắt loading cuối cùng
+        hideLoading();
 
     } catch (err) {
         hideLoading();
         console.error("Lỗi loadCards:", err);
-        customAlert("Đã xảy ra lỗi khi tải dữ liệu: " + err.message, "❌");
+        customAlert("Không thể tải bộ bài. Vui lòng kiểm tra kết nối mạng của bạn.", "❌");
     }
 }
-
 function showCard() {
     const c = sessionCards[currentIndex];
     showBack = false; // Luôn bắt đầu bằng mặt hỏi
@@ -1859,6 +1892,7 @@ window.addEventListener('hashchange', handleRoute);
 </script>
 </body>
 </html>
+
 
 
 
