@@ -649,9 +649,21 @@ body {
         <h3 style="text-align:center">Kết quả tìm kiếm</h3>
         <div id="searchResultList" style="display:flex; flex-direction:column; gap:10px"></div>
     </div>
-    
-    <div id="deckSelectionPage" class="hidden"><h3>CHỌN HỌC PHẦN</h3><div id="deckList" class="deck-grid"></div></div>
+    <div id="deckSelectionPage" class="hidden">
+        <h3>CHỌN HỌC PHẦN</h3>
+        
+        <!-- Khối hiển thị Đã học gần đây -->
+        <div id="recentDecksContainer" style="display: none;">
+            <h4 style="font-size:13px; color:#a0aec0; margin:15px 0 15px 5px; font-weight:800;">🕒 ĐÃ HỌC GẦN ĐÂY</h4>
+            <div id="recentDeckList" class="deck-grid"></div>
+            
+            <hr style="border:0; height:1.5px; background:#edf2f7; margin:30px 0 20px 0;">
+            <h4 style="font-size:13px; color:#a0aec0; margin:15px 0 15px 5px; font-weight:800;">📚 CÁC HỌC PHẦN CÒN LẠI</h4>
+        </div>
 
+        <!-- Khối hiển thị Tất cả -->
+        <div id="deckList" class="deck-grid"></div>
+    </div>
     <div id="reviewPage" class="hidden">
         <div class="unified-study-container">
             <div class="study-header-row">
@@ -933,7 +945,39 @@ function updateBreadcrumb(paths) {
     
     bc.innerHTML = h;
 }
+// Hàm lưu ID bộ bài đồng bộ lên Supabase Cloud
+async function saveRecentDeck(deckId) {
+    if (!currentUser) return;
 
+    try {
+        // 1. Lấy danh sách lịch sử hiện tại trên Database
+        const { data, error } = await sb
+            .from('profiles')
+            .select('recent_decks')
+            .eq('id', currentUser.id)
+            .single();
+
+        if (error) throw error;
+
+        // Nếu null thì tạo mảng rỗng
+        let recent = data.recent_decks || [];
+
+        // 2. Sắp xếp lại mảng: Xóa ID cũ (nếu trùng), đẩy ID này lên đầu
+        recent = recent.filter(id => id !== deckId);
+        recent.unshift(deckId);
+        
+        // Chỉ giữ lại tối đa 4 bộ bài gần nhất cho nhẹ Database và UI
+        if (recent.length > 4) recent.pop();
+
+        // 3. Cập nhật lại mảng mới lên Supabase
+        await sb.from('profiles')
+            .update({ recent_decks: recent })
+            .eq('id', currentUser.id);
+
+    } catch (err) {
+        console.error("Lỗi đồng bộ lịch sử học tập:", err);
+    }
+}
 
 /* ================= 4. AUTH ================= */
 sb.auth.onAuthStateChange((event, session) => {
@@ -980,7 +1024,12 @@ async function openDeckSelection(m, skipHash = false) {
     const deckPage = document.getElementById('deckSelectionPage');
     const list = document.getElementById('deckList');
     
-    if (!deckPage.classList.contains('hidden') && mode === m && list.children.length > 0) {
+    // [MỚI] Gọi thêm các DOM của khu vực Gần đây
+    const recentContainer = document.getElementById('recentDecksContainer');
+    const recentList = document.getElementById('recentDeckList');
+    
+    // [CẬP NHẬT] Kiểm tra cache cho cả 2 danh sách
+    if (!deckPage.classList.contains('hidden') && mode === m && (list.children.length > 0 || (recentList && recentList.children.length > 0))) {
         console.log("Dữ liệu danh sách bộ bài đã có sẵn, bỏ qua fetch.");
         return;
     }
@@ -995,6 +1044,7 @@ async function openDeckSelection(m, skipHash = false) {
     updateBreadcrumb([{label: currentLabel}]);
 
     list.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#cbd5e0;">Đang tải dữ liệu...</p>';
+    if (recentContainer) recentContainer.style.display = 'none'; // Tạm ẩn khu vực gần đây lúc tải
 
     const type = m === 'test' ? 'quiz' : 'flashcard';
 
@@ -1005,28 +1055,41 @@ async function openDeckSelection(m, skipHash = false) {
             return;
         }
 
-        // --- 4. TRUY VẤN DỮ LIỆU TỪ SUPABASE (CÓ JOIN PROFILES) ---
-        // profiles:owner_id(...) có nghĩa là lấy dữ liệu từ bảng profiles 
-        // dựa trên cột id của profile trùng với owner_id của deck.
-        const { data: decks, error } = await sb.from('decks')
-            .select(`
-                *,
-                profiles:owner_id (full_name, avatar_url)
-            `)
+        // --- 4. TRUY VẤN DỮ LIỆU TỪ SUPABASE ---
+        // 4.1. Lấy danh sách bộ bài
+        const { data: decks, error: deckError } = await sb.from('decks')
+            .select(`*, profiles:owner_id (full_name, avatar_url)`)
             .eq('type', type)
             .or(`is_public.eq.true,owner_id.eq.${currentUser.id}`);
 
-        if (error) throw error;
+        if (deckError) throw deckError;
 
+        // 4.2. [MỚI] Lấy danh sách ID các bộ bài đã học gần đây từ bảng profiles
+        let recentIds = [];
+        const { data: profileData, error: profileError } = await sb
+            .from('profiles')
+            .select('recent_decks')
+            .eq('id', currentUser.id)
+            .single();
+
+        // Không throw lỗi profileError vì nếu user chưa có cột này app vẫn phải chạy bình thường
+        if (profileData && profileData.recent_decks) {
+            recentIds = profileData.recent_decks;
+        }
+
+        // Xóa nội dung loading
         list.innerHTML = '';
+        if (recentList) recentList.innerHTML = '';
 
         if (!decks || !decks.length) {
             list.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#718096; margin-top: 50px;">Bạn chưa có bộ bài nào trong mục này.</p>';
             return;
         }
 
-        // --- 5. RENDER DANH SÁCH BỘ BÀI ---
-        decks.forEach(d => {
+        // --- 5. TÁCH DANH SÁCH & RENDER ---
+        
+        // Hàm phụ trợ: Render 1 thẻ Deck (Tái sử dụng code cũ của bạn)
+        const renderCard = (d, targetContainer) => {
             const isOwner = d.owner_id === currentUser.id;
             const card = document.createElement('div'); 
             card.className = 'deck-card';
@@ -1036,38 +1099,51 @@ async function openDeckSelection(m, skipHash = false) {
             const statusIcon = d.is_public ? 'public' : 'lock';
             const statusTooltip = d.is_public ? 'Công khai' : 'Riêng tư';
 
-            // Lấy thông tin tác giả từ dữ liệu join (nếu có)
             const authorName = d.profiles?.full_name || 'Ẩn danh';
             const authorAvatar = d.profiles?.avatar_url || 'https://emojicdn.elk.sh/👤?size=40';
 
-            // Nút sửa (Chỉ hiện nếu là chủ sở hữu)
-            let editBtn = isOwner ? 
-                `<button class="action-btn btn-edit" data-tooltip="Chỉnh sửa" onclick="openEditDeck(event, decodeURIComponent('${safeId}'))">
-                    <span class="material-symbols-outlined">edit</span>
-                </button>` 
-                : '';
-                
-            // Nút copy
-            let copyBtn = `<button class="action-btn btn-copy" data-tooltip="Copy về máy" onclick="openCopyDeck(event, decodeURIComponent('${safeId}'))">
-                <span class="material-symbols-outlined">content_copy</span>
-            </button>`;
+            let editBtn = isOwner ? `<button class="action-btn btn-edit" data-tooltip="Chỉnh sửa" onclick="openEditDeck(event, decodeURIComponent('${safeId}'))"><span class="material-symbols-outlined">edit</span></button>` : '';
+            let copyBtn = `<button class="action-btn btn-copy" data-tooltip="Copy về máy" onclick="openCopyDeck(event, decodeURIComponent('${safeId}'))"><span class="material-symbols-outlined">content_copy</span></button>`;
 
             card.innerHTML = `
                 <div class="deck-status-badge ${d.is_public ? 'badge-public' : 'badge-private'}" data-tooltip="${statusTooltip}">
                      <span class="material-symbols-outlined">${statusIcon}</span>
                 </div>
                 <div class="deck-actions">${editBtn}${copyBtn}</div>
-                
                 <div class="deck-title">${getCleanName(d.id)}</div>
-
-                <!-- KHỐI TÁC GIẢ -->
                 <div class="deck-creator">
                     <img src="${authorAvatar}" class="creator-avatar-mini" onerror="this.src='https://emojicdn.elk.sh/👤?size=40'">
                     <span class="creator-name">${isOwner ? 'Tôi' : authorName}</span>
                 </div>
             `;
-            list.appendChild(card);
+            targetContainer.appendChild(card);
+        };
+
+        // Phân loại Deck vào 2 mảng
+        const recentDecks = [];
+        const otherDecks = [];
+
+        // Đẩy Deck vào mảng Gần đây (Theo đúng thứ tự lịch sử)
+        recentIds.forEach(id => {
+            const found = decks.find(d => d.id === id);
+            if (found) recentDecks.push(found);
         });
+
+        // Đẩy các Deck còn lại vào mảng Khác
+        decks.forEach(d => {
+            if (!recentIds.includes(d.id)) otherDecks.push(d);
+        });
+
+        // Render ra giao diện
+        if (recentDecks.length > 0 && recentContainer) {
+            recentContainer.style.display = 'block'; // Hiện khu vực Gần đây
+            recentDecks.forEach(d => renderCard(d, recentList));
+            otherDecks.forEach(d => renderCard(d, list));
+        } else {
+            if (recentContainer) recentContainer.style.display = 'none'; // Ẩn khu vực Gần đây
+            decks.forEach(d => renderCard(d, list));
+        }
+
     } catch (err) {
         console.error("Lỗi khi tải danh sách bộ bài:", err);
         list.innerHTML = '<p style="text-align:center; color:#e53e3e; grid-column:1/-1">Lỗi kết nối dữ liệu. Vui lòng thử lại.</p>';
@@ -1222,7 +1298,7 @@ async function loadCards(d, skipHash = false) {
             .eq('progress.user_id', currentUser.id); 
 
         if (error) throw error;
-
+        saveRecentDeck(d); // Kích hoạt lưu lịch sử khi tải bộ bài thành công
         // 4. Cập nhật Breadcrumb (Thanh điều hướng)
         const labels = { 'review': 'Ôn tập hôm nay', 'cram': 'Học nhồi nhét', 'test': 'Luyện đề thi' };
         const parentLabel = labels[mode] || 'Học tập';
@@ -1932,6 +2008,7 @@ window.addEventListener('hashchange', handleRoute);
 </script>
 </body>
 </html>
+
 
 
 
