@@ -17,7 +17,8 @@
 
 <!-- TẢI THƯ VIỆN SUPABASE -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
+<!-- TẢI THƯ VIỆN HIỆU ỨNG PHÁO HOA -->
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 <style>
 /* ================= CSS THEO ĐÚNG TIÊU CHUẨN CỦA BẠN ================= */
 :root {
@@ -802,6 +803,93 @@ body {
 .main-card-display.dark-card-mode i {
     color: #f8fafc !important; 
 }
+/* ================= CSS MỚI CHO TRẮC NGHIỆM ================= */
+/* Căn lưới 2x2 cho đáp án */
+#testOptions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    width: 100%;
+    margin-top: 10px;
+    margin-bottom: 20px;
+}
+@media (max-width: 600px) {
+    #testOptions { gap: 10px; }
+}
+
+/* Kiểu dáng đáp án trắc nghiệm giống ảnh */
+.test-option {
+    display: flex;
+    align-items: center;
+    padding: 15px 20px;
+    border-radius: 12px;
+    border: 2px solid #edf2f7;
+    background: transparent;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: 600;
+    color: #4a5568;
+    transition: all 0.2s ease;
+    text-align: left;
+}
+/* Số thứ tự 1, 2, 3, 4 mờ mờ ở đầu */
+.test-option .opt-num {
+    color: #a0aec0;
+    font-size: 14px;
+    margin-right: 15px;
+    font-weight: normal;
+}
+.test-option:hover:not(:disabled) {
+    background: #f8fafc;
+    border-color: #cbd5e0;
+}
+/* Trạng thái đúng/sai nổi bật */
+.test-option.correct {
+    border-color: #48bb78 !important;
+    background: #f0fff4 !important;
+    color: #22543d !important;
+    box-shadow: 0 0 0 1px #48bb78;
+}
+.test-option.wrong {
+    border-color: #f56565 !important;
+    background: transparent !important;
+    color: #822727 !important;
+    opacity: 0.6;
+}
+
+/* Text động viên */
+#testFeedback {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    width: 100%;
+    text-align: left;
+    min-height: 20px;
+    opacity: 0;
+    transition: 0.3s;
+}
+#testFeedback.show { opacity: 1; }
+#testFeedback.success { color: #38a169; }
+#testFeedback.error { color: #e53e3e; }
+
+/* Nút Tiếp Theo */
+#btnNextQuiz {
+    background: linear-gradient(135deg, #48bb78, #38a169);
+    color: white;
+    border: none;
+    padding: 12px 25px;
+    border-radius: 8px;
+    font-weight: 800;
+    cursor: pointer;
+    align-self: flex-end; /* Ép sang phải */
+    display: none; /* Ẩn mặc định */
+    transition: 0.2s;
+}
+#btnNextQuiz:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(56, 161, 105, 0.3); }
+
+/* Điều chỉnh màu Dark mode cho Trắc nghiệm */
+.main-card-display.dark-card-mode #testQuestionText { color: #f8fafc; }
+.main-card-display.dark-card-mode .test-option { color: #cbd5e0; border-color: #334155; }
 </style>
 </head>
 <body>
@@ -874,7 +962,7 @@ body {
     </div>
     <div id="reviewPage" class="hidden">
         <div class="unified-study-container">
-            <!-- HEADER ROW: Chứa Nút Danh sách, Tiến độ, Nút Đổi màu thẻ và Học ngược -->
+<!-- HEADER ROW -->
             <div class="study-header-row">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <button onclick="showTodayList()" class="study-action-btn">
@@ -883,8 +971,19 @@ body {
                     <div id="progressText" style="font-weight: 800; color:#4a5568;"></div>
                 </div>
                 
-                <!-- Đưa Nút đổi màu lên trên cạnh Học ngược -->
                 <div style="display: flex; align-items: center; gap: 8px;">
+                    <!-- KHỐI ĐẾM SỐ CÂU ĐÚNG SAI (Chỉ hiện trong Trắc nghiệm) -->
+                    <div id="quizCounters" class="hidden" style="display: flex; gap: 8px; margin-right: 5px;">
+                        <button onclick="showQuizResultModal('correct')" class="study-action-btn" style="color: #38a169; border-color: #c6f6d5; background: #f0fff4; padding: 6px 10px;">
+                            <span class="material-symbols-outlined" style="font-size: 18px;">check</span> 
+                            <span id="countCorrect" style="font-weight: 800;">0</span>
+                        </button>
+                        <button onclick="showQuizResultModal('wrong')" class="study-action-btn" style="color: #e53e3e; border-color: #fed7d7; background: #fff5f5; padding: 6px 10px;">
+                            <span class="material-symbols-outlined" style="font-size: 18px;">close</span> 
+                            <span id="countWrong" style="font-weight: 800;">0</span>
+                        </button>
+                    </div>
+
                     <button onclick="toggleCardTheme()" class="study-action-btn" id="themeToggleBtn" title="Đổi màu thẻ" style="padding: 8px;">
                         <span class="material-symbols-outlined" style="font-size: 18px;">dark_mode</span>
                     </button>
@@ -896,10 +995,14 @@ body {
                 </div>
             </div>
         
-            <!-- KHU VỰC TRẮC NGHIỆM -->
+            <!-- KHU VỰC TRẮC NGHIỆM ĐÃ SỬA -->
             <div id="testArea" class="hidden" style="flex: 1; display: flex; flex-direction: column;">
-                <div id="testQuestion" class="main-card-display" style="cursor: default;"></div>
-                <div id="testOptions" style="overflow-y: auto; flex: 1;"></div>
+                <div class="main-card-display" style="justify-content: flex-start; padding-top: 40px;">
+                    <h2 id="testQuestionText" style="text-align: center; color: #2d3748; margin-bottom: 30px; font-weight: 800; font-size: 26px;"></h2>
+                    <div id="testFeedback"></div>
+                    <div id="testOptions"></div>
+                    <button id="btnNextQuiz" onclick="nextCard()">Tiếp theo ❯</button>
+                </div>
             </div>
         
             <!-- KHU VỰC HỌC FLASHCARD -->
@@ -1023,7 +1126,15 @@ body {
 </div>
 <div id="customAlert" class="modal"><div class="modal-content" style="max-width: 400px; text-align: center; border-radius: 20px; overflow: hidden; border: none;"><div class="modal-body" style="padding: 40px 30px;"><div id="alertIcon" style="font-size: 50px; margin-bottom: 15px;">💡</div><div id="alertMsg" style="margin-bottom: 25px; font-weight: 800; font-size: 18px; color: #2d3748; line-height: 1.5;"></div><button onclick="closeModal('customAlert')" style="width: 100%; padding: 14px; background: linear-gradient(135deg, #4299e1, #3182ce); color: white; border: none; border-radius: 50px; font-weight: 800; cursor: pointer;">Đã hiểu</button></div></div></div>
 <div id="confirmModal" class="modal"><div class="modal-content" style="max-width: 400px; text-align: center; padding: 30px;"><div id="confirmTitle" style="font-weight: 800; color: #2d3748; font-size: 20px;">Xác nhận</div><p id="confirmMsg" style="color: #718096; line-height: 1.5; margin-bottom: 25px;"></p><div style="display: flex; gap: 10px;"><button id="confirmCancelBtn" style="flex: 1; padding: 12px; border-radius: 50px; border: none; background: #edf2f7; color: #4a5568; font-weight: 700; cursor: pointer;">Hủy</button><button id="confirmOkBtn" style="flex: 1; padding: 12px; border-radius: 50px; border: none; background: linear-gradient(135deg, #f56565, #e53e3e); color: white; font-weight: 700; cursor: pointer;">OK</button></div></div></div>
-
+<div id="quizResultModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="quizResultTitle">📋 Danh sách</h3>
+            <button class="close-modal" onclick="closeModal('quizResultModal')">&times;</button>
+        </div>
+        <div class="modal-body" id="quizResultContent"></div>
+    </div>
+</div>
 <script>
 /* ================= HỆ THỐNG ROUTER (LƯU TRẠNG THÁI F5) ================= */
 async function handleRoute() {
@@ -1072,7 +1183,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 /* ================= 2. STATE ================= */
 let currentUser = null, sessionCards = [], currentIndex = 0, showBack = false;
 let mode = 'review', currentDeckName = "", editingDeckId = null, activeDeckId = null, cardsToDelete = [];
-let rowCount = 0, quizState = { answers: {}, correctCount: 0 };
+let rowCount = 0, quizState = { correctCount: 0, wrongCount: 0, correctList: [], wrongList: [] };
 let isAppInitialized = false;
 let targetCramLevel = 3;
 /* ================= 3. UTILITIES ================= */
@@ -1609,10 +1720,10 @@ async function loadCards(d, skipHash = false) {
             return customAlert("Tuyệt vời! Bạn đã hoàn thành hết các thẻ trong bộ bài này.", "🎉");
         }
 
-        // 7. Khởi tạo trạng thái phiên học
+// 7. Khởi tạo trạng thái phiên học
         currentIndex = 0; 
         if (mode === 'test') {
-            quizState.correctCount = 0;
+            quizState = { correctCount: 0, wrongCount: 0, correctList: [], wrongList: [] };
             if (document.getElementById('countCorrect')) document.getElementById('countCorrect').innerText = '0';
             if (document.getElementById('countWrong')) document.getElementById('countWrong').innerText = '0';
         }
@@ -1664,9 +1775,15 @@ function showCard() {
     const practiceArea = document.getElementById('practiceArea');
     if (practiceArea) practiceArea.value = "";
 
-    document.getElementById('testArea').classList.toggle('hidden', mode !== 'test');
-    document.getElementById('studyArea').classList.toggle('hidden', mode === 'test');
+    // Điều khiển giao diện chế độ test vs study
+    const isTest = mode === 'test';
+    document.getElementById('testArea').classList.toggle('hidden', !isTest);
+    document.getElementById('studyArea').classList.toggle('hidden', isTest);
     
+    // Ẩn/hiện nút Học ngược & bộ đếm
+    document.getElementById('reverseModeLabel').classList.toggle('hidden', isTest);
+    document.getElementById('quizCounters').classList.toggle('hidden', !isTest);
+
     // [MỚI] Cập nhật Text Tiến độ và Dropdown
     const progressEl = document.getElementById('progressText');
     const cramLevelSelect = document.getElementById('cramLevelSelect');
@@ -1734,55 +1851,79 @@ function renderStudy() {
 function renderQuiz() {
     const c = sessionCards[currentIndex];
     
-    // 1. Hiển thị câu hỏi an toàn với escapeHTML
-    document.getElementById('testQuestion').innerHTML = `<b>${escapeHTML(c.front)}</b>`;
+    // 1. Hiển thị câu hỏi
+    document.getElementById('testQuestionText').innerHTML = escapeHTML(c.front);
     
+    // Reset Feedback & Nút Next
+    const feedbackEl = document.getElementById('testFeedback');
+    feedbackEl.className = '';
+    feedbackEl.innerText = '';
+    document.getElementById('btnNextQuiz').style.display = 'none';
+
     const optsDiv = document.getElementById('testOptions');
     optsDiv.innerHTML = '';
 
-    // 2. Lấy danh sách đáp án từ trường info
+    // Lấy đáp án
     const options = (c.info || "").split('\n').filter(l => l.trim());
 
-    options.forEach(opt => {
+    options.forEach((opt, index) => {
         const b = document.createElement('button');
         b.className = 'test-option';
-        b.innerText = opt; // .innerText an toàn tuyệt đối cho văn bản
+        // Thêm số 1, 2, 3, 4 ở đầu
+        b.innerHTML = `<span class="opt-num">${index + 1}</span> ${escapeHTML(opt.trim())}`;
 
         b.onclick = () => {
-            // Ngăn người dùng bấm nhiều lần/nhiều nút cùng lúc
             const allButtons = optsDiv.querySelectorAll('.test-option');
             allButtons.forEach(btn => btn.disabled = true);
 
-            // Chuẩn hóa đáp án để so sánh chính xác
             const correctAnswer = c.back.trim().toUpperCase();
             const currentOption = opt.trim().toUpperCase();
             const isCorrect = currentOption.startsWith(correctAnswer);
 
             if (isCorrect) {
                 b.classList.add('correct');
+                // Icon tick (tùy chọn CSS)
+                b.innerHTML = `<span class="opt-num" style="color:#48bb78">✓</span> ${escapeHTML(opt.trim())}`;
+                
                 quizState.correctCount++;
+                quizState.correctList.push(c);
+                
+                // Hiển thị lời động viên & Pháo hoa
+                const praises = ["Tuyệt cả là vời!", "Bạn làm quá xuất sắc!", "Chính xác!", "Giỏi lắm!"];
+                feedbackEl.innerText = praises[Math.floor(Math.random() * praises.length)];
+                feedbackEl.className = 'show success';
+                
+                confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, zIndex: 10000 });
+
             } else {
                 b.classList.add('wrong');
-                // Tìm và highlight đáp án ĐÚNG để người dùng biết mình sai ở đâu
-                allButtons.forEach(btn => {
-                    if (btn.innerText.trim().toUpperCase().startsWith(correctAnswer)) {
+                quizState.wrongCount++;
+                quizState.wrongList.push(c);
+
+                feedbackEl.innerText = "Mong bạn cố gắng lần sau!";
+                feedbackEl.className = 'show error';
+
+                // Tìm và tô xanh đáp án đúng
+                Array.from(allButtons).forEach((btn, idx) => {
+                    const btnText = options[idx].trim().toUpperCase();
+                    if (btnText.startsWith(correctAnswer)) {
                         btn.classList.add('correct');
+                        btn.innerHTML = `<span class="opt-num" style="color:#48bb78">✓</span> ${escapeHTML(options[idx].trim())}`;
                     }
                 });
             }
 
-            // Cập nhật bảng điểm Đúng/Sai
+            // Cập nhật bộ đếm trên UI
             document.getElementById('countCorrect').innerText = quizState.correctCount;
-            document.getElementById('countWrong').innerText = (currentIndex + 1) - quizState.correctCount;
+            document.getElementById('countWrong').innerText = quizState.wrongCount;
 
-            // Chuyển card sau 0.8 giây để kịp nhìn đáp án đúng
-            setTimeout(() => nextCard(), 800);
+            // Hiển thị nút "Tiếp theo"
+            document.getElementById('btnNextQuiz').style.display = 'block';
         };
         
         optsDiv.appendChild(b);
     });
 }
-
 async function answerCurrent(q) {
     const c = sessionCards[currentIndex];
 
@@ -2449,9 +2590,35 @@ function handleInfoClick(event) {
     showInfoModal();
 }
 window.addEventListener('hashchange', handleRoute);
+function showQuizResultModal(type) {
+    const list = type === 'correct' ? quizState.correctList : quizState.wrongList;
+    const title = type === 'correct' ? '✅ Danh sách làm đúng' : '❌ Danh sách làm sai';
+    
+    document.getElementById('quizResultTitle').innerText = title;
+    
+    if (list.length === 0) {
+        document.getElementById('quizResultContent').innerHTML = '<p style="text-align:center; color:#718096; padding: 20px;">Chưa có dữ liệu.</p>';
+    } else {
+        let h = '<ul class="modal-card-list">'; 
+        list.forEach((c, i) => {
+            h += `<li>
+                    <span class="list-idx" style="font-weight:800; color:#3498db; margin-right:12px; min-width:24px;">${i + 1}</span>
+                    <div style="flex-grow:1;">
+                        <b style="display:block; color:#2d3748; margin-bottom:4px;">${escapeHTML(c.front)}</b>
+                        <i style="color:#718096; font-size:14px;">Đáp án: ${escapeHTML(c.back)}</i>
+                    </div>
+                  </li>`; 
+        });
+        h += '</ul>';
+        document.getElementById('quizResultContent').innerHTML = h;
+    }
+    
+    document.getElementById('quizResultModal').style.display = 'flex';
+}
 </script>
 </body>
 </html>
+
 
 
 
