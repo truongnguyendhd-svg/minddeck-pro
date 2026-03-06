@@ -1068,12 +1068,16 @@ body {
                     </div>
                 
                     <!-- NHÓM 2: Nút Điều Khiển (Dành cho TEST - TRẮC NGHIỆM) -->
+<!-- NHÓM 2: Nút Điều Khiển (Dành cho TEST - TRẮC NGHIỆM) -->
                     <div id="answer-group-test" class="btn-group hidden">
-                        <button class="answer-btn" style="background: #718096; flex: 1;" onclick="resetQuiz()">
-                            <span class="material-symbols-outlined" style="vertical-align: middle;">restart_alt</span> Làm lại
+                        <button class="answer-btn" style="background: #e53e3e; flex: 1; font-size: 14px; padding: 12px 5px;" onclick="resetQuiz()">
+                            <span class="material-symbols-outlined" style="font-size: 18px;">restart_alt</span> Làm lại
                         </button>
-                        <button class="answer-btn" style="background: #3498db; flex: 1;" onclick="shuffleQuiz()">
-                            <span class="material-symbols-outlined" style="vertical-align: middle;">shuffle</span> Xáo trộn
+                        <button class="answer-btn" style="background: #f6ad55; flex: 1; font-size: 14px; padding: 12px 5px;" onclick="shuffleQuiz()">
+                            <span class="material-symbols-outlined" style="font-size: 18px;">shuffle</span> Xáo trộn
+                        </button>
+                        <button class="answer-btn" style="background: #48bb78; flex: 1; font-size: 14px; padding: 12px 5px;" onclick="showQuizSummary()">
+                            <span class="material-symbols-outlined" style="font-size: 18px;">save</span> Lưu & Điểm
                         </button>
                     </div>
                 </div>
@@ -1972,8 +1976,14 @@ async function renderQuiz() {
                 });
             }
 
-            // PHẢN HỒI (CHỈ CHẠY KHI NGƯỜI DÙNG TỰ BẤM)
+// PHẢN HỒI (CHỈ CHẠY KHI NGƯỜI DÙNG TỰ BẤM)
             if (isManualClick) {
+                // Đánh dấu thẻ đã làm và lưu trạng thái vào bộ nhớ Local (Rất quan trọng để Xáo trộn không bị lỗi)
+                c.isDone = true;
+                if (!c.progress) c.progress = [];
+                if (c.progress.length === 0) c.progress.push({});
+                c.progress[0].test_result = isCorrect;
+
                 if (isCorrect) {
                     const praises = ["Tuyệt vời!", "Chính xác!", "Quá giỏi!", "Đúng rồi! 🎉"];
                     feedbackEl.innerText = praises[Math.floor(Math.random() * praises.length)];
@@ -1990,13 +2000,13 @@ async function renderQuiz() {
                     quizState.wrongList.push(c);
                 }
 
-                // CẬP NHẬT LÊN DATABASE (SUPABASE)
+                // CẬP NHẬT LÊN DATABASE (SUPABASE) - Lưu tự động ngay lập tức
                 try {
                     await sb.from('progress').upsert({
                         user_id: currentUser.id,
                         card_id: c.id,
                         test_result: isCorrect,
-                        due: new Date().toISOString() // Đánh dấu thời điểm làm bài
+                        due: new Date().toISOString()
                     });
                 } catch (err) {
                     console.error("Lỗi lưu kết quả test:", err);
@@ -2038,24 +2048,58 @@ async function renderQuiz() {
         }
     });
 }
-// 1. Hàm Làm lại từ đầu
+// ================= CÁC HÀM ĐIỀU KHIỂN TRẮC NGHIỆM =================
+
+// 1. Hàm Xem Tổng Kết & Báo đã lưu
+function showQuizSummary() {
+    const total = sessionCards.length;
+    const done = quizState.correctCount + quizState.wrongCount;
+    const score = total > 0 ? Math.round((quizState.correctCount / total) * 100) : 0;
+
+    let msg = `<div style="text-align: left; font-size: 16px; line-height: 1.6;">`;
+    msg += `Tiến độ làm bài: <b>${done}/${total}</b> câu<br>`;
+    msg += `✅ Trả lời đúng: <b style="color: #38a169;">${quizState.correctCount}</b><br>`;
+    msg += `❌ Trả lời sai: <b style="color: #e53e3e;">${quizState.wrongCount}</b><br><br>`;
+    
+    msg += `<div style="background: #f0f9ff; padding: 15px; border-radius: 12px; text-align: center; border: 1px solid #bee3f8; margin-bottom: 15px;">`;
+    msg += `<div style="font-size: 14px; color: #4a5568; font-weight: 700; text-transform: uppercase;">Điểm số của bạn</div>`;
+    msg += `<span style="font-size: 38px; font-weight: 900; color: #3182ce;">${score}<span style="font-size: 20px;">/100</span></span>`;
+    msg += `</div>`;
+    
+    msg += `<i style="font-size: 13px; color: #718096; display: flex; gap: 5px;">
+               <span class="material-symbols-outlined" style="font-size: 18px;">cloud_done</span> 
+               Hệ thống đã tự động lưu tiến trình trên Server. Bạn có thể thoát, tải lại trang và xem lại bất cứ lúc nào.
+            </i>`;
+    msg += `</div>`;
+
+    customAlert(msg, "📊 KẾT QUẢ BÀI THI");
+}
+
+// 2. Hàm Làm lại từ đầu (Xoá Server + Reset Local)
 async function resetQuiz() {
-    const ok = await showConfirm("Làm lại từ đầu?", "Hệ thống sẽ xóa toàn bộ kết quả đã làm của bộ bài này trên server.");
+    const ok = await showConfirm("Làm lại từ đầu?", "Hệ thống sẽ xóa toàn bộ kết quả đã làm của bộ bài này trên server.", "Xóa & Làm lại");
     if (!ok) return;
 
-    showLoading("Đang reset dữ liệu...");
+    showLoading("Đang dọn dẹp dữ liệu...");
     try {
-        // Lấy danh sách ID card của deck hiện tại
         const cardIds = sessionCards.map(c => c.id);
         
-        // Cập nhật test_result về null cho tất cả card trong deck này
-        await sb.from('progress')
+        // Cập nhật test_result về null trên Database Supabase
+        const { error } = await sb.from('progress')
             .update({ test_result: null })
             .eq('user_id', currentUser.id)
             .in('card_id', cardIds);
 
-        // Reset state local
-        sessionCards.forEach(c => c.isDone = false);
+        if (error) throw error;
+
+        // Reset state local để hiển thị lại giao diện
+        sessionCards.forEach(c => {
+            c.isDone = false;
+            if (c.progress && c.progress.length > 0) {
+                c.progress[0].test_result = null; 
+            }
+        });
+        
         quizState = { correctCount: 0, wrongCount: 0, correctList: [], wrongList: [] };
         currentIndex = 0;
         
@@ -2063,21 +2107,21 @@ async function resetQuiz() {
         document.getElementById('countWrong').innerText = '0';
         
         showCard();
-        showToast("Đã reset bộ bài!");
+        showToast("Đã reset bộ bài thành công!");
     } catch (e) {
-        customAlert("Lỗi khi reset: " + e.message);
+        customAlert("Lỗi khi reset: " + e.message, "❌");
     } finally {
         hideLoading();
     }
 }
 
-// 2. Hàm Xáo trộn câu hỏi
+// 3. Hàm Xáo trộn câu hỏi
 function shuffleQuiz() {
-    // Chỉ xáo trộn những câu chưa làm (hoặc xáo trộn tất cả nếu bạn muốn làm lại)
-    // Ở đây chúng ta sẽ xáo trộn toàn bộ danh sách cards
+    // Trộn ngẫu nhiên toàn bộ danh sách
     sessionCards.sort(() => Math.random() - 0.5);
     currentIndex = 0;
-    // Tìm lại currentIndex nếu có những câu đã làm rồi để không bị trùng
+    
+    // Tự động tìm lại câu nào chưa làm đầu tiên để nhảy đến
     const firstUnfinished = sessionCards.findIndex(c => !c.isDone);
     if (firstUnfinished !== -1) currentIndex = firstUnfinished;
     
@@ -2786,6 +2830,7 @@ function showQuizResultModal(type) {
 </script>
 </body>
 </html>
+
 
 
 
