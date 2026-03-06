@@ -1056,6 +1056,15 @@ body {
                         <button class="answer-btn btn-tot" onclick="answerCurrent(4)">Tốt (3)</button>
                         <button class="answer-btn btn-de" onclick="answerCurrent(5)">Dễ (4)</button>
                     </div>
+                    <!-- MỚI: NHÓM NÚT CHO CHẾ ĐỘ TEST (TRẮC NGHIỆM) -->
+                    <div id="answer-group-test" class="btn-group hidden">
+                        <button class="answer-btn" style="background: #718096;" onclick="resetQuiz()">
+                            <span class="material-symbols-outlined" style="font-size:18px; vertical-align:middle;">restart_alt</span> Làm lại
+                        </button>
+                        <button class="answer-btn" style="background: #3498db;" onclick="shuffleQuiz()">
+                            <span class="material-symbols-outlined" style="font-size:18px; vertical-align:middle;">shuffle</span> Xáo trộn
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1676,77 +1685,89 @@ async function openCopyDeck(event, deckId) {
 }
 
 async function loadCards(d, skipHash = false) {
-    // --- 1. LOGIC TIẾT KIỆM BĂNG THÔNG & GIỮ TRẠNG THÁI ---
-    // Nếu bộ bài yêu cầu trùng với bộ bài đang hiển thị VÀ danh sách thẻ đã có dữ liệu
-    // thì không tải lại (fetch) từ Server nữa.
+    // --- 1. LOGIC TIẾT KIỆM BĂNG THÔNG ---
     const isReviewPageVisible = !document.getElementById('reviewPage').classList.contains('hidden');
     if (currentDeckName === d && sessionCards.length > 0 && isReviewPageVisible) {
-        console.log("MindDeck: Dữ liệu đã có sẵn, bỏ qua việc tải lại để tiết kiệm băng thông.");
+        console.log("MindDeck: Dữ liệu đã có sẵn, bỏ qua fetch.");
         return; 
     }
 
-    // 2. Cập nhật URL và trạng thái Loading
+    // 2. Cập nhật URL và Loading
     if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/${mode}`;
     currentDeckName = d; 
-    showLoading("Đang tải dữ liệu học tập...");
+    showLoading("Đang nạp dữ liệu...");
 
     try {
-        // 3. Truy vấn dữ liệu từ Supabase
-        // Lấy cards và progress của user hiện tại trong 1 lần gọi duy nhất
+        // 3. Truy vấn dữ liệu từ Supabase (Cards + Progress)
         const { data: cards, error } = await sb.from('cards')
             .select('*, progress(*)')
             .eq('deck_id', d)
             .eq('progress.user_id', currentUser.id); 
 
         if (error) throw error;
-        saveRecentDeck(d); // Kích hoạt lưu lịch sử khi tải bộ bài thành công
-        // 4. Cập nhật Breadcrumb (Thanh điều hướng)
+        saveRecentDeck(d); 
+
+        // 4. Cập nhật Breadcrumb
         const labels = { 'review': 'Ôn tập hôm nay', 'cram': 'Học nhồi nhét', 'test': 'Luyện đề thi' };
-        const parentLabel = labels[mode] || 'Học tập';
         updateBreadcrumb([
-            {label: parentLabel, action: `openDeckSelection('${mode}')`}, 
+            {label: labels[mode] || 'Học tập', action: `openDeckSelection('${mode}')`}, 
             {label: getCleanName(d)}
         ]);
 
-// 5. Xử lý logic lọc thẻ theo chế độ học (Mode)
         const now = new Date().toISOString();
-        
+        sessionCards = cards; // Mặc định lấy toàn bộ
+
+        // 5. XỬ LÝ LOGIC THEO TỪNG CHẾ ĐỘ
         if (mode === 'review') {
-            // Chế độ SRS: Lấy thẻ chưa học hoặc đến hạn
             sessionCards = cards.filter(c => {
                 const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
                 return !p || p.due <= now;
             });
             sessionCards.sort(() => Math.random() - 0.5); 
-        } else {
-            // Chế độ Cram/Test: Lấy toàn bộ thẻ và xáo trộn
-            sessionCards = cards;
+        } 
+        else if (mode === 'cram') {
+            sessionCards = cards.map(c => ({ ...c, cramLevel: 1 }));
             sessionCards.sort(() => Math.random() - 0.5); 
+        } 
+        else if (mode === 'test') {
+            // --- LOGIC RIÊNG CHO TRẮC NGHIỆM: KHÔI PHỤC TRẠNG THÁI ---
+            quizState = { correctCount: 0, wrongCount: 0, correctList: [], wrongList: [] };
             
-            // [MỚI] Nếu là Cram, gắn cấp độ 1 cho tất cả thẻ
-            if (mode === 'cram') {
-                sessionCards = sessionCards.map(c => ({ ...c, cramLevel: 1 }));
-            }
+            sessionCards.forEach(c => {
+                const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
+                // Nếu test_result có giá trị (true/false) nghĩa là đã làm rồi
+                if (p && p.test_result !== null && p.test_result !== undefined) {
+                    c.isDone = true; 
+                    if (p.test_result === true) {
+                        quizState.correctCount++;
+                        quizState.correctList.push(c);
+                    } else {
+                        quizState.wrongCount++;
+                        quizState.wrongList.push(c);
+                    }
+                } else {
+                    c.isDone = false;
+                }
+            });
+
+            // Cập nhật con số lên UI ngay
+            document.getElementById('countCorrect').innerText = quizState.correctCount;
+            document.getElementById('countWrong').innerText = quizState.wrongCount;
+
+            // Tự động tìm câu chưa làm đầu tiên để nhảy đến đó
+            const firstUnfinished = sessionCards.findIndex(c => !c.isDone);
+            currentIndex = firstUnfinished !== -1 ? firstUnfinished : 0;
         }
 
-        // 6. Kiểm tra nếu không có thẻ
+        // 6. Kiểm tra rỗng
         if (!sessionCards || sessionCards.length === 0) {
             hideLoading();
-            return customAlert("Tuyệt vời! Bạn đã hoàn thành hết các thẻ trong bộ bài này.", "🎉");
+            return customAlert("Chúc mừng! Bạn đã hoàn thành hết các thẻ.", "🎉");
         }
 
-// 7. Khởi tạo trạng thái phiên học
-        currentIndex = 0; 
-        if (mode === 'test') {
-            quizState = { correctCount: 0, wrongCount: 0, correctList: [], wrongList: [] };
-            if (document.getElementById('countCorrect')) document.getElementById('countCorrect').innerText = '0';
-            if (document.getElementById('countWrong')) document.getElementById('countWrong').innerText = '0';
-        }
-
-        // 8. Hiển thị trang học
+        // 7. Hiển thị trang
         showPage('reviewPage'); 
 
-        // [MỚI] Xử lý hiển thị Cram Modal hoặc bắt đầu luôn
         if (mode === 'cram') {
             document.getElementById('cramIntroModal').style.display = 'flex';
         } else {
@@ -1758,7 +1779,7 @@ async function loadCards(d, skipHash = false) {
     } catch (err) {
         hideLoading();
         console.error("Lỗi loadCards:", err);
-        customAlert("Không thể tải bộ bài. Vui lòng kiểm tra kết nối mạng của bạn.", "❌");
+        customAlert("Lỗi kết nối mạng.", "❌");
     }
 }
 function toggleReverseMode() {
@@ -1785,48 +1806,62 @@ function togglePracticeArea() {
 }
 function showCard() {
     const c = sessionCards[currentIndex];
+    if (!c) return; // Bảo vệ nếu mảng rỗng
+
     showBack = false; 
 
+    // Reset ô nhập liệu nếu đang ở chế độ gõ
     const practiceArea = document.getElementById('practiceArea');
     if (practiceArea) practiceArea.value = "";
 
-    // 1. Chuyển đổi khu vực hiển thị dựa theo chế độ học
-    const isTest = mode === 'test';
+    // 1. Xác định trạng thái chế độ
+    const isTest = (mode === 'test');
+    const isCram = (mode === 'cram');
+
+    // 2. Chuyển đổi khu vực hiển thị chính (Quiz vs Flashcard)
     document.getElementById('testArea').classList.toggle('hidden', !isTest);
     document.getElementById('studyArea').classList.toggle('hidden', isTest);
     
-    // ==========================================
-    // 2. [ĐÃ THÊM LOGIC MỚI] Ẩn nút "Học ngược" và Hiện "Bộ đếm Đúng/Sai" khi ở chế độ Trắc nghiệm
-    // ==========================================
+    // 3. Điều khiển các nhóm nút bấm ở Footer
+    // answer-group-standard dùng cho SRS và Cram
+    // answer-group-test dùng cho Trắc nghiệm (Reset, Shuffle)
+    const srsGroup = document.getElementById('answer-group-standard');
+    const testGroup = document.getElementById('answer-group-test');
+    
+    if (srsGroup) srsGroup.classList.toggle('hidden', isTest);
+    if (testGroup) testGroup.classList.toggle('hidden', !isTest);
+
+    // 4. Điều khiển thanh công cụ (Header của trang học)
     const reverseLabel = document.getElementById('reverseModeLabel');
     const quizCounters = document.getElementById('quizCounters');
     
-    if (reverseLabel) reverseLabel.classList.toggle('hidden', isTest);  // Ẩn Học ngược nếu đang thi
-    if (quizCounters) quizCounters.classList.toggle('hidden', !isTest); // Hiện đếm điểm nếu đang thi
-    // ==========================================
+    if (reverseLabel) reverseLabel.classList.toggle('hidden', isTest);  // Ẩn Học ngược khi thi
+    if (quizCounters) quizCounters.classList.toggle('hidden', !isTest); // Hiện đếm câu Đúng/Sai khi thi
 
-    // 3. Cập nhật Text Tiến độ và Dropdown cho chế độ Cram
+    // 5. Cập nhật văn bản tiến độ (Progress Text)
     const progressEl = document.getElementById('progressText');
     const cramLevelSelect = document.getElementById('cramLevelSelect');
 
     if (progressEl) {
-        if (mode === 'cram') {
+        if (isCram) {
+            // Hiện dropdown chọn cấp độ khi ở Cram mode
             if (cramLevelSelect) cramLevelSelect.classList.remove('hidden'); 
-            progressEl.innerHTML = `${currentIndex + 1}/${sessionCards.length} <span style="color:#e53e3e; font-size:14px; margin-left: 5px;">(Cấp ${c.cramLevel}/${targetCramLevel})</span>`;
+            progressEl.innerHTML = `${currentIndex + 1}/${sessionCards.length} <span style="color:#e53e3e; font-size:14px; margin-left: 5px;">(Cấp ${c.cramLevel || 1}/${targetCramLevel})</span>`;
         } else {
+            // Ẩn dropdown khi ở chế độ khác
             if (cramLevelSelect) cramLevelSelect.classList.add('hidden'); 
             progressEl.innerText = `${currentIndex + 1}/${sessionCards.length}`;
         }
     }
 
-    // 4. Render nội dung thẻ
-    if (mode === 'test') {
+    // 6. Render nội dung thẻ theo logic riêng của từng mode
+    if (isTest) {
         renderQuiz();
     } else {
         renderStudy();
     }
     
-    // 5. Cập nhật màu giao diện (Dark/Light mode)
+    // 7. Cập nhật màu giao diện (Dark/Light mode) dựa trên trạng thái đã lưu
     if (typeof applyCardTheme === 'function') applyCardTheme();
 }
 
@@ -1871,81 +1906,172 @@ function renderStudy() {
     }
 }
 
-function renderQuiz() {
+async function renderQuiz() {
     const c = sessionCards[currentIndex];
-    
-    // 1. Hiển thị câu hỏi
-    document.getElementById('testQuestionText').innerHTML = escapeHTML(c.front);
-    
-    // Reset Feedback & Nút Next
-    const feedbackEl = document.getElementById('testFeedback');
-    feedbackEl.className = '';
-    feedbackEl.innerText = '';
-    document.getElementById('btnNextQuiz').style.display = 'none';
+    if (!c) return;
 
+    // 1. Lấy dữ liệu tiến trình cũ (nếu có) từ database để hỗ trợ F5/Xem lại
+    // Dữ liệu này được nạp từ hàm loadCards (c.progress[0])
+    const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
+    const isAlreadyDone = (p && p.test_result !== null);
+
+    // 2. Reset UI cơ bản
+    const questionTextEl = document.getElementById('testQuestionText');
+    const feedbackEl = document.getElementById('testFeedback');
+    const nextBtn = document.getElementById('btnNextQuiz');
     const optsDiv = document.getElementById('testOptions');
+
+    questionTextEl.innerHTML = escapeHTML(c.front);
+    feedbackEl.className = 'test-feedback-text'; // Class cơ bản
+    feedbackEl.innerText = '';
+    feedbackEl.style.opacity = '0';
+    nextBtn.style.display = 'none';
     optsDiv.innerHTML = '';
 
-    // Lấy đáp án
+    // 3. Xử lý danh sách đáp án từ cột Info
     const options = (c.info || "").split('\n').filter(l => l.trim());
+    const correctAnswerRaw = c.back.trim().toUpperCase();
 
     options.forEach((opt, index) => {
         const b = document.createElement('button');
         b.className = 'test-option';
-        // Thêm số 1, 2, 3, 4 ở đầu
         b.innerHTML = `<span class="opt-num">${index + 1}</span> ${escapeHTML(opt.trim())}`;
 
-        b.onclick = () => {
+        // Hàm xử lý khi chọn đáp án (được tách ra để dùng cho cả Click và Auto-render)
+        const handleChoice = async (selectedOption, isManualClick = true) => {
             const allButtons = optsDiv.querySelectorAll('.test-option');
             allButtons.forEach(btn => btn.disabled = true);
 
-            const correctAnswer = c.back.trim().toUpperCase();
-            const currentOption = opt.trim().toUpperCase();
-            const isCorrect = currentOption.startsWith(correctAnswer);
+            const currentOptionText = selectedOption.trim().toUpperCase();
+            // Kiểm tra đúng sai: Đáp án đúng là dòng bắt đầu bằng nội dung trong c.back
+            const isCorrect = currentOptionText.startsWith(correctAnswerRaw);
 
+            // HIỂN THỊ UI CHO NÚT ĐƯỢC CHỌN
             if (isCorrect) {
                 b.classList.add('correct');
-                // Icon tick (tùy chọn CSS)
                 b.innerHTML = `<span class="opt-num" style="color:#48bb78">✓</span> ${escapeHTML(opt.trim())}`;
-                
-                quizState.correctCount++;
-                quizState.correctList.push(c);
-                
-                // Hiển thị lời động viên & Pháo hoa
-                const praises = ["Tuyệt cả là vời!", "Bạn làm quá xuất sắc!", "Chính xác!", "Giỏi lắm!"];
-                feedbackEl.innerText = praises[Math.floor(Math.random() * praises.length)];
-                feedbackEl.className = 'show success';
-                
-                confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, zIndex: 10000 });
-
             } else {
                 b.classList.add('wrong');
-                quizState.wrongCount++;
-                quizState.wrongList.push(c);
-
-                feedbackEl.innerText = "Mong bạn cố gắng lần sau!";
-                feedbackEl.className = 'show error';
-
-                // Tìm và tô xanh đáp án đúng
+                // Nếu sai, phải tìm và highlight nút đúng cho người dùng thấy
                 Array.from(allButtons).forEach((btn, idx) => {
-                    const btnText = options[idx].trim().toUpperCase();
-                    if (btnText.startsWith(correctAnswer)) {
+                    if (options[idx].trim().toUpperCase().startsWith(correctAnswerRaw)) {
                         btn.classList.add('correct');
                         btn.innerHTML = `<span class="opt-num" style="color:#48bb78">✓</span> ${escapeHTML(options[idx].trim())}`;
                     }
                 });
             }
 
-            // Cập nhật bộ đếm trên UI
-            document.getElementById('countCorrect').innerText = quizState.correctCount;
-            document.getElementById('countWrong').innerText = quizState.wrongCount;
+            // PHẢN HỒI (CHỈ CHẠY KHI NGƯỜI DÙNG TỰ BẤM)
+            if (isManualClick) {
+                if (isCorrect) {
+                    const praises = ["Tuyệt vời!", "Chính xác!", "Quá giỏi!", "Đúng rồi! 🎉"];
+                    feedbackEl.innerText = praises[Math.floor(Math.random() * praises.length)];
+                    feedbackEl.className = 'show success';
+                    confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, zIndex: 10000 });
+                    
+                    quizState.correctCount++;
+                    quizState.correctList.push(c);
+                } else {
+                    feedbackEl.innerText = "Tiếc quá, đáp án đúng là dòng màu xanh!";
+                    feedbackEl.className = 'show error';
+                    
+                    quizState.wrongCount++;
+                    quizState.wrongList.push(c);
+                }
 
-            // Hiển thị nút "Tiếp theo"
-            document.getElementById('btnNextQuiz').style.display = 'block';
+                // CẬP NHẬT LÊN DATABASE (SUPABASE)
+                try {
+                    await sb.from('progress').upsert({
+                        user_id: currentUser.id,
+                        card_id: c.id,
+                        test_result: isCorrect,
+                        due: new Date().toISOString() // Đánh dấu thời điểm làm bài
+                    });
+                } catch (err) {
+                    console.error("Lỗi lưu kết quả test:", err);
+                }
+
+                // Cập nhật bộ đếm UI
+                document.getElementById('countCorrect').innerText = quizState.correctCount;
+                document.getElementById('countWrong').innerText = quizState.wrongCount;
+            }
+
+            // Luôn hiện nút "Tiếp theo" sau khi đã chọn
+            feedbackEl.style.opacity = '1';
+            nextBtn.style.display = 'block';
         };
-        
-        optsDiv.appendChild(b);
+
+        // Gắn sự kiện click
+        b.onclick = () => handleChoice(opt, true);
+
+        // 4. KIỂM TRA TRẠNG THÁI CŨ (Nếu F5 hoặc quay lại câu đã làm)
+        if (isAlreadyDone) {
+            // Nếu câu này đã làm, ta mô phỏng lại kết quả dựa trên test_result trong DB
+            // Giả sử logic là: nếu test_result đúng thì highlight nút đúng, nếu sai thì highlight nút sai + nút đúng
+            // Để đơn giản, ta chỉ cần kích hoạt handleChoice ở chế độ Auto (isManualClick = false)
+            // Lưu ý: ta chỉ kích hoạt cho nút mà người dùng ĐÃ CHỌN trước đó (cần thêm logic lưu index đã chọn nếu muốn chính xác 100%, 
+            // nhưng ở đây ta chỉ cần show đáp án đúng/sai là đủ).
+            
+            optsDiv.appendChild(b);
+            
+            // Nếu đã làm rồi thì tự động khóa và hiện đáp án đúng
+            const isThisTheCorrectOpt = opt.trim().toUpperCase().startsWith(correctAnswerRaw);
+            if (p.test_result === true && isThisTheCorrectOpt) {
+                setTimeout(() => handleChoice(opt, false), 10);
+            } else if (p.test_result === false) {
+                // Nếu làm sai, tự động hiện đáp án đúng sau 10ms
+                setTimeout(() => handleChoice("", false), 10);
+            }
+        } else {
+            optsDiv.appendChild(b);
+        }
     });
+}
+// 1. Hàm Làm lại từ đầu
+async function resetQuiz() {
+    const ok = await showConfirm("Làm lại từ đầu?", "Hệ thống sẽ xóa toàn bộ kết quả đã làm của bộ bài này trên server.");
+    if (!ok) return;
+
+    showLoading("Đang reset dữ liệu...");
+    try {
+        // Lấy danh sách ID card của deck hiện tại
+        const cardIds = sessionCards.map(c => c.id);
+        
+        // Cập nhật test_result về null cho tất cả card trong deck này
+        await sb.from('progress')
+            .update({ test_result: null })
+            .eq('user_id', currentUser.id)
+            .in('card_id', cardIds);
+
+        // Reset state local
+        sessionCards.forEach(c => c.isDone = false);
+        quizState = { correctCount: 0, wrongCount: 0, correctList: [], wrongList: [] };
+        currentIndex = 0;
+        
+        document.getElementById('countCorrect').innerText = '0';
+        document.getElementById('countWrong').innerText = '0';
+        
+        showCard();
+        showToast("Đã reset bộ bài!");
+    } catch (e) {
+        customAlert("Lỗi khi reset: " + e.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+// 2. Hàm Xáo trộn câu hỏi
+function shuffleQuiz() {
+    // Chỉ xáo trộn những câu chưa làm (hoặc xáo trộn tất cả nếu bạn muốn làm lại)
+    // Ở đây chúng ta sẽ xáo trộn toàn bộ danh sách cards
+    sessionCards.sort(() => Math.random() - 0.5);
+    currentIndex = 0;
+    // Tìm lại currentIndex nếu có những câu đã làm rồi để không bị trùng
+    const firstUnfinished = sessionCards.findIndex(c => !c.isDone);
+    if (firstUnfinished !== -1) currentIndex = firstUnfinished;
+    
+    showCard();
+    showToast("Đã xáo trộn câu hỏi! 🔀");
 }
 async function answerCurrent(q) {
     const c = sessionCards[currentIndex];
@@ -2649,6 +2775,7 @@ function showQuizResultModal(type) {
 </script>
 </body>
 </html>
+
 
 
 
