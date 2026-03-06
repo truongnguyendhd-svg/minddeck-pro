@@ -665,6 +665,29 @@ body {
     color: #3498db;
     background: #f1f5f9;
 }
+/* NÚT SỬA THẺ TRỰC TIẾP (GÓC TRÊN BÊN PHẢI) */
+.btn-edit-inside {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: transparent;
+    border: none;
+    color: #cbd5e0;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+.btn-edit-inside:hover {
+    color: #3498db;
+    background: #f1f5f9;
+}
+.dark-card-mode .btn-edit-inside { color: #64748b; }
+.dark-card-mode .btn-edit-inside:hover { background: #334155; color: #60a5fa; }
 .dark-card-mode .btn-info-inside { color: #64748b; }
 .dark-card-mode .btn-info-inside:hover { background: #334155; color: #60a5fa; }
 /* Reset lại Practice Area cho gọn trong thẻ */
@@ -1274,6 +1297,34 @@ body {
             <button class="close-modal" onclick="closeModal('quizResultModal')">&times;</button>
         </div>
         <div class="modal-body" id="quizResultContent"></div>
+    </div>
+</div>
+<!-- MODAL SỬA THẺ NHANH -->
+<div id="quickEditModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3><span class="material-symbols-outlined">edit_square</span> Sửa thẻ trực tiếp</h3>
+            <button class="close-modal" onclick="closeModal('quickEditModal')">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 20px;">
+            <label style="font-weight: bold; font-size: 14px; color: #4a5568; margin-bottom: 5px; display: block;">Mặt trước (Câu hỏi)</label>
+            <textarea id="qeFront" rows="3" style="width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid #e2e8f0; margin-bottom: 15px; font-family: inherit; font-size: 16px;"></textarea>
+
+            <label style="font-weight: bold; font-size: 14px; color: #4a5568; margin-bottom: 5px; display: block;">Mặt sau (Đáp án)</label>
+            <textarea id="qeBack" rows="3" style="width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid #e2e8f0; margin-bottom: 15px; font-family: inherit; font-size: 16px;"></textarea>
+
+            <label style="font-weight: bold; font-size: 14px; color: #4a5568; margin-bottom: 5px; display: block;">Thông tin phụ</label>
+            <textarea id="qeInfo" rows="3" style="width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid #e2e8f0; margin-bottom: 25px; font-family: inherit; font-size: 16px;"></textarea>
+
+            <div style="display: flex; gap: 10px;">
+                <button onclick="deleteQuickCard()" style="flex: 1; padding: 14px; background: #fff5f5; color: #e53e3e; border: 1.5px solid #feb2b2; border-radius: 12px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; transition: 0.2s;">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">delete</span> Xóa thẻ
+                </button>
+                <button onclick="saveQuickEdit()" style="flex: 2; padding: 14px; background: linear-gradient(135deg, #4299e1, #3182ce); color: white; border: none; border-radius: 12px; font-weight: 800; font-size: 16px; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 10px rgba(49, 130, 206, 0.2);">
+                    LƯU THAY ĐỔI
+                </button>
+            </div>
+        </div>
     </div>
 </div>
 <script>
@@ -2030,19 +2081,20 @@ function renderStudy() {
             `;
         }
     }
-
-    // HTML Nút Info nằm góc phải dưới thẻ
+// (Bên trong hàm renderStudy)
+    // HTML Nút Info nằm góc phải dưới thẻ và Nút Sửa góc phải trên
+    const editBtnHTML = `<button onclick="openQuickEdit(event)" class="btn-edit-inside" title="Sửa thẻ nhanh"><span class="material-symbols-outlined" style="font-size:22px;">edit</span></button>`;
     const infoBtnHTML = `<button onclick="handleInfoClick(event)" class="btn-info-inside" title="Thông tin phụ"><span class="material-symbols-outlined" style="font-size:22px;">info</span></button>`;
 
     if (!showBack) {
         const questionText = isRev ? c.back : c.front;
-        // Gắn chữ và Nút Info vào thẻ
-        cardArea.innerHTML = `<b>${escapeHTML(questionText)}</b>` + infoBtnHTML;
+        // Gắn chữ và các nút vào thẻ
+        cardArea.innerHTML = editBtnHTML + `<b>${escapeHTML(questionText)}</b>` + infoBtnHTML;
         if (answerGroup) answerGroup.querySelectorAll('button').forEach(btn => btn.disabled = true);
         if (practiceArea && practiceArea.classList.contains('show-typing')) practiceArea.focus();
     } else {
         const answerText = isRev ? c.front : c.back;
-        cardArea.innerHTML = `<i>${escapeHTML(answerText)}</i>` + infoBtnHTML;
+        cardArea.innerHTML = editBtnHTML + `<i>${escapeHTML(answerText)}</i>` + infoBtnHTML;
         if (answerGroup) answerGroup.querySelectorAll('button').forEach(btn => btn.disabled = false);
     }
 }
@@ -2067,8 +2119,19 @@ async function renderQuiz() {
     feedbackEl.innerText = '';
     feedbackEl.style.opacity = '0';
     nextBtn.style.display = 'none';
+// (Bên trong hàm renderQuiz - Phần thiết lập UI)
     optsDiv.innerHTML = '';
 
+    // Gắn thêm nút Edit vào góc trên thẻ Trắc nghiệm
+    let editBtn = document.getElementById('quizEditBtn');
+    if (!editBtn) {
+        editBtn = document.createElement('button');
+        editBtn.id = 'quizEditBtn';
+        editBtn.className = 'btn-edit-inside';
+        editBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:22px;">edit</span>';
+        editBtn.onclick = (e) => openQuickEdit(e);
+        document.getElementById('testCardDisplay').appendChild(editBtn);
+    }
     // 3. Xử lý danh sách đáp án từ cột Info
     const options = (c.info || "").split('\n').filter(l => l.trim());
     const correctAnswerRaw = c.back.trim().toUpperCase();
@@ -3183,6 +3246,93 @@ function handleInfoClick(event) {
     event.stopPropagation(); // Ngăn việc click nút Info làm lật thẻ
     showInfoModal();
 }
+// ================= CÁC HÀM SỬA/XÓA THẺ NHANH KHI ĐANG HỌC =================
+
+function openQuickEdit(event) {
+    if (event) event.stopPropagation(); // Ngăn sự kiện lật thẻ
+    const c = sessionCards[currentIndex];
+    if (!c) return;
+
+    // Đổ dữ liệu hiện tại vào Modal
+    document.getElementById('qeFront').value = c.front;
+    document.getElementById('qeBack').value = c.back;
+    document.getElementById('qeInfo').value = c.info || '';
+
+    document.getElementById('quickEditModal').style.display = 'flex';
+}
+
+async function saveQuickEdit() {
+    const c = sessionCards[currentIndex];
+    const newFront = document.getElementById('qeFront').value.trim();
+    const newBack = document.getElementById('qeBack').value.trim();
+    const newInfo = document.getElementById('qeInfo').value.trim();
+
+    if (!newFront || !newBack) {
+        return customAlert("Mặt trước và mặt sau không được để trống!", "⚠️");
+    }
+
+    showLoading("Đang lưu thay đổi...");
+    try {
+        // Cập nhật trên Database Supabase
+        const { error } = await sb.from('cards')
+            .update({ front: newFront, back: newBack, info: newInfo })
+            .eq('id', c.id);
+
+        if (error) throw error;
+
+        // Cập nhật mảng Local (RAM) để thay đổi hiển thị ngay lập tức
+        c.front = newFront;
+        c.back = newBack;
+        c.info = newInfo;
+
+        closeModal('quickEditModal');
+        showToast("Đã cập nhật thẻ thành công! ✨");
+        
+        // Render lại thẻ hiện tại với nội dung mới
+        showCard(); 
+    } catch (err) {
+        console.error("Lỗi sửa thẻ nhanh:", err);
+        customAlert("Không thể lưu. Có thể bộ bài này không phải của bạn nên bạn không có quyền sửa.", "❌");
+    } finally {
+        hideLoading();
+    }
+}
+
+async function deleteQuickCard() {
+    const c = sessionCards[currentIndex];
+    const ok = await showConfirm("Xóa vĩnh viễn thẻ này?", "Hành động này sẽ xóa thẻ khỏi cơ sở dữ liệu và không thể hoàn tác.", "Xóa thẻ");
+    if (!ok) return;
+
+    showLoading("Đang xóa thẻ...");
+    try {
+        // Xóa trên Database
+        const { error } = await sb.from('cards').delete().eq('id', c.id);
+        if (error) throw error;
+
+        closeModal('quickEditModal');
+        showToast("Đã xóa thẻ khỏi bộ bài! 🗑️");
+
+        // Xóa khỏi mảng đang học
+        sessionCards.splice(currentIndex, 1);
+
+        // Xử lý chuyển thẻ
+        if (sessionCards.length === 0) {
+            customAlert("Bạn đã xóa thẻ cuối cùng của bộ bài này.", "ℹ️");
+            showHome();
+        } else {
+            // Nếu xóa thẻ cuối cùng, lùi index lại 1 bước
+            if (currentIndex >= sessionCards.length) {
+                currentIndex = sessionCards.length - 1;
+            }
+            showCard();
+        }
+    } catch (err) {
+        console.error("Lỗi xóa thẻ nhanh:", err);
+        customAlert("Không thể xóa. Có thể bạn không có quyền thao tác trên thẻ này.", "❌");
+    } finally {
+        hideLoading();
+    }
+}
 window.addEventListener('hashchange', handleRoute);
 function showQuizResultModal(type) {
     const list = type === 'correct' ? quizState.correctList : quizState.wrongList;
@@ -3217,6 +3367,7 @@ function showQuizResultModal(type) {
 </script>
 </body>
 </html>
+
 
 
 
