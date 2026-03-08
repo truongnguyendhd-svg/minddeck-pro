@@ -3558,6 +3558,7 @@ function goBackToSelection() { openDeckSelection(mode); }
 function showImportForm(skipHash = false) { 
     if (!skipHash) window.location.hash = 'import'; document.getElementById('learnMenu').classList.add('hidden'); document.getElementById('importForm').classList.remove('hidden'); updateBreadcrumb([{label: 'Thêm mới', action: 'showLearnPage()'}, {label: 'Smart Import'}]); }
 
+// ================= HÀM LƯU TOÀN BỘ BỘ BÀI (HỖ TRỢ CẢ FLASHCARD & QUIZ) =================
 async function saveFullDeck() {
     // 0. Khai báo biến nút lưu để quản lý trạng thái
     const btnSave = document.getElementById('btnSaveAll');
@@ -3573,7 +3574,7 @@ async function saveFullDeck() {
     // 2. KIỂM TRA DỮ LIỆU ĐẦU VÀO CƠ BẢN
     if (!tag) return customAlert("Vui lòng nhập tên bộ bài!", "⚠️");
 
-    // VÔ HIỆU HÓA NÚT LƯU ngay lập tức để tránh người dùng nhấn nhiều lần
+    // VÔ HIỆU HÓA NÚT LƯU ngay lập tức để tránh người dùng nhấn spam
     if (btnSave) {
         btnSave.disabled = true;
         btnSave.innerText = "ĐANG XỬ LÝ...";
@@ -3598,22 +3599,58 @@ async function saveFullDeck() {
     const rows = document.querySelectorAll('.card-row');
     
     rows.forEach(row => {
-        const f_front = row.querySelector('.f-front').value.trim();
-        const f_reading = row.querySelector('.f-reading').value.trim();
-        const f_meaning = row.querySelector('.f-meaning').value.trim();
+        let f_front = "";
+        let b_packed = "";
+        let i_packed = "";
 
-        if (f_front && (f_reading || f_meaning)) {
+        // ==========================================
+        // TRƯỜNG HỢP 1: LƯU ĐỀ TRẮC NGHIỆM (QUIZ)
+        // ==========================================
+        if (mode === 'quiz') {
+            // Lấy value an toàn bằng optional chaining (?.) để tránh lỗi nếu DOM chưa load kịp
+            f_front = row.querySelector('.f-question')?.value.trim() || "";
+            b_packed = row.querySelector('.f-correct')?.value.trim() || "";
             
+            const w1 = row.querySelector('.f-wrong1')?.value.trim() || "";
+            const w2 = row.querySelector('.f-wrong2')?.value.trim() || "";
+            const w3 = row.querySelector('.f-wrong3')?.value.trim() || "";
+
+            // Nếu bỏ trống câu hỏi HOẶC đáp án đúng -> Bỏ qua không lưu thẻ này
+            if (!f_front || !b_packed) return; 
+
+            // Gom đáp án đúng và sai vào 1 mảng
+            let options = [b_packed];
+            if (w1) options.push(w1);
+            if (w2) options.push(w2);
+            if (w3) options.push(w3);
+            
+            // Xáo trộn thứ tự các lựa chọn để lúc thi đáp án không bị nằm chết ở vị trí số 1
+            options.sort(() => Math.random() - 0.5);
+            
+            // Ép vào cột Info, mỗi lựa chọn 1 dòng
+            i_packed = options.join('\n');
+        } 
+        // ==========================================
+        // TRƯỜNG HỢP 2: LƯU FLASHCARD
+        // ==========================================
+        else {
+            f_front = row.querySelector('.f-front')?.value.trim() || "";
+            const f_reading = row.querySelector('.f-reading')?.value.trim() || "";
+            const f_meaning = row.querySelector('.f-meaning')?.value.trim() || "";
+
+            // Nếu bỏ trống Mặt trước HOẶC (Bỏ trống cả Cách đọc + Ý nghĩa) -> Bỏ qua
+            if (!f_front || (!f_reading && !f_meaning)) return;
+
             // Gom Back (Ngăn cách bằng xuống dòng \n)
-            const b_packed = `${f_reading}\n${f_meaning}`.trim();
+            b_packed = `${f_reading}\n${f_meaning}`.trim();
             
             // Gom Info (Dùng Nhãn/Marker)
             let i_arr = [];
-            const hv = row.querySelector('.f-hv').value.trim();
-            const ex1jp = row.querySelector('.f-ex1-jp').value.trim();
-            const ex1vn = row.querySelector('.f-ex1-vn').value.trim();
-            const ex2jp = row.querySelector('.f-ex2-jp').value.trim();
-            const ex2vn = row.querySelector('.f-ex2-vn').value.trim();
+            const hv = row.querySelector('.f-hv')?.value.trim() || "";
+            const ex1jp = row.querySelector('.f-ex1-jp')?.value.trim() || "";
+            const ex1vn = row.querySelector('.f-ex1-vn')?.value.trim() || "";
+            const ex2jp = row.querySelector('.f-ex2-jp')?.value.trim() || "";
+            const ex2vn = row.querySelector('.f-ex2-vn')?.value.trim() || "";
 
             if (hv) i_arr.push(`[HV] ${hv}`);
             if (ex1jp) i_arr.push(`[EX1] ${ex1jp}`);
@@ -3621,31 +3658,32 @@ async function saveFullDeck() {
             if (ex2jp) i_arr.push(`[EX2] ${ex2jp}`);
             if (ex2vn) i_arr.push(`[VN2] ${ex2vn}`);
             
-            const i_packed = i_arr.join('\n');
+            i_packed = i_arr.join('\n');
+        }
 
-            let cardObj = { 
-                deck_id: targetId, 
-                front: f_front, 
-                back: b_packed, 
-                info: i_packed 
-            };
+        // --- ĐÓNG GÓI OBJECT CARD ĐỂ ĐẨY LÊN DATABASE ---
+        let cardObj = { 
+            deck_id: targetId, 
+            front: f_front, 
+            back: b_packed, 
+            info: i_packed 
+        };
 
-            if (editingDeckId) {
-                const dbId = row.getAttribute('data-db-id');
-                const isDirty = row.getAttribute('data-is-dirty') === 'true';
-                // Nếu là thẻ mới (không có dbId) HOẶC thẻ cũ bị sửa (isDirty) thì mới đưa vào danh sách xử lý
-                if (!dbId || isDirty) {
-                    if (dbId) cardObj.id = dbId;
-                    cardsToProcess.push(cardObj);
-                }
-            } else {
-                // Chế độ tạo mới: Lấy tất cả các thẻ có nội dung
+        if (editingDeckId) {
+            const dbId = row.getAttribute('data-db-id');
+            const isDirty = row.getAttribute('data-is-dirty') === 'true';
+            // Nếu là thẻ mới (chưa có dbId) HOẶC thẻ cũ vừa bị sửa (isDirty = true) mới cần update lên DB
+            if (!dbId || isDirty) {
+                if (dbId) cardObj.id = dbId;
                 cardsToProcess.push(cardObj);
             }
+        } else {
+            // Chế độ tạo mới: Đẩy tất cả các thẻ có nội dung vào mảng
+            cardsToProcess.push(cardObj);
         }
     });
 
-    // Kiểm tra nếu không có thẻ nào hợp lệ trong chế độ tạo mới
+    // 4. Kiểm tra nếu không có thẻ nào hợp lệ
     if (cardsToProcess.length === 0 && !editingDeckId && cardsToDelete.length === 0) {
         if (btnSave) {
             btnSave.disabled = false;
@@ -3653,50 +3691,47 @@ async function saveFullDeck() {
             btnSave.style.opacity = "1";
             btnSave.style.cursor = "pointer";
         }
-        return customAlert("Vui lòng nhập nội dung cho ít nhất một thẻ!", "⚠️");
+        return customAlert("Vui lòng điền nội dung hợp lệ cho ít nhất một thẻ!", "⚠️");
     }
 
     showLoading("Đang xử lý dữ liệu...");
 
     try {
-        // 4. THỰC THI XÓA CÁC THẺ ĐÃ BỊ NGƯỜI DÙNG BẤM XOÁ TRONG FORM
+        // 5. THỰC THI XÓA CÁC THẺ ĐÃ BỊ BẤM XOÁ TRONG FORM
         if (editingDeckId && cardsToDelete.length > 0) {
             const { error: delError } = await sb.from('cards').delete().in('id', cardsToDelete);
             if (delError) throw delError;
         }
 
-        // 5. LƯU THÔNG TIN BỘ BÀI (DECKS)
+        // 6. LƯU THÔNG TIN BỘ BÀI (DECKS)
         const { error: deckError } = await sb.from('decks').upsert({ 
             id: targetId, 
             owner_id: currentUser.id, 
             type: mode || 'flashcard', 
             is_public: isPublic 
         });
-        
         if (deckError) throw deckError;
 
-        // 6. LƯU DANH SÁCH THẺ (CARDS)
+        // 7. LƯU DANH SÁCH THẺ (CARDS)
         if (cardsToProcess.length > 0) {
             const { error: cardsError } = await sb.from('cards').upsert(cardsToProcess);
             if (cardsError) throw cardsError;
         }
 
-        // 7. HOÀN TẤT VÀ RESET TRẠNG THÁI
+        // 8. HOÀN TẤT VÀ RESET TRẠNG THÁI
         showToast(editingDeckId ? "Đã cập nhật: " + tag : "Đã tạo thành công: " + tag);
         
-        // Reset các biến quản lý trạng thái về mặc định
         cardsToDelete = [];
         activeDeckId = null;
         editingDeckId = null;
         
-        // Quay về trang chủ
         showHome();
 
     } catch (err) {
         console.error("Lỗi SaveFullDeck:", err);
         customAlert("Đã xảy ra lỗi khi lưu: " + err.message, "❌");
         
-        // Nếu lỗi, trả lại trạng thái nút để người dùng có thể nhấn lưu lại
+        // Trả lại trạng thái nút nếu bị lỗi để user bấm lại
         if (btnSave) {
             btnSave.disabled = false;
             btnSave.innerText = editingDeckId ? "🚀 CẬP NHẬT TẤT CẢ" : "🚀 TẠO BỘ BÀI & LƯU TẤT CẢ";
@@ -3704,7 +3739,6 @@ async function saveFullDeck() {
             btnSave.style.cursor = "pointer";
         }
     } finally {
-        // Luôn luôn ẩn overlay loading bất kể thành công hay thất bại
         hideLoading();
     }
 }
@@ -3715,8 +3749,9 @@ async function deleteCurrentDeck() {
     if (ok) { showLoading("Đang xóa..."); await sb.from('cards').delete().eq('deck_id', editingDeckId); await sb.from('decks').delete().eq('id', editingDeckId); hideLoading(); showToast("Đã xóa bộ bài!"); showHome(); }
 }
 
+// ================= HÀM LƯU TỪNG THẺ ĐƠN LẺ (HỖ TRỢ CẢ FLASHCARD & QUIZ) =================
 async function saveSingleRow(id) {
-    // 1. KIỂM TRA BẢO MẬT: Ngăn lỗi crash nếu người dùng bị timeout
+    // 1. KIỂM TRA BẢO MẬT
     if (!currentUser || !currentUser.id) {
         return customAlert("Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang!", "⚠️");
     }
@@ -3729,37 +3764,70 @@ async function saveSingleRow(id) {
     const tag = document.getElementById('nTag').value.trim();
     const isPublic = document.getElementById('nVisibility').value === 'true';
 
-    // 3. THU THẬP DỮ LIỆU TỪ 8 Ô NHẬP LIỆU MỚI
-    const f_front = row.querySelector('.f-front').value.trim();
-    const f_reading = row.querySelector('.f-reading').value.trim();
-    const f_meaning = row.querySelector('.f-meaning').value.trim();
-    
-    const f_hv = row.querySelector('.f-hv').value.trim();
-    const f_ex1jp = row.querySelector('.f-ex1-jp').value.trim();
-    const f_ex1vn = row.querySelector('.f-ex1-vn').value.trim();
-    const f_ex2jp = row.querySelector('.f-ex2-jp').value.trim();
-    const f_ex2vn = row.querySelector('.f-ex2-vn').value.trim();
-
-    // 4. KIỂM TRA DỮ LIỆU ĐẦU VÀO CƠ BẢN
     if (!tag) return customAlert("Vui lòng nhập Tên bộ bài!", "⚠️");
-    if (!f_front || (!f_reading && !f_meaning)) {
-        return customAlert("Vui lòng điền đủ 'Từ vựng' và ít nhất 'Cách đọc' hoặc 'Ý nghĩa'!", "⚠️");
+
+    // BIẾN LƯU TRỮ DỮ LIỆU CUỐI CÙNG TRƯỚC KHI ĐẨY LÊN DB
+    let finalFront = "";
+    let finalBack = "";
+    let finalInfo = "";
+
+    // ==========================================
+    // 3A. NẾU LÀ CHẾ ĐỘ SOẠN ĐỀ TRẮC NGHIỆM (QUIZ)
+    // ==========================================
+    if (mode === 'quiz') {
+        finalFront = row.querySelector('.f-question').value.trim();
+        const correctAns = row.querySelector('.f-correct').value.trim();
+        const w1 = row.querySelector('.f-wrong1').value.trim();
+        const w2 = row.querySelector('.f-wrong2').value.trim();
+        const w3 = row.querySelector('.f-wrong3').value.trim();
+
+        if (!finalFront || !correctAns) {
+            return customAlert("Vui lòng điền đủ Câu hỏi và Đáp án đúng!", "⚠️");
+        }
+
+        // Đóng gói Quiz:
+        finalBack = correctAns; // Lưu đáp án đúng vào Back để chấm điểm
+        
+        let options = [correctAns]; // Gom đáp án đúng và sai vào Info
+        if (w1) options.push(w1);
+        if (w2) options.push(w2);
+        if (w3) options.push(w3);
+        
+        // Xáo trộn thứ tự các lựa chọn để chống học vẹt
+        options.sort(() => Math.random() - 0.5);
+        finalInfo = options.join('\n');
+    } 
+    // ==========================================
+    // 3B. NẾU LÀ CHẾ ĐỘ FLASHCARD (8 Ô)
+    // ==========================================
+    else {
+        finalFront = row.querySelector('.f-front').value.trim();
+        const f_reading = row.querySelector('.f-reading').value.trim();
+        const f_meaning = row.querySelector('.f-meaning').value.trim();
+        
+        if (!finalFront || (!f_reading && !f_meaning)) {
+            return customAlert("Vui lòng điền đủ 'Từ vựng' và ít nhất 'Cách đọc' hoặc 'Ý nghĩa'!", "⚠️");
+        }
+
+        // Đóng gói Flashcard:
+        finalBack = `${f_reading}\n${f_meaning}`.trim();
+
+        const f_hv = row.querySelector('.f-hv').value.trim();
+        const f_ex1jp = row.querySelector('.f-ex1-jp').value.trim();
+        const f_ex1vn = row.querySelector('.f-ex1-vn').value.trim();
+        const f_ex2jp = row.querySelector('.f-ex2-jp').value.trim();
+        const f_ex2vn = row.querySelector('.f-ex2-vn').value.trim();
+
+        let infoArr = [];
+        if (f_hv) infoArr.push(`[HV] ${f_hv}`);
+        if (f_ex1jp) infoArr.push(`[EX1] ${f_ex1jp}`);
+        if (f_ex1vn) infoArr.push(`[VN1] ${f_ex1vn}`);
+        if (f_ex2jp) infoArr.push(`[EX2] ${f_ex2jp}`);
+        if (f_ex2vn) infoArr.push(`[VN2] ${f_ex2vn}`);
+        finalInfo = infoArr.join('\n');
     }
 
-    // 5. ĐÓNG GÓI DỮ LIỆU (PACKING) TRƯỚC KHI LƯU DB
-    // 5.1 Gộp Reading và Meaning vào cột `back` (cách nhau bởi xuống dòng)
-    const packed_back = `${f_reading}\n${f_meaning}`.trim();
-
-    // 5.2 Gộp Hán Việt và Ví dụ vào cột `info` (Gắn nhãn [HV], [EX1]...)
-    let infoArr = [];
-    if (f_hv) infoArr.push(`[HV] ${f_hv}`);
-    if (f_ex1jp) infoArr.push(`[EX1] ${f_ex1jp}`);
-    if (f_ex1vn) infoArr.push(`[VN1] ${f_ex1vn}`);
-    if (f_ex2jp) infoArr.push(`[EX2] ${f_ex2jp}`);
-    if (f_ex2vn) infoArr.push(`[VN2] ${f_ex2vn}`);
-    const packed_info = infoArr.join('\n');
-
-    // 6. LOGIC TẠO ID DUY NHẤT CHO BỘ BÀI
+    // 4. LOGIC TẠO ID DUY NHẤT CHO BỘ BÀI
     let targetId = editingDeckId || activeDeckId;
     if (!targetId) {
         const safeTagName = sanitizeTagName(tag) || "deck";
@@ -3767,14 +3835,14 @@ async function saveSingleRow(id) {
         activeDeckId = targetId; 
     }
 
-    // 7. XÁC NHẬN VÀ THỰC THI LƯU DỮ LIỆU
+    // 5. XÁC NHẬN VÀ THỰC THI LƯU DỮ LIỆU
     const ok = await showConfirm("Lưu thay đổi?", "Bạn muốn cập nhật nội dung cho thẻ này?", "OK");
     if (ok) {
         showLoading("Đang lưu...");
         try {
             if (!mode) mode = 'flashcard'; 
             
-            // 7.1 Lưu thông tin bộ bài
+            // 5.1 Lưu thông tin bộ bài
             const { error: deckError } = await sb.from('decks').upsert({ 
                 id: targetId, 
                 owner_id: currentUser.id, 
@@ -3783,19 +3851,19 @@ async function saveSingleRow(id) {
             });
             if (deckError) throw new Error("Lỗi lưu bộ bài: " + deckError.message);
 
-            // 7.2 Lưu thẻ (Card) với dữ liệu đã Đóng gói
+            // 5.2 Lưu thẻ (Card) với dữ liệu đã Đóng gói
             const cardObj = { 
                 deck_id: targetId, 
-                front: f_front, 
-                back: packed_back, 
-                info: packed_info 
+                front: finalFront, 
+                back: finalBack, 
+                info: finalInfo 
             };
             if (dbId) cardObj.id = dbId; 
             
             const { data: savedCard, error: cardError } = await sb.from('cards').upsert(cardObj).select();
             if (cardError) throw new Error("Lỗi lưu thẻ: " + cardError.message);
 
-            // 8. CẬP NHẬT GIAO DIỆN (UI) SAU KHI LƯU THÀNH CÔNG
+            // 6. CẬP NHẬT GIAO DIỆN (UI) SAU KHI LƯU THÀNH CÔNG
             if (!dbId && savedCard && savedCard.length > 0) {
                 row.setAttribute('data-db-id', savedCard[0].id); // Gắn ID từ database về HTML
             }
@@ -3805,11 +3873,13 @@ async function saveSingleRow(id) {
 
             // Chuyển thẻ về chế độ chỉ đọc
             row.classList.add('readonly-mode'); 
-            
-            // Khóa toàn bộ các ô nhập liệu (Dùng class .row-input mới)
             row.querySelectorAll('.row-input').forEach(t => t.disabled = true);
             
-            // Tự động thu gọn phần Info lại cho giao diện gọn gàng
+            // Hiển thị lại nút "Sửa" (Bị ẩn khi bấm vào sửa)
+            const btnEdit = row.querySelector('.btn-row-edit');
+            if (btnEdit) btnEdit.style.display = 'flex';
+            
+            // Tự động thu gọn phần Info lại cho giao diện gọn gàng (nếu là Flashcard)
             const detailsEl = row.querySelector('.info-details');
             if (detailsEl) detailsEl.removeAttribute('open');
 
@@ -3860,6 +3930,7 @@ async function deleteSingleRow(id) {
     }
 }
 
+// ================= HÀM TẠO GIAO DIỆN NHẬP LIỆU (HỖ TRỢ CẢ FLASHCARD VÀ QUIZ) =================
 function addNewRow(cardData = null) {
     rowCount++; 
     const container = document.getElementById('cardRowsContainer');
@@ -3870,9 +3941,83 @@ function addNewRow(cardData = null) {
     
     const isReadOnly = cardData ? 'disabled' : '';
 
-    // Dùng Parser để "mở gói" dữ liệu (nếu là thẻ cũ đang sửa)
-    const c = cardData ? parseCardData(cardData) : { front: '', reading: '', meaning: '', hv: '', ex1jp: '', ex1vn: '', ex2jp: '', ex2vn: '' };
+    let innerFormHTML = '';
 
+    // ==========================================
+    // TRƯỜNG HỢP 1: GIAO DIỆN SOẠN ĐỀ TRẮC NGHIỆM
+    // ==========================================
+    if (mode === 'quiz') {
+        // Lấy dữ liệu cũ nếu đang sửa thẻ
+        const qFront = cardData ? escapeHTML(cardData.front) : '';
+        const qCorrect = cardData ? escapeHTML(cardData.back) : '';
+        let w1 = '', w2 = '', w3 = '';
+        
+        // Tách các đáp án nhiễu từ info
+        if (cardData && cardData.info) {
+            let opts = cardData.info.split('\n').map(o => o.trim()).filter(o => o && o !== cardData.back);
+            w1 = escapeHTML(opts[0] || '');
+            w2 = escapeHTML(opts[1] || '');
+            w3 = escapeHTML(opts[2] || '');
+        }
+
+        innerFormHTML = `
+            <div class="new-card-grid">
+                <label style="font-size:13px; font-weight:800; color:#4a5568;">Câu hỏi trắc nghiệm</label>
+                <textarea class="row-input f-question" rows="2" placeholder="Nhập nội dung câu hỏi..." ${isReadOnly}>${qFront}</textarea>
+                
+                <div class="grid-2-col" style="margin-top: 10px;">
+                    <div>
+                        <label style="font-size:12px; color:#38a169; font-weight:bold;">ĐÁP ÁN ĐÚNG</label>
+                        <input type="text" class="row-input f-correct" style="border-color:#48bb78; background:#f0fff4;" placeholder="Nhập đáp án đúng..." value="${qCorrect}" ${isReadOnly}>
+                    </div>
+                    <div>
+                        <label style="font-size:12px; color:#e53e3e; font-weight:bold;">ĐÁP ÁN SAI 1</label>
+                        <input type="text" class="row-input f-wrong1" placeholder="Nhập đáp án nhiễu..." value="${w1}" ${isReadOnly}>
+                    </div>
+                    <div>
+                        <label style="font-size:12px; color:#e53e3e; font-weight:bold;">ĐÁP ÁN SAI 2</label>
+                        <input type="text" class="row-input f-wrong2" placeholder="Nhập đáp án nhiễu..." value="${w2}" ${isReadOnly}>
+                    </div>
+                    <div>
+                        <label style="font-size:12px; color:#e53e3e; font-weight:bold;">ĐÁP ÁN SAI 3</label>
+                        <input type="text" class="row-input f-wrong3" placeholder="Nhập đáp án nhiễu..." value="${w3}" ${isReadOnly}>
+                    </div>
+                </div>
+            </div>
+        `;
+    } 
+    // ==========================================
+    // TRƯỜNG HỢP 2: GIAO DIỆN TẠO FLASHCARD
+    // ==========================================
+    else {
+        const c = cardData ? parseCardData(cardData) : { front: '', reading: '', meaning: '', hv: '', ex1jp: '', ex1vn: '', ex2jp: '', ex2vn: '' };
+
+        innerFormHTML = `
+            <div class="new-card-grid">
+                <input type="text" class="row-input f-front" placeholder="Từ vựng / Kanji (VD: 宇宙)" value="${escapeHTML(c.front)}" ${isReadOnly}>
+                <div class="grid-2-col">
+                    <input type="text" class="row-input f-reading" placeholder="Cách đọc (VD: うちゅう)" value="${escapeHTML(c.reading)}" ${isReadOnly}>
+                    <input type="text" class="row-input f-meaning" placeholder="Ý nghĩa (VD: Vũ trụ)" value="${escapeHTML(c.meaning)}" ${isReadOnly}>
+                </div>
+                <details class="info-details">
+                    <summary class="info-summary"><span class="material-symbols-outlined" style="font-size:16px;">expand_more</span> Mở rộng (Hán Việt, Ví dụ)</summary>
+                    <input type="text" class="row-input f-hv" placeholder="Hán Việt (VD: VŨ TRỤ)" value="${escapeHTML(c.hv || '')}" style="margin-bottom: 15px;" ${isReadOnly}>
+                    <label style="font-size:12px; font-weight:bold; color:#a0aec0;">CÂU VÍ DỤ 1</label>
+                    <div class="grid-2-col" style="margin-bottom: 15px;">
+                        <textarea class="row-input f-ex1-jp" rows="2" placeholder="Tiếng Nhật (VD: 宇宙に行く)" ${isReadOnly}>${escapeHTML(c.exampleJP || '')}</textarea>
+                        <textarea class="row-input f-ex1-vn" rows="2" placeholder="Tiếng Việt (VD: Đi vào vũ trụ)" ${isReadOnly}>${escapeHTML(c.exampleVN || '')}</textarea>
+                    </div>
+                    <label style="font-size:12px; font-weight:bold; color:#a0aec0;">CÂU VÍ DỤ 2</label>
+                    <div class="grid-2-col">
+                        <textarea class="row-input f-ex2-jp" rows="2" placeholder="Tiếng Nhật (Tùy chọn)" ${isReadOnly}>${escapeHTML(c.ex2jp || '')}</textarea>
+                        <textarea class="row-input f-ex2-vn" rows="2" placeholder="Tiếng Việt (Tùy chọn)" ${isReadOnly}>${escapeHTML(c.ex2vn || '')}</textarea>
+                    </div>
+                </details>
+            </div>
+        `;
+    }
+
+    // Gắn HTML chung
     rowDiv.innerHTML = `
         <div class="card-row-header">
             <span>THẺ #${rowCount}</span>
@@ -3883,43 +4028,14 @@ function addNewRow(cardData = null) {
                 <button class="row-action-btn btn-row-delete" data-tooltip="Xóa thẻ" onclick="deleteSingleRow(${rowCount})"><span class="material-symbols-outlined">delete</span></button>
             </div>
         </div>
-        
-        <div class="new-card-grid">
-            <!-- MẶT TRƯỚC -->
-            <input type="text" class="row-input f-front" placeholder="Từ vựng / Kanji (VD: 宇宙)" value="${escapeHTML(c.front)}" ${isReadOnly}>
-            
-            <!-- MẶT SAU (2 Ô) -->
-            <div class="grid-2-col">
-                <input type="text" class="row-input f-reading" placeholder="Cách đọc (VD: うちゅう)" value="${escapeHTML(c.reading)}" ${isReadOnly}>
-                <input type="text" class="row-input f-meaning" placeholder="Ý nghĩa (VD: Vũ trụ)" value="${escapeHTML(c.meaning)}" ${isReadOnly}>
-            </div>
-
-            <!-- THÔNG TIN PHỤ (ẨN TRONG TOGGLE) -->
-            <details class="info-details">
-                <summary class="info-summary"><span class="material-symbols-outlined" style="font-size:16px;">expand_more</span> Mở rộng (Hán Việt, Ví dụ)</summary>
-                
-                <input type="text" class="row-input f-hv" placeholder="Hán Việt (VD: VŨ TRỤ)" value="${escapeHTML(c.hv || '')}" style="margin-bottom: 15px;" ${isReadOnly}>
-                
-                <label style="font-size:12px; font-weight:bold; color:#a0aec0;">CÂU VÍ DỤ 1</label>
-                <div class="grid-2-col" style="margin-bottom: 15px;">
-                    <textarea class="row-input f-ex1-jp" rows="2" placeholder="Tiếng Nhật (VD: 宇宙に行く)" ${isReadOnly}>${escapeHTML(c.exampleJP || '')}</textarea>
-                    <textarea class="row-input f-ex1-vn" rows="2" placeholder="Tiếng Việt (VD: Đi vào vũ trụ)" ${isReadOnly}>${escapeHTML(c.exampleVN || '')}</textarea>
-                </div>
-
-                <label style="font-size:12px; font-weight:bold; color:#a0aec0;">CÂU VÍ DỤ 2</label>
-                <div class="grid-2-col">
-                    <textarea class="row-input f-ex2-jp" rows="2" placeholder="Tiếng Nhật (Tùy chọn)" ${isReadOnly}>${escapeHTML(c.ex2jp || '')}</textarea>
-                    <textarea class="row-input f-ex2-vn" rows="2" placeholder="Tiếng Việt (Tùy chọn)" ${isReadOnly}>${escapeHTML(c.ex2vn || '')}</textarea>
-                </div>
-            </details>
-        </div>
+        ${innerFormHTML}
     `;
     container.appendChild(rowDiv);
 
-    // Kích hoạt WanaKana cho ô Reading (Tự động gõ Romaji ra Hiragana)
-    if (!isReadOnly) {
+    // Kích hoạt WanaKana cho ô Reading (Chỉ ở chế độ Flashcard)
+    if (!isReadOnly && mode !== 'quiz') {
         const readingInput = rowDiv.querySelector('.f-reading');
-        if (typeof wanakana !== 'undefined') wanakana.bind(readingInput);
+        if (typeof wanakana !== 'undefined' && readingInput) wanakana.bind(readingInput);
     }
 }
 function enableRowEdit(id) { 
@@ -4447,6 +4563,7 @@ async function confirmSaveWordToDeck() {
 </script>
 </body>
 </html>
+
 
 
 
