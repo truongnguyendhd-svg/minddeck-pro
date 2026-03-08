@@ -21,6 +21,8 @@
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 <!-- TẢI THƯ VIỆN WANAKANA (Hỗ trợ gõ Romaji -> Hiragana tự động) -->
 <script src="https://unpkg.com/wanakana"></script>
+<!-- TẢI THƯ VIỆN ĐỌC FILE EXCEL (SheetJS) -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 /* ================= CSS THEO ĐÚNG TIÊU CHUẨN CỦA BẠN ================= */
 :root {
@@ -1668,18 +1670,47 @@ body {
         </div>
 
         <div id="importForm" class="form-container hidden">
-            <div class="form-header"><span class="header-icon">📥</span><h4>Smart Import</h4></div>            
-            <div class="import-help">💡 <b>Định dạng hỗ trợ:</b> Cột 1 (Mặt trước) ➜ Cột 2 (Mặt sau) ➜ Cột 3 (Thông tin phụ)</div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
-                <div><label>Tên bộ bài (Tag) *</label><input type="text" id="iTag" placeholder="VD: 3000 từ Oxford"></div>
+            <div class="form-header">
+                <span class="header-icon" style="color: #10b981;">📊</span>
+                <h4 style="background: none; color: #10b981; -webkit-text-fill-color: #10b981;">Excel Import</h4>
+            </div>            
+            
+            <div style="background: #f0fdf4; border: 1px dashed #6ee7b7; padding: 15px; border-radius: 12px; margin-bottom: 25px;">
+                <p style="margin: 0 0 10px 0; font-size: 14px; color: #047857; font-weight: 600;">💡 Hướng dẫn nhanh:</p>
+                <ol style="margin: 0; padding-left: 20px; font-size: 14px; color: #065f46; line-height: 1.6;">
+                    <li>Chọn loại bộ bài (Flashcard hoặc Trắc nghiệm).</li>
+                    <li>Tải file mẫu Excel về và điền dữ liệu của bạn vào.</li>
+                    <li>Upload file Excel lên đây để tạo bộ bài tự động.</li>
+                </ol>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                <div><label>Tên bộ bài (Tag) *</label><input type="text" id="iTag" placeholder="VD: 3000 từ vựng N3"></div>
                 <div><label>Chế độ hiển thị</label><select id="iVisibility"><option value="false">🔒 Riêng tư</option><option value="true">🌐 Công khai</option></select></div>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                <div><label>Loại bộ bài</label><select id="importType"><option value="flashcard">Thẻ bài</option><option value="quiz">Trắc nghiệm</option></select></div>
-                <div><label>Định dạng dữ liệu</label><select id="importFormat"><option value="text">Văn bản thuần</option><option value="json">JSON</option></select></div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px;">
+                <div>
+                    <label>Loại bộ bài</label>
+                    <select id="importType" onchange="updateExcelTemplateLink()">
+                        <option value="flashcard">🃏 Thẻ bài (Flashcard)</option>
+                        <option value="quiz">❓ Trắc nghiệm (Quiz)</option>
+                    </select>
+                </div>
+                <div style="display: flex; align-items: flex-end;">
+                    <button onclick="downloadExcelTemplate()" style="width: 100%; padding: 14px; background: #fff; color: #10b981; border: 1.5px solid #10b981; border-radius: 12px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: 0.2s;">
+                        <span class="material-symbols-outlined">download</span> TẢI FILE MẪU
+                    </button>
+                </div>
             </div>
-            <textarea id="iJson" rows="10" placeholder="Front [Tab] Back [Tab] Info..."></textarea>
-            <button onclick="smartImport()" style="width:100%; padding:18px; background:linear-gradient(135deg, #805ad5, #6b46c1); color:#fff; border:none; border-radius:50px; font-weight:800; cursor:pointer;">BẮT ĐẦU IMPORT</button>
+
+            <label>Tải lên file Excel (.xlsx) *</label>
+            <div style="border: 2px dashed #cbd5e0; padding: 30px 20px; border-radius: 12px; text-align: center; background: #f8fafc; margin-bottom: 25px; transition: 0.3s;" id="uploadZone">
+                <span class="material-symbols-outlined" style="font-size: 40px; color: #94a3b8; margin-bottom: 10px;">upload_file</span>
+                <input type="file" id="excelFileInput" accept=".xlsx, .xls" style="width: 100%; padding: 10px; cursor: pointer;">
+            </div>
+
+            <button onclick="smartImportExcel()" style="width:100%; padding:18px; background:linear-gradient(135deg, #10b981, #059669); color:#fff; border:none; border-radius:50px; font-weight:800; font-size: 16px; cursor:pointer; box-shadow: 0 10px 20px rgba(16, 185, 129, 0.2);">🚀 BẮT ĐẦU IMPORT</button>
         </div>
     </div>
     <!-- TRANG TỪ ĐIỂN -->
@@ -4091,24 +4122,150 @@ function showTodayList() {
     document.getElementById('todayListContent').innerHTML = h; 
     document.getElementById('todayModal').style.display = 'flex'; 
 }
+// ================= HỆ THỐNG SMART IMPORT EXCEL =================
 
-async function smartImport() {
-    const tag = document.getElementById('iTag').value.trim(), isPublic = document.getElementById('iVisibility').value === 'true', type = document.getElementById('importType').value, format = document.getElementById('importFormat').value, rawData = document.getElementById('iJson').value.trim();
-    if (!tag || !rawData) return showToast("Vui lòng điền đủ!");
+// 1. HÀM TẠO VÀ TẢI FILE EXCEL MẪU (TỰ ĐỘNG)
+function downloadExcelTemplate() {
+    const type = document.getElementById('importType').value;
+    let ws_data = [];
+    let fileName = "";
+
+    if (mode === 'quiz' || type === 'quiz') {
+        fileName = "Mau_Import_TracNghiem.xlsx";
+        ws_data = [
+            ["Câu hỏi", "Đáp án ĐÚNG", "Đáp án SAI 1", "Đáp án SAI 2", "Đáp án SAI 3"],
+            ["Đỉnh núi cao nhất Nhật Bản là gì?", "Núi Phú Sĩ", "Núi Everest", "Núi Alps", "Núi Ké"]
+        ];
+    } else {
+        fileName = "Mau_Import_Flashcard.xlsx";
+        ws_data = [
+            ["Từ vựng / Kanji", "Cách đọc", "Ý nghĩa", "Hán Việt", "Câu VD 1 (Tiếng Nhật)", "Nghĩa VD 1 (Tiếng Việt)", "Câu VD 2 (Tiếng Nhật)", "Nghĩa VD 2 (Tiếng Việt)"],
+            ["宇宙", "うちゅう", "Vũ trụ", "VŨ TRỤ", "宇宙に行く。", "Đi vào vũ trụ.", "", ""]
+        ];
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
     
-    // Sinh ID mới cho bộ bài import
-    const importDeckId = `${currentUser.id}:${tag}:${Date.now()}`;
-    let cardsToSave = [];
-    try {
-        if (format === 'json') { cardsToSave = JSON.parse(rawData).map(c => ({ deck_id: importDeckId, front: c.front, back: c.back, info: c.info || "" })); } 
-        else { rawData.split('\n').forEach(line => { if (line.trim()) { let parts = line.split('\t'); if (parts.length < 2) parts = line.split('|'); if (parts.length >= 2) cardsToSave.push({ deck_id: importDeckId, front: parts[0].trim(), back: parts[1].trim(), info: parts[2] ? parts[2].trim() : "" }); } }); }
-        if (cardsToSave.length === 0) return customAlert("Không tìm thấy dữ liệu!");
-        showLoading("Đang nạp...");
-        await sb.from('decks').upsert({ id: importDeckId, owner_id: currentUser.id, type: type, is_public: isPublic });
-        const { error } = await sb.from('cards').insert(cardsToSave); if (error) throw error;
-        hideLoading(); showToast("Thành công!"); showHome();
-    } catch(e) { hideLoading(); customAlert("Lỗi: " + e.message); }
+    // Tạo độ rộng cột cho đẹp
+    ws['!cols'] = [{wch: 20}, {wch: 20}, {wch: 20}, {wch: 15}, {wch: 30}, {wch: 30}, {wch: 30}, {wch: 30}];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Data");
+    XLSX.writeFile(wb, fileName);
 }
+
+// 2. HÀM ĐỌC FILE VÀ ĐẨY LÊN DATABASE
+async function smartImportExcel() {
+    const tag = document.getElementById('iTag').value.trim();
+    const isPublic = document.getElementById('iVisibility').value === 'true';
+    const type = document.getElementById('importType').value;
+    const fileInput = document.getElementById('excelFileInput');
+
+    if (!tag) return showToast("Vui lòng nhập Tên bộ bài!");
+    if (!fileInput.files.length) return showToast("Vui lòng chọn file Excel!");
+
+    const file = fileInput.files[0];
+    const reader = new FileReader();
+
+    showLoading("Đang đọc file Excel...");
+
+    reader.onload = async function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, {type: 'array'});
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            
+            // Đọc dữ liệu ra dạng mảng 2 chiều, bỏ qua dòng tiêu đề (header)
+            const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+            
+            if (rows.length <= 1) throw new Error("File Excel không có dữ liệu!");
+
+            // Xóa dòng 0 (Dòng tiêu đề)
+            const dataRows = rows.slice(1);
+            const importDeckId = `${currentUser.id}:${sanitizeTagName(tag)}:${Date.now()}`;
+            let cardsToSave = [];
+
+            // --- DUYỆT TỪNG DÒNG ĐỂ ĐÓNG GÓI DỮ LIỆU ---
+            dataRows.forEach(row => {
+                // Nếu dòng trống hoàn toàn thì bỏ qua
+                if (!row || row.length === 0 || (!row[0] && !row[1])) return;
+
+                let frontData = "", backData = "", infoData = "";
+
+                // TRƯỜNG HỢP: IMPORT TRẮC NGHIỆM
+                if (type === 'quiz') {
+                    frontData = (row[0] || "").toString().trim();
+                    const correctAns = (row[1] || "").toString().trim();
+                    
+                    if (!frontData || !correctAns) return; // Bỏ qua nếu thiếu câu hỏi hoặc đáp án
+
+                    let options = [correctAns];
+                    if (row[2]) options.push(row[2].toString().trim());
+                    if (row[3]) options.push(row[3].toString().trim());
+                    if (row[4]) options.push(row[4].toString().trim());
+
+                    // Trộn đáp án ngẫu nhiên trước khi lưu
+                    options.sort(() => Math.random() - 0.5);
+                    
+                    backData = correctAns;
+                    infoData = options.join('\n');
+                } 
+                // TRƯỜNG HỢP: IMPORT FLASHCARD (8 Cột)
+                else {
+                    frontData = (row[0] || "").toString().trim();
+                    const reading = (row[1] || "").toString().trim();
+                    const meaning = (row[2] || "").toString().trim();
+                    
+                    if (!frontData) return;
+
+                    backData = `${reading}\n${meaning}`.trim();
+
+                    let i_arr = [];
+                    if (row[3]) i_arr.push(`[HV] ${row[3].toString().trim()}`);
+                    if (row[4]) i_arr.push(`[EX1] ${row[4].toString().trim()}`);
+                    if (row[5]) i_arr.push(`[VN1] ${row[5].toString().trim()}`);
+                    if (row[6]) i_arr.push(`[EX2] ${row[6].toString().trim()}`);
+                    if (row[7]) i_arr.push(`[VN2] ${row[7].toString().trim()}`);
+
+                    infoData = i_arr.join('\n');
+                }
+
+                cardsToSave.push({
+                    deck_id: importDeckId,
+                    front: frontData,
+                    back: backData,
+                    info: infoData
+                });
+            });
+
+            if (cardsToSave.length === 0) throw new Error("Không tìm thấy dữ liệu hợp lệ trong file!");
+
+            document.getElementById('loadingText').innerText = `Đang lưu ${cardsToSave.length} thẻ lên Cloud...`;
+
+            // Lưu Deck
+            await sb.from('decks').upsert({ id: importDeckId, owner_id: currentUser.id, type: type, is_public: isPublic });
+            
+            // Lưu Cards (Supabase hỗ trợ insert hàng loạt mảng object)
+            const { error } = await sb.from('cards').insert(cardsToSave); 
+            if (error) throw error;
+
+            hideLoading(); 
+            showToast(`Nhập thành công ${cardsToSave.length} thẻ! 🎉`);
+            showHome();
+
+            // Reset file input để có thể up file khác
+            fileInput.value = ""; 
+
+        } catch(e) { 
+            hideLoading(); 
+            console.error(e);
+            customAlert("Lỗi Import: " + e.message, "❌"); 
+        }
+    };
+
+    reader.readAsArrayBuffer(file);
+}
+
 /* ================= TÍNH NĂNG ĐỔI MÀU THẺ (DARK/LIGHT MODE) ================= */
 // 1. Đọc trạng thái đã lưu từ trình duyệt
 let isDarkCard = localStorage.getItem('minddeck_dark_card') === 'true';
@@ -4563,6 +4720,7 @@ async function confirmSaveWordToDeck() {
 </script>
 </body>
 </html>
+
 
 
 
