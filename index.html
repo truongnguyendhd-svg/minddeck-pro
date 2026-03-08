@@ -95,7 +95,7 @@ body.study-mode .main-content {
 }
 .search-container-header { display: flex; background: #f1f3f4; border-radius: 12px; overflow: hidden; height: 36px; width: 100%; max-width: 250px; border: 1px solid #e2e8f0; transition: 0.3s; }
 .search-container-header:focus-within { background: #fff; border-color: #3498db; box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1); }
-.search-input-header { flex-grow: 1; border: none !important; padding: 0 15px !important; margin: 0 !important; font-size: 15px; outline: none; height: 100%; background: transparent; color: #2d3748;}
+.search-input-header { flex-grow: 1; border: none !important; padding: 0 15px !important; margin: 0 !important; font-size: 15px; outline: none; height: 100%; background: transparent; color: #2d3748 !important;}
 .search-btn-header { background: transparent; border: none !important; padding: 0 10px; cursor: pointer; font-size: 18px; height: 100%; display: flex; align-items: center; justify-content: center; filter: grayscale(100%) opacity(0.5); }
 .search-btn-header:hover { filter: grayscale(0%) opacity(1); transform: scale(1.2); }
 .user-avatar { width: 35px; height: 35px; border-radius: 50%; border: 2px solid #e2e8f0; background: #edf2f7; overflow: hidden; cursor: pointer; }
@@ -1003,14 +1003,17 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.2);
 }
 .search-input-header {
-    color: #ffffff;
+    color: #2d3748 !important; /* Chữ màu xám đen đậm */
 }
 .search-input-header::placeholder {
-    color: rgba(255, 255, 255, 0.6);
+    color: #a0aec0 !important; /* Chữ mờ placeholder */
 }
 .search-btn-header {
-    color: #ffffff;
-    filter: none;
+    color: #4a5568 !important; /* Icon kính lúp màu xám đậm */
+    filter: none !important;
+}
+.search-btn-header:hover {
+    color: #8b5cf6 !important; /* Hover ra màu tím */
 }
 .breadcrumb-container {
     background: #f8fafc;
@@ -1790,6 +1793,30 @@ body {
             <button onclick="confirmSaveWordToDeck()" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; border: none; border-radius: 50px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 10px 20px rgba(139, 92, 246, 0.3);">
                 THÊM THẺ MỚI 🚀
             </button>
+        </div>
+    </div>
+</div>
+<!-- MODAL TRA TỪ ĐIỂN NHANH (KHÔNG LÀM CHUYỂN TRANG) -->
+<div id="quickDictModal" class="modal">
+    <div class="modal-content" style="max-width: 600px; max-height: 85vh; display: flex; flex-direction: column; background: #f8fafc;">
+        <div class="modal-header">
+            <h3 style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color:#8b5cf6; font-size: 22px;">menu_book</span> Tra từ nhanh
+            </h3>
+            <button class="close-modal" onclick="closeModal('quickDictModal')">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 20px; overflow-y: auto; flex-grow: 1;">
+            
+            <!-- Thanh tìm kiếm bên trong Modal (để tra tiếp từ khác) -->
+            <div class="dict-search-box" style="margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                <span class="material-symbols-outlined dict-search-icon" style="font-size: 24px;">search</span>
+                <input type="text" id="quickDictSearchInput" class="dict-search-input" placeholder="Gõ từ cần tra..." onkeypress="if(event.key === 'Enter') searchQuickDictionary()">
+                <button class="dict-search-btn" style="padding: 10px 20px;" onclick="searchQuickDictionary()">Tìm</button>
+            </div>
+            
+            <!-- Nơi hiển thị kết quả -->
+            <div id="quickDictResults" class="dict-results-grid"></div>
+
         </div>
     </div>
 </div>
@@ -3842,6 +3869,7 @@ function showQuizResultModal(type) {
 /* ================= CHỨC NĂNG TỪ ĐIỂN ================= */
 let currentDictWord = null; // Biến lưu tạm từ vựng đang chọn để chuẩn bị save
 // Hàm xử lý khi tra từ điển từ thanh tìm kiếm trên Header
+// 1. Hàm bật Modal Tra Nhanh từ Header
 function handleHeaderDictionarySearch() {
     const query = document.getElementById('globalSearchInput').value.trim();
     if (!query) return;
@@ -3849,17 +3877,77 @@ function handleHeaderDictionarySearch() {
     // Đóng dropdown avatar nếu đang mở
     document.getElementById('userDropdown').classList.remove('show');
 
-    // Chuyển sang trang Từ điển
-    showDictionary();
+    // BẬT MODAL thay vì chuyển trang
+    document.getElementById('quickDictModal').style.display = 'flex';
+    
+    // Copy từ khóa vào ô search của Modal
+    document.getElementById('quickDictSearchInput').value = query;
 
-    // Copy từ khóa từ Header xuống ô tìm kiếm to của trang Từ điển
-    document.getElementById('dictSearchInput').value = query;
-
-    // Kích hoạt hàm tìm kiếm
-    searchDictionary();
+    // Kích hoạt hàm tìm kiếm riêng của Modal
+    searchQuickDictionary();
 
     // Xóa chữ trên thanh Header đi cho gọn
     document.getElementById('globalSearchInput').value = '';
+}
+
+// 2. Hàm xử lý logic tìm kiếm bên trong Modal
+async function searchQuickDictionary() {
+    const input = document.getElementById('quickDictSearchInput').value.trim();
+    const resDiv = document.getElementById('quickDictResults');
+    if (!input) return;
+
+    // Hiệu ứng Loading nhỏ gọn gọn trong Modal
+    resDiv.innerHTML = '<div style="text-align:center; padding:30px; color:#718096;"><div class="spinner" style="margin: 0 auto 15px auto; width:30px; height:30px; border-top-color:#8b5cf6;"></div>Đang tra cứu...</div>';
+    
+    try {
+        const { data, error } = await sb.from('dictionary')
+            .select('*')
+            .or(`word.ilike.%${input}%,reading.ilike.%${input}%,meaning.ilike.%${input}%`)
+            .limit(20);
+
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+            resDiv.innerHTML = `<div style="text-align:center; color:#718096; padding: 30px; background:#fff; border-radius:12px;">Không tìm thấy kết quả nào cho "<b>${escapeHTML(input)}</b>".</div>`;
+            return;
+        }
+
+        // Render kết quả (Giao diện nhỏ gọn hơn một chút cho vừa Modal)
+        resDiv.innerHTML = data.map(d => {
+            const safeWord = escapeHTML(d.word);
+            const safeReading = escapeHTML(d.reading || '');
+            const safeMeaning = escapeHTML(d.meaning);
+            const safeKanji = escapeHTML(d.kanji_meaning || '');
+            const safeLevel = escapeHTML(d.level || '');
+            const safeExample = escapeHTML(d.example || '');
+
+            const btnHTML = `<button class="btn-dict-add" data-tooltip="Thêm thẻ" 
+                onclick="openSaveDictWordModal('${encodeURIComponent(safeWord)}', '${encodeURIComponent(safeReading)}', '${encodeURIComponent(safeMeaning)}', '${encodeURIComponent(safeKanji)}', '${encodeURIComponent(safeExample)}')">
+                <span class="material-symbols-outlined">add</span>
+            </button>`;
+
+            return `
+            <div class="dict-card" style="padding: 15px; border-color:#e2e8f0; box-shadow: 0 2px 5px rgba(0,0,0,0.02);">
+                <div style="flex: 1; padding-right: 15px;">
+                    <div class="d-reading" style="font-size:13px;">${safeReading} <span style="color:#cbd5e0; font-size:12px; margin-left:5px">${safeLevel}</span></div>
+                    <div class="d-word" style="font-size: 22px;">${safeWord}</div>
+                    <div class="d-meaning" style="font-size: 16px;">${safeMeaning}</div>
+                    ${safeKanji ? `<div class="d-kanji">${safeKanji}</div>` : ''}
+                    
+                    ${safeExample ? `
+                    <div style="margin-top: 10px; font-size: 13px; color: #4a5568; background: #fff; padding: 8px 10px; border-radius: 8px; border-left: 3px solid #8b5cf6;">
+                        <span style="color: #8b5cf6; font-weight: 800; font-size: 11px;">VÍ DỤ</span> <br>
+                        ${safeExample}
+                    </div>` : ''}
+                </div>
+                ${btnHTML}
+            </div>`;
+        }).join('');
+
+    } catch (err) {
+        console.error("Lỗi tra từ Modal:", err);
+        resDiv.innerHTML = `<div style="color:#e53e3e; text-align:center; padding: 20px; background:#fff; border-radius:12px;">Có lỗi xảy ra khi tra cứu.</div>`;
+    }
 }
 function showDictionary(skipHash = false) {
     if (!skipHash) window.location.hash = 'dictionary';
@@ -4038,6 +4126,7 @@ async function confirmSaveWordToDeck() {
 </script>
 </body>
 </html>
+
 
 
 
