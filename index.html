@@ -19,6 +19,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- TẢI THƯ VIỆN HIỆU ỨNG PHÁO HOA -->
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+<!-- TẢI THƯ VIỆN WANAKANA (Hỗ trợ gõ Romaji -> Hiragana tự động) -->
+<script src="https://unpkg.com/wanakana"></script>
 <style>
 /* ================= CSS THEO ĐÚNG TIÊU CHUẨN CỦA BẠN ================= */
 :root {
@@ -2740,6 +2742,80 @@ async function renderQuiz() {
     });
 }
 /* ================= THUẬT TOÁN BOOST MODE (5 IN 1) ================= */
+// ================= HỆ THỐNG PARSER CHO BOOST MODE (CÓ WANAKANA) =================
+function parseCardData(card) {
+    let result = {
+        front: card.front.trim(),
+        reading: card.front.trim(),
+        meaning: card.back.trim(),
+        exampleJP: "",
+        exampleVN: ""
+    };
+
+    // 1. BÓC TÁCH READING & MEANING TỪ `BACK`
+    const backStr = card.back.trim();
+    const bracketMatch = backStr.match(/(.*?)\((.*?)\)(.*)/);
+    
+    if (bracketMatch) {
+        result.reading = bracketMatch[2].trim();
+        result.meaning = (bracketMatch[1] + bracketMatch[3]).replace(/^[-:\s]+|[-:\s]+$/g, '').trim();
+    } else if (/[-:\n]/.test(backStr)) {
+        const parts = backStr.split(/[-:\n]/);
+        if (parts.length >= 2) {
+            result.reading = parts[0].trim();
+            result.meaning = parts.slice(1).join(' - ').trim(); 
+        }
+    }
+
+    // 2. BÓC TÁCH CÂU VÍ DỤ TỪ `INFO` (TÍCH HỢP WANAKANA)
+    if (card.info) {
+        // Xóa các chữ thừa như "Ví dụ:", "VD-"
+        let infoStr = card.info.replace(/ví dụ[:\s-]*|vd[:\s-]*/gi, '').trim(); 
+        
+        // KIỂM TRA 1: Nếu người dùng CÓ gõ dấu phân cách (-, :, xuống dòng)
+        if (/[-:\n]/.test(infoStr)) {
+            const exParts = infoStr.split(/[-:\n]/);
+            result.exampleJP = exParts[0].trim();
+            result.exampleVN = exParts.slice(1).join(' ').trim();
+        } 
+        // KIỂM TRA 2: Người dùng QUÊN gõ dấu (VD: 私は学生です Tôi là học sinh)
+        else {
+            let jpPart = "";
+            let vnPart = "";
+            
+            // Quét từng ký tự trong chuỗi
+            for (let i = 0; i < infoStr.length; i++) {
+                let char = infoStr[i];
+                // WanaKana nhận diện Kanji, Hiragana, Katakana, và dấu câu JP (。、)
+                // Cần ngoại trừ dấu cách rỗng để tránh việc nó đẩy nhầm
+                if (wanakana.isJapanese(char) && char !== ' ') {
+                    jpPart += char;
+                } else {
+                    vnPart += char;
+                }
+            }
+            
+            result.exampleJP = jpPart.trim();
+            // Xóa các khoảng trắng thừa do cắt chữ
+            result.exampleVN = vnPart.replace(/\s+/g, ' ').trim(); 
+        }
+    }
+
+    return result;
+}
+
+// Hàm hỗ trợ: Cắt câu Tiếng Nhật thành cụm ngẫu nhiên 2-3 ký tự
+function chunkJapaneseSentence(sentence) {
+    const cleanSentence = sentence.replace(/[。、！？\s]/g, ''); // Xóa cả dấu câu và khoảng trắng
+    let chunks = [];
+    let i = 0;
+    while (i < cleanSentence.length) {
+        let len = Math.floor(Math.random() * 2) + 2; // Random cắt 2 hoặc 3 chữ
+        chunks.push(cleanSentence.substring(i, i + len));
+        i += len;
+    }
+    return { original: cleanSentence, chunks: chunks };
+}
 function startBoostSession() {
     const sel = document.getElementById('boostModeSelect').value;
     boostState = { 
@@ -2752,44 +2828,62 @@ function startBoostSession() {
 }
 
 function renderBoostCard() {
-    clearTimeout(boostTimer); // Xóa timer cũ nếu có
-    const c = sessionCards[currentIndex];
-    if (!c) return endBoostSession();
+    clearTimeout(boostTimer);
+    const rawCard = sessionCards[currentIndex];
+    if (!rawCard) return endBoostSession();
+
+    // 1. CHUẨN HÓA DỮ LIỆU THẺ QUA PARSER
+    const c = parseCardData(rawCard);
 
     // Cập nhật Header
     document.getElementById('boostRoundDisp').innerText = boostState.currentRound;
     document.getElementById('boostTotalDisp').innerText = boostState.mode === 'endless' ? '∞' : boostState.maxRounds;
     document.getElementById('boostCorrectCount').innerText = boostState.correct;
     document.getElementById('boostWrongCount').innerText = boostState.wrong;
-    
-    document.getElementById('boostTimerContainer').style.display = 'none'; // Mặc định ẩn timer
+    document.getElementById('boostTimerContainer').style.display = 'none';
 
     const zone = document.getElementById('boostInteractiveZone');
     const prompt = document.getElementById('boostPrompt');
     const question = document.getElementById('boostQuestion');
     zone.innerHTML = '';
 
-    // Hàm lấy 3 đáp án sai ngẫu nhiên
-    const getDistractors = (isFront) => {
-        let pool = sessionCards.filter(x => x.id !== c.id).map(x => isFront ? x.front : x.back);
+    // Lấy đáp án nhiễu (Dùng Parser để lấy Meaning/Front sạch)
+    const getDistractors = (type) => {
+        let pool = sessionCards
+            .filter(x => x.id !== rawCard.id)
+            .map(x => {
+                let parsed = parseCardData(x);
+                return type === 'meaning' ? parsed.meaning : parsed.front;
+            });
         return pool.sort(() => 0.5 - Math.random()).slice(0, 3);
     };
 
-    // Random Game (1 to 5)
-    // Ràng buộc: Game 3 (Cloze) cần thẻ có Info chứa Front. Nếu không thỏa mãn, random lại 1, 2, 4, 5
-    let gamesAvailable = [1, 2, 4, 5];
-    if (c.info && c.info.includes(c.front)) gamesAvailable.push(3);
+    // 2. CHỌN GAME PHÙ HỢP VỚI ĐIỀU KIỆN
+    let availableGames = [1, 4]; // Word Match và True/False luôn chơi được
     
-    currentBoostGame = gamesAvailable[Math.floor(Math.random() * gamesAvailable.length)];
+    // Nếu có reading dài >= 1 ký tự, chơi Typing & Scramble được
+    if (c.reading.length >= 1 && wanakana.isJapanese(c.reading)) {
+        availableGames.push(2); 
+        availableGames.push(5);
+    }
+    
+    // Nếu bóc tách thành công cả Ví dụ JP và VN -> Chơi Sentence Builder
+    if (c.exampleJP && c.exampleVN) {
+        availableGames.push(6);
+    }
 
+    currentBoostGame = availableGames[Math.floor(Math.random() * availableGames.length)];
+
+    // 3. RENDER GIAO DIỆN TỪNG GAME
     switch(currentBoostGame) {
-        case 1: // Word Match (Trắc nghiệm)
-            const isReverse = Math.random() > 0.5;
+
+        case 1: // 🎮 WORD MATCH (Trộn 50/50 Front -> Meaning hoặc Meaning -> Front)
+            const askFront = Math.random() > 0.5;
             prompt.innerText = "🔍 Chọn đáp án đúng";
-            question.innerText = isReverse ? c.back : c.front;
+            question.innerText = askFront ? c.front : c.meaning;
             
-            let optsMatch = getDistractors(!isReverse);
-            optsMatch.push(isReverse ? c.front : c.back);
+            let optsMatch = getDistractors(askFront ? 'meaning' : 'front');
+            optsMatch.push(askFront ? c.meaning : c.front);
             optsMatch.sort(() => 0.5 - Math.random()); // Trộn 4 đáp án
             
             zone.innerHTML = `<div class="tf-grid" id="boostMatchGrid"></div>`;
@@ -2798,110 +2892,140 @@ function renderBoostCard() {
                 let btn = document.createElement('button');
                 btn.className = 'test-option';
                 btn.innerText = opt;
-                btn.onclick = () => handleBoostAnswer(btn, opt === (isReverse ? c.front : c.back));
+                btn.onclick = () => handleBoostAnswer(btn, opt === (askFront ? c.meaning : c.front));
                 mGrid.appendChild(btn);
             });
             break;
 
-        case 2: // Typing
-            prompt.innerText = "⌨️ Gõ câu trả lời";
+        case 2: // 🎮 TYPING (Tích hợp WanaKana)
+            prompt.innerText = "⌨️ Nhập cách đọc (Gõ Romaji)";
             question.innerText = c.front;
             zone.innerHTML = `
-                <input type="text" id="boostTypingInput" placeholder="Nhập đáp án..." style="font-size:20px; font-weight:bold; text-align:center;">
-                <button onclick="handleBoostTyping()" style="width:100%; padding:15px; border-radius:12px; border:none; background:#3498db; color:white; font-weight:800; font-size:18px; cursor:pointer; margin-top:10px;">KIỂM TRA</button>
+                <input type="text" id="boostTypingInput" placeholder="Ví dụ gõ 'taberu' -> たべる" autocomplete="off" style="font-size:24px; font-weight:bold; text-align:center; padding:15px; border-radius:12px; border:2px solid #3498db;">
+                <button onclick="handleBoostTyping()" style="width:100%; padding:15px; border-radius:12px; border:none; background:#3498db; color:white; font-weight:800; font-size:18px; cursor:pointer; margin-top:15px;">KIỂM TRA</button>
             `;
-            setTimeout(() => document.getElementById('boostTypingInput').focus(), 100);
-            break;
+            
+            const inputEl = document.getElementById('boostTypingInput');
+            // Kích hoạt WanaKana thần thánh
+            wanakana.bind(inputEl);
+            setTimeout(() => inputEl.focus(), 100);
 
-        case 3: // Cloze (Đục lỗ Info)
-            prompt.innerText = "🧩 Điền vào chỗ trống";
-            const clozeText = c.info.replace(new RegExp(c.front, 'g'), '____');
-            question.innerHTML = clozeText;
+            // Ghi đè hàm kiểm tra nội bộ cho Typing
+            window.handleBoostTyping = function() {
+                const val = inputEl.value.trim().replace(/\s/g, ''); // Xóa dấu cách thừa
+                const correctVal = c.reading.replace(/\s/g, '');
+                handleBoostAnswer(inputEl, val === correctVal);
+            };
             
-            let optsCloze = getDistractors(true); // Lấy front khác
-            optsCloze.push(c.front);
-            optsCloze.sort(() => 0.5 - Math.random());
-            
-            zone.innerHTML = `<div class="tf-grid" id="boostClozeGrid"></div>`;
-            const cGrid = document.getElementById('boostClozeGrid');
-            optsCloze.forEach(opt => {
-                let btn = document.createElement('button');
-                btn.className = 'test-option';
-                btn.innerText = opt;
-                btn.onclick = () => handleBoostAnswer(btn, opt === c.front);
-                cGrid.appendChild(btn);
+            // Cho phép nhấn Enter để nộp
+            inputEl.addEventListener("keypress", function(event) {
+                if (event.key === "Enter") handleBoostTyping();
             });
             break;
 
-        case 4: // True/False Speed Test
+        case 4: // 🎮 TRUE / FALSE
             prompt.innerText = "⚡ Nhanh tay! Đúng hay Sai?";
-            const showTrue = Math.random() > 0.5;
-            const fakeBack = showTrue ? c.back : getDistractors(false)[0] || "Đáp án giả";
+            const isTrue = Math.random() > 0.5;
+            const fakeMeaning = isTrue ? c.meaning : getDistractors('meaning')[0] || "Đáp án giả mạo";
             
-            question.innerHTML = `<div style="font-size:24px; color:#718096">${c.front}</div><div style="color:#e53e3e; margin-top:5px;">= ${fakeBack}</div>`;
+            question.innerHTML = `<div style="font-size:32px; color:#2d3748">${c.front}</div><div style="color:#e53e3e; margin-top:10px; font-size:20px;">Nghĩa là: "${fakeMeaning}"</div>`;
             
             zone.innerHTML = `
                 <div class="tf-grid">
-                    <button class="tf-btn tf-true" onclick="handleBoostAnswer(this, ${showTrue === true})">ĐÚNG</button>
-                    <button class="tf-btn tf-false" onclick="handleBoostAnswer(this, ${showTrue === false})">SAI</button>
+                    <button class="tf-btn tf-true" onclick="handleBoostAnswer(this, ${isTrue === true})">ĐÚNG</button>
+                    <button class="tf-btn tf-false" onclick="handleBoostAnswer(this, ${isTrue === false})">SAI</button>
                 </div>
             `;
-            
-            // Kích hoạt thanh Timer 3s
-            const tContainer = document.getElementById('boostTimerContainer');
-            const tBar = document.getElementById('boostTimerBar');
-            tContainer.style.display = 'block';
-            tBar.style.animation = 'none';
-            tBar.offsetHeight; // Trigger reflow
-            tBar.style.animation = 'shrinkTimer 3s linear forwards';
-            
-            boostTimer = setTimeout(() => {
-                handleBoostAnswer(null, false, true); // Hết giờ = Sai
-            }, 3000);
             break;
 
-        case 5: // Scramble (Lắp ráp từ)
-            prompt.innerText = "🧱 Sắp xếp các mảnh ghép";
-            question.innerText = c.front; // Yêu cầu xếp lại cách đọc (back)
+        case 5: // 🎮 SCRAMBLE (Ghép chữ thêm nhiễu)
+            prompt.innerText = "🧱 Sắp xếp cách đọc";
+            question.innerText = c.meaning; // Hỏi nghĩa Tiếng Việt, xếp Tiếng Nhật
             
-            // Tách chữ của Back (e.g. たべる -> [た, べ, る])
-            let pieces = c.back.split('');
-            // Nếu tiếng Anh có dấu cách, tách theo từ
-            if(c.back.includes(' ')) pieces = c.back.split(' ');
+            let targetPieces = c.reading.split('');
+            let poolPieces = [...targetPieces];
+
+            // Nếu từ quá ngắn (< 4 ký tự), bốc thêm mảnh fake từ thẻ khác vào làm nhiễu
+            if (targetPieces.length < 4) {
+                const fakeReading = getDistractors('front')[0] || "あいうえお";
+                const fakeChars = fakeReading.split('').sort(() => 0.5 - Math.random()).slice(0, 4 - targetPieces.length);
+                poolPieces = poolPieces.concat(fakeChars);
+            }
             
-            let shuffled = [...pieces].sort(() => 0.5 - Math.random());
+            let shuffled = poolPieces.sort(() => 0.5 - Math.random());
             
             zone.innerHTML = `
-                <div id="scrambleDropZone" class="scramble-zone"></div>
+                <div id="scrambleDropZone" class="scramble-zone" style="min-height: 60px; border-color:#38a169;"></div>
                 <div id="scramblePool" class="scramble-pool"></div>
             `;
             
             const pool = document.getElementById('scramblePool');
             const drop = document.getElementById('scrambleDropZone');
-            
             let currentAnswer = [];
             
-            shuffled.forEach((p, i) => {
+            shuffled.forEach((p) => {
                 let btn = document.createElement('div');
                 btn.className = 'scramble-piece';
                 btn.innerText = p;
                 btn.onclick = function() {
-                    // Chuyển từ Pool lên DropZone
                     if (this.parentElement.id === 'scramblePool') {
                         drop.appendChild(this);
                         currentAnswer.push(p);
-                    } else { // Rút lại
+                    } else {
                         pool.appendChild(this);
                         currentAnswer.splice(currentAnswer.indexOf(p), 1);
                     }
                     
-                    // Kiểm tra khi đã xếp đủ độ dài
-                    if(currentAnswer.length === pieces.length) {
-                        const isCorrect = currentAnswer.join('') === pieces.join('');
-                        handleBoostAnswer(drop, isCorrect); // drop zone sẽ nháy xanh/đỏ
+                    // CHỈ CHECK KHI ĐỘ DÀI BẰNG TARGET (bỏ qua mảnh fake)
+                    if(currentAnswer.length === targetPieces.length) {
+                        const isCorrect = currentAnswer.join('') === c.reading;
+                        handleBoostAnswer(drop, isCorrect);
                     }
                 };
                 pool.appendChild(btn);
+            });
+            break;
+
+        case 6: // 🎮 SENTENCE BUILDER (Sắp xếp câu ví dụ)
+            prompt.innerText = "🧩 Xếp thành câu hoàn chỉnh";
+            question.innerText = c.exampleVN; // Hiện nghĩa Tiếng Việt
+            question.style.fontSize = "22px"; // Thu nhỏ font một chút vì câu dài
+            
+            // Cắt câu JP thành các mảnh 2-3 ký tự
+            const chunkData = chunkJapaneseSentence(c.exampleJP);
+            const targetSentence = chunkData.original;
+            let sentenceChunks = chunkData.chunks.sort(() => 0.5 - Math.random());
+            
+            zone.innerHTML = `
+                <div id="sentenceDropZone" class="scramble-zone" style="background:#f0f9ff; border-color:#3182ce; justify-content:flex-start;"></div>
+                <div id="sentencePool" class="scramble-pool"></div>
+            `;
+            
+            const sPool = document.getElementById('sentencePool');
+            const sDrop = document.getElementById('sentenceDropZone');
+            let builtSentenceChunks = [];
+            
+            sentenceChunks.forEach((chunk) => {
+                let btn = document.createElement('div');
+                btn.className = 'scramble-piece';
+                btn.innerText = chunk;
+                btn.onclick = function() {
+                    if (this.parentElement.id === 'sentencePool') {
+                        sDrop.appendChild(this);
+                        builtSentenceChunks.push(chunk);
+                    } else {
+                        sPool.appendChild(this);
+                        builtSentenceChunks.splice(builtSentenceChunks.indexOf(chunk), 1);
+                    }
+                    
+                    // Nối lại kiểm tra
+                    const currentStr = builtSentenceChunks.join('');
+                    if (currentStr.length === targetSentence.length) {
+                        const isCorrect = currentStr === targetSentence;
+                        handleBoostAnswer(sDrop, isCorrect);
+                    }
+                };
+                sPool.appendChild(btn);
             });
             break;
     }
@@ -2971,29 +3095,71 @@ function nextBoostCard() {
 }
 
 function endBoostSession() {
-    clearTimeout(boostTimer);
+    clearTimeout(boostTimer); // Dừng mọi bộ đếm giờ nếu đang chạy
     
-    // Ẩn Header & Khu vực chơi
+    // 1. Ẩn khu vực chơi, hiện màn hình Tổng kết
     document.getElementById('boostArea').classList.add('hidden');
+    document.getElementById('boostSummaryPage').classList.remove('hidden');
     
-    // Cập nhật dữ liệu Summary
+    // 2. Cập nhật Điểm số
     document.getElementById('sumCorrect').innerText = boostState.correct;
     document.getElementById('sumWrong').innerText = boostState.wrong;
     
+    // 3. Render danh sách lịch sử (Đã qua xử lý Parser)
     const listEl = document.getElementById('boostSummaryList');
     listEl.innerHTML = '';
+    
     boostState.history.forEach(item => {
+        // Dùng hàm Parser để bóc tách lại dữ liệu gốc cho sạch đẹp
+        const parsed = parseCardData({
+            front: item.front || "",
+            back: item.back || "",
+            info: item.info || "" // Phòng hờ nếu bạn có push thêm info vào history
+        });
+
+        // Bảo mật chống lỗi hiển thị (XSS)
+        const safeFront = escapeHTML(parsed.front);
+        const safeReading = escapeHTML(parsed.reading);
+        const safeMeaning = escapeHTML(parsed.meaning);
+
+        // Xử lý thông minh: Nếu Front và Reading giống hệt nhau (từ chỉ có Hiragana),
+        // thì ẩn bớt Reading đi cho giao diện đỡ bị lặp chữ.
+        const readingHTML = (safeReading && safeReading !== safeFront) 
+            ? `<span style="background: #edf2f7; color: #4a5568; padding: 3px 6px; border-radius: 6px; font-size: 11px; margin-left: 6px; font-weight: 800; letter-spacing: 0.5px;">${safeReading}</span>` 
+            : '';
+
         let li = document.createElement('li');
+        // CSS tinh chỉnh để nội dung dài tự động rớt dòng đẹp mắt, icon ✓/✗ luôn cố định bên phải
+        li.style.display = 'flex';
+        li.style.justifyContent = 'space-between';
+        li.style.alignItems = 'center';
+        li.style.gap = '15px';
+
         li.innerHTML = `
-            <span><b>${item.front}</b> <span style="color:#718096; font-size:14px; margin-left:5px;">${item.back}</span></span>
-            <span style="color:${item.status === 'correct' ? '#38a169' : '#e53e3e'}">${item.status === 'correct' ? '✓' : '✗'}</span>
+            <div style="flex: 1; text-align: left; overflow: hidden;">
+                <div style="display: flex; align-items: center; flex-wrap: wrap; margin-bottom: 4px;">
+                    <b style="font-size:17px; color:#1a202c;">${safeFront}</b>
+                    ${readingHTML}
+                </div>
+                <div style="color:#718096; font-size:14px; line-height: 1.4; word-break: break-word;">
+                    ${safeMeaning}
+                </div>
+            </div>
+            
+            <div style="flex-shrink: 0; font-size: 20px; font-weight: 900; color:${item.status === 'correct' ? '#38a169' : '#e53e3e'}; background: ${item.status === 'correct' ? '#f0fff4' : '#fff5f5'}; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 50%;">
+                ${item.status === 'correct' ? '✓' : '✗'}
+            </div>
         `;
         listEl.appendChild(li);
     });
 
-    // Bật Summary Page
-    document.getElementById('boostSummaryPage').classList.remove('hidden');
-    confetti({ particleCount: 150, spread: 80, origin: { y: 0.5 } });
+    // 4. Bắn pháo hoa chúc mừng
+    confetti({ 
+        particleCount: 150, 
+        spread: 80, 
+        origin: { y: 0.5 },
+        zIndex: 10000 
+    });
 }
 // ================= CÁC HÀM ĐIỀU KHIỂN TRẮC NGHIỆM =================
 
@@ -4130,6 +4296,7 @@ async function confirmSaveWordToDeck() {
 </script>
 </body>
 </html>
+
 
 
 
