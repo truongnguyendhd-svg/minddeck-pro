@@ -4377,33 +4377,66 @@ async function openSaveDictWordModal(encWord, encReading, encMeaning, encKanji, 
     }
 }
 
+// ================= HÀM LƯU TỪ TỪ ĐIỂN VÀO BỘ BÀI (FORMAT MỚI & CHUẨN NGOẶC ĐƠN) =================
 async function confirmSaveWordToDeck() {
     const deckId = document.getElementById('dictDeckSelect').value;
     if (!deckId) return customAlert("Vui lòng chọn một bộ bài hợp lệ!", "⚠️");
     if (!currentDictWord) return;
 
-    // Chuẩn bị dữ liệu để insert vào bảng cards
+    // 1. FRONT: Từ vựng/Kanji
     const frontData = currentDictWord.word;
-    const backData = `${currentDictWord.reading} - ${currentDictWord.meaning}`;
     
-    // Ghép Hán Việt và Ví dụ vào thẻ Info
-    let infoData = "";
-    if (currentDictWord.kanji) infoData += `[Hán Việt: ${currentDictWord.kanji}]\n`;
-    if (currentDictWord.example) infoData += `Ví dụ: ${currentDictWord.example}`;
+    // 2. BACK: Reading (dòng 1) \n Meaning (dòng 2)
+    const backData = `${currentDictWord.reading}\n${currentDictWord.meaning}`.trim();
+    
+    // 3. INFO: Hán Việt và Câu ví dụ
+    let infoArr = [];
+    
+    if (currentDictWord.kanji) {
+        infoArr.push(`[HV] ${currentDictWord.kanji}`);
+    }
+    
+    // BÓC TÁCH CÂU VÍ DỤ TỪ TỪ ĐIỂN
+    if (currentDictWord.example) {
+        const exStr = currentDictWord.example.trim();
+        
+        // KIỂM TRA ĐỊNH DẠNG 1: Dùng ngoặc đơn VD: 朝御飯を食べる。(Ăn sáng.)
+        // Regex này bao gồm cả ngoặc đơn kiểu Anh () và ngoặc đơn full-width kiểu Nhật （）
+        const parenMatch = exStr.match(/(.*?)[(（](.*?)[)）]/);
+        
+        if (parenMatch) {
+            infoArr.push(`[EX1] ${parenMatch[1].trim()}`); // JP: 朝御飯を食べる。
+            infoArr.push(`[VN1] ${parenMatch[2].trim()}`); // VN: Ăn sáng.
+        } 
+        // KIỂM TRA ĐỊNH DẠNG 2 (Dự phòng): Dùng dấu gạch ngang, hai chấm...
+        else if (/[-:\n]/.test(exStr)) {
+            const parts = exStr.split(/[-:\n]/);
+            infoArr.push(`[EX1] ${parts[0].trim()}`);
+            infoArr.push(`[VN1] ${parts.slice(1).join(' ').trim()}`);
+        } 
+        // TRƯỜNG HỢP CÒN LẠI: Không có nghĩa TV, chỉ có tiếng Nhật
+        else {
+            infoArr.push(`[EX1] ${exStr}`);
+        }
+    }
+    
+    // Gom mảng thành chuỗi text có xuống dòng để nạp vào Database
+    const infoData = infoArr.join('\n');
 
+    // 4. Bắt đầu lưu lên Supabase
     showLoading("Đang lưu thẻ...");
     try {
         const { error } = await sb.from('cards').insert([{
             deck_id: deckId,
             front: frontData,
             back: backData,
-            info: infoData.trim()
+            info: infoData
         }]);
 
         if (error) throw error;
 
         closeModal('saveDictWordModal');
-        showToast("Đã lưu từ vựng vào bộ bài! ✨");
+        showToast("Đã thêm từ vựng thành công! ✨");
     } catch (err) {
         console.error("Lỗi lưu từ điển vào deck:", err);
         customAlert("Không thể lưu thẻ. Vui lòng thử lại.", "❌");
@@ -4414,6 +4447,7 @@ async function confirmSaveWordToDeck() {
 </script>
 </body>
 </html>
+
 
 
 
