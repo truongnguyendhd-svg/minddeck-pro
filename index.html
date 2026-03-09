@@ -1335,6 +1335,64 @@ body {
 @media (max-width: 600px) {
     .grid-2-col { grid-template-columns: 1fr; gap: 10px; }
 }
+/* --- CSS CHO GAME KANJI FILLER --- */
+.kf-sentence-container {
+    text-align: center;
+    margin-bottom: 30px;
+    line-height: 2.2; /* Dãn dòng rộng ra để ô vuông không bị dính vào nhau */
+    font-size: 22px;
+    color: #4a5568;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Khối trống cố định kích thước 40x40px */
+.kanji-blank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px; 
+    height: 40px;
+    margin: 0 4px;
+    background: #f1f5f9;
+    border: 2px dashed #cbd5e0;
+    border-radius: 8px;
+    font-size: 24px;
+    font-weight: 800;
+    color: #3182ce;
+    vertical-align: middle;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+}
+
+/* Trạng thái khi điền đúng */
+.kanji-blank.filled {
+    background: #ebf8ff;
+    border: 2px solid #3182ce;
+    border-style: solid;
+    animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes popIn {
+    0% { transform: scale(0.8); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* Hiệu ứng rung lắc khi chọn sai chữ */
+.shake-error {
+    animation: shake 0.4s ease-in-out;
+    background: #fff5f5 !important;
+    border-color: #e53e3e !important;
+    color: #e53e3e !important;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-5px) rotate(-3deg); }
+    40%, 80% { transform: translateX(5px) rotate(3deg); }
+}
 </style>
 </head>
 <body>
@@ -2941,7 +2999,7 @@ function renderBoostCard() {
         return pool.sort(() => 0.5 - Math.random()).slice(0, 3);
     };
 
-    // 2. CHỌN GAME PHÙ HỢP VỚI ĐIỀU KIỆN
+// 2. CHỌN GAME PHÙ HỢP VỚI ĐIỀU KIỆN
     let availableGames = [1, 4]; // Word Match và True/False luôn chơi được
     
     // Nếu có reading dài >= 1 ký tự, chơi Typing & Scramble được
@@ -2950,9 +3008,16 @@ function renderBoostCard() {
         availableGames.push(5);
     }
     
-    // Nếu bóc tách thành công cả Ví dụ JP và VN -> Chơi Sentence Builder
+    // Nếu có Ví dụ JP và VN
     if (c.exampleJP && c.exampleVN) {
-        availableGames.push(6);
+        availableGames.push(6); // Sentence Builder
+        
+        // KIỂM TRA CHO GAME KANJI FILLER: 
+        // Chỉ bật game này nếu trong câu ví dụ có chứa ít nhất 1 chữ Kanji
+        const hasKanji = /[\u4e00-\u9faf]/.test(c.exampleJP);
+        if (hasKanji) {
+            availableGames.push(7);
+        }
     }
 
     currentBoostGame = availableGames[Math.floor(Math.random() * availableGames.length)];
@@ -3109,6 +3174,118 @@ function renderBoostCard() {
                     }
                 };
                 sPool.appendChild(btn);
+            });
+            break;
+
+        case 7: // 🎮 KANJI FILLER (ĐIỀN KANJI VÀO CHỖ TRỐNG)
+            prompt.innerText = "🧩 Điền Kanji vào ô trống (Lần lượt từ trái qua)";
+            question.innerText = c.exampleVN; // Hiện nghĩa Tiếng Việt phía trên
+            question.style.fontSize = "20px";
+            
+            let sentenceHTML = "";
+            let targetKanjiSequence = []; // Lưu đúng thứ tự Kanji cần điền
+            
+            // 1. DUYỆT TỪNG KÝ TỰ ĐỂ ĐỤC LỖ
+            for (let char of c.exampleJP) {
+                if (/[\u4e00-\u9faf]/.test(char)) {
+                    // Nếu là Kanji -> Tạo ô trống 40x40px, gắn ID theo thứ tự
+                    sentenceHTML += `<span class="kanji-blank" id="kf-blank-${targetKanjiSequence.length}"></span>`;
+                    targetKanjiSequence.push(char);
+                } else {
+                    // Nếu là Hiragana/Katakana/Dấu câu -> Giữ nguyên text
+                    sentenceHTML += `<span>${char}</span>`;
+                }
+            }
+            
+            // 2. TẠO ĐÁP ÁN NHIỄU TỐI ƯU (KHÔNG DUYỆT CẢ BỘ BÀI)
+            let distractorSet = new Set();
+            let attempts = 0; // Biến đếm số lần thử để chống treo máy (Infinite Loop)
+            
+            // Chỉ cần tìm khoảng 6 chữ Kanji nhiễu là đủ để trộn. 
+            // Nếu tìm đủ 6 chữ hoặc đã quét quá 30 thẻ ngẫu nhiên thì DỪNG NGAY LẬP TỨC.
+            while (distractorSet.size < 6 && attempts < 30) {
+                // Bốc đại 1 thẻ bất kỳ trong bộ bài
+                let randomCard = sessionCards[Math.floor(Math.random() * sessionCards.length)];
+                
+                if (randomCard.id !== rawCard.id) {
+                    let pCard = parseCardData(randomCard);
+                    if (pCard.exampleJP) {
+                        for (let char of pCard.exampleJP) {
+                            // Nếu ký tự là Kanji và KHÔNG nằm trong đáp án đúng -> Cho vào rổ nhiễu
+                            if (/[\u4e00-\u9faf]/.test(char) && !targetKanjiSequence.includes(char)) {
+                                distractorSet.add(char);
+                            }
+                        }
+                    }
+                }
+                attempts++;
+            }
+            
+            // Tính toán số lượng nhiễu hiển thị cho hợp lý:
+            // - Tổng số viên gạch (Đúng + Nhiễu) nên loanh quanh 6 - 8 viên để không bị chật màn hình.
+            // - Nếu câu có 2 chỗ trống -> cho 4 nhiễu. Nếu câu có 5 chỗ trống -> cho 2 nhiễu thôi.
+            let maxDistractors = Math.max(2, 6 - targetKanjiSequence.length);
+            
+            let distractorArr = Array.from(distractorSet).sort(() => 0.5 - Math.random()).slice(0, maxDistractors);
+            
+            // Trường hợp dự phòng (Fallback): Rủi ro lấy phải bộ bài quá ít Kanji
+            if (distractorArr.length === 0) {
+                const fallbackKanji = ['人', '見', '行', '食', '言', '学', '生', '日', '本'].filter(k => !targetKanjiSequence.includes(k));
+                distractorArr = fallbackKanji.sort(() => 0.5 - Math.random()).slice(0, 3);
+            }
+            
+            // Trộn mảng đáp án đúng + đáp án nhiễu
+            let poolKanji = [...targetKanjiSequence, ...distractorArr].sort(() => 0.5 - Math.random());            
+            // 3. RENDER GIAO DIỆN
+            zone.innerHTML = `
+                <div class="kf-sentence-container">
+                    ${sentenceHTML}
+                </div>
+                <div id="kf-pool" class="scramble-pool"></div>
+            `;
+            
+            const kfPool = document.getElementById('kf-pool');
+            let currentFillIndex = 0; // Biến theo dõi xem đang điền đến ô thứ mấy
+            
+            // 4. LOGIC TƯƠNG TÁC
+            poolKanji.forEach((char) => {
+                let btn = document.createElement('div');
+                btn.className = 'scramble-piece';
+                btn.style.width = "45px"; 
+                btn.style.height = "45px";
+                btn.style.display = "flex";
+                btn.style.alignItems = "center";
+                btn.style.justifyContent = "center";
+                btn.innerText = char;
+                
+                btn.onclick = function() {
+                    // GIẢI QUYẾT VẤN ĐỀ TRÙNG LẶP:
+                    // Chỉ kiểm tra giá trị của chữ được bấm CÓ BẰNG với giá trị chữ cần điền ở ô hiện tại hay không.
+                    // Nếu trong mảng có 2 chữ 日, bấm chữ nào cũng được tính đúng.
+                    if (char === targetKanjiSequence[currentFillIndex]) {
+                        
+                        // ĐIỀN ĐÚNG
+                        let blank = document.getElementById(`kf-blank-${currentFillIndex}`);
+                        blank.innerText = char;
+                        blank.classList.add('filled');
+                        
+                        this.style.visibility = 'hidden'; // Ẩn viên gạch đã dùng
+                        currentFillIndex++; // Tiến sang ô trống tiếp theo
+                        
+                        // Nếu đã điền hết các ô trống -> CHIẾN THẮNG
+                        if (currentFillIndex === targetKanjiSequence.length) {
+                            handleBoostAnswer(zone, true);
+                        }
+                    } else {
+                        // ĐIỀN SAI -> Rung lắc cảnh báo và xử thua ngay lập tức (Theo luật Boost Mode)
+                        this.classList.add('shake-error');
+                        setTimeout(() => this.classList.remove('shake-error'), 400);
+                        
+                        // Phạt sai và chuyển thẻ
+                        handleBoostAnswer(this, false);
+                    }
+                };
+                kfPool.appendChild(btn);
             });
             break;
     }
@@ -4737,6 +4914,7 @@ async function confirmSaveWordToDeck() {
 </script>
 </body>
 </html>
+
 
 
 
