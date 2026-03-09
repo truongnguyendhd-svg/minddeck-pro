@@ -2722,7 +2722,7 @@ async function openCopyDeck(event, deckId) {
     showLoading("Đang chuẩn bị dữ liệu...");
 
     try {
-        // 3. Truy vấn thông tin Deck (Bổ sung kiểm tra lỗi mạng hoặc deck bị xóa)
+        // 3. Truy vấn thông tin Deck
         const { data: deck, error: deckErr } = await sb.from('decks').select('*').eq('id', deckId).single();
         if (deckErr || !deck) {
             throw new Error("Không tìm thấy bộ bài gốc hoặc bộ bài đã bị xóa.");
@@ -2743,7 +2743,11 @@ async function openCopyDeck(event, deckId) {
         document.getElementById('nTag').disabled = false; // Mở khóa để người dùng đổi tên
         document.getElementById('formTitle').innerText = "Sao chép bộ bài";
         
-        // 7. Cập nhật Breadcrumb (Thanh điều hướng) cho chuyên nghiệp
+        // Tải danh sách thư mục và đặt bộ bài copy vào đúng thư mục gốc
+        await loadFoldersToSelect();
+        document.getElementById('nFolder').value = deck.folder_id || "";
+
+        // 7. Cập nhật Breadcrumb (Thanh điều hướng)
         updateBreadcrumb([
             { label: 'Thêm mới', action: 'showLearnPage()' }, 
             { label: 'Sao chép: ' + cleanName }
@@ -2754,8 +2758,7 @@ async function openCopyDeck(event, deckId) {
         document.getElementById('btnDeleteInForm').classList.add('hidden'); // Ẩn nút Xóa bộ bài
 
         // 9. Render thẻ ra Form 
-        // Tham số 'false' cực kỳ quan trọng: Nó báo cho app biết KHÔNG GẮN 'data-db-id' cũ vào, 
-        // để khi lưu nó sẽ tạo ra thẻ mới hoàn toàn (nhân bản).
+        // Tham số 'false' cực kỳ quan trọng: Báo cho renderCardsToForm biết đây là Copy
         renderCardsToForm(cards, false);
 
         // 10. Chuyển đổi màn hình hiển thị
@@ -4912,7 +4915,27 @@ function cancelRowEdit(id) {
     row.querySelector('.btn-row-edit').style.display = 'flex'; 
 }
 
-function renderCardsToForm(cards, isEditMode = true) { const container = document.getElementById('cardRowsContainer'); container.innerHTML = ''; rowCount = 0; cardsToDelete = []; if (!cards || cards.length === 0) addNewRow(); else cards.forEach(c => { if (isEditMode) addNewRow(c); else { addNewRow(); const rows = container.querySelectorAll('.card-row'), lastRow = rows[rows.length - 1]; lastRow.querySelector('.r-front').value = c.front; lastRow.querySelector('.r-back').value = c.back; lastRow.querySelector('.r-info').value = c.info; } }); }
+function renderCardsToForm(cards, isEditMode = true) { 
+    const container = document.getElementById('cardRowsContainer'); 
+    container.innerHTML = ''; 
+    rowCount = 0; 
+    cardsToDelete = []; 
+
+    if (!cards || cards.length === 0) {
+        addNewRow(); 
+    } else {
+        cards.forEach(c => { 
+            if (isEditMode) {
+                // Chế độ Sửa (Edit): Đẩy nguyên object c (có chứa c.id) vào
+                addNewRow(c); 
+            } else { 
+                // Chế độ Sao chép (Copy): Chỉ lấy nội dung, KHÔNG lấy ID
+                // Điều này giúp App xem đây là thẻ mới hoàn toàn
+                addNewRow({ front: c.front, back: c.back, info: c.info }); 
+            } 
+        });
+    }
+}
 async function cancelEdit() { const ok = await showConfirm("Hủy bỏ?", "Mọi thay đổi chưa lưu sẽ bị mất."); if (ok) showHome(); }
 function showInfoModal() { const c = sessionCards[currentIndex]; document.getElementById('infoText').innerText = c.info || "Không có ghi chú."; document.getElementById('infoModal').style.display = 'flex'; }
 function showTodayList() { 
@@ -5681,6 +5704,7 @@ document.addEventListener("DOMContentLoaded", () => {
 </script>
 </body>
 </html>
+
 
 
 
