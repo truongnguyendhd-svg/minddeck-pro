@@ -1848,11 +1848,24 @@ body {
             <h3 style="color: white; justify-content: center; width: 100%;"><span class="material-symbols-outlined">bolt</span> BOOST MODE</h3>
         </div>
         <div class="modal-body" style="padding: 30px;">
-            <p style="color: #4a5568; font-weight: 600; margin-bottom: 25px;">Hệ thống sẽ trộn ngẫu nhiên 5 minigame để kiểm tra phản xạ của bạn!</p>
-            <select id="boostModeSelect" style="width: 100%; padding: 15px; border-radius: 12px; border: 2px solid #cbd5e0; font-weight: 800; font-size: 16px; margin-bottom: 25px;">
+            <p style="color: #4a5568; font-weight: 600; margin-bottom: 25px;">Hệ thống sẽ trộn ngẫu nhiên 5 minigame để kiểm tra phản xạ của bạn!</p>            
+            <label style="font-weight: 800; color: #2d3748; font-size: 13px; display: block; margin-bottom: 8px; text-align: left;">🎯 Số lượng câu hỏi:</label>
+            <select id="boostModeSelect" style="width: 100%; padding: 14px; border-radius: 10px; border: 2px solid #cbd5e0; font-weight: 800; font-size: 15px; margin-bottom: 15px; background: #fff;">
                 <option value="10">🔥 Học 10 câu (Tiêu chuẩn)</option>
                 <option value="20">🚀 Học 20 câu (Thử thách)</option>
                 <option value="endless">♾️ Học vô tận (Endless)</option>
+            </select>
+
+            <!-- THÊM MỚI: MENU CHỌN GAME -->
+            <label style="font-weight: 800; color: #2d3748; font-size: 13px; display: block; margin-bottom: 8px; text-align: left;">🎮 Chọn chế độ chơi:</label>
+            <select id="boostGameSelect" style="width: 100%; padding: 14px; border-radius: 10px; border: 2px solid #cbd5e0; font-weight: 800; font-size: 15px; margin-bottom: 25px; background: #fff; color: #dd6b20;">
+                <option value="random">🎲 Trộn ngẫu nhiên (Khuyên dùng)</option>
+                <option value="1">🔍 Chọn đáp án đúng (Word Match)</option>
+                <option value="2">⌨️ Gõ cách đọc (Typing)</option>
+                <option value="4">⚡ Đúng hay Sai (True/False)</option>
+                <option value="5">🧱 Ghép cách đọc (Scramble)</option>
+                <option value="6">🧩 Xếp câu (Sentence Builder)</option>
+                <option value="7">🈳 Điền Kanji vào câu (Kanji Filler)</option>
             </select>
             <button onclick="startBoostSession()" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #dd6b20, #c05621); color: white; border: none; border-radius: 50px; font-weight: 800; font-size: 16px; cursor: pointer;">BẮT ĐẦU NGAY</button>
         </div>
@@ -2959,9 +2972,12 @@ function chunkJapaneseSentence(sentence) {
 }
 function startBoostSession() {
     const sel = document.getElementById('boostModeSelect').value;
+    const gameSel = document.getElementById('boostGameSelect').value; // Lấy game được chọn
+    
     boostState = { 
         mode: sel, 
         maxRounds: sel === 'endless' ? 9999 : parseInt(sel), 
+        selectedGame: gameSel, // Lưu vào state
         currentRound: 1, correct: 0, wrong: 0, history: [] 
     };
     document.getElementById('boostIntroModal').style.display = 'none';
@@ -3012,15 +3028,33 @@ function renderBoostCard() {
     if (c.exampleJP && c.exampleVN) {
         availableGames.push(6); // Sentence Builder
         
-        // KIỂM TRA CHO GAME KANJI FILLER: 
-        // Chỉ bật game này nếu trong câu ví dụ có chứa ít nhất 1 chữ Kanji
+        // KIỂM TRA CHO GAME KANJI FILLER
         const hasKanji = /[\u4e00-\u9faf]/.test(c.exampleJP);
         if (hasKanji) {
             availableGames.push(7);
         }
     }
 
-    currentBoostGame = availableGames[Math.floor(Math.random() * availableGames.length)];
+    // --- LOGIC MỚI: XỬ LÝ GAME THEO Ý NGƯỜI DÙNG CHỌN ---
+    if (boostState.selectedGame === 'random') {
+        // Nếu chọn Random -> Máy tự bốc như cũ
+        currentBoostGame = availableGames[Math.floor(Math.random() * availableGames.length)];
+    } else {
+        const chosenGame = parseInt(boostState.selectedGame);
+        
+        // Kiểm tra xem thẻ hiện tại có ĐỦ DỮ LIỆU để chơi game bạn đã chọn không?
+        if (availableGames.includes(chosenGame)) {
+            // Đủ dữ liệu -> Chơi game bạn chọn
+            currentBoostGame = chosenGame;
+        } else {
+            // KHÔNG ĐỦ DỮ LIỆU (VD: Chọn ghép câu nhưng thẻ không có câu ví dụ)
+            // -> Fallback: Chuyển tạm thẻ này về một game cơ bản có sẵn
+            currentBoostGame = availableGames[Math.floor(Math.random() * availableGames.length)];
+            
+            // Hiện thông báo nhỏ để người dùng không bị bất ngờ
+            console.log("Thẻ này thiếu dữ liệu cho game đã chọn. Tự động chuyển game dự phòng.");
+        }
+    }
 
     // 3. RENDER GIAO DIỆN TỪNG GAME
     switch(currentBoostGame) {
@@ -4914,6 +4948,7 @@ async function confirmSaveWordToDeck() {
 </script>
 </body>
 </html>
+
 
 
 
