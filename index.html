@@ -2164,8 +2164,15 @@ async function handleRoute() {
             showHome(); 
         } 
         else if (route === 'decks') { 
+            // Nếu có folder_id trên URL (parts[2])
+            if (parts[2]) {
+                currentFolderId = parts[2];
+            } else {
+                currentFolderId = null;
+                currentFolderName = "";
+            }
             openDeckSelection(parts[1], true); 
-        } 
+        }
         else if (route === 'study') { 
             mode = parts[2];
             await loadCards(decodeURIComponent(parts[1]), true); 
@@ -2305,6 +2312,8 @@ function showHome(skipHash = false) {
     if (!skipHash) window.location.hash = 'home';
     editingDeckId = null;
     activeDeckId = null;
+    currentFolderId = null; // Xóa trạng thái thư mục
+    currentFolderName = ""; // Xóa trạng thái thư mục
     showPage('homePage'); 
     updateBreadcrumb([]); 
 }
@@ -2432,9 +2441,18 @@ window.onclick = () => document.getElementById('userDropdown').classList.remove(
 
 /* ================= 5. CORE ================= */
 async function openDeckSelection(m, skipHash = false) {
-    if (!skipHash) window.location.hash = `decks/${m}`;
+    // Cập nhật URL Hash để phân biệt có đang ở trong thư mục hay không
+    if (!skipHash) {
+        window.location.hash = currentFolderId ? `decks/${m}/${currentFolderId}` : `decks/${m}`;
+    }
     mode = m; 
     showPage('deckSelectionPage');
+
+    // Phục hồi tên thư mục nếu ấn F5 hoặc ấn Back từ trình duyệt
+    if (currentFolderId && !currentFolderName) {
+        const { data } = await sb.from('folders').select('name').eq('id', currentFolderId).single();
+        if (data) currentFolderName = data.name;
+    }
 
     const labels = { 'review': 'Ôn tập hôm nay', 'cram': 'Học nhồi nhét', 'test': 'Luyện đề thi', 'boost': 'Boost Mode' };
     const currentLabel = labels[m] || 'Học tập';
@@ -5535,6 +5553,7 @@ document.addEventListener("DOMContentLoaded", () => {
 </script>
 </body>
 </html>
+
 
 
 
