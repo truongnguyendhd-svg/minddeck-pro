@@ -987,6 +987,64 @@ body {
 .tf-true { background: linear-gradient(135deg, #48bb78, #38a169); }
 .tf-false { background: linear-gradient(135deg, #f56565, #e53e3e); }
 
+/* --- CSS CHO GAME KANA SEARCH --- */
+.kana-grid {
+    display: grid;
+    gap: 6px;
+    margin: 0 auto 20px auto;
+    justify-content: center;
+    padding: 15px;
+    background: #f8fafc;
+    border-radius: 16px;
+    border: 2px dashed #cbd5e0;
+}
+.kana-cell {
+    width: 45px; 
+    height: 45px;
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
+    background: #fff; 
+    border: 2px solid #e2e8f0; 
+    border-radius: 10px;
+    font-size: 22px; 
+    font-weight: 800; 
+    color: #4a5568;
+    cursor: pointer; 
+    user-select: none; 
+    transition: all 0.15s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+/* Trạng thái khi bấm chọn (Màu vàng sáng) */
+.kana-cell.selected { 
+    background: #fef08a; 
+    border-color: #eab308; 
+    color: #854d0e;
+    transform: scale(1.08); 
+    box-shadow: 0 4px 10px rgba(234, 179, 8, 0.3);
+}
+/* Trạng thái đúng */
+.kana-cell.correct { 
+    background: #c6f6d5 !important; 
+    border-color: #38a169 !important; 
+    color: #22543d !important; 
+    transform: scale(1) !important;
+}
+/* Trạng thái sai (Rung lắc) */
+.kana-cell.wrong { 
+    animation: shake 0.4s; 
+    background: #fff5f5 !important; 
+    border-color: #e53e3e !important; 
+    color: #e53e3e !important; 
+}
+/* Hiển thị chữ đang ghép */
+.kana-current-word { 
+    font-size: 20px; 
+    font-weight: 900; 
+    color: #3182ce; 
+    min-height: 30px;
+    letter-spacing: 2px;
+}
 /* Màn hình Summary */
 #boostSummaryPage { background: linear-gradient(135deg, #f0fff4, #c6f6d5); border-radius: 24px 24px 0 0; padding: 40px 20px; text-align: center; flex: 1; display: flex; flex-direction: column; overflow-y: auto;}
 .summary-title { font-size: 32px; font-weight: 900; color: #22543d; margin-bottom: 10px; }
@@ -1866,6 +1924,7 @@ body {
                 <option value="5">🧱 Ghép cách đọc (Scramble)</option>
                 <option value="6">🧩 Xếp câu (Sentence Builder)</option>
                 <option value="7">🈳 Điền Kanji vào câu (Kanji Filler)</option>
+                <option value="8">🔎 Tìm chữ (Kana Search)</option>
             </select>
             <button onclick="startBoostSession()" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #dd6b20, #c05621); color: white; border: none; border-radius: 50px; font-weight: 800; font-size: 16px; cursor: pointer;">BẮT ĐẦU NGAY</button>
         </div>
@@ -3062,7 +3121,14 @@ const zone = document.getElementById('boostInteractiveZone');
             console.log("Thẻ này thiếu dữ liệu cho game đã chọn. Tự động chuyển game dự phòng.");
         }
     }
-
+// Xóa khoảng trắng để tính độ dài cho chuẩn
+    const cleanReading = c.reading.replace(/\s/g, ''); 
+    
+    // ĐIỀU KIỆN GỌI GAME 8 KANA SEARCH: 
+    // Độ dài từ 2 đến 6 ký tự và phải là tiếng Nhật
+    if (cleanReading.length >= 2 && cleanReading.length <= 6 && wanakana.isJapanese(cleanReading)) {
+        availableGames.push(8);
+    }
     // 3. RENDER GIAO DIỆN TỪNG GAME
     switch(currentBoostGame) {
 
@@ -3330,6 +3396,159 @@ const zone = document.getElementById('boostInteractiveZone');
                 };
                 kfPool.appendChild(btn);
             });
+            break;
+        case 8: // 🔎 GAME KANA SEARCH (TÌM CHỮ TRONG MA TRẬN)
+            prompt.innerText = "🔎 Nối chữ để tạo thành cách đọc";
+            // Hiển thị Nghĩa (và Front nếu có) làm gợi ý
+            question.innerHTML = `<span style="font-size:16px; color:#718096;">${c.front}</span><br>${c.meaning}`;
+            question.style.fontSize = "22px";
+            
+            const targetWord = c.reading.replace(/\s/g, '');
+            const wordLen = targetWord.length;
+            
+            // 1. Xác định kích thước lưới (Từ <=4 chữ -> Lưới 5x5; Từ 5,6 chữ -> Lưới 6x6)
+            const gridSize = wordLen > 4 ? 6 : 5;
+            let grid = Array(gridSize).fill(null).map(() => Array(gridSize).fill(""));
+            
+            // 8 Hướng di chuyển (Tọa độ X, Y)
+            const directions = [
+                [0, 1], [0, -1], [1, 0], [-1, 0], // Ngang, Dọc
+                [1, 1], [-1, -1], [1, -1], [-1, 1] // Chéo
+            ];
+            
+            // 2. Thuật toán "Ghim" từ khóa vào lưới
+            let isPlaced = false;
+            while (!isPlaced) {
+                let startR = Math.floor(Math.random() * gridSize);
+                let startC = Math.floor(Math.random() * gridSize);
+                let dir = directions[Math.floor(Math.random() * directions.length)];
+                
+                // Kiểm tra xem hướng này có làm chữ bị tràn ra ngoài lưới không?
+                let endR = startR + dir[0] * (wordLen - 1);
+                let endC = startC + dir[1] * (wordLen - 1);
+                
+                if (endR >= 0 && endR < gridSize && endC >= 0 && endC < gridSize) {
+                    // Hợp lệ -> Ghim từng chữ cái vào
+                    for (let i = 0; i < wordLen; i++) {
+                        grid[startR + dir[0] * i][startC + dir[1] * i] = targetWord[i];
+                    }
+                    isPlaced = true;
+                }
+            }
+            
+            // 3. CHIẾN LƯỢC TẠO NHIỄU (Self-Distraction + Cross-Pollination)
+            let noisePool = targetWord.split(''); // Lấy chính nó làm nhiễu
+            
+            // Bốc nhiễu từ thẻ khác (chỉ lấy Hiragana/Katakana)
+            let attemptsNoise = 0;
+            while (noisePool.length < gridSize * gridSize && attemptsNoise < 20) {
+                let randomCard = sessionCards[Math.floor(Math.random() * sessionCards.length)];
+                if (randomCard.id !== rawCard.id) {
+                    let parsed = parseCardData(randomCard);
+                    let cleanKana = parsed.reading.replace(/[^ぁ-んァ-ン]/g, '');
+                    if (cleanKana) noisePool = noisePool.concat(cleanKana.split(''));
+                }
+                attemptsNoise++;
+            }
+            
+            // Trộn lộn xộn hồ chứa nhiễu
+            noisePool.sort(() => 0.5 - Math.random());
+            
+            // Đổ nhiễu vào các ô trống còn lại trong ma trận
+            let noiseIndex = 0;
+            for (let r = 0; r < gridSize; r++) {
+                for (let c = 0; c < gridSize; c++) {
+                    if (grid[r][c] === "") {
+                        grid[r][c] = noisePool[noiseIndex % noisePool.length];
+                        noiseIndex++;
+                    }
+                }
+            }
+            
+            // 4. RENDER GIAO DIỆN
+            zone.innerHTML = `
+                <div class="kana-grid" style="grid-template-columns: repeat(${gridSize}, 45px);"></div>
+                <div style="font-size: 14px; color: #a0aec0; font-weight: bold; text-transform: uppercase;">Đang chọn:</div>
+                <div id="kanaCurrentWord" class="kana-current-word">_</div>
+            `;
+            
+            const gridContainer = zone.querySelector('.kana-grid');
+            const displayWord = document.getElementById('kanaCurrentWord');
+            let selectedCells = []; // Mảng lưu tọa độ các ô đã chọn
+            
+            // Render từng ô
+            for (let r = 0; r < gridSize; r++) {
+                for (let c = 0; c < gridSize; c++) {
+                    let cell = document.createElement('div');
+                    cell.className = 'kana-cell';
+                    cell.innerText = grid[r][c];
+                    
+                    // SỰ KIỆN CLICK (Thuật toán Adjacency Tap)
+                    cell.onclick = function() {
+                        // Trường hợp 1: Undo (Bấm lại đúng ô cuối cùng vừa chọn)
+                        if (selectedCells.length > 0) {
+                            let lastCell = selectedCells[selectedCells.length - 1];
+                            if (lastCell.r === r && lastCell.c === c) {
+                                this.classList.remove('selected');
+                                selectedCells.pop();
+                                displayWord.innerText = selectedCells.length ? selectedCells.map(x => x.char).join('') : '_';
+                                return;
+                            }
+                        }
+                        
+                        // Trường hợp 2: Bấm vào ô đã chọn (nhưng không phải ô cuối) -> Bỏ qua
+                        if (selectedCells.some(cell => cell.r === r && cell.c === c)) return;
+                        
+                        // Trường hợp 3: Kiểm tra tính liền kề (Adjacency)
+                        if (selectedCells.length > 0) {
+                            let lastCell = selectedCells[selectedCells.length - 1];
+                            // Toán học khoảng cách: Chênh lệch X và Y không được lớn hơn 1
+                            if (Math.abs(lastCell.r - r) > 1 || Math.abs(lastCell.c - c) > 1) {
+                                return; // Bấm xa quá, không nối được -> Bỏ qua
+                            }
+                        }
+                        
+                        // HỢP LỆ: Thêm vào mảng chọn
+                        this.classList.add('selected');
+                        selectedCells.push({ r, c, char: grid[r][c], el: this });
+                        let currentStr = selectedCells.map(x => x.char).join('');
+                        displayWord.innerText = currentStr;
+                        
+                        // KIỂM TRA TỰ ĐỘNG NỘP BÀI (Auto Submit)
+                        if (selectedCells.length === wordLen) {
+                            // Khóa bấm tạm thời
+                            gridContainer.style.pointerEvents = 'none'; 
+                            
+                            if (currentStr === targetWord) {
+                                // ĐÚNG -> Tô xanh các ô đã chọn và chiến thắng
+                                selectedCells.forEach(x => {
+                                    x.el.classList.remove('selected');
+                                    x.el.classList.add('correct');
+                                });
+                                // Delay nhẹ 0.5s để người chơi kịp nhìn thấy dải màu xanh vinh quang
+                                setTimeout(() => handleBoostAnswer(zone, true), 500); 
+                            } else {
+                                // SAI -> Rung đỏ, sau đó reset lại mảng chọn
+                                selectedCells.forEach(x => {
+                                    x.el.classList.remove('selected');
+                                    x.el.classList.add('wrong');
+                                    setTimeout(() => {
+                                        x.el.classList.remove('wrong');
+                                        x.el.classList.remove('selected');
+                                    }, 400);
+                                });
+                                selectedCells = [];
+                                displayWord.innerText = '_';
+                                showToast("Sai rồi! Hãy nối lại từ đầu. ❌");
+                                
+                                // Mở khóa cho bấm lại
+                                setTimeout(() => gridContainer.style.pointerEvents = 'auto', 400); 
+                            }
+                        }
+                    };
+                    gridContainer.appendChild(cell);
+                }
+            }
             break;
     }
 }
@@ -4957,6 +5176,7 @@ async function confirmSaveWordToDeck() {
 </script>
 </body>
 </html>
+
 
 
 
