@@ -2543,12 +2543,25 @@ async function openDeckSelection(m, skipHash = false) {
             return;
         }
 
-        // 1. TẢI THƯ MỤC (Chỉ hiển thị nếu đang ở Root - Level 1)
+        // =================================================================
+        // 1. TẢI THƯ MỤC (ĐÃ FIX LỖI: CHỈ HIỂN THỊ THƯ MỤC CHỨA ĐÚNG LOẠI)
+        // =================================================================
         let foldersHTML = "";
         if (!currentFolderId) {
-            const { data: folders, error: fErr } = await sb.from('folders').select('*').eq('owner_id', currentUser.id).order('created_at', { ascending: false });
+            // Dùng truy vấn quan hệ: Lấy folder và loại (type) của các bộ bài (decks) bên trong nó
+            const { data: folders, error: fErr } = await sb.from('folders')
+                .select('*, decks(id, type)')
+                .eq('owner_id', currentUser.id)
+                .order('created_at', { ascending: false });
+                
             if (!fErr && folders) {
-                folders.forEach(f => {
+                // LỌC THƯ MỤC: Chỉ lấy thư mục RỖNG (để có thể lưu bài mới vào) HOẶC có chứa bài ĐÚNG LOẠI
+                const validFolders = folders.filter(f => {
+                    if (!f.decks || f.decks.length === 0) return true; 
+                    return f.decks.some(d => d.type === type);
+                });
+
+                validFolders.forEach(f => {
                     foldersHTML += `
                         <div class="folder-card" style="--book-color: ${f.color || '#3b82f6'};" onclick="openFolder('${f.id}', '${escapeHTML(f.name)}')">
                             <button class="folder-delete-btn" onclick="deleteFolder(event, '${f.id}', '${escapeHTML(f.name)}')">
@@ -5668,6 +5681,7 @@ document.addEventListener("DOMContentLoaded", () => {
 </script>
 </body>
 </html>
+
 
 
 
