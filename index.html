@@ -1045,11 +1045,73 @@ body {
     min-height: 30px;
     letter-spacing: 2px;
 }
+/* --- CSS CHO GAME 10 (BLIND AUDIO) --- */
+.audio-btn-huge {
+    width: 100px;
+    height: 100px;
+    background: linear-gradient(135deg, #4299e1, #3182ce);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 20px auto 30px auto;
+    cursor: pointer;
+    box-shadow: 0 10px 25px rgba(49, 130, 206, 0.4);
+    transition: all 0.2s;
+    animation: pulseAudio 2s infinite;
+}
+.audio-btn-huge:active { transform: scale(0.9); }
+.audio-btn-huge .material-symbols-outlined { font-size: 50px; color: white; }
+
+@keyframes pulseAudio {
+    0% { box-shadow: 0 0 0 0 rgba(49, 130, 206, 0.7); }
+    70% { box-shadow: 0 0 0 20px rgba(49, 130, 206, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(49, 130, 206, 0); }
+}
+
+/* --- CSS CHO GAME 11 (FALLING WORDS) --- */
+.falling-zone-container {
+    width: 100%;
+    height: 280px; /* Chiều cao vùng rơi */
+    background: #f0f9ff;
+    border: 2px dashed #90cdf4;
+    border-radius: 16px;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+.falling-word {
+    position: absolute;
+    top: -50px; /* Bắt đầu rơi từ ngoài màn hình phía trên */
+    left: 50%;
+    transform: translateX(-50%);
+    background: #2d3748;
+    color: white;
+    padding: 12px 25px;
+    border-radius: 50px;
+    font-weight: 800;
+    font-size: 18px;
+    white-space: nowrap;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    /* Transition được điều khiển bằng JS để canh thời gian rơi */
+    transition: top linear; 
+    z-index: 10;
+}
+.falling-danger-line {
+    position: absolute;
+    bottom: 20px;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: repeating-linear-gradient(45deg, #fc8181, #fc8181 10px, #e53e3e 10px, #e53e3e 20px);
+    opacity: 0.5;
+}
 /* Màn hình Summary */
 #boostSummaryPage { background: linear-gradient(135deg, #f0fff4, #c6f6d5); border-radius: 24px 24px 0 0; padding: 40px 20px; text-align: center; flex: 1; display: flex; flex-direction: column; overflow-y: auto;}
 .summary-title { font-size: 32px; font-weight: 900; color: #22543d; margin-bottom: 10px; }
 .summary-list { list-style: none; padding: 0; margin-top: 30px; text-align: left; }
 .summary-list li { background: #fff; padding: 15px; margin-bottom: 10px; border-radius: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); display: flex; justify-content: space-between; font-weight: 600; color: #2d3748;}
+
 /* ================= BẢN CẬP NHẬT GIAO DIỆN THEO PHONG CÁCH DASHBOARD ================= */
 /* 1. Đổi Header thành màu Xanh Navy chuyên nghiệp */
 .app-header {
@@ -1931,6 +1993,8 @@ body {
                 <option value="6">🧩 Xếp câu ví dụ (Sentence Builder)</option>
                 <option value="7">🈳 Điền Kanji vào câu (Kanji Filler)</option>
                 <option value="8">🔎 Tìm chữ (Kana Search)</option>
+                <option value="9">🎧 Luyện nghe mù (Blind Audio)</option>
+                <option value="10">☄️ Mưa từ vựng (Falling Words)</option>
             </select>
             
             <button onclick="startBoostSession()" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #dd6b20, #c05621); color: white; border: none; border-radius: 50px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 10px 20px rgba(221, 107, 32, 0.3);">BẮT ĐẦU NGAY</button>
@@ -3089,7 +3153,7 @@ const zone = document.getElementById('boostInteractiveZone');
     };
 
 // 2. CHỌN GAME PHÙ HỢP VỚI ĐIỀU KIỆN
-    let availableGames = [1, 4]; // Word Match và True/False luôn chơi được
+    let availableGames = [1, 4, 9, 10]; // Word Match và True/False luôn chơi được
     
     // Nếu có reading dài >= 1 ký tự, chơi Typing & Scramble được
     if (c.reading.length >= 1 && wanakana.isJapanese(c.reading)) {
@@ -3556,6 +3620,106 @@ const zone = document.getElementById('boostInteractiveZone');
                     gridContainer.appendChild(cell);
                 }
             }
+            break;
+        case 9: // 🎧 GAME: BLIND AUDIO (NGHE VÀ CHỌN ĐÁP ÁN)
+            prompt.innerText = "🎧 Lắng nghe và chọn nghĩa Tiếng Việt";
+            question.innerHTML = ""; // Giấu sạch chữ Tiếng Nhật đi
+            
+            // Lấy 3 đáp án nhiễu (Meaning) + 1 Đáp án đúng
+            let audioOpts = getDistractors('meaning');
+            audioOpts.push(c.meaning);
+            audioOpts.sort(() => 0.5 - Math.random());
+            
+            // Hàm phát âm thanh bằng Web Speech API (Miễn phí 100% của Browser)
+            window.playCardAudio = function() {
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel(); // Tắt các âm thanh cũ
+                    let utterance = new SpeechSynthesisUtterance(c.front);
+                    utterance.lang = 'ja-JP'; // Đặt giọng Nhật chuẩn
+                    utterance.rate = 0.85; // Đọc chậm lại một chút cho dễ nghe
+                    window.speechSynthesis.speak(utterance);
+                } else {
+                    showToast("Trình duyệt của bạn không hỗ trợ âm thanh.");
+                }
+            };
+            
+            // Render Nút Play Khổng Lồ và Lưới đáp án
+            zone.innerHTML = `
+                <div class="audio-btn-huge" onclick="playCardAudio()">
+                    <span class="material-symbols-outlined">volume_up</span>
+                </div>
+                <div class="tf-grid" id="boostAudioGrid"></div>
+            `;
+            
+            const aGrid = document.getElementById('boostAudioGrid');
+            audioOpts.forEach(opt => {
+                let btn = document.createElement('button');
+                btn.className = 'test-option';
+                btn.style.textAlign = 'center';
+                btn.innerText = opt;
+                btn.onclick = () => handleBoostAnswer(btn, opt === c.meaning);
+                aGrid.appendChild(btn);
+            });
+            
+            // Tự động phát âm thanh khi thẻ vừa load xong (Delay 300ms cho mượt)
+            setTimeout(() => playCardAudio(), 300);
+            break;
+
+        case 10: // ☄️ GAME: FALLING WORDS (MƯA TỪ VỰNG - ARCADE)
+            prompt.innerText = "☄️ Chạm vào đúng chữ trước khi nó rơi chạm đất!";
+            question.innerHTML = ""; // Ẩn câu hỏi gốc để nhường chỗ cho đồ họa
+            
+            // Lấy 2 đáp án Kanji nhiễu + 1 Đáp án đúng (Chỉ lấy 3 cái cho dễ bấm)
+            let fallOpts = getDistractors('front').slice(0, 2); 
+            fallOpts.push(c.front);
+            fallOpts.sort(() => 0.5 - Math.random());
+            
+            // Thời gian rơi (Độ khó: 5 giây cho người mới, nếu thích căng thẳng bạn giảm xuống 4s)
+            const fallDuration = 5000; 
+            
+            zone.innerHTML = `
+                <div class="falling-zone-container">
+                    <div id="fallingItem" class="falling-word">${c.meaning}</div>
+                    <div class="falling-danger-line"></div>
+                </div>
+                <div style="display: flex; gap: 10px; width: 100%; justify-content: center;">
+                    ${fallOpts.map((opt, i) => `
+                        <button class="tf-btn" style="flex: 1; background: #fff; color: #2d3748; border: 2px solid #cbd5e0; font-size: 18px;" 
+                                onclick="handleFallingAnswer(this, '${opt}' === '${c.front}')">
+                            ${opt}
+                        </button>
+                    `).join('')}
+                </div>
+            `;
+            
+            const fallItem = document.getElementById('fallingItem');
+            
+            // Kích hoạt hiệu ứng rơi: Dùng setTimeout nhỏ để trình duyệt kịp render thẻ ở top: -50px
+            setTimeout(() => {
+                fallItem.style.transition = `top ${fallDuration}ms linear`;
+                fallItem.style.top = '250px'; // Rơi xuống chạm vạch đỏ
+            }, 50);
+            
+            // Ghi đè hàm kiểm tra nội bộ để khóa chuyển động khi bấm
+            window.handleFallingAnswer = function(btnElement, isCorrect) {
+                clearTimeout(boostTimer); // Hủy đếm ngược
+                // Đóng băng vị trí từ đang rơi ngay lập tức
+                const currentTop = window.getComputedStyle(fallItem).top;
+                fallItem.style.transition = 'none';
+                fallItem.style.top = currentTop;
+                
+                handleBoostAnswer(btnElement, isCorrect);
+            };
+            
+            // BỘ ĐẾM GIỜ CHẾT (Nếu không bấm kịp trong 5 giây)
+            // Tái sử dụng biến boostTimer của bạn để dễ quản lý
+            boostTimer = setTimeout(() => {
+                // Hết giờ -> Từ chạm đất -> Nổ màn hình -> Xử thua
+                fallItem.style.background = '#e53e3e';
+                const container = document.querySelector('.falling-zone-container');
+                container.classList.add('shake-error');
+                handleBoostAnswer(null, false, true); // true = Cờ báo Hết giờ
+            }, fallDuration);
             break;
     }
 }
@@ -5183,6 +5347,7 @@ async function confirmSaveWordToDeck() {
 </script>
 </body>
 </html>
+
 
 
 
