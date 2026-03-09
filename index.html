@@ -2754,20 +2754,49 @@ async function loadCards(d, skipHash = false) {
             .eq('deck_id', d)
             .eq('progress.user_id', currentUser.id); 
 
-        if (error) throw error;
+if (error) throw error;
         saveRecentDeck(d); 
 
-// 4. Cập nhật Breadcrumb
+        // [MỚI] TRUY VẤN NHANH ĐỂ TÌM THƯ MỤC CỦA BỘ BÀI (Hỗ trợ khi ấn F5 không bị mất Breadcrumb)
+        const { data: deckInfo } = await sb.from('decks').select('folder_id, folders(name)').eq('id', d).single();
+        if (deckInfo && deckInfo.folder_id) {
+            currentFolderId = deckInfo.folder_id;
+            currentFolderName = deckInfo.folders ? deckInfo.folders.name : "";
+        } else {
+            currentFolderId = null;
+            currentFolderName = "";
+        }
+
+        // 4. CẬP NHẬT BREADCRUMB ĐÚNG HỆ THỐNG THƯ MỤC
         const labels = { 
             'review': 'Ôn tập hôm nay', 
             'cram': 'Học nhồi nhét', 
             'test': 'Luyện đề thi', 
-            'boost': 'Boost' // <--- Thêm dòng này
+            'boost': 'Boost'
         };
-        updateBreadcrumb([
-            {label: labels[mode] || 'Học tập', action: `openDeckSelection('${mode}')`}, 
-            {label: getCleanName(d)}
-        ]);
+        const currentLabel = labels[mode] || 'Học tập';
+        
+        let breadcrumbArr = [];
+        
+        // Cấp 1: Nút Gốc (Click vào thì phải set currentFolderId = null để thoát ra ngoài)
+        breadcrumbArr.push({
+            label: currentLabel, 
+            action: `currentFolderId=null; openDeckSelection('${mode}')`
+        });
+
+        // Cấp 2: Thư mục (Chỉ hiện nếu bộ bài này nằm trong thư mục)
+        if (currentFolderId && currentFolderName) {
+            breadcrumbArr.push({
+                label: currentFolderName, 
+                action: `openDeckSelection('${mode}')` // Giữ nguyên ID để quay lại đúng thư mục
+            });
+        }
+
+        // Cấp 3: Tên bộ bài đang học
+        breadcrumbArr.push({ label: getCleanName(d) });
+
+        updateBreadcrumb(breadcrumbArr);
+
         const now = new Date().toISOString();
         sessionCards = cards; // Mặc định lấy toàn bộ
         currentIndex = 0;
@@ -5593,6 +5622,7 @@ document.addEventListener("DOMContentLoaded", () => {
 </script>
 </body>
 </html>
+
 
 
 
