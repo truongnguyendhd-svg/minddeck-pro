@@ -4147,145 +4147,193 @@ const zone = document.getElementById('boostInteractiveZone');
                 handleBoostAnswer(null, false, true); // true = Cờ báo Hết giờ
             }, fallDuration);
             break;
-        case 11: // 🏗️ GAME: KANJI BUILDER (TAP-TO-PLACE)
-            prompt.innerText = "🏗️ Xây dựng Kanji";
+        case 11: // 🏗️ GAME: KANJI BUILDER (SEQUENCE MODE - GHÉP NHIỀU CHỮ)
+            prompt.innerText = "🏗️ Đang chuẩn bị gạch xây chữ...";
             question.innerHTML = "<div class='spinner' style='width:30px;height:30px;border-top-color:#3182ce;margin:auto'></div>";
             zone.innerHTML = "";
 
-            getKanjiBuilderData(c.front).then(gameData => {
-                
-                if (!gameData) {
-                    // Fallback sang Game Đúng/Sai nếu không có dữ liệu
+            // 1. Tách và lấy toàn bộ chữ Kanji có trong mặt trước (Loại bỏ trùng lặp nếu có)
+            const allKanjiMatches = c.front.match(/[\u4e00-\u9faf]/g) || [];
+            const uniqueKanji = [...new Set(allKanjiMatches)];
+
+            // Dùng IIFE (Hàm async bọc ngay lập tức) để sử dụng await bên trong switch/case
+            (async () => {
+                // --- BƯỚC 2: TẢI TRƯỚC DỮ LIỆU CỦA TẤT CẢ KANJI ---
+                // Hệ thống sẽ âm thầm mang tất cả chữ Kanji đi hỏi Database.
+                // Chỉ giữ lại những chữ nào có dữ liệu trong bảng kanji_builder.
+                let validKanjiData = [];
+                for (let k of uniqueKanji) {
+                    let data = await getKanjiBuilderData(k);
+                    if (data) validKanjiData.push(data);
+                }
+
+                // Nếu không có chữ nào tồn tại trong Database -> Chuyển sang True/False
+                if (validKanjiData.length === 0) {
                     prompt.innerText = "⚡ Thẻ này không xếp chữ được. Chơi Đúng/Sai nhé!";
                     const isTrue = Math.random() > 0.5;
                     const fakeMeaning = isTrue ? c.meaning : (getDistractors('meaning')[0] || "Đáp án giả mạo");
-                    
+
                     question.innerHTML = `<div style="font-size:32px; color:#2d3748">${c.front}</div><div style="color:#e53e3e; margin-top:10px; font-size:20px;">Nghĩa là: "${fakeMeaning}"</div>`;
-                    
+
                     zone.innerHTML = `
                         <div class="tf-grid">
                             <button class="tf-btn tf-true" onclick="handleBoostAnswer(this, ${isTrue === true})">ĐÚNG</button>
                             <button class="tf-btn tf-false" onclick="handleBoostAnswer(this, ${isTrue === false})">SAI</button>
                         </div>
                     `;
-                    return; 
+                    return;
                 }
 
-                // ==========================================
-                // HIỂN THỊ CÂU HỎI (Đã thêm Hán Việt & Nghĩa gốc Kanji)
-                // ==========================================
-                const hvText = gameData.hv ? `<div style="color:#e53e3e; font-size: 1em; font-weight: 900; letter-spacing: 1px;">[${gameData.hv}]</div>` : '';
-                
-                question.innerHTML = `
-                    <div style="color:#718096; font-size: 14px; font-weight: 700; text-transform: uppercase; margin-bottom: 8px;">Ý nghĩa:</div>
-                    ${hvText}
-                    <div style="color:#2d3748; font-size: 1em; font-weight: 800; margin-top: 5px;">${gameData.meaning}</div>
-                `;
-
-                let slotsHTML = "";
-                for(let i=0; i < gameData.correctSequence.length; i++) {
-                    slotsHTML += `<div class="kb-slot" id="kb-slot-${i}"></div>`;
-                }
-
-                let poolHTML = gameData.pool.map(piece => 
-                    `<div class="kb-piece" onclick="handleKanjiPieceClick(this)">${piece}</div>`
-                ).join('');
-
-                zone.innerHTML = `
-                    <div class="kb-layout">
-                        <div class="kb-target-box ${gameData.structure}" id="kb-target-box">
-                            ${slotsHTML}
-                        </div>
-                        <div class="kb-pool-grid" id="kb-pool">
-                            ${poolHTML}
-                        </div>
-                    </div>
-                `;
-
-                const targetBox = document.getElementById('kb-target-box');
-                const poolBox = document.getElementById('kb-pool');
-                let currentAnswer = new Array(gameData.correctSequence.length).fill(null);
-
-                // LOGIC CHẠM ĐỂ XẾP CHỮ
-                window.handleKanjiPieceClick = function(pieceEl) {
-                    const char = pieceEl.innerText;
-
-                    // Đưa mảnh từ Rổ lên Khung
-                    if (pieceEl.parentElement.id === 'kb-pool') {
-                        const firstEmptyIndex = currentAnswer.indexOf(null);
-                        if (firstEmptyIndex === -1) return; 
-
-                        const slot = document.getElementById(`kb-slot-${firstEmptyIndex}`);
-                        slot.appendChild(pieceEl);
-                        currentAnswer[firstEmptyIndex] = char;
-
-                        // KHI ĐÃ ĐIỀN ĐỦ CÁC Ô
-                        if (!currentAnswer.includes(null)) {
-                            zone.style.pointerEvents = 'none';
-                            const userStr = currentAnswer.join('');
-                            const correctStr = gameData.correctSequence.join('');
-                            
-                            // TRƯỜNG HỢP: GHÉP ĐÚNG
-                            if (userStr === correctStr) {
-                                // 1. Cộng điểm thủ công và bắn pháo hoa
-                                boostState.correct++;
-                                document.getElementById('boostCorrectCount').innerText = boostState.correct;
-                                boostState.history.push({ front: c.front, back: c.back, status: 'correct' });
-                                showToast("Tuyệt vời! 🔥");
-                                confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 }, zIndex: 10000 });
-
-                                // 2. Tạm dừng để Review (Đổi màu khung + Hiện Mnemonic)
-                                setTimeout(() => {
-                                    // Đổi nền khung thành Trắng, viền Xám nhạt cho dễ nhìn chữ
-                                    targetBox.style.background = "#ffffff";
-                                    targetBox.style.borderColor = "#cbd5e0";
-                                    targetBox.style.boxShadow = "0 10px 25px rgba(0,0,0,0.05)";
-                                    
-                                    // Hiển thị chữ Kanji hoàn chỉnh to đẹp
-                                    targetBox.innerHTML = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size: 80px; font-weight:900; color:#1a202c; animation: popIn 0.4s;">${gameData.kanji}</div>`;
-
-                                    // Chuẩn bị HTML Mnemonic (Nếu không có thì ẩn đi)
-                                    let mnemonicHtml = gameData.mnemonics
-                                        ? `<div style="margin-bottom: 20px; padding: 15px; background: #fffaf0; border-left: 4px solid #f6ad55; border-radius: 8px; text-align: left; font-size: 15px; color: #744210; animation: fadein 0.5s;"><b>💡 Cách nhớ:</b><br>${gameData.mnemonics}</div>`
-                                        : '';
-
-                                    // Phá lưới (Grid) của Rổ chứa, thay bằng Box hiển thị thông tin và Nút Next
-                                    poolBox.className = ""; // Gỡ bỏ class kb-pool-grid
-                                    poolBox.style.display = 'block';
-                                    poolBox.innerHTML = `
-                                        ${mnemonicHtml}
-                                        <button onclick="nextBoostCard()" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #48bb78, #38a169); color: white; border: none; border-radius: 12px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);">
-                                            TIẾP THEO ❯
-                                        </button>
-                                    `;
-                                    
-                                    // Mở khóa để người dùng có thể bấm nút Tiếp theo
-                                    zone.style.pointerEvents = 'auto'; 
-                                }, 300);
-
-                            } 
-                            // TRƯỜNG HỢP: GHÉP SAI
-                            else {
-                                targetBox.classList.add('shake-error');
-                                setTimeout(() => {
-                                    targetBox.classList.remove('shake-error');
-                                    targetBox.querySelectorAll('.kb-piece').forEach(p => poolBox.appendChild(p));
-                                    currentAnswer.fill(null);
-                                    zone.style.pointerEvents = 'auto'; 
-                                    showToast("Sai thứ tự hoặc sai bộ, thử lại nhé! ❌");
-                                }, 500);
-                            }
-                        }
-                    } 
-                    // Đưa mảnh từ Khung về Rổ (Khi chưa ghép đủ)
-                    else {
-                        const slotId = pieceEl.parentElement.id; 
-                        const slotIndex = parseInt(slotId.replace('kb-slot-', ''));
-                        currentAnswer[slotIndex] = null;
-                        poolBox.appendChild(pieceEl);
-                    }
+                // --- LUẬT 2: GHI ĐÈ NÚT "BỎ QUA" THÀNH ĐÁNH RỚT THẺ (SAI) ---
+                const skipBtn = document.querySelector('.boost-header .study-action-btn');
+                skipBtn.onclick = () => {
+                    skipBtn.onclick = skipBoostCard; // Phục hồi nút Bỏ qua về mặc định cho game sau
+                    handleBoostAnswer(null, false);  // Đánh dấu thẻ này là SAI toàn bộ
                 };
-            });
+
+                // --- BƯỚC 3: KHỞI TẠO VÒNG LẶP GAME ---
+                let currentStep = 0;
+                const totalSteps = validKanjiData.length;
+
+                // Hàm nội bộ: Render từng chữ Kanji một
+                function renderKanjiStep() {
+                    const gameData = validKanjiData[currentStep];
+
+                    // Cập nhật tiêu đề có đếm bước (VD: 1/2, 2/2)
+                    prompt.innerText = `🏗️ Xây dựng Kanji (${currentStep + 1}/${totalSteps})`;
+
+                    // Khối hiển thị câu hỏi (Giữ nguyên từ gốc để dễ liên tưởng)
+                    const hvText = gameData.hv ? `<div style="color:#e53e3e; font-size: 1em; font-weight: 900; letter-spacing: 1px;">[${gameData.hv}]</div>` : '';
+                    const originalWordHtml = (c.front !== gameData.kanji)
+                        ? `<div style="color:#3182ce; font-size: 15px; margin-bottom: 8px; font-weight: 700;">Từ vựng: <span style="font-size: 20px; font-weight: 900; background: #ebf8ff; padding: 2px 8px; border-radius: 6px;">${c.front}</span></div>`
+                        : '';
+
+                    question.innerHTML = `
+                        ${originalWordHtml}
+                        <div style="color:#718096; font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 4px;">Ý nghĩa chữ <b style="color:#1a202c; font-size:16px;">${gameData.kanji}</b>:</div>
+                        ${hvText}
+                        <div style="color:#2d3748; font-size: 1em; font-weight: 800; margin-top: 5px;">${gameData.meaning}</div>
+                    `;
+
+                    // Render Ô trống và Mảnh gạch
+                    let slotsHTML = "";
+                    for(let i=0; i < gameData.correctSequence.length; i++) {
+                        slotsHTML += `<div class="kb-slot" id="kb-slot-${i}"></div>`;
+                    }
+
+                    let poolHTML = gameData.pool.map(piece =>
+                        `<div class="kb-piece" onclick="handleKanjiPieceClick(this)">${piece}</div>`
+                    ).join('');
+
+                    zone.innerHTML = `
+                        <div class="kb-layout">
+                            <div class="kb-target-box ${gameData.structure}" id="kb-target-box">
+                                ${slotsHTML}
+                            </div>
+                            <div class="kb-pool-grid" id="kb-pool">
+                                ${poolHTML}
+                            </div>
+                        </div>
+                    `;
+
+                    const targetBox = document.getElementById('kb-target-box');
+                    const poolBox = document.getElementById('kb-pool');
+                    let currentAnswer = new Array(gameData.correctSequence.length).fill(null);
+
+                    // LOGIC CHẠM ĐỂ XẾP CHỮ
+                    window.handleKanjiPieceClick = function(pieceEl) {
+                        const char = pieceEl.innerText;
+
+                        // Đưa mảnh từ Rổ lên Khung
+                        if (pieceEl.parentElement.id === 'kb-pool') {
+                            const firstEmptyIndex = currentAnswer.indexOf(null);
+                            if (firstEmptyIndex === -1) return;
+
+                            const slot = document.getElementById(`kb-slot-${firstEmptyIndex}`);
+                            slot.appendChild(pieceEl);
+                            currentAnswer[firstEmptyIndex] = char;
+
+                            // KHI ĐÃ ĐIỀN ĐỦ CÁC Ô CHO CHỮ HIỆN TẠI
+                            if (!currentAnswer.includes(null)) {
+                                zone.style.pointerEvents = 'none'; // Khóa bấm
+                                const userStr = currentAnswer.join('');
+                                const correctStr = gameData.correctSequence.join('');
+
+                                if (userStr === correctStr) {
+                                    // XẾP ĐÚNG 1 CHỮ
+                                    confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 }, zIndex: 10000 });
+
+                                    setTimeout(() => {
+                                        // Hiển thị chữ Kanji hoàn chỉnh to đẹp
+                                        targetBox.style.background = "#ffffff";
+                                        targetBox.style.borderColor = "#cbd5e0";
+                                        targetBox.style.boxShadow = "0 10px 25px rgba(0,0,0,0.05)";
+                                        targetBox.innerHTML = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size: 80px; font-weight:900; color:#1a202c; animation: popIn 0.4s;">${gameData.kanji}</div>`;
+
+                                        // Hiển thị Mnemonic
+                                        let mnemonicHtml = gameData.mnemonics
+                                            ? `<div style="margin-bottom: 20px; padding: 15px; background: #fffaf0; border-left: 4px solid #f6ad55; border-radius: 8px; text-align: left; font-size: 15px; color: #744210; animation: fadein 0.5s;"><b>💡 Cách nhớ:</b><br>${gameData.mnemonics}</div>`
+                                            : '';
+
+                                        poolBox.className = ""; // Phá lưới chứa gạch
+                                        poolBox.style.display = 'block';
+
+                                        // --- LUẬT 3: GIAO DIỆN CHUYỂN TIẾP ---
+                                        if (currentStep < totalSteps - 1) {
+                                            // 3A. NẾU VẪN CÒN CHỮ CHƯA XẾP TRONG TỪ VỰNG NÀY
+                                            poolBox.innerHTML = `
+                                                ${mnemonicHtml}
+                                                <button id="btnNextKanjiStep" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #3182ce, #2b6cb0); color: white; border: none; border-radius: 12px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(49, 130, 206, 0.3);">
+                                                    TIẾP TỤC GHÉP CHỮ ❯
+                                                </button>
+                                            `;
+                                            document.getElementById('btnNextKanjiStep').onclick = () => {
+                                                currentStep++; // Tăng số đếm
+                                                renderKanjiStep(); // Đệ quy: Tải chữ tiếp theo
+                                            };
+                                        } else {
+                                            // 3B. NẾU ĐÂY LÀ CHỮ KANJI CUỐI CÙNG
+                                            poolBox.innerHTML = `
+                                                ${mnemonicHtml}
+                                                <button id="btnFinishKanjiCard" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #48bb78, #38a169); color: white; border: none; border-radius: 12px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);">
+                                                    TIẾP THEO ❯
+                                                </button>
+                                            `;
+                                            document.getElementById('btnFinishKanjiCard').onclick = () => {
+                                                skipBtn.onclick = skipBoostCard; // Trả lại nút Bỏ qua về gốc
+                                                handleBoostAnswer(null, true);   // LUẬT 1: Chốt thẻ là ĐÚNG (+) 1 Điểm
+                                            };
+                                        }
+
+                                        zone.style.pointerEvents = 'auto'; // Mở khóa
+                                    }, 300);
+
+                                } else {
+                                    // XẾP SAI CHỮ HIỆN TẠI (Nhưng không đánh rớt thẻ, cho xếp lại chữ đó)
+                                    targetBox.classList.add('shake-error');
+                                    setTimeout(() => {
+                                        targetBox.classList.remove('shake-error');
+                                        targetBox.querySelectorAll('.kb-piece').forEach(p => poolBox.appendChild(p));
+                                        currentAnswer.fill(null);
+                                        zone.style.pointerEvents = 'auto';
+                                        showToast("Sai thứ tự hoặc sai bộ, thử lại nhé! ❌");
+                                    }, 500);
+                                }
+                            }
+                        } else {
+                            // Rút mảnh gạch từ Khung về lại Rổ
+                            const slotId = pieceEl.parentElement.id;
+                            const slotIndex = parseInt(slotId.replace('kb-slot-', ''));
+                            currentAnswer[slotIndex] = null;
+                            poolBox.appendChild(pieceEl);
+                        }
+                    };
+                }
+
+                // Kích hoạt render chữ Kanji đầu tiên
+                renderKanjiStep();
+
+            })(); // Thực thi IIFE
             break;
     }
 }
@@ -6170,6 +6218,7 @@ document.addEventListener('click', function(e) {
 </script>
 </body>
 </html>
+
 
 
 
