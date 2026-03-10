@@ -4154,14 +4154,10 @@ const zone = document.getElementById('boostInteractiveZone');
 
             getKanjiBuilderData(c.front).then(gameData => {
                 
-                // NẾU KHÔNG CÓ DỮ LIỆU KANJI -> BẬT CHẾ ĐỘ DỰ PHÒNG (FALLBACK) NGAY LẬP TỨC
                 if (!gameData) {
-                    console.log(`Thẻ [${c.front}] không rã Kanji được. Chuyển sang Game dự phòng!`);
-                    
-                    // HIỂN THỊ TRỰC TIẾP GAME TRUE/FALSE ĐỂ TRÁNH VÒNG LẶP VÔ HẠN
+                    // Fallback sang Game Đúng/Sai nếu không có dữ liệu
                     prompt.innerText = "⚡ Thẻ này không xếp chữ được. Chơi Đúng/Sai nhé!";
                     const isTrue = Math.random() > 0.5;
-                    // Lấy đáp án nhiễu (Hàm getDistractors đã có sẵn trong hệ thống)
                     const fakeMeaning = isTrue ? c.meaning : (getDistractors('meaning')[0] || "Đáp án giả mạo");
                     
                     question.innerHTML = `<div style="font-size:32px; color:#2d3748">${c.front}</div><div style="color:#e53e3e; margin-top:10px; font-size:20px;">Nghĩa là: "${fakeMeaning}"</div>`;
@@ -4172,13 +4168,14 @@ const zone = document.getElementById('boostInteractiveZone');
                             <button class="tf-btn tf-false" onclick="handleBoostAnswer(this, ${isTrue === false})">SAI</button>
                         </div>
                     `;
-                    return; // 🛑 Kết thúc tại đây, không chạy logic xếp chữ bên dưới nữa
+                    return; 
                 }
 
                 // ==========================================
-                // NẾU CÓ DỮ LIỆU -> HIỂN THỊ GAME XẾP CHỮ BÌNH THƯỜNG
+                // HIỂN THỊ CÂU HỎI (Đã thêm Hán Việt)
                 // ==========================================
-                question.innerHTML = `<span style="color:#718096; font-size:16px;">Ý nghĩa:</span><br>${c.meaning}`;
+                const hvText = gameData.hv ? `<b style="color:#e53e3e; font-size: 18px;">[${gameData.hv}]</b> - ` : '';
+                question.innerHTML = `<span style="color:#718096; font-size:16px;">Ý nghĩa:</span><br>${hvText}${gameData.meaning}`;
 
                 let slotsHTML = "";
                 for(let i=0; i < gameData.correctSequence.length; i++) {
@@ -4217,17 +4214,53 @@ const zone = document.getElementById('boostInteractiveZone');
                         slot.appendChild(pieceEl);
                         currentAnswer[firstEmptyIndex] = char;
 
+                        // KHI ĐÃ ĐIỀN ĐỦ CÁC Ô
                         if (!currentAnswer.includes(null)) {
                             zone.style.pointerEvents = 'none';
                             const userStr = currentAnswer.join('');
                             const correctStr = gameData.correctSequence.join('');
                             
+                            // TRƯỜNG HỢP: GHÉP ĐÚNG
                             if (userStr === correctStr) {
+                                // 1. Cộng điểm thủ công và bắn pháo hoa
+                                boostState.correct++;
+                                document.getElementById('boostCorrectCount').innerText = boostState.correct;
+                                boostState.history.push({ front: c.front, back: c.back, status: 'correct' });
+                                showToast("Tuyệt vời! 🔥");
+                                confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 }, zIndex: 10000 });
+
+                                // 2. Tạm dừng để Review (Đổi màu khung + Hiện Mnemonic)
                                 setTimeout(() => {
-                                    targetBox.innerHTML = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size: 80px; font-weight:900; color:#2b6cb0; animation: popIn 0.4s;">${gameData.kanji}</div>`;
-                                    handleBoostAnswer(targetBox, true);
+                                    // Đổi nền khung thành Trắng, viền Xám nhạt cho dễ nhìn chữ
+                                    targetBox.style.background = "#ffffff";
+                                    targetBox.style.borderColor = "#cbd5e0";
+                                    targetBox.style.boxShadow = "0 10px 25px rgba(0,0,0,0.05)";
+                                    
+                                    // Hiển thị chữ Kanji hoàn chỉnh to đẹp
+                                    targetBox.innerHTML = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size: 80px; font-weight:900; color:#1a202c; animation: popIn 0.4s;">${gameData.kanji}</div>`;
+
+                                    // Chuẩn bị HTML Mnemonic (Nếu không có thì ẩn đi)
+                                    let mnemonicHtml = gameData.mnemonics
+                                        ? `<div style="margin-bottom: 20px; padding: 15px; background: #fffaf0; border-left: 4px solid #f6ad55; border-radius: 8px; text-align: left; font-size: 15px; color: #744210; animation: fadein 0.5s;"><b>💡 Cách nhớ:</b><br>${gameData.mnemonics}</div>`
+                                        : '';
+
+                                    // Phá lưới (Grid) của Rổ chứa, thay bằng Box hiển thị thông tin và Nút Next
+                                    poolBox.className = ""; // Gỡ bỏ class kb-pool-grid
+                                    poolBox.style.display = 'block';
+                                    poolBox.innerHTML = `
+                                        ${mnemonicHtml}
+                                        <button onclick="nextBoostCard()" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #48bb78, #38a169); color: white; border: none; border-radius: 12px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);">
+                                            TIẾP THEO ❯
+                                        </button>
+                                    `;
+                                    
+                                    // Mở khóa để người dùng có thể bấm nút Tiếp theo
+                                    zone.style.pointerEvents = 'auto'; 
                                 }, 300);
-                            } else {
+
+                            } 
+                            // TRƯỜNG HỢP: GHÉP SAI
+                            else {
                                 targetBox.classList.add('shake-error');
                                 setTimeout(() => {
                                     targetBox.classList.remove('shake-error');
@@ -4239,7 +4272,7 @@ const zone = document.getElementById('boostInteractiveZone');
                             }
                         }
                     } 
-                    // Đưa mảnh từ Khung về Rổ
+                    // Đưa mảnh từ Khung về Rổ (Khi chưa ghép đủ)
                     else {
                         const slotId = pieceEl.parentElement.id; 
                         const slotIndex = parseInt(slotId.replace('kb-slot-', ''));
@@ -5463,18 +5496,15 @@ async function smartImportExcel() {
 /* ================= GAME KANJI BUILDER (LOGIC CORE) ================= */
 async function getKanjiBuilderData(targetKanji) {
     try {
-        // 1. Chỉ tìm đúng chữ Kanji của thẻ hiện tại trong Database
         const { data: targetData, error: err1 } = await sb.from('kanji_builder')
             .select('*')
             .eq('kanji', targetKanji)
             .single();
 
-        // NẾU KHÔNG CÓ DỮ LIỆU RÃ CHỮ CHO THẺ NÀY -> Trả về null để App đổi game khác
         if (err1 || !targetData) return null; 
 
         const correctPieces = targetData.components;
 
-        // 2. Lấy ngẫu nhiên vài chữ khác để làm mảnh NHIỄU
         const { data: allData } = await sb.from('kanji_builder')
             .select('components')
             .neq('kanji', targetKanji)
@@ -5489,11 +5519,12 @@ async function getKanjiBuilderData(targetKanji) {
             });
         }
 
-        // 3. Lọc trùng và trộn mảng nhiễu
         noisePieces = [...new Set(noisePieces)].sort(() => 0.5 - Math.random()).slice(0, 4);
 
         return {
             kanji: targetData.kanji,
+            hv: targetData.hv,                     // Lấy Hán Việt
+            mnemonics: targetData.mnemonics,       // Lấy Cách nhớ
             structure: targetData.structure_type,
             correctSequence: correctPieces,
             pool: [...correctPieces, ...noisePieces].sort(() => 0.5 - Math.random())
@@ -6133,6 +6164,7 @@ document.addEventListener('click', function(e) {
 </script>
 </body>
 </html>
+
 
 
 
