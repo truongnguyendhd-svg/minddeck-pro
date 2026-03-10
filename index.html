@@ -4130,20 +4130,25 @@ const zone = document.getElementById('boostInteractiveZone');
             question.innerHTML = "<div class='spinner' style='width:30px;height:30px;border-top-color:#3182ce;margin:auto'></div>";
             zone.innerHTML = "";
 
-            // 1. Lấy dữ liệu từ hàm Core ta vừa viết lúc nãy
-            getKanjiBuilderData().then(gameData => {
+            // Gọi hàm và TRUYỀN MẶT TRƯỚC CỦA THẺ VÀO (c.front)
+            getKanjiBuilderData(c.front).then(gameData => {
+                
+                // NẾU THẺ NÀY KHÔNG THỂ CHƠI GAME XẾP CHỮ (Không có trong DB)
                 if (!gameData) {
-                    // Nếu lỗi mạng hoặc Hết sạch Kanji trong CSDL -> Đổi game khác
-                    currentBoostGame = availableGames[Math.floor(Math.random() * availableGames.length)];
+                    console.log(`Thẻ [${c.front}] chưa có dữ liệu rã chữ. Đổi game khác!`);
+                    // Loại bỏ game 11 khỏi danh sách khả dụng
+                    const otherGames = availableGames.filter(g => g !== 11);
+                    // Bốc ngẫu nhiên 1 game khác (VD: True/False)
+                    currentBoostGame = otherGames[Math.floor(Math.random() * otherGames.length)];
+                    // Vẽ lại thẻ với game mới
                     return renderBoostCard(); 
                 }
 
-                // Hiện Câu hỏi (Nghĩa Tiếng Việt)
-                question.innerHTML = `<span style="color:#718096; font-size:16px;">Ý nghĩa:</span><br>${gameData.meaning}`;
+                // NẾU THÀNH CÔNG -> HIỂN THỊ GAME
+                // Ưu tiên lấy Nghĩa (Meaning) từ Bộ bài của người dùng để hiển thị cho khớp
+                question.innerHTML = `<span style="color:#718096; font-size:16px;">Ý nghĩa:</span><br>${c.meaning}`;
 
-                // 2. Dựng Giao diện HTML của Game
                 let slotsHTML = "";
-                // Tạo số lượng ô trống tương ứng với độ dài mảng kết quả (Thường là 2)
                 for(let i=0; i < gameData.correctSequence.length; i++) {
                     slotsHTML += `<div class="kb-slot" id="kb-slot-${i}"></div>`;
                 }
@@ -4154,83 +4159,56 @@ const zone = document.getElementById('boostInteractiveZone');
 
                 zone.innerHTML = `
                     <div class="kb-layout">
-                        <!-- KHUNG BÊN TRÁI: Ô ĐÍCH -->
                         <div class="kb-target-box ${gameData.structure}" id="kb-target-box">
                             ${slotsHTML}
                         </div>
-
-                        <!-- KHUNG BÊN PHẢI: RỔ CHỨA -->
                         <div class="kb-pool-grid" id="kb-pool">
                             ${poolHTML}
                         </div>
                     </div>
                 `;
 
-                // 3. LOGIC CHUYỂN ĐỘNG (TAP-TO-PLACE)
                 const targetBox = document.getElementById('kb-target-box');
                 const poolBox = document.getElementById('kb-pool');
-                
-                // Mảng lưu vết người dùng đang xếp chữ gì (ví dụ: ["女", null])
                 let currentAnswer = new Array(gameData.correctSequence.length).fill(null);
 
-                // Ghi đè hàm click thành biến toàn cục (window) để thẻ HTML gọi được
+                // LOGIC CLICK (GIỮ NGUYÊN)
                 window.handleKanjiPieceClick = function(pieceEl) {
                     const char = pieceEl.innerText;
 
-                    // TRƯỜNG HỢP A: BẤM VÀO MẢNH ĐANG Ở TRONG RỔ -> ĐƯA LÊN KHUNG
                     if (pieceEl.parentElement.id === 'kb-pool') {
-                        // Tìm ô trống (null) đầu tiên từ trái sang phải
                         const firstEmptyIndex = currentAnswer.indexOf(null);
-                        
-                        // Nếu khung đã đầy thì không cho đưa lên nữa
                         if (firstEmptyIndex === -1) return; 
 
-                        // Di chuyển phần tử HTML vào ô trống
                         const slot = document.getElementById(`kb-slot-${firstEmptyIndex}`);
                         slot.appendChild(pieceEl);
-                        
-                        // Ghi nhận vào mảng đáp án
                         currentAnswer[firstEmptyIndex] = char;
 
-                        // KIỂM TRA ĐÁP ÁN NẾU ĐÃ ĐIỀN KÍN
                         if (!currentAnswer.includes(null)) {
-                            // Khóa tương tác
                             zone.style.pointerEvents = 'none';
-                            
-                            // Nối mảng lại thành chuỗi để so sánh (VD: "女" + "良" = "女良")
                             const userStr = currentAnswer.join('');
                             const correctStr = gameData.correctSequence.join('');
                             
                             if (userStr === correctStr) {
-                                // ĐÚNG -> Biến 2 mảnh ghép thành 1 chữ Kanji hoàn chỉnh tuyệt đẹp
                                 setTimeout(() => {
                                     targetBox.innerHTML = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size: 80px; font-weight:900; color:#2b6cb0; animation: popIn 0.4s;">${gameData.kanji}</div>`;
                                     handleBoostAnswer(targetBox, true);
                                 }, 300);
                             } else {
-                                // SAI -> Rung lắc và trả mọi thứ về rổ
                                 targetBox.classList.add('shake-error');
                                 setTimeout(() => {
                                     targetBox.classList.remove('shake-error');
-                                    // Bắn ngược lại rổ
                                     targetBox.querySelectorAll('.kb-piece').forEach(p => poolBox.appendChild(p));
                                     currentAnswer.fill(null);
-                                    zone.style.pointerEvents = 'auto'; // Mở khóa cho chơi lại
+                                    zone.style.pointerEvents = 'auto'; 
                                     showToast("Sai thứ tự hoặc sai bộ, thử lại nhé! ❌");
                                 }, 500);
                             }
                         }
-                    } 
-                    // TRƯỜNG HỢP B: BẤM VÀO MẢNH ĐANG Ở TRONG KHUNG -> TRẢ VỀ RỔ
-                    else {
-                        // Xác định xem mảnh đang nằm ở slot số mấy
-                        const slotId = pieceEl.parentElement.id; // VD: "kb-slot-0"
+                    } else {
+                        const slotId = pieceEl.parentElement.id; 
                         const slotIndex = parseInt(slotId.replace('kb-slot-', ''));
-                        
-                        // Xóa khỏi mảng đáp án
                         currentAnswer[slotIndex] = null;
-                        
-                        // Trả phần tử HTML về rổ
                         poolBox.appendChild(pieceEl);
                     }
                 };
@@ -5448,56 +5426,45 @@ async function smartImportExcel() {
     reader.readAsArrayBuffer(file);
 }
 /* ================= GAME KANJI BUILDER (LOGIC CORE) ================= */
-async function getKanjiBuilderData() {
+async function getKanjiBuilderData(targetKanji) {
     try {
-        // 1. Tải dữ liệu từ bảng kanji_builder
-        const { data, error } = await sb.from('kanji_builder').select('*');
-        if (error) throw error;
-        if (!data || data.length === 0) return null;
+        // 1. Chỉ tìm đúng chữ Kanji của thẻ hiện tại trong Database
+        const { data: targetData, error: err1 } = await sb.from('kanji_builder')
+            .select('*')
+            .eq('kanji', targetKanji)
+            .single();
 
-        // 2. Chọn ngẫu nhiên 1 chữ làm "Mục tiêu" (Target)
-        const targetIndex = Math.floor(Math.random() * data.length);
-        const targetData = data[targetIndex];
+        // NẾU KHÔNG CÓ DỮ LIỆU RÃ CHỮ CHO THẺ NÀY -> Trả về null để App đổi game khác
+        if (err1 || !targetData) return null; 
 
-        // 3. Mảng chứa các mảnh ghép ĐÚNG (Đã được parse từ JSONB của Supabase)
-        // Lưu ý: data từ Supabase JSONB sẽ tự chuyển thành Array trong JS
-        const correctPieces = targetData.components; // VD: ["女", "良"]
+        const correctPieces = targetData.components;
 
-        // 4. Mảng chứa các mảnh ghép NHIỄU (Distractors)
+        // 2. Lấy ngẫu nhiên vài chữ khác để làm mảnh NHIỄU
+        const { data: allData } = await sb.from('kanji_builder')
+            .select('components')
+            .neq('kanji', targetKanji)
+            .limit(20);
+
         let noisePieces = [];
-        
-        // Duyệt qua các chữ CÒN LẠI để nhặt mảnh ghép làm nhiễu
-        data.forEach((item, index) => {
-            if (index !== targetIndex) {
-                // Tránh việc lấy mảng nhiễu có trùng phần tử với đáp án đúng
+        if (allData) {
+            allData.forEach(item => {
                 item.components.forEach(piece => {
-                    if (!correctPieces.includes(piece)) {
-                        noisePieces.push(piece);
-                    }
+                    if (!correctPieces.includes(piece)) noisePieces.push(piece);
                 });
-            }
-        });
+            });
+        }
 
-        // 5. Lọc bỏ các mảnh nhiễu bị trùng lặp (Set) và xáo trộn ngẫu nhiên
-        noisePieces = [...new Set(noisePieces)].sort(() => 0.5 - Math.random());
+        // 3. Lọc trùng và trộn mảng nhiễu
+        noisePieces = [...new Set(noisePieces)].sort(() => 0.5 - Math.random()).slice(0, 4);
 
-        // CHỈ LẤY KHOẢNG 4 MẢNH NHIỄU (Để game không bị quá rối mắt)
-        const selectedNoise = noisePieces.slice(0, 4);
-
-        // 6. Gộp ĐÚNG + NHIỄU và XÁO TRỘN lần cuối để tạo "Hồ chứa" (Pool)
-        const finalPool = [...correctPieces, ...selectedNoise].sort(() => 0.5 - Math.random());
-
-        // 7. Trả về gói dữ liệu hoàn chỉnh, sẵn sàng cho UI vẽ
         return {
-            kanji: targetData.kanji,               // VD: "娘"
-            meaning: targetData.meaning,           // VD: "Con gái"
-            structure: targetData.structure_type,  // VD: "left-right"
-            correctSequence: correctPieces,        // VD: ["女", "良"] -> Dùng để check thắng thua
-            pool: finalPool                        // VD: ["良", "日", "女", "田", "力", "心"]
+            kanji: targetData.kanji,
+            structure: targetData.structure_type,
+            correctSequence: correctPieces,
+            pool: [...correctPieces, ...noisePieces].sort(() => 0.5 - Math.random())
         };
 
     } catch (err) {
-        console.error("Lỗi lấy dữ liệu Kanji Builder:", err);
         return null;
     }
 }
@@ -6131,6 +6098,7 @@ document.addEventListener('click', function(e) {
 </script>
 </body>
 </html>
+
 
 
 
