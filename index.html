@@ -4130,22 +4130,32 @@ const zone = document.getElementById('boostInteractiveZone');
             question.innerHTML = "<div class='spinner' style='width:30px;height:30px;border-top-color:#3182ce;margin:auto'></div>";
             zone.innerHTML = "";
 
-            // Gọi hàm và TRUYỀN MẶT TRƯỚC CỦA THẺ VÀO (c.front)
             getKanjiBuilderData(c.front).then(gameData => {
                 
-                // NẾU THẺ NÀY KHÔNG THỂ CHƠI GAME XẾP CHỮ (Không có trong DB)
+                // NẾU KHÔNG CÓ DỮ LIỆU KANJI -> BẬT CHẾ ĐỘ DỰ PHÒNG (FALLBACK) NGAY LẬP TỨC
                 if (!gameData) {
-                    console.log(`Thẻ [${c.front}] chưa có dữ liệu rã chữ. Đổi game khác!`);
-                    // Loại bỏ game 11 khỏi danh sách khả dụng
-                    const otherGames = availableGames.filter(g => g !== 11);
-                    // Bốc ngẫu nhiên 1 game khác (VD: True/False)
-                    currentBoostGame = otherGames[Math.floor(Math.random() * otherGames.length)];
-                    // Vẽ lại thẻ với game mới
-                    return renderBoostCard(); 
+                    console.log(`Thẻ [${c.front}] không rã Kanji được. Chuyển sang Game dự phòng!`);
+                    
+                    // HIỂN THỊ TRỰC TIẾP GAME TRUE/FALSE ĐỂ TRÁNH VÒNG LẶP VÔ HẠN
+                    prompt.innerText = "⚡ Thẻ này không xếp chữ được. Chơi Đúng/Sai nhé!";
+                    const isTrue = Math.random() > 0.5;
+                    // Lấy đáp án nhiễu (Hàm getDistractors đã có sẵn trong hệ thống)
+                    const fakeMeaning = isTrue ? c.meaning : (getDistractors('meaning')[0] || "Đáp án giả mạo");
+                    
+                    question.innerHTML = `<div style="font-size:32px; color:#2d3748">${c.front}</div><div style="color:#e53e3e; margin-top:10px; font-size:20px;">Nghĩa là: "${fakeMeaning}"</div>`;
+                    
+                    zone.innerHTML = `
+                        <div class="tf-grid">
+                            <button class="tf-btn tf-true" onclick="handleBoostAnswer(this, ${isTrue === true})">ĐÚNG</button>
+                            <button class="tf-btn tf-false" onclick="handleBoostAnswer(this, ${isTrue === false})">SAI</button>
+                        </div>
+                    `;
+                    return; // 🛑 Kết thúc tại đây, không chạy logic xếp chữ bên dưới nữa
                 }
 
-                // NẾU THÀNH CÔNG -> HIỂN THỊ GAME
-                // Ưu tiên lấy Nghĩa (Meaning) từ Bộ bài của người dùng để hiển thị cho khớp
+                // ==========================================
+                // NẾU CÓ DỮ LIỆU -> HIỂN THỊ GAME XẾP CHỮ BÌNH THƯỜNG
+                // ==========================================
                 question.innerHTML = `<span style="color:#718096; font-size:16px;">Ý nghĩa:</span><br>${c.meaning}`;
 
                 let slotsHTML = "";
@@ -4172,10 +4182,11 @@ const zone = document.getElementById('boostInteractiveZone');
                 const poolBox = document.getElementById('kb-pool');
                 let currentAnswer = new Array(gameData.correctSequence.length).fill(null);
 
-                // LOGIC CLICK (GIỮ NGUYÊN)
+                // LOGIC CHẠM ĐỂ XẾP CHỮ
                 window.handleKanjiPieceClick = function(pieceEl) {
                     const char = pieceEl.innerText;
 
+                    // Đưa mảnh từ Rổ lên Khung
                     if (pieceEl.parentElement.id === 'kb-pool') {
                         const firstEmptyIndex = currentAnswer.indexOf(null);
                         if (firstEmptyIndex === -1) return; 
@@ -4205,7 +4216,9 @@ const zone = document.getElementById('boostInteractiveZone');
                                 }, 500);
                             }
                         }
-                    } else {
+                    } 
+                    // Đưa mảnh từ Khung về Rổ
+                    else {
                         const slotId = pieceEl.parentElement.id; 
                         const slotIndex = parseInt(slotId.replace('kb-slot-', ''));
                         currentAnswer[slotIndex] = null;
@@ -6098,6 +6111,7 @@ document.addEventListener('click', function(e) {
 </script>
 </body>
 </html>
+
 
 
 
