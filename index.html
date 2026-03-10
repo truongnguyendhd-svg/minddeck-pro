@@ -87,6 +87,7 @@ body.study-mode .main-content {
     display: flex; 
     align-items: center; /* Căn giữa các thành phần theo chiều dọc */
     height: 100%; /* Lấy theo chiều cao của app-header */
+    position: relative; /* DÒNG NÀY MỚI THÊM ĐỂ LÀM MỐC CHO THANH SEARCH */
 }
 .app-header h2 { cursor: pointer; margin: 0; font-size: clamp(18px, 4vw, 28px); font-weight: 800; color: #2d3748; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
 .app-header h2:hover { transform: scale(1.03); }
@@ -746,13 +747,53 @@ body {
         font-size: 28px !important; 
     }
     
-    /* 3. Tối ưu thanh tìm kiếm trên Header */
+/* 3. Tối ưu thanh tìm kiếm trên Header cho Mobile (Thu gọn -> Mở rộng) */
     .search-container-header {
-        max-width: 160px; /* Giới hạn lại độ rộng trên mobile để không lấn át avatar */
-        flex-grow: 0; /* Không cho phép chiếm hết chỗ */
+        position: absolute;
+        right: 65px; /* Ghim vị trí cố định ngay sát bên trái Avatar */
+        width: 36px; /* Mặc định chỉ rộng bằng nút tròn */
+        height: 36px;
+        max-width: none;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.15); /* Nền mờ đục tinh tế */
+        border: none;
+        transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 1000;
+        justify-content: flex-end;
     }
     .search-input-header {
-        font-size: 14px;
+        width: 0;
+        padding: 0 !important;
+        opacity: 0;
+        font-size: 16px !important; /* Ngăn iOS zoom */
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+    .search-btn-header {
+        width: 36px;
+        height: 36px;
+        flex-shrink: 0;
+        background: transparent !important;
+        color: #ffffff !important; /* Trắng trên nền đỏ Header */
+    }
+
+    /* TRẠNG THÁI KHI MỞ RỘNG (Gắn class .expanded bằng JS) */
+    .search-container-header.expanded {
+        width: calc(100% - 80px); /* Mở rộng tối đa, chừa lại 80px cho Avatar và lề */
+        background: #ffffff;
+        border-radius: 50px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        border: 1px solid #cbd5e0;
+    }
+    .search-container-header.expanded .search-input-header {
+        width: 100%;
+        opacity: 1;
+        padding: 0 15px !important;
+        cursor: text;
+        color: #2d3748 !important;
+    }
+    .search-container-header.expanded .search-btn-header {
+        color: #bc002d !important; /* Đổi màu Icon sang đỏ khi mở rộng */
     }
 
     /* 4. Tinh chỉnh Breadcrumb (Thanh điều hướng) */
@@ -1642,8 +1683,15 @@ body {
         </h2>
         <div class="header-right">
             <div id="headerSearch" class="search-container-header hidden">
-                <input type="text" id="globalSearchInput" class="search-input-header" placeholder="Tra từ điển..." onkeypress="if(event.key === 'Enter') handleHeaderDictionarySearch()">
-                <button onclick="handleHeaderDictionarySearch()" class="search-btn-header"><span class="material-symbols-outlined">search</span></button>
+                <!-- Thêm sự kiện Click vào ô Input để nếu bấm nhầm viền cũng mở thanh -->
+                <input type="text" id="globalSearchInput" class="search-input-header" placeholder="Tra từ điển..." 
+                       onkeypress="if(event.key === 'Enter') toggleMobileSearch(event, true)"
+                       onclick="if(window.innerWidth <= 600) this.parentElement.classList.add('expanded');">
+                       
+                <!-- Thay đổi onclick thành toggleMobileSearch -->
+                <button onclick="toggleMobileSearch(event)" class="search-btn-header">
+                    <span class="material-symbols-outlined">search</span>
+                </button>
             </div>
             <div id="userSection" class="user-profile hidden">
                 <div id="userAvatar" class="user-avatar" onclick="toggleUserDropdown(event)"></div>
@@ -5719,9 +5767,54 @@ document.addEventListener("DOMContentLoaded", () => {
         learnMenu.insertBefore(folderCard, learnMenu.firstChild); // Nhét vào đầu tiên
     }
 });
+/* ================= HỆ THỐNG THANH TÌM KIẾM ĐỘNG TRÊN MOBILE ================= */
+function toggleMobileSearch(e, isEnter = false) {
+    if (window.innerWidth <= 600) {
+        const container = document.getElementById('headerSearch');
+        const input = document.getElementById('globalSearchInput');
+
+        // TRƯỜNG HỢP 1: Đang thu gọn -> Bấm vào icon để mở rộng
+        if (!container.classList.contains('expanded') && !isEnter) {
+            e.preventDefault(); // Ngăn load trang
+            container.classList.add('expanded'); // Trượt dài ra
+            setTimeout(() => input.focus(), 150); // Mở bàn phím
+            return;
+        } 
+        // TRƯỜNG HỢP 2: Đã mở rộng nhưng input rỗng -> Bấm vào icon sẽ thu gọn lại
+        else if (input.value.trim() === '') {
+            e.preventDefault();
+            container.classList.remove('expanded');
+            return;
+        }
+    }
+    
+    // Nếu màn hình Desktop HOẶC (Mobile + Đã mở rộng + Có chữ) -> Thực thi tìm kiếm
+    handleHeaderDictionarySearch();
+    
+    // Tự động thu gọn thanh Search sau khi Enter để nhường không gian hiển thị Modal
+    if (window.innerWidth <= 600) {
+        document.getElementById('headerSearch').classList.remove('expanded');
+    }
+}
+
+// Bắt sự kiện: Click ra ngoài khoảng trống thì tự động thu gọn thanh Search
+document.addEventListener('click', function(e) {
+    if (window.innerWidth <= 600) {
+        const container = document.getElementById('headerSearch');
+        const avatar = document.getElementById('userAvatar');
+        
+        // Nếu thanh search đang mở, và vùng bấm chuột KHÔNG nằm trong search, CŨNG KHÔNG nằm trong avatar
+        if (container && container.classList.contains('expanded')) {
+            if (!container.contains(e.target) && !avatar.contains(e.target)) {
+                container.classList.remove('expanded');
+            }
+        }
+    }
+});
 </script>
 </body>
 </html>
+
 
 
 
