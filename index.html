@@ -1185,6 +1185,79 @@ body {
     background: repeating-linear-gradient(45deg, #fc8181, #fc8181 10px, #e53e3e 10px, #e53e3e 20px);
     opacity: 0.5;
 }
+/* --- CSS CHO GAME KANJI BUILDER (TAP-TO-PLACE) --- */
+.kb-layout {
+    display: flex;
+    flex-direction: row;
+    gap: 30px;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    margin-top: 20px;
+}
+
+@media (max-width: 600px) {
+    .kb-layout { flex-direction: column; gap: 20px; } /* Mobile thì xếp dọc: Khung trên, Rổ dưới */
+}
+
+/* Khung lớn chứa chữ Kanji */
+.kb-target-box {
+    width: 160px;
+    height: 160px;
+    border: 3px solid #3182ce;
+    background: #ebf8ff;
+    border-radius: 12px;
+    display: flex;
+    overflow: hidden;
+    box-shadow: inset 0 0 20px rgba(49, 130, 206, 0.1);
+}
+
+/* Chia bố cục theo Structure Type */
+.kb-target-box.left-right { flex-direction: row; }
+.kb-target-box.top-bottom { flex-direction: column; }
+.kb-target-box.enclose { position: relative; display: block; } /* Cấu trúc bao bọc */
+
+/* Ô trống chứa từng mảnh ghép */
+.kb-slot {
+    flex: 1;
+    border: 1px dashed #90cdf4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: 0.2s;
+}
+
+/* Tùy chỉnh riêng cho kiểu Bao bọc (Enclose) */
+.kb-target-box.enclose .kb-slot:nth-child(1) { width: 100%; height: 100%; position: absolute; top:0; left:0; z-index: 1;} /* Vỏ bọc */
+.kb-target-box.enclose .kb-slot:nth-child(2) { width: 60%; height: 60%; position: absolute; top: 20%; left: 20%; z-index: 2; border: none; } /* Lõi */
+
+/* Khu vực Rổ chứa mảnh ghép nhiễu */
+.kb-pool-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+/* Mảnh ghép Kanji */
+.kb-piece {
+    width: 55px;
+    height: 55px;
+    background: white;
+    border: 2px solid #cbd5e0;
+    border-radius: 10px;
+    font-size: 32px;
+    font-weight: 800;
+    color: #2d3748;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    transition: transform 0.1s, box-shadow 0.1s;
+    user-select: none;
+}
+.kb-piece:active { transform: scale(0.9); box-shadow: none; } /* Hiệu ứng lún khi bấm */
 /* Màn hình Summary */
 #boostSummaryPage { background: linear-gradient(135deg, #f0fff4, #c6f6d5); border-radius: 24px 24px 0 0; padding: 40px 20px; text-align: center; flex: 1; display: flex; flex-direction: column; overflow-y: auto;}
 .summary-title { font-size: 32px; font-weight: 900; color: #22543d; margin-bottom: 10px; }
@@ -2227,6 +2300,7 @@ body {
                 <option value="8">🔎 Tìm chữ (Kana Search)</option>
                 <option value="9">🎧 Luyện nghe mù (Blind Audio)</option>
                 <option value="10">☄️ Mưa từ vựng (Falling Words)</option>
+                <option value="11">🏗️ Xây dựng chữ Kanji (Kanji Builder)</option>
             </select>
             
             <button onclick="startBoostSession()" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #dd6b20, #c05621); color: white; border: none; border-radius: 50px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 10px 20px rgba(221, 107, 32, 0.3);">BẮT ĐẦU NGAY</button>
@@ -4050,6 +4124,117 @@ const zone = document.getElementById('boostInteractiveZone');
                 container.classList.add('shake-error');
                 handleBoostAnswer(null, false, true); // true = Cờ báo Hết giờ
             }, fallDuration);
+            break;
+        case 11: // 🏗️ GAME: KANJI BUILDER (TAP-TO-PLACE)
+            prompt.innerText = "🏗️ Xây dựng Kanji";
+            question.innerHTML = "<div class='spinner' style='width:30px;height:30px;border-top-color:#3182ce;margin:auto'></div>";
+            zone.innerHTML = "";
+
+            // 1. Lấy dữ liệu từ hàm Core ta vừa viết lúc nãy
+            getKanjiBuilderData().then(gameData => {
+                if (!gameData) {
+                    // Nếu lỗi mạng hoặc Hết sạch Kanji trong CSDL -> Đổi game khác
+                    currentBoostGame = availableGames[Math.floor(Math.random() * availableGames.length)];
+                    return renderBoostCard(); 
+                }
+
+                // Hiện Câu hỏi (Nghĩa Tiếng Việt)
+                question.innerHTML = `<span style="color:#718096; font-size:16px;">Ý nghĩa:</span><br>${gameData.meaning}`;
+
+                // 2. Dựng Giao diện HTML của Game
+                let slotsHTML = "";
+                // Tạo số lượng ô trống tương ứng với độ dài mảng kết quả (Thường là 2)
+                for(let i=0; i < gameData.correctSequence.length; i++) {
+                    slotsHTML += `<div class="kb-slot" id="kb-slot-${i}"></div>`;
+                }
+
+                let poolHTML = gameData.pool.map(piece => 
+                    `<div class="kb-piece" onclick="handleKanjiPieceClick(this)">${piece}</div>`
+                ).join('');
+
+                zone.innerHTML = `
+                    <div class="kb-layout">
+                        <!-- KHUNG BÊN TRÁI: Ô ĐÍCH -->
+                        <div class="kb-target-box ${gameData.structure}" id="kb-target-box">
+                            ${slotsHTML}
+                        </div>
+
+                        <!-- KHUNG BÊN PHẢI: RỔ CHỨA -->
+                        <div class="kb-pool-grid" id="kb-pool">
+                            ${poolHTML}
+                        </div>
+                    </div>
+                `;
+
+                // 3. LOGIC CHUYỂN ĐỘNG (TAP-TO-PLACE)
+                const targetBox = document.getElementById('kb-target-box');
+                const poolBox = document.getElementById('kb-pool');
+                
+                // Mảng lưu vết người dùng đang xếp chữ gì (ví dụ: ["女", null])
+                let currentAnswer = new Array(gameData.correctSequence.length).fill(null);
+
+                // Ghi đè hàm click thành biến toàn cục (window) để thẻ HTML gọi được
+                window.handleKanjiPieceClick = function(pieceEl) {
+                    const char = pieceEl.innerText;
+
+                    // TRƯỜNG HỢP A: BẤM VÀO MẢNH ĐANG Ở TRONG RỔ -> ĐƯA LÊN KHUNG
+                    if (pieceEl.parentElement.id === 'kb-pool') {
+                        // Tìm ô trống (null) đầu tiên từ trái sang phải
+                        const firstEmptyIndex = currentAnswer.indexOf(null);
+                        
+                        // Nếu khung đã đầy thì không cho đưa lên nữa
+                        if (firstEmptyIndex === -1) return; 
+
+                        // Di chuyển phần tử HTML vào ô trống
+                        const slot = document.getElementById(`kb-slot-${firstEmptyIndex}`);
+                        slot.appendChild(pieceEl);
+                        
+                        // Ghi nhận vào mảng đáp án
+                        currentAnswer[firstEmptyIndex] = char;
+
+                        // KIỂM TRA ĐÁP ÁN NẾU ĐÃ ĐIỀN KÍN
+                        if (!currentAnswer.includes(null)) {
+                            // Khóa tương tác
+                            zone.style.pointerEvents = 'none';
+                            
+                            // Nối mảng lại thành chuỗi để so sánh (VD: "女" + "良" = "女良")
+                            const userStr = currentAnswer.join('');
+                            const correctStr = gameData.correctSequence.join('');
+                            
+                            if (userStr === correctStr) {
+                                // ĐÚNG -> Biến 2 mảnh ghép thành 1 chữ Kanji hoàn chỉnh tuyệt đẹp
+                                setTimeout(() => {
+                                    targetBox.innerHTML = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size: 80px; font-weight:900; color:#2b6cb0; animation: popIn 0.4s;">${gameData.kanji}</div>`;
+                                    handleBoostAnswer(targetBox, true);
+                                }, 300);
+                            } else {
+                                // SAI -> Rung lắc và trả mọi thứ về rổ
+                                targetBox.classList.add('shake-error');
+                                setTimeout(() => {
+                                    targetBox.classList.remove('shake-error');
+                                    // Bắn ngược lại rổ
+                                    targetBox.querySelectorAll('.kb-piece').forEach(p => poolBox.appendChild(p));
+                                    currentAnswer.fill(null);
+                                    zone.style.pointerEvents = 'auto'; // Mở khóa cho chơi lại
+                                    showToast("Sai thứ tự hoặc sai bộ, thử lại nhé! ❌");
+                                }, 500);
+                            }
+                        }
+                    } 
+                    // TRƯỜNG HỢP B: BẤM VÀO MẢNH ĐANG Ở TRONG KHUNG -> TRẢ VỀ RỔ
+                    else {
+                        // Xác định xem mảnh đang nằm ở slot số mấy
+                        const slotId = pieceEl.parentElement.id; // VD: "kb-slot-0"
+                        const slotIndex = parseInt(slotId.replace('kb-slot-', ''));
+                        
+                        // Xóa khỏi mảng đáp án
+                        currentAnswer[slotIndex] = null;
+                        
+                        // Trả phần tử HTML về rổ
+                        poolBox.appendChild(pieceEl);
+                    }
+                };
+            });
             break;
     }
 }
@@ -5946,6 +6131,7 @@ document.addEventListener('click', function(e) {
 </script>
 </body>
 </html>
+
 
 
 
