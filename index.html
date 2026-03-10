@@ -917,24 +917,17 @@ body {
     }
     /* Thu nhỏ Game Kanji Builder trên Mobile */
     .kb-target-box {
-        width: auto !important;
-        height: 100% !important; 
-        aspect-ratio: 1 / 1; /* Tự động tính toán để luôn là hình vuông */
-        max-height: 170px; /* Giới hạn không cho to quá mức trên màn hình lớn */
-        max-width: 170px;
+        width: 130px !important;  /* Khung lớn thu nhỏ lại */
+        height: 130px !important;
     }
     .kb-pool-grid {
         gap: 8px !important; /* Khoảng cách giữa các viên gạch nhỏ lại */
     }
     .kb-piece {
-        width: 100% !important; /* Trải rộng vừa vặn 1 cột của Grid */
-        height: auto !important; 
-        aspect-ratio: 1 / 1; /* Tự động biến thành hình vuông */
-        font-size: 26px !important; /* Cỡ chữ to dễ nhìn */
+        width: 45px !important;   /* Viên gạch nhỏ đi */
+        height: 45px !important;
+        font-size: 24px !important; /* Chữ bên trong nhỏ đi */
         border-radius: 8px !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
     }
     /* Thu nhỏ ô trống đang đục lỗ */
     .kanji-blank {
@@ -1224,30 +1217,20 @@ body {
 }
 
 @media (max-width: 600px) {
-    .kb-layout {
-        flex: 1; /* Chiếm toàn bộ không gian còn lại của #boostInteractiveZone */
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between; /* Đẩy Target lên giữa, Pool xuống đáy */
-        height: 100%;
-        width: 100%;
-        gap: 15px;
-    }
-    .kb-target-wrapper {
-        flex: 1; /* Tự động phình to ra đẩy các thành phần khác ra sát lề */
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 0; /* Quan trọng: Chống tràn (overflow) trên Flexbox */
-    }
+    .kb-layout { flex-direction: column; gap: 20px; } /* Mobile thì xếp dọc: Khung trên, Rổ dưới */
+}
+
 /* Khung lớn chứa chữ Kanji */
-    .kb-target-box {
-        width: auto !important;
-        height: 100% !important; 
-        aspect-ratio: 1 / 1; /* Tự động tính toán để luôn là hình vuông */
-        max-height: 170px; /* Giới hạn không cho to quá mức trên màn hình lớn */
-        max-width: 170px;
-    }
+.kb-target-box {
+    width: 180px; 
+    height: 180px; /* To ra một chút */
+    border: 3px solid #3182ce;
+    background: #ebf8ff;
+    border-radius: 12px;
+    display: flex;
+    overflow: hidden;
+    box-shadow: inset 0 0 20px rgba(49, 130, 206, 0.1);
+}
 
 /* Chia bố cục theo Structure Type */
 .kb-target-box.left-right { flex-direction: row; }
@@ -1270,13 +1253,11 @@ body {
 .kb-target-box.enclose .kb-slot:nth-child(2) { width: 60%; height: 60%; position: absolute; top: 20%; left: 20%; z-index: 2; border: none; } /* Lõi */
 
 /* Khu vực Rổ chứa mảnh ghép nhiễu */
-    .kb-pool-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr) !important; /* Chia chính xác 4 cột */
-        gap: 8px !important; /* Khoảng cách giữa các gạch */
-        width: 100%;
-        padding-bottom: 5px; /* Cách đáy một chút cho đẹp */
-    }
+.kb-pool-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
 
 /* Mảnh ghép Kanji */
 .kb-piece {
@@ -4263,8 +4244,9 @@ const zone = document.getElementById('boostInteractiveZone');
                         </div>
                     `;
 
-// Render Ô trống và Mảnh gạch
+                    // Render Ô trống và Mảnh gạch
                     let slotsHTML = "";
+// ... (GIỮ NGUYÊN ĐOẠN CODE DƯỚI TỪ CHỖ NÀY TRỞ ĐI) ...
                     for(let i=0; i < gameData.correctSequence.length; i++) {
                         slotsHTML += `<div class="kb-slot" id="kb-slot-${i}"></div>`;
                     }
@@ -4275,11 +4257,8 @@ const zone = document.getElementById('boostInteractiveZone');
 
                     zone.innerHTML = `
                         <div class="kb-layout">
-                            <!-- Wrapper mới giúp Khung tự động co dãn theo chiều dọc -->
-                            <div class="kb-target-wrapper">
-                                <div class="kb-target-box ${gameData.structure}" id="kb-target-box">
-                                    ${slotsHTML}
-                                </div>
+                            <div class="kb-target-box ${gameData.structure}" id="kb-target-box">
+                                ${slotsHTML}
                             </div>
                             <div class="kb-pool-grid" id="kb-pool">
                                 ${poolHTML}
@@ -5612,7 +5591,7 @@ async function getKanjiBuilderData(targetKanji) {
         const { data: allData } = await sb.from('kanji_builder')
             .select('components')
             .neq('kanji', targetKanji)
-            .limit(30);
+            .limit(20);
 
         let noisePieces = [];
         if (allData) {
@@ -5623,27 +5602,16 @@ async function getKanjiBuilderData(targetKanji) {
             });
         }
 
-        // TÍNH TOÁN ĐỂ LUÔN RA ĐÚNG 8 MẢNH GHÉP TỔNG CỘNG
-        const requiredNoiseCount = 8 - correctPieces.length;
-        noisePieces = [...new Set(noisePieces)].sort(() => 0.5 - Math.random()).slice(0, requiredNoiseCount);
-
-        // Đề phòng trường hợp hiếm: Database chưa đủ dữ liệu nhiễu để lấy đủ 8 mảnh, ta thêm các nét cơ bản vào
-        const fallbackNets = ['一', '丨', '丶', '丿', '乙', '亅', '二', '亠'];
-        while (noisePieces.length < requiredNoiseCount) {
-            let randomNet = fallbackNets[Math.floor(Math.random() * fallbackNets.length)];
-            if (!correctPieces.includes(randomNet) && !noisePieces.includes(randomNet)) {
-                noisePieces.push(randomNet);
-            }
-        }
+        noisePieces = [...new Set(noisePieces)].sort(() => 0.5 - Math.random()).slice(0, 4);
 
         return {
             kanji: targetData.kanji,
-            meaning: targetData.meaning,
+            meaning: targetData.meaning,           // <--- ĐÃ BỔ SUNG LẤY NGHĨA TỪ DB CHUNG
             hv: targetData.hv,
             mnemonics: targetData.mnemonics,
             structure: targetData.structure_type,
             correctSequence: correctPieces,
-            pool: [...correctPieces, ...noisePieces].sort(() => 0.5 - Math.random()) // Trộn đều 8 mảnh
+            pool: [...correctPieces, ...noisePieces].sort(() => 0.5 - Math.random())
         };
 
     } catch (err) {
@@ -6280,41 +6248,6 @@ document.addEventListener('click', function(e) {
 </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
