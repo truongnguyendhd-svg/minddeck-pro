@@ -5262,7 +5262,60 @@ async function smartImportExcel() {
 
     reader.readAsArrayBuffer(file);
 }
+/* ================= GAME KANJI BUILDER (LOGIC CORE) ================= */
+async function getKanjiBuilderData() {
+    try {
+        // 1. Tải dữ liệu từ bảng kanji_builder
+        const { data, error } = await sb.from('kanji_builder').select('*');
+        if (error) throw error;
+        if (!data || data.length === 0) return null;
 
+        // 2. Chọn ngẫu nhiên 1 chữ làm "Mục tiêu" (Target)
+        const targetIndex = Math.floor(Math.random() * data.length);
+        const targetData = data[targetIndex];
+
+        // 3. Mảng chứa các mảnh ghép ĐÚNG (Đã được parse từ JSONB của Supabase)
+        // Lưu ý: data từ Supabase JSONB sẽ tự chuyển thành Array trong JS
+        const correctPieces = targetData.components; // VD: ["女", "良"]
+
+        // 4. Mảng chứa các mảnh ghép NHIỄU (Distractors)
+        let noisePieces = [];
+        
+        // Duyệt qua các chữ CÒN LẠI để nhặt mảnh ghép làm nhiễu
+        data.forEach((item, index) => {
+            if (index !== targetIndex) {
+                // Tránh việc lấy mảng nhiễu có trùng phần tử với đáp án đúng
+                item.components.forEach(piece => {
+                    if (!correctPieces.includes(piece)) {
+                        noisePieces.push(piece);
+                    }
+                });
+            }
+        });
+
+        // 5. Lọc bỏ các mảnh nhiễu bị trùng lặp (Set) và xáo trộn ngẫu nhiên
+        noisePieces = [...new Set(noisePieces)].sort(() => 0.5 - Math.random());
+
+        // CHỈ LẤY KHOẢNG 4 MẢNH NHIỄU (Để game không bị quá rối mắt)
+        const selectedNoise = noisePieces.slice(0, 4);
+
+        // 6. Gộp ĐÚNG + NHIỄU và XÁO TRỘN lần cuối để tạo "Hồ chứa" (Pool)
+        const finalPool = [...correctPieces, ...selectedNoise].sort(() => 0.5 - Math.random());
+
+        // 7. Trả về gói dữ liệu hoàn chỉnh, sẵn sàng cho UI vẽ
+        return {
+            kanji: targetData.kanji,               // VD: "娘"
+            meaning: targetData.meaning,           // VD: "Con gái"
+            structure: targetData.structure_type,  // VD: "left-right"
+            correctSequence: correctPieces,        // VD: ["女", "良"] -> Dùng để check thắng thua
+            pool: finalPool                        // VD: ["良", "日", "女", "田", "力", "心"]
+        };
+
+    } catch (err) {
+        console.error("Lỗi lấy dữ liệu Kanji Builder:", err);
+        return null;
+    }
+}
 /* ================= TÍNH NĂNG ĐỔI MÀU THẺ (DARK/LIGHT MODE) ================= */
 // 1. Đọc trạng thái đã lưu từ trình duyệt
 let isDarkCard = localStorage.getItem('minddeck_dark_card') === 'true';
@@ -5893,6 +5946,7 @@ document.addEventListener('click', function(e) {
 </script>
 </body>
 </html>
+
 
 
 
