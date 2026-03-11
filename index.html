@@ -3099,10 +3099,13 @@ await loadFoldersToSelect();
         document.getElementById('nVisibility').value = deck.is_public.toString();
         document.getElementById('formTitle').innerText = `Chỉnh sửa: ${getCleanName(deck.id)}`;
         
-        // Cấu hình các nút bấm
-        document.getElementById('groupSaveAll').style.display = 'block'; // Hiện nút Lưu
-        document.getElementById('btnSaveText').innerText = 'Cập nhật'; // Đổi chữ thành Cập nhật cho hợp ngữ cảnh
-        document.getElementById('btnDeleteInForm').classList.remove('hidden'); // Hiện nút "Xóa bộ bài"
+// Cấu hình các nút bấm (TRONG HÀM openEditDeck)
+        const saveGroup = document.getElementById('groupSaveAll');
+        const saveText = document.getElementById('btnSaveText');
+        if (saveGroup) saveGroup.style.display = 'block'; 
+        if (saveText) saveText.innerText = 'Cập nhật'; // Chỉ đổi chữ nếu span tồn tại
+        
+        document.getElementById('btnDeleteInForm').classList.remove('hidden'); // Hiện nút Xóa bộ bài
 
         // 7. Render thẻ vào Form
         renderCardsToForm(cards || [], true);
@@ -3172,10 +3175,13 @@ async function openCopyDeck(event, deckId) {
             { label: 'Sao chép: ' + cleanName }
         ]);
 
-        // 8. Cấu hình hiển thị Nút bấm
-        document.getElementById('groupSaveAll').style.display = 'block';      // Hiện nút Lưu tất cả
+// 8. Cấu hình hiển thị Nút bấm (TRONG HÀM openCopyDeck)
+        const saveGroup = document.getElementById('groupSaveAll');
+        const saveText = document.getElementById('btnSaveText');
+        if (saveGroup) saveGroup.style.display = 'block';      
+        if (saveText) saveText.innerText = 'Lưu bộ bài'; // Đặt lại chữ mặc định
+        
         document.getElementById('btnDeleteInForm').classList.add('hidden'); // Ẩn nút Xóa bộ bài
-
         // 9. Render thẻ ra Form 
         // Tham số 'false' cực kỳ quan trọng: Báo cho renderCardsToForm biết đây là Copy
         renderCardsToForm(cards, false);
@@ -5179,10 +5185,11 @@ window.addEventListener('beforeunload', function (e) {
         e.returnValue = ''; 
     }
 });
-// ================= HÀM LƯU TOÀN BỘ BỘ BÀI (HỖ TRỢ CẢ FLASHCARD & QUIZ) =================
+// ================= HÀM LƯU TOÀN BỘ BỘ BÀI (ĐÃ FIX LỖI MẤT ICON/TEXT) =================
 async function saveFullDeck() {
     // 0. Khai báo biến nút lưu để quản lý trạng thái
     const btnSave = document.getElementById('btnSaveAll');
+    const btnText = document.getElementById('btnSaveText'); // Lấy đích danh thẻ chứa chữ
 
     // 1. KIỂM TRA ĐĂNG NHẬP
     if (!currentUser || !currentUser.id) {
@@ -5198,7 +5205,7 @@ async function saveFullDeck() {
     // VÔ HIỆU HÓA NÚT LƯU ngay lập tức để tránh người dùng nhấn spam
     if (btnSave) {
         btnSave.disabled = true;
-        btnSave.innerText = "ĐANG XỬ LÝ...";
+        if (btnText) btnText.innerText = "Đang xử lý..."; // Thay vì đổi cả nút, chỉ đổi chữ trong span
         btnSave.style.opacity = "0.7";
         btnSave.style.cursor = "not-allowed";
     }
@@ -5224,11 +5231,8 @@ async function saveFullDeck() {
         let b_packed = "";
         let i_packed = "";
 
-        // ==========================================
         // TRƯỜNG HỢP 1: LƯU ĐỀ TRẮC NGHIỆM (QUIZ)
-        // ==========================================
         if (mode === 'quiz') {
-            // Lấy value an toàn bằng optional chaining (?.) để tránh lỗi nếu DOM chưa load kịp
             f_front = row.querySelector('.f-question')?.value.trim() || "";
             b_packed = row.querySelector('.f-correct')?.value.trim() || "";
             
@@ -5236,36 +5240,26 @@ async function saveFullDeck() {
             const w2 = row.querySelector('.f-wrong2')?.value.trim() || "";
             const w3 = row.querySelector('.f-wrong3')?.value.trim() || "";
 
-            // Nếu bỏ trống câu hỏi HOẶC đáp án đúng -> Bỏ qua không lưu thẻ này
             if (!f_front || !b_packed) return; 
 
-            // Gom đáp án đúng và sai vào 1 mảng
             let options = [b_packed];
             if (w1) options.push(w1);
             if (w2) options.push(w2);
             if (w3) options.push(w3);
             
-            // Xáo trộn thứ tự các lựa chọn để lúc thi đáp án không bị nằm chết ở vị trí số 1
             options.sort(() => Math.random() - 0.5);
-            
-            // Ép vào cột Info, mỗi lựa chọn 1 dòng
             i_packed = options.join('\n');
         } 
-        // ==========================================
         // TRƯỜNG HỢP 2: LƯU FLASHCARD
-        // ==========================================
         else {
             f_front = row.querySelector('.f-front')?.value.trim() || "";
             const f_reading = row.querySelector('.f-reading')?.value.trim() || "";
             const f_meaning = row.querySelector('.f-meaning')?.value.trim() || "";
 
-            // Nếu bỏ trống Mặt trước HOẶC (Bỏ trống cả Cách đọc + Ý nghĩa) -> Bỏ qua
             if (!f_front || (!f_reading && !f_meaning)) return;
 
-            // Gom Back (Ngăn cách bằng xuống dòng \n)
             b_packed = `${f_reading}\n${f_meaning}`.trim();
             
-            // Gom Info (Dùng Nhãn/Marker)
             let i_arr = [];
             const hv = row.querySelector('.f-hv')?.value.trim() || "";
             const ex1jp = row.querySelector('.f-ex1-jp')?.value.trim() || "";
@@ -5282,7 +5276,6 @@ async function saveFullDeck() {
             i_packed = i_arr.join('\n');
         }
 
-        // --- ĐÓNG GÓI OBJECT CARD ĐỂ ĐẨY LÊN DATABASE ---
         let cardObj = { 
             deck_id: targetId, 
             front: f_front, 
@@ -5293,13 +5286,11 @@ async function saveFullDeck() {
         if (editingDeckId) {
             const dbId = row.getAttribute('data-db-id');
             const isDirty = row.getAttribute('data-is-dirty') === 'true';
-            // Nếu là thẻ mới (chưa có dbId) HOẶC thẻ cũ vừa bị sửa (isDirty = true) mới cần update lên DB
             if (!dbId || isDirty) {
                 if (dbId) cardObj.id = dbId;
                 cardsToProcess.push(cardObj);
             }
         } else {
-            // Chế độ tạo mới: Đẩy tất cả các thẻ có nội dung vào mảng
             cardsToProcess.push(cardObj);
         }
     });
@@ -5308,7 +5299,7 @@ async function saveFullDeck() {
     if (cardsToProcess.length === 0 && !editingDeckId && cardsToDelete.length === 0) {
         if (btnSave) {
             btnSave.disabled = false;
-            btnSave.innerText = "🚀 TẠO BỘ BÀI & LƯU TẤT CẢ";
+            if (btnText) btnText.innerText = "Lưu bộ bài";
             btnSave.style.opacity = "1";
             btnSave.style.cursor = "pointer";
         }
@@ -5349,7 +5340,8 @@ async function saveFullDeck() {
         cardsToDelete = [];
         activeDeckId = null;
         editingDeckId = null;
-        hasUnsavedChanges = false; // Reset cờ sau khi lưu thành công
+        hasUnsavedChanges = false; // Báo cho hệ thống cảnh báo biết là đã lưu an toàn
+        
         showHome();
 
     } catch (err) {
@@ -5359,7 +5351,7 @@ async function saveFullDeck() {
         // Trả lại trạng thái nút nếu bị lỗi để user bấm lại
         if (btnSave) {
             btnSave.disabled = false;
-            btnSave.innerText = editingDeckId ? "🚀 CẬP NHẬT TẤT CẢ" : "🚀 TẠO BỘ BÀI & LƯU TẤT CẢ";
+            if (btnText) btnText.innerText = editingDeckId ? "Cập nhật" : "Lưu bộ bài";
             btnSave.style.opacity = "1";
             btnSave.style.cursor = "pointer";
         }
@@ -6640,6 +6632,7 @@ function closeSideMenu() {
 </script>
 </body>
 </html>
+
 
 
 
