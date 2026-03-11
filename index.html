@@ -5377,6 +5377,7 @@ async function deleteCurrentDeck() {
 
 // ================= HÀM LƯU TỪNG THẺ ĐƠN LẺ (HỖ TRỢ CẢ FLASHCARD & QUIZ) =================
 // ================= HÀM LƯU TỪNG THẺ ĐƠN LẺ (ĐÃ TỐI ƯU UX, BỎ CẢNH BÁO THỪA) =================
+// ================= HÀM LƯU TỪNG THẺ ĐƠN LẺ =================
 async function saveSingleRow(id) {
     // 1. KIỂM TRA BẢO MẬT
     if (!currentUser || !currentUser.id) {
@@ -5451,31 +5452,51 @@ async function saveSingleRow(id) {
         finalInfo = infoArr.join('\n');
     }
 
-    // 4. LOGIC TẠO ID DUY NHẤT CHO BỘ BÀI
-    let targetId = editingDeckId || activeDeckId;
-    if (!targetId) {
-        const safeTagName = sanitizeTagName(tag) || "deck";
-        targetId = `${currentUser.id}:${safeTagName}:${Date.now()}`;
-        activeDeckId = targetId; 
+    // =========================================================
+    // 4. FIX LOGIC: NẾU LÀ TẠO MỚI HOẶC COPY (Chưa có editingDeckId)
+    // -> CHỈ KHÓA GIAO DIỆN ĐỂ LƯU NHÁP, KHÔNG ĐẨY LÊN DATABASE!
+    // =========================================================
+    if (!editingDeckId) {
+        row.removeAttribute('data-is-dirty'); 
+        row.classList.add('readonly-mode'); 
+        row.querySelectorAll('.row-input').forEach(t => t.disabled = true);
+        
+        const btnEdit = row.querySelector('.btn-row-edit');
+        if (btnEdit) btnEdit.style.display = 'flex';
+        
+        const detailsEl = row.querySelector('.info-details');
+        if (detailsEl) detailsEl.removeAttribute('open');
+
+        showToast("Đã lưu nháp (Nhớ bấm 'Lưu bộ bài' trên cùng để hoàn tất) 📝");
+        return; // DỪNG HÀM TẠI ĐÂY, KHÔNG ĐƯỢC CHẠY XUỐNG DƯỚI NỮA
     }
 
-    // 5. THỰC THI LƯU DỮ LIỆU NGAY LẬP TỨC (Không cần hỏi xác nhận nữa)
-    showLoading("Đang lưu...");
+    // =========================================================
+    // 5. NẾU ĐANG SỬA BỘ BÀI CŨ (Đã có editingDeckId)
+    // -> ĐẨY THẲNG LÊN DATABASE NHƯ BÌNH THƯỜNG
+    // =========================================================
+    
+    // Lấy thông tin thư mục hiện tại để không bị mất khi lưu
+    const folderVal = document.getElementById('nFolder').value;
+    const finalFolderId = folderVal === "" ? null : folderVal;
+
+    showLoading("Đang cập nhật...");
     try {
         if (!mode) mode = 'flashcard'; 
         
-        // 5.1 Lưu thông tin bộ bài
+        // 5.1 Cập nhật thông tin bộ bài
         const { error: deckError } = await sb.from('decks').upsert({ 
-            id: targetId, 
+            id: editingDeckId, 
             owner_id: currentUser.id, 
             type: mode, 
-            is_public: isPublic 
+            is_public: isPublic,
+            folder_id: finalFolderId // (Fix: Đã bổ sung folder_id để tránh văng thẻ)
         });
         if (deckError) throw new Error("Lỗi lưu bộ bài: " + deckError.message);
 
         // 5.2 Lưu thẻ (Card)
         const cardObj = { 
-            deck_id: targetId, 
+            deck_id: editingDeckId, 
             front: finalFront, 
             back: finalBack, 
             info: finalInfo 
@@ -5500,14 +5521,14 @@ async function saveSingleRow(id) {
         const detailsEl = row.querySelector('.info-details');
         if (detailsEl) detailsEl.removeAttribute('open');
 
-        // FIX LỖI CẢNH BÁO: Nếu không còn thẻ nào đang mở sửa (đang sáng), thì reset cờ cảnh báo
+        // Reset cờ cảnh báo mất dữ liệu nếu không còn thẻ nào đang chỉnh sửa
         const editingRows = document.querySelectorAll('#cardRowsContainer .card-row:not(.readonly-mode)');
         if (editingRows.length === 0) {
             hasUnsavedChanges = false; 
         }
 
         hideLoading(); 
-        showToast("Đã lưu thẻ thành công! ✨");
+        showToast("Đã cập nhật thẻ thành công! ✨");
 
     } catch (e) { 
         hideLoading(); 
@@ -6637,6 +6658,7 @@ function closeSideMenu() {
 </script>
 </body>
 </html>
+
 
 
 
