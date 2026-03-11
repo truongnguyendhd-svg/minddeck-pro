@@ -7248,38 +7248,77 @@ async function generateAutoJLPTDeck() {
         customAlert("Lỗi tạo bộ bài: " + e.message, "❌");
     }
 }
-// TÍNH NĂNG 5: BỘ SƯU TẬP KANJI
-let allKanjiData = []; // Cache dữ liệu Kanji
-let masteredKanjis = new Set(); // Chứa các Kanji user đã thuộc
+// TÍNH NĂNG 5: BỘ SƯU TẬP KANJI (TỐI ƯU BĂNG THÔNG & LOCALSTORAGE)
+let allKanjiData = []; // Cache RAM
+let masteredKanjis = new Set(); 
 
 async function openKanjiCollection() {
     if (!currentUser) return customAlert("Vui lòng đăng nhập để xem Bộ sưu tập!", "⚠️");
     
     document.getElementById('kanjiCollectionModal').style.display = 'flex';
-    document.getElementById('kcGrid').innerHTML = '<div style="text-align:center; padding:50px; grid-column:1/-1;"><div class="spinner" style="margin:auto; border-top-color:#3182ce;"></div><p style="color:#718096; margin-top:10px;">Đang quét dữ liệu học tập của bạn...</p></div>';
+    document.getElementById('kcGrid').innerHTML = '<div style="text-align:center; padding:50px; grid-column:1/-1;"><div class="spinner" style="margin:auto; border-top-color:#3182ce;"></div><p style="color:#718096; margin-top:10px;">Đang đồng bộ dữ liệu...</p></div>';
 
     try {
-        // 1. Tải toàn bộ Kanji trong hệ thống (Nếu chưa tải)
+        // ==========================================
+        // BƯỚC 1: TỐI ƯU HÓA TẢI TỪ ĐIỂN KANJI
+        // ==========================================
         if (allKanjiData.length === 0) {
-            const { data: kData } = await sb.from('kanji_builder').select('kanji, level').order('level');
-            if (kData) allKanjiData = kData;
+            // 1A. Kiểm tra xem trong Ổ cứng trình duyệt đã có data chưa?
+            const cachedDict = localStorage.getItem('minddeck_kanji_dict');
+            
+            if (cachedDict) {
+                // Nếu có, lấy ra xài luôn (Tốc độ ánh sáng, tốn 0 băng thông)
+                allKanjiData = JSON.parse(cachedDict);
+            } else {
+                // 1B. Nếu chưa có (Lần đầu vào web), mới chịu gọi Supabase
+                let isFetching = true;
+                let fromIndex = 0;
+                const step = 999; 
+
+                while (isFetching) {
+                    const { data: kData, error: kErr } = await sb.from('kanji_builder')
+                        .select('kanji, level')
+                        .order('level')
+                        .range(fromIndex, fromIndex + step);
+                    
+                    if (kErr) throw kErr;
+
+                    if (kData && kData.length > 0) {
+                        allKanjiData = allKanjiData.concat(kData);
+                        fromIndex += (step + 1); 
+                    }
+
+                    if (!kData || kData.length <= step) {
+                        isFetching = false;
+                    }
+                }
+                
+                // Sau khi vét sạch Supabase, lưu ngay vào Ổ cứng trình duyệt cho lần sau
+                if (allKanjiData.length > 0) {
+                    localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
+                }
+            }
         }
 
-        // 2. Lấy danh sách ID thẻ đã thuộc (interval > 7 ngày là coi như thuộc)
+        // ==========================================
+        // BƯỚC 2: TỐI ƯU HÓA KIỂM TRA TIẾN ĐỘ HỌC
+        // ==========================================
+        // Chỉ lấy những thẻ có interval >= 7 (Rất nhẹ, chỉ tốn vài KB băng thông)
         const { data: progressData } = await sb.from('progress')
             .select('card_id')
             .eq('user_id', currentUser.id)
             .gte('interval', 7); 
             
+        masteredKanjis.clear(); // Reset danh sách đã thuộc
+        
         if (progressData && progressData.length > 0) {
             const masteredCardIds = progressData.map(p => p.card_id);
             
-            // 3. Truy vấn lấy nội dung thẻ để bóc Kanji
+            // Lấy mặt trước của thẻ để bóc chữ Kanji
             const { data: masteredCards } = await sb.from('cards')
                 .select('front')
                 .in('id', masteredCardIds);
                 
-            masteredKanjis.clear();
             if (masteredCards) {
                 masteredCards.forEach(c => {
                     const kMatches = c.front.match(/[\u4e00-\u9faf]/g);
@@ -7288,7 +7327,7 @@ async function openKanjiCollection() {
             }
         }
 
-        // Cập nhật thống kê Tổng
+        // Cập nhật thống kê
         document.getElementById('kcMasteredCount').innerText = masteredKanjis.size;
         document.getElementById('kcTotalCount').innerText = allKanjiData.length;
 
@@ -7297,7 +7336,7 @@ async function openKanjiCollection() {
 
     } catch (err) {
         console.error(err);
-        document.getElementById('kcGrid').innerHTML = '<p style="color:red; text-align:center; grid-column:1/-1;">Lỗi tải dữ liệu!</p>';
+        document.getElementById('kcGrid').innerHTML = '<p style="color:#e53e3e; text-align:center; grid-column:1/-1;">Lỗi tải dữ liệu. Vui lòng kiểm tra kết nối mạng!</p>';
     }
 }
 
@@ -7330,6 +7369,7 @@ function renderKanjiCollectionGrid() {
 </script>
 </body>
 </html>
+
 
 
 
