@@ -1847,6 +1847,65 @@ body {
     .audio-btn-huge { width: 80px; height: 80px; margin: 10px auto; }
     .audio-btn-huge .material-symbols-outlined { font-size: 40px; }
 }
+/* ================= THIẾT KẾ THANH CÔNG CỤ (TOOLBAR) TRANG QUẢN LÝ ================= */
+.action-toolbar {
+    display: flex;
+    gap: 12px;
+    padding: 10px 25px;
+    background: #ffffff;
+    border-bottom: 1px solid #edf2f7;
+    margin-top: -20px; /* Bù lại khoảng trống của breadcrumb */
+    margin-bottom: 25px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.action-toolbar::-webkit-scrollbar { display: none; }
+
+.toolbar-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    background: #f8fafc;
+    border: 1px solid #cbd5e0;
+    border-radius: 50px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #4a5568;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+.toolbar-btn:hover {
+    background: #eff6ff;
+    border-color: #3b82f6;
+    color: #1e3a8a;
+    transform: translateY(-2px);
+}
+.toolbar-btn.btn-primary {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+}
+.toolbar-btn.btn-primary:hover {
+    background: #2563eb;
+    color: white;
+}
+.toolbar-btn.btn-danger {
+    background: #fff5f5;
+    border-color: #feb2b2;
+    color: #e53e3e;
+}
+.toolbar-btn.btn-danger:hover {
+    background: #fee2e2;
+}
+.toolbar-divider {
+    width: 2px;
+    background: #e2e8f0;
+    border-radius: 2px;
+    margin: 5px 5px;
+}
 </style>
 </head>
 <body>
@@ -2184,10 +2243,40 @@ body {
     </div>
 
     <div id="learnPage" class="hidden">
-        <div id="learnMenu" class="main-menu-grid">
-            <div class="menu-card" onclick="showNewForm('flashcard')"><span class="icon">🃏</span><div class="title">Tạo Flashcard Mới</div><div class="desc">Soạn bộ thẻ ghi nhớ theo danh sách</div></div>
-            <div class="menu-card" onclick="showNewForm('quiz')"><span class="icon">❓</span><div class="title">Soạn Đề Trắc Nghiệm</div><div class="desc">Tạo câu hỏi luyện thi với lựa chọn đáp án</div></div>
-            <div class="menu-card" onclick="showImportForm()"><span class="icon">📥</span><div class="title">Smart Import</div><div class="desc">Nhập hàng trăm thẻ từ Excel, Word hoặc JSON</div></div>
+        <div id="learnMenu">
+            <!-- THANH CÔNG CỤ (TOOLBAR) -->
+            <div class="action-toolbar">
+                <button class="toolbar-btn btn-primary" onclick="createNewFolderModal()">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">create_new_folder</span> Thư mục
+                </button>
+                <button class="toolbar-btn" onclick="showNewForm('flashcard')">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">style</span> Flashcard
+                </button>
+                <button class="toolbar-btn" onclick="showNewForm('quiz')">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">quiz</span> Trắc nghiệm
+                </button>
+                <button class="toolbar-btn" onclick="showImportForm()">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">upload_file</span> Import
+                </button>
+                
+                <div class="toolbar-divider"></div>
+                
+                <!-- Nút Copy và Xóa trên thanh công cụ (Sẽ hiện hướng dẫn thao tác) -->
+                <button class="toolbar-btn" onclick="customAlert('Để sao chép, hãy nhấp vào biểu tượng Copy <b>(Góc phải trên)</b> của từng bộ bài bên dưới.', 'ℹ️ Hướng dẫn Copy')">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">content_copy</span> Copy
+                </button>
+                <button class="toolbar-btn btn-danger" onclick="customAlert('Để xóa một bộ bài: Nhấp <b>Mở bộ bài</b> -> Cuộn xuống cuối cùng -> Chọn <b>Xóa cả học phần này</b>.<br><br>Để xóa Thư mục: Nhấn vào icon thùng rác trên Thư mục.', '🗑️ Hướng dẫn Xóa')">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">delete</span> Xóa
+                </button>
+            </div>
+
+            <!-- KHU VỰC HIỂN THỊ FOLDER VÀ HỌC PHẦN -->
+            <div style="padding: 0 25px;">
+                <h3 style="margin-top:0; font-size: 16px; color: #4a5568; display: flex; align-items: center; gap: 8px;">
+                    <span class="material-symbols-outlined" style="color:#3b82f6;">folder_managed</span> Dữ liệu của bạn
+                </h3>
+                <div id="manageDeckList" class="deck-grid"></div>
+            </div>
         </div>
 
         <div id="newForm" class="form-container hidden" style="max-width: 800px;">
@@ -4808,8 +4897,127 @@ function showLearnPage(skipHash = false) {
     document.getElementById('learnMenu').classList.remove('hidden'); 
     document.getElementById('newForm').classList.add('hidden'); 
     document.getElementById('importForm').classList.add('hidden'); 
-    updateBreadcrumb([{label:'Thêm mới'}]); 
-    loadFoldersToSelect(); // Tải danh sách thư mục vào các Dropdown
+    
+    // Cập nhật Breadcrumb hỗ trợ đi vào thư mục
+    if (!currentFolderId) {
+        updateBreadcrumb([{label:'Quản lý dữ liệu', action: 'currentFolderId=null; showLearnPage()'}]); 
+    } else {
+        updateBreadcrumb([
+            {label: 'Quản lý dữ liệu', action: 'currentFolderId=null; showLearnPage()'},
+            {label: currentFolderName}
+        ]);
+    }
+
+    loadFoldersToSelect(); 
+    renderManageDeckList(); // Nạp danh sách Học phần
+}
+function openFolderManage(fId, fName) {
+    currentFolderId = fId;
+    currentFolderName = fName;
+    showLearnPage(true); // Tải lại trang quản lý ở chế độ trong thư mục
+}
+
+async function renderManageDeckList() {
+    const list = document.getElementById('manageDeckList');
+    list.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#cbd5e0;">Đang tải dữ liệu...</p>';
+    if (!currentUser) return;
+
+    try {
+        let foldersHTML = "";
+        
+        // 1. Tải Thư mục (Chỉ tải nếu đang ở màn hình gốc)
+        if (!currentFolderId) {
+            const { data: folders, error: fErr } = await sb.from('folders')
+                .select('*')
+                .eq('owner_id', currentUser.id)
+                .order('created_at', { ascending: false });
+            
+            if (!fErr && folders) {
+                folders.forEach(f => {
+                    foldersHTML += `
+                        <div class="folder-card" style="--book-color: ${f.color || '#3b82f6'};" onclick="openFolderManage('${f.id}', '${escapeHTML(f.name)}')">
+                            <button class="folder-delete-btn" onclick="deleteFolder(event, '${f.id}', '${escapeHTML(f.name)}')">
+                                <span class="material-symbols-outlined">delete</span>
+                            </button>
+                            <span class="material-symbols-outlined folder-icon">menu_book</span>
+                            <div class="folder-title">${escapeHTML(f.name)}</div>
+                        </div>
+                    `;
+                });
+            }
+        }
+
+        // 2. Tải Bộ bài (Của mình hoặc Public)
+        let deckQuery = sb.from('decks')
+            .select('*, profiles:owner_id (full_name, avatar_url)')
+            .order('sort_order', { ascending: true })
+            .order('created_at', { ascending: false });
+        
+        // Logic lọc:
+        if (!currentFolderId) {
+            // Ở ngoài gốc: Lấy public HOẶC (của mình + không có thư mục)
+            deckQuery = deckQuery.or(`is_public.eq.true,and(owner_id.eq.${currentUser.id},folder_id.is.null)`);
+        } else {
+            // Trong thư mục: Chỉ lấy bộ bài của mình nằm trong thư mục này
+            deckQuery = deckQuery.eq('owner_id', currentUser.id).eq('folder_id', currentFolderId);
+        }
+
+        const { data: decks, error: deckError } = await deckQuery;
+        if (deckError) throw deckError;
+
+        list.innerHTML = foldersHTML;
+
+        if (!decks || decks.length === 0) {
+            if (!foldersHTML) list.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#718096; margin-top: 20px;">Bạn chưa có dữ liệu nào ở đây.</p>';
+            return;
+        }
+
+        // Render từng thẻ học phần
+        decks.forEach((d, index) => {
+            const isOwner = d.owner_id === currentUser.id;
+            const card = document.createElement('div'); 
+            card.className = 'deck-card';
+            
+            // Ở trang quản lý: Bấm vào thẻ là MỞ FORM SỬA (thay vì học)
+            card.onclick = (e) => {
+                if(isOwner) openEditDeck(e, d.id);
+                else customAlert('Bạn chỉ có thể xem, không thể sửa bộ bài của người khác. Hãy bấm Copy để tạo bản sao.', 'ℹ️');
+            };
+
+            const safeId = encodeURIComponent(d.id).replace(/'/g, "%27");
+            const authorName = d.profiles?.full_name || 'Ẩn danh';
+            const authorAvatar = d.profiles?.avatar_url || 'https://emojicdn.elk.sh/👤?size=40';
+
+            let editBtn = isOwner ? `<button class="action-btn btn-edit" data-tooltip="Sửa bộ bài" onclick="openEditDeck(event, decodeURIComponent('${safeId}'))"><span class="material-symbols-outlined">edit</span></button>` : '';
+            let copyBtn = `<button class="action-btn btn-copy" data-tooltip="Copy" onclick="openCopyDeck(event, decodeURIComponent('${safeId}'))"><span class="material-symbols-outlined">content_copy</span></button>`;
+            
+            let folderBtns = "";
+            if (isOwner) {
+                folderBtns += `<button class="action-btn" data-tooltip="Di chuyển" onclick="openMoveDeckModal(event, decodeURIComponent('${safeId}'))"><span class="material-symbols-outlined">drive_file_move</span></button>`;
+                if (currentFolderId) {
+                    if (index > 0) folderBtns += `<button class="action-btn" data-tooltip="Đẩy lên" onclick="reorderDeck(event, decodeURIComponent('${safeId}'), 'up', ${d.sort_order})"><span class="material-symbols-outlined">arrow_upward</span></button>`;
+                    if (index < decks.length - 1) folderBtns += `<button class="action-btn" data-tooltip="Đẩy xuống" onclick="reorderDeck(event, decodeURIComponent('${safeId}'), 'down', ${d.sort_order})"><span class="material-symbols-outlined">arrow_downward</span></button>`;
+                }
+            }
+
+            card.innerHTML = `
+                <div class="deck-status-badge ${d.is_public ? 'badge-public' : 'badge-private'}" data-tooltip="${d.is_public ? 'Công khai' : 'Riêng tư'}">
+                     <span class="material-symbols-outlined">${d.is_public ? 'public' : 'lock'}</span>
+                </div>
+                <div class="deck-actions">${folderBtns}${editBtn}${copyBtn}</div>
+                <div class="deck-title">${getCleanName(d.id)}</div>
+                <div class="deck-creator">
+                    <img src="${authorAvatar}" class="creator-avatar-mini" onerror="this.src='https://emojicdn.elk.sh/👤?size=40'">
+                    <span class="creator-name">${isOwner ? 'Tôi' : authorName}</span>
+                </div>
+            `;
+            list.appendChild(card);
+        });
+
+    } catch (err) {
+        console.error(err);
+        list.innerHTML = '<p style="text-align:center; color:#e53e3e; grid-column:1/-1">Lỗi kết nối dữ liệu.</p>';
+    }
 }
 function showNewForm(type, skipHash = false) {
     // 1. Cập nhật URL Hash để hỗ trợ phím Back/F5
@@ -6190,17 +6398,6 @@ async function reorderDeck(event, deckId, direction, currentSortOrder) {
     } finally { hideLoading(); }
 }
 
-// Cuối cùng: Thêm thẻ Menu tạo Thư Mục vào Learn Page
-document.addEventListener("DOMContentLoaded", () => {
-    const learnMenu = document.getElementById('learnMenu');
-    if (learnMenu) {
-        const folderCard = document.createElement('div');
-        folderCard.className = 'menu-card';
-        folderCard.onclick = createNewFolderModal;
-        folderCard.innerHTML = `<span class="icon" style="color:#3b82f6;">📁</span><div class="title">Tạo Thư Mục</div><div class="desc">Phân loại bộ bài của bạn</div>`;
-        learnMenu.insertBefore(folderCard, learnMenu.firstChild); // Nhét vào đầu tiên
-    }
-});
 /* ================= HỆ THỐNG THANH TÌM KIẾM ĐỘNG TRÊN MOBILE ================= */
 function toggleMobileSearch(e, isEnter = false) {
     if (window.innerWidth <= 600) {
@@ -6248,6 +6445,7 @@ document.addEventListener('click', function(e) {
 </script>
 </body>
 </html>
+
 
 
 
