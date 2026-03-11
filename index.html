@@ -5367,6 +5367,7 @@ async function deleteCurrentDeck() {
 }
 
 // ================= HÀM LƯU TỪNG THẺ ĐƠN LẺ (HỖ TRỢ CẢ FLASHCARD & QUIZ) =================
+// ================= HÀM LƯU TỪNG THẺ ĐƠN LẺ (ĐÃ TỐI ƯU UX, BỎ CẢNH BÁO THỪA) =================
 async function saveSingleRow(id) {
     // 1. KIỂM TRA BẢO MẬT
     if (!currentUser || !currentUser.id) {
@@ -5402,15 +5403,13 @@ async function saveSingleRow(id) {
             return customAlert("Vui lòng điền đủ Câu hỏi và Đáp án đúng!", "⚠️");
         }
 
-        // Đóng gói Quiz:
-        finalBack = correctAns; // Lưu đáp án đúng vào Back để chấm điểm
+        finalBack = correctAns; 
         
-        let options = [correctAns]; // Gom đáp án đúng và sai vào Info
+        let options = [correctAns]; 
         if (w1) options.push(w1);
         if (w2) options.push(w2);
         if (w3) options.push(w3);
         
-        // Xáo trộn thứ tự các lựa chọn để chống học vẹt
         options.sort(() => Math.random() - 0.5);
         finalInfo = options.join('\n');
     } 
@@ -5426,7 +5425,6 @@ async function saveSingleRow(id) {
             return customAlert("Vui lòng điền đủ 'Từ vựng' và ít nhất 'Cách đọc' hoặc 'Ý nghĩa'!", "⚠️");
         }
 
-        // Đóng gói Flashcard:
         finalBack = `${f_reading}\n${f_meaning}`.trim();
 
         const f_hv = row.querySelector('.f-hv').value.trim();
@@ -5452,62 +5450,60 @@ async function saveSingleRow(id) {
         activeDeckId = targetId; 
     }
 
-    // 5. XÁC NHẬN VÀ THỰC THI LƯU DỮ LIỆU
-    const ok = await showConfirm("Lưu thay đổi?", "Bạn muốn cập nhật nội dung cho thẻ này?", "OK");
-    if (ok) {
-        showLoading("Đang lưu...");
-        try {
-            if (!mode) mode = 'flashcard'; 
-            
-            // 5.1 Lưu thông tin bộ bài
-            const { error: deckError } = await sb.from('decks').upsert({ 
-                id: targetId, 
-                owner_id: currentUser.id, 
-                type: mode, 
-                is_public: isPublic 
-            });
-            if (deckError) throw new Error("Lỗi lưu bộ bài: " + deckError.message);
+    // 5. THỰC THI LƯU DỮ LIỆU NGAY LẬP TỨC (Không cần hỏi xác nhận nữa)
+    showLoading("Đang lưu...");
+    try {
+        if (!mode) mode = 'flashcard'; 
+        
+        // 5.1 Lưu thông tin bộ bài
+        const { error: deckError } = await sb.from('decks').upsert({ 
+            id: targetId, 
+            owner_id: currentUser.id, 
+            type: mode, 
+            is_public: isPublic 
+        });
+        if (deckError) throw new Error("Lỗi lưu bộ bài: " + deckError.message);
 
-            // 5.2 Lưu thẻ (Card) với dữ liệu đã Đóng gói
-            const cardObj = { 
-                deck_id: targetId, 
-                front: finalFront, 
-                back: finalBack, 
-                info: finalInfo 
-            };
-            if (dbId) cardObj.id = dbId; 
-            
-            const { data: savedCard, error: cardError } = await sb.from('cards').upsert(cardObj).select();
-            if (cardError) throw new Error("Lỗi lưu thẻ: " + cardError.message);
+        // 5.2 Lưu thẻ (Card)
+        const cardObj = { 
+            deck_id: targetId, 
+            front: finalFront, 
+            back: finalBack, 
+            info: finalInfo 
+        };
+        if (dbId) cardObj.id = dbId; 
+        
+        const { data: savedCard, error: cardError } = await sb.from('cards').upsert(cardObj).select();
+        if (cardError) throw new Error("Lỗi lưu thẻ: " + cardError.message);
 
-            // 6. CẬP NHẬT GIAO DIỆN (UI) SAU KHI LƯU THÀNH CÔNG
-            if (!dbId && savedCard && savedCard.length > 0) {
-                row.setAttribute('data-db-id', savedCard[0].id); // Gắn ID từ database về HTML
-            }
-            
-            // Gỡ bỏ trạng thái "đang sửa" để hàm saveFullDeck không lưu trùng lặp
-            row.removeAttribute('data-is-dirty'); 
-
-            // Chuyển thẻ về chế độ chỉ đọc
-            row.classList.add('readonly-mode'); 
-            row.querySelectorAll('.row-input').forEach(t => t.disabled = true);
-            
-            // Hiển thị lại nút "Sửa" (Bị ẩn khi bấm vào sửa)
-            const btnEdit = row.querySelector('.btn-row-edit');
-            if (btnEdit) btnEdit.style.display = 'flex';
-            
-            // Tự động thu gọn phần Info lại cho giao diện gọn gàng (nếu là Flashcard)
-            const detailsEl = row.querySelector('.info-details');
-            if (detailsEl) detailsEl.removeAttribute('open');
-
-            hideLoading(); 
-            showToast("Đã lưu thẻ thành công! ✨");
-
-        } catch (e) { 
-            hideLoading(); 
-            console.error("Lỗi saveSingleRow:", e);
-            customAlert("Lỗi: " + e.message, "❌"); 
+        // 6. CẬP NHẬT GIAO DIỆN (UI)
+        if (!dbId && savedCard && savedCard.length > 0) {
+            row.setAttribute('data-db-id', savedCard[0].id); 
         }
+        
+        row.removeAttribute('data-is-dirty'); 
+        row.classList.add('readonly-mode'); 
+        row.querySelectorAll('.row-input').forEach(t => t.disabled = true);
+        
+        const btnEdit = row.querySelector('.btn-row-edit');
+        if (btnEdit) btnEdit.style.display = 'flex';
+        
+        const detailsEl = row.querySelector('.info-details');
+        if (detailsEl) detailsEl.removeAttribute('open');
+
+        // FIX LỖI CẢNH BÁO: Nếu không còn thẻ nào đang mở sửa (đang sáng), thì reset cờ cảnh báo
+        const editingRows = document.querySelectorAll('#cardRowsContainer .card-row:not(.readonly-mode)');
+        if (editingRows.length === 0) {
+            hasUnsavedChanges = false; 
+        }
+
+        hideLoading(); 
+        showToast("Đã lưu thẻ thành công! ✨");
+
+    } catch (e) { 
+        hideLoading(); 
+        console.error("Lỗi saveSingleRow:", e);
+        customAlert("Lỗi: " + e.message, "❌"); 
     }
 }
 
@@ -6632,6 +6628,7 @@ function closeSideMenu() {
 </script>
 </body>
 </html>
+
 
 
 
