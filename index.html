@@ -6554,7 +6554,7 @@ async function confirmCreateFolder() {
 
 // 4. Xóa Thư mục (Kéo theo xóa toàn bộ Deck bên trong nhờ ON DELETE CASCADE)
 async function deleteFolder(event, fId, fName) {
-    event.stopPropagation(); // Không cho kích hoạt mở thư mục
+    event.stopPropagation();
     const ok = await showConfirm(
         "Xóa Thư Mục?", 
         `Xóa thư mục "${fName}" sẽ XÓA VĨNH VIỄN toàn bộ các bộ bài và thẻ ghi nhớ bên trong nó. Bạn chắc chắn chứ?`, 
@@ -6566,7 +6566,13 @@ async function deleteFolder(event, fId, fName) {
     try {
         await sb.from('folders').delete().eq('id', fId);
         showToast("Đã xóa thư mục và các học phần liên quan!");
-        openDeckSelection(mode); // Load lại màn hình
+        
+        // --- ĐÃ SỬA TẠI ĐÂY ---
+        // Xóa xong thì reset trạng thái thư mục và đẩy về trang quản lý gốc
+        currentFolderId = null;
+        currentFolderName = "";
+        showLearnPage(); 
+        
     } catch (e) {
         customAlert("Lỗi xóa: " + e.message, "❌");
     } finally { hideLoading(); }
@@ -6590,7 +6596,10 @@ async function confirmMoveDeck() {
         await sb.from('decks').update({ folder_id: fId }).eq('id', deckToMoveId);
         closeModal('moveDeckModal');
         showToast("Di chuyển thành công!");
-        openDeckSelection(mode); // Cập nhật lại UI hiện tại
+        
+        // --- ĐÃ SỬA TẠI ĐÂY ---
+        renderManageDeckList(); // Vẽ lại danh sách quản lý
+        
     } catch (e) {
         customAlert("Lỗi di chuyển: " + e.message, "❌");
     } finally { hideLoading(); }
@@ -6601,10 +6610,12 @@ async function reorderDeck(event, deckId, direction, currentSortOrder) {
     event.stopPropagation();
     showLoading("Đang sắp xếp...");
     try {
-        // Cộng/Trừ sort_order đơn giản
         let newSort = direction === 'up' ? (currentSortOrder - 1) : (currentSortOrder + 1);
         await sb.from('decks').update({ sort_order: newSort }).eq('id', deckId);
-        openDeckSelection(mode); // Tải lại để thấy vị trí mới
+        
+        // --- ĐÃ SỬA TẠI ĐÂY ---
+        renderManageDeckList(); // Chỉ vẽ lại danh sách quản lý, KHÔNG văng sang trang Học
+        
     } catch(e) {
         showToast("Lỗi sắp xếp!");
     } finally { hideLoading(); }
@@ -6667,6 +6678,7 @@ function closeSideMenu() {
 </script>
 </body>
 </html>
+
 
 
 
