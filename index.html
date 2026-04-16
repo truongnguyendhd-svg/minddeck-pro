@@ -2463,6 +2463,46 @@ body.landing-mode .main-content {
     border-color: #1d1d1f; /* Viền đậm lên khi di chuột */
     transform: scale(1.05);
 }
+/* ================= CSS CHO SELECTION POPOVER & PLAYGROUND ================= */
+/* Nút nổi lên khi bôi đen text */
+#selectionPopover {
+    position: fixed;
+    z-index: 15000; /* Nổi lên trên cùng */
+    background: #1e3a8a;
+    color: white;
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 20px rgba(30, 58, 138, 0.4);
+    cursor: pointer;
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    border: 2px solid #ffffff;
+}
+#selectionPopover:hover { transform: scale(1.1); background: #2563eb; }
+
+/* Khu vực Playground */
+#playgroundPage {
+    max-width: 800px; margin: 0 auto;
+    display: flex; flex-direction: column; height: calc(100vh - var(--header-height) - 40px);
+}
+.pg-input-zone textarea {
+    width: 100%; height: 250px; font-size: 16px; padding: 20px;
+    border-radius: 12px; border: 2px solid #cbd5e0; resize: none;
+    line-height: 1.6; font-family: 'Noto Sans JP', sans-serif;
+}
+.pg-reading-zone {
+    flex: 1; background: #ffffff; border-radius: 12px; padding: 30px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid #edf2f7;
+    overflow-y: auto; display: none;
+}
+.pg-reading-text {
+    font-size: 24px; line-height: 2.2; color: #2d3748; word-wrap: break-word;
+}
+/* Hiệu ứng đoạn văn bản trong lúc đọc */
+.pg-reading-text p { margin-bottom: 20px; text-indent: 1em; }
 </style>
 </head>
 <body>
@@ -2522,7 +2562,9 @@ body.landing-mode .main-content {
         <button class="side-menu-btn" onclick="closeSideMenu(); showDashboard()">
             <span class="material-symbols-outlined">dashboard</span> Dashboard
         </button>
-        
+        <button class="side-menu-btn" onclick="closeSideMenu(); showPlayground()">
+            <span class="material-symbols-outlined">menu_book</span> Reading Playground
+        </button>       
         <div style="height: 1px; background: #edf2f7; margin: 15px 0;"></div>
         
         <label style="font-size: 12px; font-weight: 800; color: #a0aec0; text-transform: uppercase; margin-bottom: 10px; display: block; padding-left: 10px;">Thêm mới</label>
@@ -3471,6 +3513,87 @@ body.landing-mode .main-content {
         </div>
     </div>
 </div>
+<!-- ================= NÚT POPOVER KHI BÔI ĐEN ================= -->
+<div id="selectionPopover" onclick="handlePopoverClick()">
+    <span class="material-symbols-outlined" style="font-size: 24px;">search</span>
+</div>
+
+<!-- ================= TRANG PLAYGROUND (READING MODE) ================= -->
+<div id="playgroundPage" class="hidden">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div>
+            <h2 style="margin: 0; color: #1e3a8a; font-weight: 900; font-size: 24px;">Reading Playground</h2>
+            <p style="margin: 5px 0 0 0; color: #718096; font-size: 14px;">Dán bài báo vào đây, đọc và bôi đen từ mới để tra cứu.</p>
+        </div>
+        <button id="btnTogglePlayground" onclick="togglePlaygroundMode()" style="background: #10b981; color: white; border: none; padding: 12px 20px; border-radius: 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined">menu_book</span> BẮT ĐẦU ĐỌC
+        </button>
+    </div>
+
+    <!-- Vùng nhập liệu -->
+    <div id="pgInputZone" class="pg-input-zone">
+        <textarea id="pgRawText" placeholder="Dán văn bản tiếng Nhật vào đây... (Ví dụ tin tức NHK, đoạn văn JLPT...)"></textarea>
+    </div>
+
+    <!-- Vùng đọc (Giống trang báo) -->
+    <div id="pgReadingZone" class="pg-reading-zone">
+        <div id="pgFormattedText" class="pg-reading-text"></div>
+    </div>
+</div>
+
+<!-- ================= MODAL ADMIN: QUẢN LÝ TỪ ĐIỂN ================= -->
+<div id="dictAdminModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header" style="background: #ebf8ff;">
+            <h3 style="color: #2b6cb0;"><span class="material-symbols-outlined">edit_note</span> <span id="dictAdminTitle">Chi tiết từ vựng</span></h3>
+            <button class="close-modal" onclick="closeModal('dictAdminModal')">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 20px;">
+            <!-- ID ẩn để phân biệt là Tạo mới hay Cập nhật -->
+            <input type="hidden" id="dictAdminId"> 
+            
+            <div class="grid-2-col" style="margin-bottom: 0;">
+                <div>
+                    <label style="font-size: 12px; color: #4a5568;">TỪ VỰNG / KANJI *</label>
+                    <input type="text" id="dictAdminWord" class="row-input" style="font-size: 20px; font-weight: 900; color: #1e3a8a;">
+                </div>
+                <div>
+                    <label style="font-size: 12px; color: #4a5568;">CÁCH ĐỌC (HIRAGANA)</label>
+                    <input type="text" id="dictAdminReading" class="row-input">
+                </div>
+            </div>
+
+            <label style="font-size: 12px; color: #4a5568;">Ý NGHĨA *</label>
+            <input type="text" id="dictAdminMeaning" class="row-input" placeholder="Ví dụ: Vũ trụ, không gian...">
+
+            <div class="grid-2-col" style="margin-bottom: 0;">
+                <div>
+                    <label style="font-size: 12px; color: #4a5568;">NGHĨA HÁN VIỆT</label>
+                    <input type="text" id="dictAdminKanji" class="row-input" placeholder="VD: VŨ TRỤ">
+                </div>
+                <div>
+                    <label style="font-size: 12px; color: #4a5568;">CẤP ĐỘ (JLPT)</label>
+                    <select id="dictAdminLevel" class="row-input" style="padding: 12px;">
+                        <option value="">Chưa phân loại</option>
+                        <option value="N5">N5</option>
+                        <option value="N4">N4</option>
+                        <option value="N3">N3</option>
+                        <option value="N2">N2</option>
+                        <option value="N1">N1</option>
+                    </select>
+                </div>
+            </div>
+
+            <label style="font-size: 12px; color: #4a5568;">CÂU VÍ DỤ</label>
+            <textarea id="dictAdminExample" class="row-input" rows="2" placeholder="Ví dụ: 宇宙に行く。(Đi vào vũ trụ)"></textarea>
+            
+            <!-- Vùng nút bấm thay đổi động dựa vào quyền Admin -->
+            <div id="dictAdminActionZone" style="display: flex; gap: 10px; margin-top: 15px;">
+                <!-- Render bằng JS -->
+            </div>
+        </div>
+    </div>
+</div>
 <script>
 /* ================= HỆ THỐNG ROUTER (LƯU TRẠNG THÁI F5) ================= */
 async function handleRoute() {
@@ -3521,6 +3644,7 @@ async function handleRoute() {
         else { 
             showHome(); 
         }
+        else if (route === 'playground') { showPlayground(); }
     } catch (error) {
         console.error("Lỗi khi khôi phục trang:", error);
         showHome();
@@ -7169,6 +7293,228 @@ async function deleteQuickCard() {
     } catch (err) {
         console.error("Lỗi xóa thẻ nhanh:", err);
         customAlert("Không thể xóa. Có thể bạn không có quyền thao tác trên thẻ này.", "❌");
+    } finally {
+        hideLoading();
+    }
+}
+/* ================= TÍNH NĂNG READING PLAYGROUND & DICT ADMIN ================= */
+// 1. CẤU HÌNH ADMIN (Thay email của bạn vào đây)
+const ADMIN_EMAILS = ['truong.nguyend.hd@gmail.com']; // ĐỔI THÀNH EMAIL GOOGLE CỦA BẠN
+
+let currentSelectedText = "";
+
+// 2. HÀM CHUYỂN TRANG PLAYGROUND
+function showPlayground(skipHash = false) {
+    if (!skipHash) window.location.hash = 'playground';
+    showPage('playgroundPage');
+    updateBreadcrumb([{label: 'Reading Playground'}]);
+    updateHeaderTitle("PLAYGROUND");
+}
+
+function togglePlaygroundMode() {
+    const inputZone = document.getElementById('pgInputZone');
+    const readingZone = document.getElementById('pgReadingZone');
+    const btn = document.getElementById('btnTogglePlayground');
+    
+    if (inputZone.style.display !== 'none') {
+        // Đổi sang chế độ đọc
+        const rawText = document.getElementById('pgRawText').value;
+        if(!rawText.trim()) return showToast("Vui lòng nhập văn bản!");
+        
+        // Format text: Tách các dòng \n thành thẻ <p>
+        const formatted = rawText.split('\n').filter(p => p.trim()).map(p => `<p>${escapeHTML(p)}</p>`).join('');
+        document.getElementById('pgFormattedText').innerHTML = formatted;
+        
+        inputZone.style.display = 'none';
+        readingZone.style.display = 'block';
+        btn.innerHTML = `<span class="material-symbols-outlined">edit</span> SỬA VĂN BẢN`;
+        btn.style.background = "#3b82f6";
+    } else {
+        // Đổi lại chế độ nhập
+        inputZone.style.display = 'block';
+        readingZone.style.display = 'none';
+        btn.innerHTML = `<span class="material-symbols-outlined">menu_book</span> BẮT ĐẦU ĐỌC`;
+        btn.style.background = "#10b981";
+    }
+}
+
+// Cập nhật hệ thống Route để hỗ trợ F5 trang Playground
+// (Bạn hãy tìm hàm handleRoute() ở đầu script, thêm dòng này vào nhánh if-else):
+// else if (route === 'playground') { showPlayground(); }
+
+// 3. LOGIC BẮT SỰ KIỆN BÔI ĐEN VÀ HIỆN POPOVER
+document.addEventListener('selectionchange', () => {
+    const selection = window.getSelection();
+    const popover = document.getElementById('selectionPopover');
+    
+    // Nếu bôi đen rỗng hoặc đang bôi đen bên trong ô input/textarea -> Bỏ qua
+    if (selection.isCollapsed || document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
+        popover.style.display = 'none';
+        return;
+    }
+    
+    const text = selection.toString();
+    // Làm sạch: Bỏ khoảng trắng, bỏ dấu câu tiếng Nhật/Việt
+    const cleanText = text.replace(/[\s\n。、！？.?!,「」『』()（）]/g, '').trim();
+    
+    if (cleanText.length > 0 && cleanText.length <= 15) { // Chỉ tra những cụm từ ngắn
+        currentSelectedText = cleanText;
+        
+        // Lấy tọa độ đoạn bôi đen để gắn Popover
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        
+        // Tính toán vị trí: Nằm ngay trên đoạn text, ở giữa
+        let top = rect.top + window.scrollY - 55;
+        let left = rect.left + window.scrollX + (rect.width / 2) - 22.5; // 22.5 là nửa width của popover
+        
+        // Chống tràn viền màn hình trên cùng
+        if (top < window.scrollY + 60) {
+            top = rect.bottom + window.scrollY + 10; // Đẩy xuống dưới text
+        }
+        
+        popover.style.display = 'flex';
+        popover.style.top = `${top}px`;
+        popover.style.left = `${left}px`;
+    } else {
+        popover.style.display = 'none';
+    }
+});
+
+// Ẩn Popover khi bấm chỗ khác
+document.addEventListener('mousedown', (e) => {
+    if (!e.target.closest('#selectionPopover')) {
+        document.getElementById('selectionPopover').style.display = 'none';
+    }
+});
+
+// 4. XỬ LÝ KHI BẤM NÚT POPOVER KÍNH LÚP
+async function handlePopoverClick() {
+    if (!currentSelectedText) return;
+    document.getElementById('selectionPopover').style.display = 'none'; // Ẩn ngay cho đẹp
+    
+    showLoading("Đang tra cứu hệ thống...");
+    
+    try {
+        // Dò Database bằng chữ được bôi đen
+        const { data, error } = await sb.from('dictionary')
+            .select('*')
+            .eq('word', currentSelectedText)
+            .single(); // Lấy đúng 1 kết quả chính xác nhất
+
+        const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
+        
+        if (data) {
+            // CÓ TỪ: Mở modal xem chi tiết
+            openDictAdminModal(data, isAdmin);
+        } else {
+            // KHÔNG CÓ TỪ
+            if (isAdmin) {
+                // Admin: Mở form Trống để Thêm mới
+                openDictAdminModal({ word: currentSelectedText }, true, true);
+                showToast("Từ này mới, mời sếp bổ sung!");
+            } else {
+                // User thường: Báo lỗi + (Tùy chọn) Tra Jisho.org
+                customAlert(`Hệ thống chưa có dữ liệu cho từ: <br><b style="font-size:24px; color:#1e3a8a;">${currentSelectedText}</b>`, "🔍");
+            }
+        }
+    } catch (e) {
+        // Lỗi 406 (PostgREST) thường là do .single() không tìm thấy kết quả
+        const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
+        if (isAdmin) {
+            openDictAdminModal({ word: currentSelectedText }, true, true);
+        } else {
+            customAlert(`Chưa có dữ liệu cho từ: <b>${currentSelectedText}</b>`, "🔍");
+        }
+    } finally {
+        hideLoading();
+    }
+}
+
+// 5. HIỂN THỊ MODAL QUẢN LÝ TỪ ĐIỂN
+function openDictAdminModal(dictObj, isAdmin, isNew = false) {
+    // Fill data
+    document.getElementById('dictAdminId').value = dictObj.id || "";
+    document.getElementById('dictAdminWord').value = dictObj.word || "";
+    document.getElementById('dictAdminReading').value = dictObj.reading || "";
+    document.getElementById('dictAdminMeaning').value = dictObj.meaning || "";
+    document.getElementById('dictAdminKanji').value = dictObj.kanji_meaning || "";
+    document.getElementById('dictAdminLevel').value = dictObj.level || "";
+    document.getElementById('dictAdminExample').value = dictObj.example || "";
+
+    const titleEl = document.getElementById('dictAdminTitle');
+    const actionZone = document.getElementById('dictAdminActionZone');
+    const inputs = document.querySelectorAll('#dictAdminModal .row-input');
+
+    // Mở Wanakana cho ô Reading
+    if(typeof wanakana !== 'undefined') wanakana.bind(document.getElementById('dictAdminReading'));
+
+    // Tùy biến giao diện theo Quyền
+    if (!isAdmin) {
+        // CHẾ ĐỘ VIEW (USER THƯỜNG)
+        titleEl.innerText = "Thông tin từ vựng";
+        inputs.forEach(inp => {
+            inp.disabled = true; 
+            inp.style.background = "#f8fafc";
+            inp.style.borderColor = "transparent";
+        });
+        
+        actionZone.innerHTML = `
+            <button onclick="openSaveDictWordModal('${encodeURIComponent(dictObj.word)}', '${encodeURIComponent(dictObj.reading || '')}', '${encodeURIComponent(dictObj.meaning)}', '${encodeURIComponent(dictObj.kanji_meaning || '')}', '${encodeURIComponent(dictObj.example || '')}')" 
+                    style="width: 100%; padding: 14px; background: #8b5cf6; color: white; border: none; border-radius: 12px; font-weight: 800; cursor: pointer;">
+                ➕ THÊM VÀO BỘ BÀI CỦA TÔI
+            </button>
+        `;
+    } else {
+        // CHẾ ĐỘ ADMIN (ADD / UPDATE)
+        titleEl.innerText = isNew ? "Thêm từ mới (Admin)" : "Chỉnh sửa từ (Admin)";
+        inputs.forEach(inp => {
+            inp.disabled = false;
+            inp.style.background = "#ffffff";
+            inp.style.borderColor = "#cbd5e0";
+        });
+
+        actionZone.innerHTML = `
+            <button onclick="saveAdminDict()" style="flex: 1; padding: 14px; background: #10b981; color: white; border: none; border-radius: 12px; font-weight: 800; cursor: pointer;">
+                <span class="material-symbols-outlined" style="vertical-align: middle;">cloud_upload</span> 
+                ${isNew ? 'LƯU TỪ MỚI' : 'CẬP NHẬT DB'}
+            </button>
+            ${!isNew ? `
+            <button onclick="openSaveDictWordModal('${encodeURIComponent(dictObj.word)}', '${encodeURIComponent(dictObj.reading || '')}', '${encodeURIComponent(dictObj.meaning)}', '${encodeURIComponent(dictObj.kanji_meaning || '')}', '${encodeURIComponent(dictObj.example || '')}')" 
+                    style="padding: 14px; background: #ebf8ff; color: #3182ce; border: none; border-radius: 12px; font-weight: 800; cursor: pointer; display:flex; align-items:center;" title="Thêm vào Flashcard">
+                <span class="material-symbols-outlined">style</span>
+            </button>` : ''}
+        `;
+    }
+
+    document.getElementById('dictAdminModal').style.display = 'flex';
+}
+
+// 6. ADMIN LƯU DỮ LIỆU LÊN SUPABASE
+async function saveAdminDict() {
+    const id = document.getElementById('dictAdminId').value;
+    const word = document.getElementById('dictAdminWord').value.trim();
+    const reading = document.getElementById('dictAdminReading').value.trim();
+    const meaning = document.getElementById('dictAdminMeaning').value.trim();
+    const kanji_meaning = document.getElementById('dictAdminKanji').value.trim();
+    const level = document.getElementById('dictAdminLevel').value;
+    const example = document.getElementById('dictAdminExample').value.trim();
+
+    if (!word || !meaning) return showToast("Từ vựng và Nghĩa không được để trống!");
+
+    showLoading("Đang nạp dữ liệu vào Database...");
+    try {
+        const payload = { word, reading, meaning, kanji_meaning, level, example };
+        if (id) payload.id = id; // Nếu có ID thì là Update, không thì là Insert
+
+        const { error } = await sb.from('dictionary').upsert(payload);
+        if (error) throw error;
+
+        closeModal('dictAdminModal');
+        showToast("✅ Đã cập nhật Từ điển toàn cầu!");
+    } catch (e) {
+        console.error("Lỗi cập nhật từ điển:", e);
+        customAlert("Không thể lưu: " + e.message, "❌");
     } finally {
         hideLoading();
     }
