@@ -4676,7 +4676,24 @@ function wrapKanjiWithLink(text) {
     // Bọc các ký tự Kanji bằng thẻ span có onclick
     return text.replace(/([\u4e00-\u9faf])/g, '<span class="clickable-kanji" title="Chạm để xem chi tiết" onclick="showKanjiXRay(event, \'$1\')">$1</span>');
 }
+// HÀM TÍNH TOÁN CỠ CHỮ DỰA THEO ĐỘ DÀI VĂN BẢN
+function getDynamicFontSize(text) {
+    if (!text) return '26px';
+    const len = text.length;
+    const isMobile = window.innerWidth <= 600;
 
+    if (isMobile) {
+        if (len <= 4) return '55px';   // Từ vựng ngắn (1-4 chữ) -> Rất to
+        if (len <= 15) return '35px';  // Cụm từ ngắn -> To vừa
+        if (len <= 40) return '24px';  // Câu ví dụ -> Bình thường
+        return '18px';                 // Đoạn văn dài -> Nhỏ lại
+    } else {
+        if (len <= 4) return '80px';   // Từ vựng ngắn trên PC -> Cực kỳ to
+        if (len <= 15) return '50px';
+        if (len <= 40) return '32px';
+        return '22px';
+    }
+}
 function renderStudy() {
     const c = sessionCards[currentIndex];
     if (!c) return; 
@@ -4710,12 +4727,15 @@ function renderStudy() {
 
     if (!showBack) {
         const questionText = isRev ? c.back : c.front;
-        // TÍNH NĂNG 1: Gắn X-Ray Kanji vào mặt thẻ
-        cardArea.innerHTML = editBtnHTML + `<b>${wrapKanjiWithLink(escapeHTML(questionText))}</b>` + infoBtnHTML + hintBtnHTML;
+        const dynamicSize = getDynamicFontSize(questionText); // Lấy cỡ chữ động
+        
+        cardArea.innerHTML = editBtnHTML + `<b style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(questionText))}</b>` + infoBtnHTML + hintBtnHTML;
         if (answerGroup) answerGroup.querySelectorAll('button').forEach(btn => btn.disabled = true);
     } else {
         const answerText = isRev ? c.front : c.back;
-        cardArea.innerHTML = editBtnHTML + `<i>${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoBtnHTML;
+        const dynamicSize = getDynamicFontSize(answerText); // Lấy cỡ chữ động
+        
+        cardArea.innerHTML = editBtnHTML + `<i style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoBtnHTML;
         if (answerGroup) answerGroup.querySelectorAll('button').forEach(btn => btn.disabled = false);
     }
 }
@@ -4815,12 +4835,15 @@ async function renderQuiz() {
     const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
     const isAlreadyDone = (p && p.test_result !== null);
 
-    // 2. Reset UI cơ bản
+// 2. Reset UI cơ bản
     const questionTextEl = document.getElementById('testQuestionText');
     const feedbackEl = document.getElementById('testFeedback');
     const nextBtn = document.getElementById('btnNextQuiz');
     const optsDiv = document.getElementById('testOptions');
 
+    // Áp dụng cỡ chữ động cho câu hỏi trắc nghiệm
+    questionTextEl.style.fontSize = getDynamicFontSize(c.front);
+    questionTextEl.style.transition = "font-size 0.3s ease";
     questionTextEl.innerHTML = escapeHTML(c.front);
     feedbackEl.className = 'test-feedback-text'; // Class cơ bản
     feedbackEl.innerText = '';
