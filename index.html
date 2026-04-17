@@ -2472,22 +2472,26 @@ body.landing-mode .main-content {
 /* ================= CSS CHO SELECTION POPOVER & PLAYGROUND ================= */
 /* Nút nổi lên khi bôi đen text */
 #selectionPopover {
-    position: absolute;
-    z-index: 15000; /* Nổi lên trên cùng */
-    background: #1d1d1f; /* Đổi màu Apple Dark */
-    color: white;
-    width: 45px;
-    height: 45px;
-    border-radius: 50%;
     display: none;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
-    cursor: pointer;
-    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    position: absolute;
+    z-index: 15000;
+    background: #1d1d1f;
+    border-radius: 50px;
+    padding: 0 5px;
+    gap: 5px;
     border: 2px solid #ffffff;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
-#selectionPopover:hover { transform: scale(1.1); background: #333336; }
+#selectionPopover:hover { transform: scale(1.05); }
+
+.popover-btn {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; color: white; border: none; cursor: pointer; transition: 0.2s;
+}
+.popover-btn:hover { background: rgba(255,255,255,0.2); }
+.popover-btn.ai { color: #f472b6; }
 
 /* Khu vực Playground Mới */
 #playgroundPage {
@@ -3962,7 +3966,7 @@ body.landing-mode .main-content {
     </div>
 </div>
 <!-- ================= NÚT POPOVER KHI BÔI ĐEN ================= -->
-<div id="selectionPopover" onmousedown="e => e.preventDefault()">
+<div id="selectionPopover" onmousedown="event.preventDefault()">
     <button class="popover-btn" onclick="handlePopoverClick(event)" title="Tra từ điển">
         <span class="material-symbols-outlined">search</span>
     </button>
@@ -7906,49 +7910,43 @@ function togglePlaygroundMode() {
 // (Bạn hãy tìm hàm handleRoute() ở đầu script, thêm dòng này vào nhánh if-else):
 // else if (route === 'playground') { showPlayground(); }
 
-// 3. LOGIC BẮT SỰ KIỆN BÔI ĐEN VÀ HIỆN POPOVER
+// 3. LOGIC BẮT SỰ KIỆN BÔI ĐEN VÀ HIỆN POPOVER (ĐÃ SỬA LỖI KẸT TRANG)
 document.addEventListener('selectionchange', () => {
-    const selection = window.getSelection();
+    const playground = document.getElementById('playgroundPage');
     const popover = document.getElementById('selectionPopover');
     
-    // Nếu bôi đen rỗng hoặc đang bôi đen bên trong ô input/textarea -> Bỏ qua
+    // FIX LỖI KẸT TRANG: Trói chặt sự kiện này, chỉ cho phép chạy khi đang mở trang Playground
+    if (!playground || playground.classList.contains('hidden')) {
+        popover.style.display = 'none';
+        return;
+    }
+
+    const selection = window.getSelection();
     if (selection.isCollapsed || document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
         popover.style.display = 'none';
         return;
     }
     
     const text = selection.toString();
-    // Làm sạch: Bỏ khoảng trắng, bỏ dấu câu tiếng Nhật/Việt
     const cleanText = text.replace(/[\s\n。、！？.?!,「」『』()（）]/g, '').trim();
     
-    if (cleanText.length > 0 && cleanText.length <= 15) { // Chỉ tra những cụm từ ngắn
+    // Đã nới rộng thành 40 ký tự để AI có thể phân tích trọn vẹn cả câu dài
+    if (cleanText.length > 0 && cleanText.length <= 40) { 
         currentSelectedText = cleanText;
         
-        // Lấy tọa độ đoạn bôi đen
         const range = selection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
         
-        const popoverWidth = 45; // Chiều rộng của nút kính lúp
+        const popoverWidth = 90; // Rộng hơn do có 2 nút
         
-        // --- TÍNH TOÁN VỊ TRÍ MỚI: DƯỚI CÙNG BÊN PHẢI ---
-        let top = rect.bottom + window.scrollY + 8; // Nằm cách mép dưới chữ 8px
-        let left = rect.right + window.scrollX - popoverWidth; // Căn mép phải của nút bằng mép phải của chữ
+        let top = rect.bottom + window.scrollY + 8; 
+        let left = rect.right + window.scrollX - popoverWidth; 
         
-        // --- CHỐNG TRÀN VIỀN MÀN HÌNH ---
-        // 1. Tràn viền phải màn hình (Đẩy vào trong)
         if (left + popoverWidth > window.innerWidth + window.scrollX) {
             left = window.innerWidth + window.scrollX - popoverWidth - 10;
         }
-        
-        // 2. Tràn viền trái màn hình (Nếu chữ quá ngắn nằm sát lề trái)
-        if (left < window.scrollX + 10) {
-            left = window.scrollX + 10;
-        }
-        
-        // 3. Tràn viền dưới màn hình (Nếu chữ nằm tuốt sát mép dưới -> Đẩy nút nảy ngược lên trên đầu chữ)
-        if (rect.bottom + 60 > window.innerHeight) {
-            top = rect.top + window.scrollY - 55; 
-        }
+        if (left < window.scrollX + 10) { left = window.scrollX + 10; }
+        if (rect.bottom + 60 > window.innerHeight) { top = rect.top + window.scrollY - 55; }
         
         popover.style.display = 'flex';
         popover.style.top = `${top}px`;
@@ -9082,17 +9080,22 @@ function saveGrammarToDeck() {
 /* ================= HỆ THỐNG GỌI VERCEL API (GEMINI) ================= */
 async function callGeminiAI(promptText) {
     try {
-        // Gọi API nội bộ của Vercel
         const response = await fetch('/api/gemini', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prompt: promptText })
         });
 
+        // Bắt lỗi khi chạy code ở máy tính (Localhost) thay vì chạy trên Vercel
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            throw new Error("Không kết nối được Backend. Đảm bảo bạn đang test trên link web của Vercel (không test ở máy tính) và đã push thư mục /api lên GitHub.");
+        }
+
         const data = await response.json();
         
         if (!response.ok) {
-            throw new Error(data.error || 'Lỗi kết nối tới AI Backend');
+            throw new Error(data.error || 'Lỗi cấu hình AI (Bạn quên thêm GEMINI_API_KEY trên Vercel)');
         }
         
         return data.result;
@@ -9110,26 +9113,18 @@ async function handlePlaygroundAI(e) {
     document.getElementById('selectionPopover').style.display = 'none';
     showLoading("AI đang phân tích câu...");
 
-    const prompt = `
-    Đóng vai trò là một giáo viên tiếng Nhật JLPT N1 xuất sắc. Hãy phân tích đoạn văn bản sau: "${currentSelectedText}"
-    Vui lòng trả về kết quả định dạng bằng HTML cơ bản (dùng <b>, <ul>, <li>, <br>) không dùng markdown, theo cấu trúc:
-    <b>1. Bản dịch tiếng Việt:</b><br> (Dịch trôi chảy, tự nhiên)<br><br>
-    <b>2. Phân tích ngữ pháp:</b><br> (Liệt kê các cấu trúc ngữ pháp có trong câu và giải thích ngắn gọn)<br><br>
-    <b>3. Từ vựng nổi bật (N3-N1):</b><br> (Lọc các từ vựng khó, in đậm Hán Tự, ghi rõ cách đọc và nghĩa).
-    Nếu văn bản quá ngắn (chỉ 1 từ), hãy trả về: "Đoạn text quá ngắn để phân tích câu. Vui lòng bôi đen một câu hoàn chỉnh."
-    `;
+    const prompt = `Đóng vai trò là giáo viên tiếng Nhật JLPT. Phân tích câu: "${currentSelectedText}". Trả về HTML cơ bản (dùng <b>, <br>) gồm 3 phần: 1. Bản dịch tiếng Việt, 2. Phân tích ngữ pháp, 3. Từ vựng nổi bật.`;
 
     try {
         const aiResponse = await callGeminiAI(prompt);
         hideLoading();
-        // Hiển thị ra Modal (Dùng lại customAlert)
-        customAlert(`<div style="text-align: left; font-size: 15px; line-height: 1.6; color: #2d3748;">${aiResponse}</div>`, "✨ AI Phân Tích");
+        customAlert(`<div style="text-align: left; font-size: 15px; line-height: 1.6; color: #2d3748;">${aiResponse}</div>`, "✨ Gia sư AI");
     } catch (err) {
         hideLoading();
-        customAlert("Xin lỗi, AI đang bị quá tải hoặc lỗi mạng. Vui lòng thử lại sau.", "❌");
+        // In trực tiếp thông báo lỗi ra màn hình để bạn dễ sửa
+        customAlert(`<b style="color: #e53e3e;">LỖI HỆ THỐNG AI:</b><br><br>${err.message}`, "❌");
     }
 }
-
 // 2. TÍNH NĂNG: AI GENERATOR (Tạo thẻ/Quiz tự động)
 async function generateCardsWithAI() {
     if (!currentUser) return customAlert("Vui lòng đăng nhập để dùng AI!", "⚠️");
