@@ -8924,7 +8924,7 @@ function filterGrammarLocally() {
     renderGrammarGrid(filtered);
 }
 
-// Mở Modal Chi tiết
+// Mở Modal Chi tiết Ngữ pháp
 function openGrammarDetail(encodedJSON) {
     const g = JSON.parse(decodeURIComponent(encodedJSON));
     currentGrammarObj = g; // Lưu lại để dùng cho nút Add to Deck
@@ -8935,18 +8935,29 @@ function openGrammarDetail(encodedJSON) {
     document.getElementById('gdStructure').innerText = g.structure || 'Không có ghi chú cấu trúc.';
     document.getElementById('gdNuance').innerText = g.nuance || 'Không có ghi chú sắc thái.';
 
-    // Xử lý Render Ví dụ (JSONB)
+    // Xử lý Render 15 Ví dụ từ các cột riêng biệt
     const exContainer = document.getElementById('gdExamples');
     exContainer.innerHTML = '';
+    let hasExamples = false;
 
-    if (g.examples && Array.isArray(g.examples) && g.examples.length > 0) {
-        exContainer.innerHTML = g.examples.map(ex => `
-            <div class="g-example-box">
-                <div class="g-example-jp">${wrapKanjiWithLink(escapeHTML(ex.jp))}</div>
-                <div class="g-example-vn">${escapeHTML(ex.vn)}</div>
-            </div>
-        `).join('');
-    } else {
+    // Vòng lặp từ 1 đến 15 để kiểm tra các cột ex1_jp -> ex15_jp
+    for (let i = 1; i <= 15; i++) {
+        const jpText = g[`ex${i}_jp`];
+        const vnText = g[`ex${i}_vn`];
+
+        // Nếu cột tiếng Nhật có chữ thì mới hiển thị
+        if (jpText && jpText.trim() !== '') {
+            hasExamples = true;
+            exContainer.innerHTML += `
+                <div class="g-example-box">
+                    <div class="g-example-jp">${wrapKanjiWithLink(escapeHTML(jpText))}</div>
+                    <div class="g-example-vn">${escapeHTML(vnText || '')}</div>
+                </div>
+            `;
+        }
+    }
+
+    if (!hasExamples) {
         exContainer.innerHTML = '<p style="color:#86868b; font-size: 14px;">Chưa có ví dụ cho cấu trúc này.</p>';
     }
 
@@ -8960,19 +8971,17 @@ function saveGrammarToDeck() {
 
     // Chuẩn bị dữ liệu định dạng thẻ
     const front = g.grammar_point;
-    const reading = ""; // Ngữ pháp thường không cần reading riêng
+    const reading = ""; 
     const meaning = g.meaning;
     
-    // Gắn Cấu trúc & Sắc thái vào phần [HV] (Thông tin mở rộng) để tận dụng UI Flashcard cũ
+    // Gắn Cấu trúc & Sắc thái vào phần [HV] (Thông tin mở rộng)
     const extraInfo = `Cấu trúc: ${g.structure || ''} | Sắc thái: ${g.nuance || ''}`;
     
-    // Lấy ví dụ đầu tiên (Nếu có)
-    let exampleJP = "";
-    let exampleVN = "";
-    if (g.examples && g.examples.length > 0) {
-        exampleJP = g.examples[0].jp;
-        exampleVN = g.examples[0].vn;
-        
+    // Lấy ví dụ số 1 (Nếu có) để đưa vào thẻ Flashcard
+    let exampleJP = g.ex1_jp || "";
+    let exampleVN = g.ex1_vn || "";
+    
+    if (exampleJP) {
         // Cú pháp đặc biệt để hàm openSaveDictWordModal hiểu được
         exampleJP = `${exampleJP} (${exampleVN})`; 
     }
