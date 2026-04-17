@@ -14,7 +14,7 @@ export default async function handler(req, res) {
         }
 
         // Gọi API của Google Gemini (Dùng model 1.5-flash hoặc 2.5-flash miễn phí, tốc độ cao)
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
 
         const response = await fetch(geminiUrl, {
             method: 'POST',
