@@ -2472,7 +2472,7 @@ body.landing-mode .main-content {
 /* ================= CSS CHO SELECTION POPOVER & PLAYGROUND ================= */
 /* Nút nổi lên khi bôi đen text */
 #selectionPopover {
-    position: fixed;
+    position: absolute;
     z-index: 15000; /* Nổi lên trên cùng */
     background: #1d1d1f; /* Đổi màu Apple Dark */
     color: white;
@@ -7704,17 +7704,30 @@ document.addEventListener('selectionchange', () => {
     if (cleanText.length > 0 && cleanText.length <= 15) { // Chỉ tra những cụm từ ngắn
         currentSelectedText = cleanText;
         
-        // Lấy tọa độ đoạn bôi đen để gắn Popover
+        // Lấy tọa độ đoạn bôi đen
         const range = selection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
         
-        // Tính toán vị trí: Nằm ngay trên đoạn text, ở giữa
-        let top = rect.top + window.scrollY - 55;
-        let left = rect.left + window.scrollX + (rect.width / 2) - 22.5; // 22.5 là nửa width của popover
+        const popoverWidth = 45; // Chiều rộng của nút kính lúp
         
-        // Chống tràn viền màn hình trên cùng
-        if (top < window.scrollY + 60) {
-            top = rect.bottom + window.scrollY + 10; // Đẩy xuống dưới text
+        // --- TÍNH TOÁN VỊ TRÍ MỚI: DƯỚI CÙNG BÊN PHẢI ---
+        let top = rect.bottom + window.scrollY + 8; // Nằm cách mép dưới chữ 8px
+        let left = rect.right + window.scrollX - popoverWidth; // Căn mép phải của nút bằng mép phải của chữ
+        
+        // --- CHỐNG TRÀN VIỀN MÀN HÌNH ---
+        // 1. Tràn viền phải màn hình (Đẩy vào trong)
+        if (left + popoverWidth > window.innerWidth + window.scrollX) {
+            left = window.innerWidth + window.scrollX - popoverWidth - 10;
+        }
+        
+        // 2. Tràn viền trái màn hình (Nếu chữ quá ngắn nằm sát lề trái)
+        if (left < window.scrollX + 10) {
+            left = window.scrollX + 10;
+        }
+        
+        // 3. Tràn viền dưới màn hình (Nếu chữ nằm tuốt sát mép dưới -> Đẩy nút nảy ngược lên trên đầu chữ)
+        if (rect.bottom + 60 > window.innerHeight) {
+            top = rect.top + window.scrollY - 55; 
         }
         
         popover.style.display = 'flex';
@@ -7724,7 +7737,6 @@ document.addEventListener('selectionchange', () => {
         popover.style.display = 'none';
     }
 });
-
 // Ẩn Popover khi bấm chỗ khác
 document.addEventListener('mousedown', (e) => {
     if (!e.target.closest('#selectionPopover')) {
