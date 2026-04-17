@@ -2591,6 +2591,19 @@ body.landing-mode .main-content {
 .pg-float-btn .material-symbols-outlined {
     font-size: 20px;
 }
+/* Tối ưu X-Ray Kanji riêng cho Reading Playground (Giấu gạch chân để không rối mắt) */
+#pgFormattedText .clickable-kanji {
+    border-bottom: none !important; /* Xóa gạch chân màu xanh */
+    transition: background 0.2s, color 0.2s;
+    display: inline; /* Tránh làm xô lệch khoảng cách dòng */
+}
+
+#pgFormattedText .clickable-kanji:hover {
+    background: #e5e5ea; /* Highlight xám nhạt kiểu Apple khi đưa chuột vào */
+    color: #1d1d1f !important;
+    transform: none !important; /* Xóa hiệu ứng nhảy chữ để giữ nguyên đội hình văn bản */
+    border-radius: 4px;
+}
 /* ================= BANNER GIỚI THIỆU TRANG CHỦ ================= */
 .home-welcome-banner {
     /* Tạo khoảng cách 25px đẩy nội dung cách xa Header */
@@ -7657,8 +7670,15 @@ function togglePlaygroundMode() {
         const rawText = document.getElementById('pgRawText').value;
         if(!rawText.trim()) return showToast("Vui lòng nhập văn bản!");
         
-        // Format text: Tách các dòng \n thành thẻ <p>
-        const formatted = rawText.split('\n').filter(p => p.trim()).map(p => `<p>${escapeHTML(p)}</p>`).join('');
+        // Format text: Chống XSS -> Bọc X-Ray Kanji -> Tách dòng
+        const formatted = rawText.split('\n')
+            .filter(p => p.trim())
+            .map(p => {
+                let safeHTML = escapeHTML(p); // 1. Mã hóa HTML an toàn
+                let withKanji = wrapKanjiWithLink(safeHTML); // 2. Kích hoạt X-Ray Kanji
+                return `<p>${withKanji}</p>`; // 3. Bọc thẻ p
+            }).join('');
+            
         document.getElementById('pgFormattedText').innerHTML = formatted;
         
         inputZone.style.display = 'none';
@@ -7671,7 +7691,7 @@ function togglePlaygroundMode() {
         btn.style.color = '#ffffff';
     } else {
         // --- CHUYỂN LẠI CHẾ ĐỘ NHẬP LIỆU ---
-        inputZone.style.display = 'flex'; // Trả về flex để full height
+        inputZone.style.display = 'flex';
         readingZone.style.display = 'none';
         
         // Cập nhật giao diện nút thành Kính mờ
