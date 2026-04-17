@@ -2836,6 +2836,33 @@ body.landing-mode .main-content {
     .banner-warning { display: none; } /* Ẩn cảnh báo bằng chữ trên mobile để gọn chỗ */
     .banner-save-btn { padding: 12px 20px; }
 }
+/* --- AI STYLES --- */
+.ai-btn-glow {
+    background: linear-gradient(135deg, #a855f7, #ec4899);
+    color: white !important;
+    border: none !important;
+    box-shadow: 0 4px 15px rgba(236, 72, 153, 0.4);
+    transition: all 0.3s ease;
+}
+.ai-btn-glow:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 6px 20px rgba(236, 72, 153, 0.6);
+}
+
+/* Nút bôi đen Popover chứa 2 hành động */
+#selectionPopover {
+    width: auto;
+    border-radius: 50px;
+    padding: 0 5px;
+    gap: 5px;
+}
+.popover-btn {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; color: white; border: none; cursor: pointer; transition: 0.2s;
+}
+.popover-btn:hover { background: rgba(255,255,255,0.2); transform: scale(1.1); }
+.popover-btn.ai { color: #f472b6; }
 </style>
 </head>
 <body>
@@ -3235,6 +3262,10 @@ body.landing-mode .main-content {
                     <h2 id="testQuestionText" style="text-align: center; margin-bottom: 30px; font-weight: 800; font-size: 26px; white-space: pre-wrap;"></h2>
                     <div id="testFeedback"></div>
                     <div id="testOptions"></div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end; width: 100%;">
+                    <button id="btnAIFeedback" onclick="askAIWhyWrong()" class="ai-btn-glow" style="padding: 12px 20px; border-radius: 8px; font-weight: 800; cursor: pointer; display: none;">
+                        ✨ Tại sao tôi sai?
+                    </button>
                     <button id="btnNextQuiz" onclick="nextCard()">Tiếp theo ❯</button>
                 </div>
                 
@@ -3438,6 +3469,40 @@ body.landing-mode .main-content {
             </div>
 
             <button onclick="smartImportExcel()" style="width:100%; padding:18px; background:linear-gradient(135deg, #10b981, #059669); color:#fff; border:none; border-radius:50px; font-weight:800; font-size: 16px; cursor:pointer; box-shadow: 0 10px 20px rgba(16, 185, 129, 0.2);">🚀 BẮT ĐẦU IMPORT</button>
+<!-- PHÂN CÁCH -->
+            <div style="display: flex; align-items: center; margin: 40px 0 25px 0;">
+                <div style="flex: 1; height: 1px; background: #e2e8f0;"></div>
+                <div style="padding: 0 15px; font-weight: 800; color: #a0aec0;">HOẶC</div>
+                <div style="flex: 1; height: 1px; background: #e2e8f0;"></div>
+            </div>
+
+            <!-- TÍNH NĂNG AI GENERATOR -->
+            <div class="form-header">
+                <span class="header-icon" style="color: #ec4899;">✨</span>
+                <h4 style="background: linear-gradient(135deg, #a855f7, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">AI Generator</h4>
+            </div>
+            
+            <p style="color: #718096; font-size: 14px; margin-bottom: 20px;">
+                Nhập chủ đề (VD: Từ vựng IT N3) hoặc dán đoạn văn/bài báo. AI sẽ tự động đọc hiểu và tạo ra các thẻ nhớ / câu hỏi trắc nghiệm cho bạn.
+            </p>
+            
+            <textarea id="aiPromptInput" class="row-input" rows="4" placeholder="Nhập chủ đề hoặc dán đoạn văn tiếng Nhật vào đây..."></textarea>
+            
+            <div class="grid-2-col" style="margin-bottom: 25px;">
+                <div>
+                    <label>Số lượng thẻ muốn tạo</label>
+                    <select id="aiAmountSelect">
+                        <option value="5">5 thẻ (Test thử)</option>
+                        <option value="10" selected>10 thẻ (Khuyên dùng)</option>
+                        <option value="20">20 thẻ</option>
+                    </select>
+                </div>
+                <div style="display: flex; align-items: flex-end;">
+                    <button onclick="generateCardsWithAI()" class="ai-btn-glow" style="width: 100%; padding: 14px; border-radius: 12px; font-weight: 800; display: flex; justify-content: center; align-items: center; gap: 8px;">
+                        <span class="material-symbols-outlined">auto_awesome</span> TẠO TỰ ĐỘNG BẰNG AI
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
     <!-- TRANG TỪ ĐIỂN -->
@@ -3897,8 +3962,13 @@ body.landing-mode .main-content {
     </div>
 </div>
 <!-- ================= NÚT POPOVER KHI BÔI ĐEN ================= -->
-<div id="selectionPopover" onmousedown="handlePopoverClick(event)" ontouchstart="handlePopoverClick(event)">
-    <span class="material-symbols-outlined" style="font-size: 24px;">search</span>
+<div id="selectionPopover" onmousedown="e => e.preventDefault()">
+    <button class="popover-btn" onclick="handlePopoverClick(event)" title="Tra từ điển">
+        <span class="material-symbols-outlined">search</span>
+    </button>
+    <button class="popover-btn ai" onclick="handlePlaygroundAI(event)" title="AI Phân tích câu">
+        <span class="material-symbols-outlined">auto_awesome</span>
+    </button>
 </div>
 
 <!-- ================= TRANG PLAYGROUND (READING MODE) ================= -->
@@ -5131,6 +5201,9 @@ async function renderQuiz() {
             }
 
 // PHẢN HỒI (CHỈ CHẠY KHI NGƯỜI DÙNG TỰ BẤM)
+// Nút AI Giải thích
+            const aiBtn = document.getElementById('btnAIFeedback');
+
             if (isManualClick) {
                 // Đánh dấu thẻ đã làm và lưu trạng thái vào bộ nhớ Local (Rất quan trọng để Xáo trộn không bị lỗi)
                 c.isDone = true;
@@ -5139,6 +5212,7 @@ async function renderQuiz() {
                 c.progress[0].test_result = isCorrect;
 
                 if (isCorrect) {
+                    aiBtn.style.display = 'none'; // Làm đúng thì ẩn nút AI đi
                     const praises = ["Tuyệt vời!", "Chính xác!", "Quá giỏi!", "Đúng rồi! 🎉"];
                     feedbackEl.innerText = praises[Math.floor(Math.random() * praises.length)];
                     feedbackEl.className = 'show success';
@@ -5147,6 +5221,13 @@ async function renderQuiz() {
                     quizState.correctCount++;
                     quizState.correctList.push(c);
                 } else {
+                    // LƯU STATE CHO AI PHÂN TÍCH
+                    currentWrongQuizState = { 
+                        question: c.front, 
+                        correct: correctAnswerRaw, 
+                        userWrong: opt.trim() 
+                    };
+                    aiBtn.style.display = 'block'; // Làm sai thì HIỆN NÚT AI lên
                     feedbackEl.innerText = "Tiếc quá, đáp án đúng là dòng màu xanh!";
                     feedbackEl.className = 'show error';
                     
@@ -8997,6 +9078,188 @@ function saveGrammarToDeck() {
         encodeURIComponent(extraInfo),
         encodeURIComponent(exampleJP)
     );
+}
+/* ================= HỆ THỐNG GỌI VERCEL API (GEMINI) ================= */
+async function callGeminiAI(promptText) {
+    try {
+        // Gọi API nội bộ của Vercel
+        const response = await fetch('/api/gemini', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: promptText })
+        });
+
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || 'Lỗi kết nối tới AI Backend');
+        }
+        
+        return data.result;
+    } catch (error) {
+        console.error("AI Error:", error);
+        throw error;
+    }
+}
+
+// 1. TÍNH NĂNG: READING PLAYGROUND AI (Dịch & Bóc tách ngữ pháp)
+async function handlePlaygroundAI(e) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    if (!currentSelectedText) return;
+    
+    document.getElementById('selectionPopover').style.display = 'none';
+    showLoading("AI đang phân tích câu...");
+
+    const prompt = `
+    Đóng vai trò là một giáo viên tiếng Nhật JLPT N1 xuất sắc. Hãy phân tích đoạn văn bản sau: "${currentSelectedText}"
+    Vui lòng trả về kết quả định dạng bằng HTML cơ bản (dùng <b>, <ul>, <li>, <br>) không dùng markdown, theo cấu trúc:
+    <b>1. Bản dịch tiếng Việt:</b><br> (Dịch trôi chảy, tự nhiên)<br><br>
+    <b>2. Phân tích ngữ pháp:</b><br> (Liệt kê các cấu trúc ngữ pháp có trong câu và giải thích ngắn gọn)<br><br>
+    <b>3. Từ vựng nổi bật (N3-N1):</b><br> (Lọc các từ vựng khó, in đậm Hán Tự, ghi rõ cách đọc và nghĩa).
+    Nếu văn bản quá ngắn (chỉ 1 từ), hãy trả về: "Đoạn text quá ngắn để phân tích câu. Vui lòng bôi đen một câu hoàn chỉnh."
+    `;
+
+    try {
+        const aiResponse = await callGeminiAI(prompt);
+        hideLoading();
+        // Hiển thị ra Modal (Dùng lại customAlert)
+        customAlert(`<div style="text-align: left; font-size: 15px; line-height: 1.6; color: #2d3748;">${aiResponse}</div>`, "✨ AI Phân Tích");
+    } catch (err) {
+        hideLoading();
+        customAlert("Xin lỗi, AI đang bị quá tải hoặc lỗi mạng. Vui lòng thử lại sau.", "❌");
+    }
+}
+
+// 2. TÍNH NĂNG: AI GENERATOR (Tạo thẻ/Quiz tự động)
+async function generateCardsWithAI() {
+    if (!currentUser) return customAlert("Vui lòng đăng nhập để dùng AI!", "⚠️");
+
+    const promptInput = document.getElementById('aiPromptInput').value.trim();
+    const amount = document.getElementById('aiAmountSelect').value;
+    const type = document.getElementById('importType').value;
+    const tag = document.getElementById('iTag').value.trim() || `AI Gen: ${promptInput.substring(0, 15)}...`;
+    const folderVal = document.getElementById('iFolder').value;
+    const isPublic = document.getElementById('iVisibility').value === 'true';
+
+    if (!promptInput) return showToast("Vui lòng nhập chủ đề hoặc dán văn bản!");
+
+    showLoading("AI đang sáng tạo dữ liệu... Vui lòng đợi khoảng 10-15s");
+
+    let systemPrompt = "";
+    if (type === 'flashcard') {
+        systemPrompt = `Dựa vào chủ đề hoặc văn bản sau: "${promptInput}". 
+        Hãy tạo ra ${amount} thẻ Flashcard tiếng Nhật. 
+        Trả về kết quả ĐÚNG định dạng JSON Array (KHÔNG GHI CHÚ THÊM, KHÔNG DÙNG MARKDOWN BLOCK \`\`\`json).
+        Format yêu cầu: 
+        [
+          {
+            "front": "Kanji hoặc Từ vựng",
+            "reading": "Cách đọc Hiragana",
+            "meaning": "Ý nghĩa tiếng Việt",
+            "hv": "Nghĩa Hán Việt (Viết Hoa)",
+            "ex1jp": "Câu ví dụ tiếng Nhật",
+            "ex1vn": "Nghĩa câu ví dụ"
+          }
+        ]`;
+    } else {
+        systemPrompt = `Dựa vào chủ đề hoặc văn bản sau: "${promptInput}". 
+        Hãy tạo ra ${amount} câu hỏi TRẮC NGHIỆM ngữ pháp/từ vựng tiếng Nhật. 
+        Trả về kết quả ĐÚNG định dạng JSON Array (KHÔNG GHI CHÚ THÊM, KHÔNG DÙNG MARKDOWN BLOCK \`\`\`json).
+        Format yêu cầu: 
+        [
+          {
+            "question": "Nội dung câu hỏi...",
+            "correct": "Đáp án đúng",
+            "wrong1": "Đáp án sai 1",
+            "wrong2": "Đáp án sai 2",
+            "wrong3": "Đáp án sai 3"
+          }
+        ]`;
+    }
+
+    try {
+        let aiResult = await callGeminiAI(systemPrompt);
+        
+        // Làm sạch response (Đề phòng AI bọc Markdown ```json ... ```)
+        aiResult = aiResult.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        let cardsArr = JSON.parse(aiResult);
+        if (!Array.isArray(cardsArr) || cardsArr.length === 0) throw new Error("AI trả về sai định dạng");
+
+        // Chuyển format AI về chuẩn của hệ thống App
+        const importDeckId = `${currentUser.id}:AI_${Date.now()}`;
+        let cardsToSave = [];
+
+        cardsArr.forEach(card => {
+            let frontData = "", backData = "", infoData = "";
+
+            if (type === 'flashcard') {
+                frontData = card.front;
+                backData = `${card.reading}\n${card.meaning}`;
+                let iArr = [];
+                if(card.hv) iArr.push(`[HV] ${card.hv}`);
+                if(card.ex1jp) iArr.push(`[EX1] ${card.ex1jp}`);
+                if(card.ex1vn) iArr.push(`[VN1] ${card.ex1vn}`);
+                infoData = iArr.join('\n');
+            } else {
+                frontData = card.question;
+                backData = card.correct;
+                let opts = [card.correct, card.wrong1, card.wrong2, card.wrong3].filter(Boolean);
+                opts.sort(() => Math.random() - 0.5);
+                infoData = opts.join('\n');
+            }
+
+            cardsToSave.push({ deck_id: importDeckId, front: frontData, back: backData, info: infoData });
+        });
+
+        // Đẩy lên Database
+        document.getElementById('loadingText').innerText = `Đang lưu ${cardsToSave.length} thẻ lên Cloud...`;
+        
+        await sb.from('decks').upsert({ 
+            id: importDeckId, owner_id: currentUser.id, type: type, 
+            is_public: isPublic, folder_id: folderVal === "" ? null : folderVal
+        });
+        
+        const { error } = await sb.from('cards').insert(cardsToSave); 
+        if (error) throw error;
+
+        hideLoading();
+        showToast(`✨ AI đã tạo xong ${cardsToSave.length} thẻ!`);
+        document.getElementById('aiPromptInput').value = ''; // Reset input
+        showHome();
+
+    } catch (err) {
+        hideLoading();
+        console.error("AI Gen Error:", err);
+        customAlert("AI không thể xử lý yêu cầu hoặc trả về sai định dạng. Hãy thử viết câu lệnh rõ ràng hơn.", "❌");
+    }
+}
+
+// 3. TÍNH NĂNG: AI FEEDBACK KHI LÀM SAI TRẮC NGHIỆM
+// Lưu tạm câu sai để AI phân tích
+let currentWrongQuizState = { question: "", correct: "", userWrong: "" };
+
+// HÀM GỌI AI GIẢI THÍCH
+async function askAIWhyWrong() {
+    showLoading("AI đang tìm lời giải thích...");
+    const prompt = `
+    Học sinh làm sai câu hỏi trắc nghiệm tiếng Nhật sau:
+    - Câu hỏi: "${currentWrongQuizState.question}"
+    - Đáp án ĐÚNG: "${currentWrongQuizState.correct}"
+    - Học sinh chọn SAI: "${currentWrongQuizState.userWrong}"
+    
+    Hãy giải thích ngắn gọn, dễ hiểu bằng tiếng Việt (khoảng 2-3 câu) TẠI SAO đáp án học sinh chọn là sai và TẠI SAO đáp án kia mới đúng.
+    Trả về text đơn giản, có thể dùng HTML cơ bản (như <b>) để nhấn mạnh.
+    `;
+
+    try {
+        const response = await callGeminiAI(prompt);
+        hideLoading();
+        customAlert(`<div style="text-align: left; font-size: 16px; line-height: 1.6; color: #2d3748;">${response}</div>`, "✨ Gia sư AI");
+    } catch (err) {
+        hideLoading();
+        customAlert("Xin lỗi, AI đang bận. Vui lòng thử lại sau.", "❌");
+    }
 }
 </script>
 </body>
