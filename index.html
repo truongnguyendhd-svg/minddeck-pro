@@ -7619,30 +7619,37 @@ function showPlayground(skipHash = false) {
 
 // Gọi API lấy danh sách báo
 async function loadNews(source, btnElement) {
-    // Đổi màu tab
+    // Đổi trạng thái Tab
     document.querySelectorAll('.news-tab').forEach(b => b.classList.remove('active'));
     if (btnElement) btnElement.classList.add('active');
 
     const container = document.getElementById('newsListContainer');
-    container.innerHTML = '<div style="text-align:center; padding:40px; color:#718096;"><div class="spinner" style="margin: 0 auto 15px auto;"></div>Đang kết nối tòa soạn...</div>';
+    container.innerHTML = '<div style="text-align:center; padding:40px; color:#718096;"><div class="spinner" style="margin: 0 auto 15px auto; width:30px; height:30px; border-top: 3px solid #3b82f6;"></div>Đang lấy tin mới nhất...</div>';
 
     try {
-        // Gọi API lên Vercel của bạn
         const res = await fetch(`/api/news?source=${source}`);
-        if (!res.ok) throw new Error("API Error");
         const articles = await res.json();
+
+        if (articles.error || !Array.isArray(articles) || articles.length === 0) {
+            container.innerHTML = `<div style="text-align:center; color:#718096; padding:30px; background:#f8fafc; border-radius:12px; border: 1px dashed #cbd5e0;">
+                <span class="material-symbols-outlined" style="font-size:40px; opacity:0.5;">rss_feed</span>
+                <p>Hiện tại không có tin mới từ nguồn này.<br>Hãy thử lại sau hoặc chọn nguồn báo khác.</p>
+            </div>`;
+            return;
+        }
 
         container.innerHTML = articles.map(item => `
             <div class="news-card" onclick="readArticle('${item.link}', '${escapeHTML(item.title).replace(/'/g, "\\'")}')">
                 <div class="news-icon"><span class="material-symbols-outlined">article</span></div>
-                <div>
+                <div style="flex:1">
                     <h4>${escapeHTML(item.title)}</h4>
-                    <p>${item.date ? new Date(item.date).toLocaleDateString('vi-VN') : 'Tin mới'}</p>
+                    <p>${item.date ? new Date(item.date).toLocaleDateString('vi-VN') : 'Tin vừa cập nhật'}</p>
                 </div>
+                <span class="material-symbols-outlined" style="color:#cbd5e0">chevron_right</span>
             </div>
         `).join('');
     } catch (e) {
-        container.innerHTML = `<div style="text-align:center; color:#e53e3e; padding:30px; background:#fff5f5; border-radius:12px;">Lỗi tải tin tức. Hãy chắc chắn bạn đã đẩy thư mục /api lên Vercel.</div>`;
+        container.innerHTML = `<div style="text-align:center; color:#e53e3e; padding:30px;">Lỗi kết nối máy chủ tin tức.</div>`;
     }
 }
 
