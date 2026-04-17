@@ -9104,7 +9104,39 @@ async function callGeminiAI(promptText) {
         throw error;
     }
 }
+// --- HÀM ĐIỀU KHIỂN MODAL AI APPLE STYLE ---
+function showAIModal(content, title = "Gia sư AI") {
+    document.getElementById('aiModalTitle').innerText = title;
+    
+    // Mẹo nhỏ: Đôi khi AI trả về Markdown kiểu **in đậm** thay vì thẻ <b> HTML.
+    // Dòng code này sẽ tự động convert **text** thành in đậm chuẩn web để hiển thị đẹp hơn.
+    const formattedContent = content.replace(/\*\*(.*?)\*\*/g, '<b style="color: #000;">$1</b>');
+    document.getElementById('aiModalContent').innerHTML = formattedContent;
 
+    const modal = document.getElementById('aiResponseModal');
+    const modalBox = modal.querySelector('.ai-modal-apple');
+
+    modal.style.display = 'flex';
+    
+    // Hiệu ứng trượt popup (Animation)
+    requestAnimationFrame(() => {
+        modalBox.style.transform = 'translateY(0) scale(1)';
+        modalBox.style.opacity = '1';
+    });
+}
+
+function closeAIModal() {
+    const modal = document.getElementById('aiResponseModal');
+    const modalBox = modal.querySelector('.ai-modal-apple');
+
+    // Hiệu ứng trượt xuống
+    modalBox.style.transform = 'translateY(40px) scale(0.95)';
+    modalBox.style.opacity = '0';
+
+    setTimeout(() => {
+        modal.style.display = 'none';
+    }, 300); // Chờ animation kết thúc mới ẩn hẳn
+}
 // 1. TÍNH NĂNG: READING PLAYGROUND AI (Dịch & Bóc tách ngữ pháp)
 async function handlePlaygroundAI(e) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -9118,10 +9150,10 @@ async function handlePlaygroundAI(e) {
     try {
         const aiResponse = await callGeminiAI(prompt);
         hideLoading();
-        customAlert(`<div style="text-align: left; font-size: 15px; line-height: 1.6; color: #2d3748;">${aiResponse}</div>`, "✨ Gia sư AI");
+        // Gọi modal xịn
+        showAIModal(aiResponse, "Phân tích câu"); 
     } catch (err) {
         hideLoading();
-        // In trực tiếp thông báo lỗi ra màn hình để bạn dễ sửa
         customAlert(`<b style="color: #e53e3e;">LỖI HỆ THỐNG AI:</b><br><br>${err.message}`, "❌");
     }
 }
@@ -9244,19 +9276,38 @@ async function askAIWhyWrong() {
     - Học sinh chọn SAI: "${currentWrongQuizState.userWrong}"
     
     Hãy giải thích ngắn gọn, dễ hiểu bằng tiếng Việt (khoảng 2-3 câu) TẠI SAO đáp án học sinh chọn là sai và TẠI SAO đáp án kia mới đúng.
-    Trả về text đơn giản, có thể dùng HTML cơ bản (như <b>) để nhấn mạnh.
     `;
 
     try {
         const response = await callGeminiAI(prompt);
         hideLoading();
-        customAlert(`<div style="text-align: left; font-size: 16px; line-height: 1.6; color: #2d3748;">${response}</div>`, "✨ Gia sư AI");
+        // Gọi modal xịn
+        showAIModal(response, "Giải thích đáp án");
     } catch (err) {
         hideLoading();
         customAlert("Xin lỗi, AI đang bận. Vui lòng thử lại sau.", "❌");
     }
 }
 </script>
+<!-- ================= MODAL DÀNH RIÊNG CHO GIA SƯ AI (APPLE STYLE) ================= -->
+<div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px;">
+    <div class="ai-modal-apple" style="max-width: 650px; width: 100%; background: rgba(255, 255, 255, 0.95); backdrop-filter: saturate(180%) blur(25px); -webkit-backdrop-filter: saturate(180%) blur(25px); border-radius: 28px; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 24px 48px rgba(0,0,0,0.12); max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; transform: translateY(40px) scale(0.95); opacity: 0; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+        
+        <!-- Header Kính mờ -->
+        <div style="padding: 20px 24px 15px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0,0,0,0.05); flex-shrink: 0;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="material-symbols-outlined" style="background: linear-gradient(135deg, #a855f7, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 28px;">auto_awesome</span>
+                <h3 id="aiModalTitle" style="margin: 0; font-size: 20px; font-weight: 800; color: #1d1d1f; letter-spacing: -0.5px;">Gia sư AI</h3>
+            </div>
+            <button class="close-modal" onclick="closeAIModal()" style="background: #f5f5f7; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: #86868b; border: none; font-size: 22px; cursor: pointer; transition: 0.2s;">&times;</button>
+        </div>
+
+        <!-- Nội dung (Cuộn mượt mà) -->
+        <div id="aiModalContent" style="padding: 24px 24px 40px 24px; overflow-y: auto; font-size: 16px; line-height: 1.7; color: #1d1d1f; font-weight: 500; text-align: left;">
+            <!-- Nội dung AI sẽ tự động bơm vào đây -->
+        </div>
+    </div>
+</div>
 </body>
 </html>
 
