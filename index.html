@@ -7653,7 +7653,16 @@ async function readArticle(url, title) {
         const res = await fetch(`/api/news?action=getContent&url=${encodeURIComponent(url)}`);
         const data = await res.json();
         
-        if (!data.content) throw new Error("Không thể trích xuất nội dung.");
+        // Nếu Backend trả về báo lỗi bị chặn
+        if (data.error) {
+            hideLoading();
+            return customAlert(data.error, "⚠️");
+        }
+
+        if (!data.content || data.content.trim() === '') {
+            hideLoading();
+            return customAlert("Không thể bóc tách chữ từ trang báo này. Vui lòng chọn bài khác!", "⚠️");
+        }
 
         // Format thành các thẻ <p>
         const formatted = data.content.split('\n').filter(p => p.trim()).map(p => `<p>${escapeHTML(p)}</p>`).join('');
@@ -7670,7 +7679,7 @@ async function readArticle(url, title) {
         document.getElementById('btnTogglePlayground').classList.add('hidden');
 
     } catch (e) {
-        customAlert("Bài báo này bảo mật quá cao không lấy được chữ. Vui lòng chọn bài khác!", "⚠️");
+        customAlert("Lỗi kết nối mạng hoặc máy chủ từ chối yêu cầu.", "❌");
     } finally {
         hideLoading();
     }
