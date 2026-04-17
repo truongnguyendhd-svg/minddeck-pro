@@ -7648,42 +7648,41 @@ async function loadNews(source, btnElement) {
 
 // Bấm vào bài báo -> Gọi API bóc nội dung và hiển thị
 async function readArticle(url, title) {
-    showLoading("Đang tải bài báo...");
+    const container = document.getElementById('pgFormattedText');
+    const titleEl = document.getElementById('pgReadingTitle');
+    
+    showLoading("Đang lấy nội dung bài báo...");
+    
+    // Reset nội dung cũ
+    container.innerHTML = "";
+    titleEl.innerText = title;
+
     try {
         const res = await fetch(`/api/news?action=getContent&url=${encodeURIComponent(url)}`);
         const data = await res.json();
-        
-        // Nếu Backend trả về báo lỗi bị chặn
-        if (data.error) {
-            hideLoading();
-            return customAlert(data.error, "⚠️");
+
+        if (data.error || !data.content) {
+            throw new Error(data.error || "Không tìm thấy nội dung bài báo.");
         }
 
-        if (!data.content || data.content.trim() === '') {
-            hideLoading();
-            return customAlert("Không thể bóc tách chữ từ trang báo này. Vui lòng chọn bài khác!", "⚠️");
-        }
-
-        // Format thành các thẻ <p>
-        const formatted = data.content.split('\n').filter(p => p.trim()).map(p => `<p>${escapeHTML(p)}</p>`).join('');
+        // Tách dòng và hiển thị
+        const paragraphs = data.content.split('\n').filter(p => p.trim().length > 0);
+        container.innerHTML = paragraphs.map(p => `<p style="margin-bottom:1.5em; line-height:1.8;">${escapeHTML(p)}</p>`).join('');
         
-        document.getElementById('pgReadingTitle').style.display = 'block';
-        document.getElementById('pgReadingTitle').innerText = title;
-        document.getElementById('pgFormattedText').innerHTML = formatted;
-        
-        // Chuyển UI sang chế độ đọc
+        // Chuyển màn hình (Quan trọng: Phải chuyển màn hình SAU KHI có dữ liệu)
+        titleEl.style.display = 'block';
         document.getElementById('pgNewsZone').classList.add('hidden');
-        document.getElementById('pgInputZone').classList.add('hidden');
         document.getElementById('pgReadingZone').classList.remove('hidden');
         document.getElementById('btnBackToNews').classList.remove('hidden');
         document.getElementById('btnTogglePlayground').classList.add('hidden');
 
     } catch (e) {
-        customAlert("Lỗi kết nối mạng hoặc máy chủ từ chối yêu cầu.", "❌");
+        customAlert("Lỗi: " + e.message + "<br><br>Gợi ý: Hãy thử bài báo khác trong danh sách!", "⚠️");
     } finally {
         hideLoading();
     }
 }
+
 
 // Bắt đầu đọc từ văn bản nhập tay
 function startManualReading() {
