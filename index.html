@@ -3285,6 +3285,31 @@ body.playground-mode .main-content {
         text-align: center;
     }
 }
+/* ================= MENU CHỌN CHẾ ĐỘ AI PLAYGROUND ================= */
+.ai-mode-selector {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding-left: 5px;
+    color: #8b5cf6; /* Màu tím AI */
+}
+.ai-mode-selector select {
+    background: transparent;
+    border: none;
+    font-size: 13px;
+    font-weight: 800;
+    color: #1d1d1f;
+    outline: none;
+    cursor: pointer;
+    font-family: 'Noto Sans JP', sans-serif;
+    /* Xóa mũi tên mặc định trên iOS/Android để trông liền mạch hơn */
+    appearance: none; 
+    -webkit-appearance: none;
+}
+.ai-mode-selector select:hover {
+    color: #8b5cf6;
+}
 </style>
 </head>
 <body>
@@ -4478,6 +4503,15 @@ body.playground-mode .main-content {
 
     <!-- 2. Vùng nhập liệu ghim ở đáy (Sticky Bottom) -->
     <div class="chat-input-wrapper">
+        <!-- THÊM MỚI: Thanh chọn chế độ AI -->
+        <div class="ai-mode-selector">
+            <span class="material-symbols-outlined" style="font-size: 16px;">smart_toy</span>
+            <select id="playgroundAiMode">
+                <option value="analyze">✨ Phân tích & Bóc tách thẻ</option>
+                <option value="tutor">🎓 Gia sư giải đáp thắc mắc</option>
+                <option value="chat">💬 Luyện giao tiếp / Sửa lỗi</option>
+            </select>
+        </div>
         <!-- Khu vực hiển thị ảnh paste (Mặc định ẩn) -->
         <div id="chatImagePreviewZone" class="chat-image-preview hidden">
             <img id="chatImagePreview" src="" alt="Preview">
@@ -9988,69 +10022,69 @@ async function handleSendChatMessage() {
     scrollToBottom();
 
     try {
-// --- PROMPT CHUẨN (ĐÃ FIX: TRUYỀN TEXT VÀ YÊU CẦU JSON) ---
-        let systemPrompt = `Đóng vai trò là giáo viên tiếng Nhật chuyên luyện thi JLPT. 
-        Hãy phân tích nội dung học viên gửi dưới đây (văn bản hoặc hình ảnh):
-        "${text}"
+// --- CHỌN PROMPT DỰA TRÊN CHẾ ĐỘ NGƯỜI DÙNG CHỌN ---
+        const aiMode = document.getElementById('playgroundAiMode').value;
+        let systemPrompt = "";
 
-        CẢNH BÁO: CHỈ ĐỌC CHÍNH XÁC NHỮNG GÌ CÓ TRONG YÊU CẦU. KHÔNG TỰ BỊA THÊM.
+        if (aiMode === 'analyze') {
+            systemPrompt = `Đóng vai trò là giáo viên tiếng Nhật chuyên luyện thi JLPT. 
+            Hãy phân tích nội dung học viên gửi dưới đây (văn bản hoặc hình ảnh): "${text}"
+            
+            Yêu cầu 1: Trình bày text bình thường (sử dụng in đậm **):
+            1. 📝 **Bản gốc**: (Ghi lại chính xác tiếng Nhật).
+            2. 🇻🇳 **Bản dịch**: (Dịch mượt mà theo ngữ cảnh).
+            3. 🧩 **Phân tích ngữ pháp**: (Giải thích chi tiết các điểm ngữ pháp).
+            4. 📚 **Từ vựng nổi bật**: (Liệt kê kèm Hiragana và nghĩa).
 
-        Yêu cầu 1: Trình bày text bình thường (sử dụng in đậm **):
-        1. 📝 **Bản gốc**: (Ghi lại chính xác tiếng Nhật).
-        2. 🇻🇳 **Bản dịch**: (Dịch mượt mà theo ngữ cảnh).
-        3. 🧩 **Phân tích ngữ pháp**: (Giải thích chi tiết các điểm ngữ pháp).
-        4. 📚 **Từ vựng nổi bật**: (Liệt kê kèm Hiragana và nghĩa).
-
-        Yêu cầu 2: CUỐI CÙNG, HÃY TẠO RA 1 KHỐI JSON (Nằm trong \`\`\`json và \`\`\`) chứa dữ liệu bóc tách để làm Flashcard/Trắc nghiệm. Format BẮT BUỘC:
-        \`\`\`json
-        {
-          "vocab": [
+            Yêu cầu 2: CUỐI CÙNG, HÃY TẠO RA 1 KHỐI JSON (Nằm trong \`\`\`json và \`\`\`) chứa dữ liệu bóc tách để làm Flashcard/Trắc nghiệm. Format BẮT BUỘC:
+            \`\`\`json
             {
-              "front": "Từ/Kanji", 
-              "reading": "Cách đọc Hiragana", 
-              "meaning": "Nghĩa tiếng Việt", 
-              "hv": "Nghĩa Hán Việt (Bắt buộc viết Hoa, nếu không có thì để trống)", 
-              "ex_jp": "Câu ví dụ tiếng Nhật", 
-              "ex_vn": "Nghĩa tiếng Việt của câu ví dụ"
+              "vocab": [ {"front": "Từ", "reading": "Hiragana", "meaning": "Nghĩa", "hv": "HÁN VIỆT", "ex_jp": "Câu VD", "ex_vn": "Nghĩa VD"} ],
+              "grammar": [ {"point": "Ngữ pháp", "meaning": "Nghĩa", "note": "Giải thích", "ex_jp": "Câu VD", "ex_vn": "Nghĩa VD"} ],
+              "quiz": [ {"question": "Câu hỏi", "correct": "Đúng", "wrong1": "Sai 1", "wrong2": "Sai 2", "wrong3": "Sai 3"} ]
             }
-          ],
-          "grammar": [
-            {
-              "point": "Ngữ pháp", 
-              "meaning": "Nghĩa", 
-              "note": "Giải thích",
-              "ex_jp": "Câu ví dụ tiếng Nhật", 
-              "ex_vn": "Nghĩa tiếng Việt của câu ví dụ"
-            }
-          ],
-          "quiz": [
-            {
-              "question": "Tạo 1 câu trắc nghiệm liên quan", 
-              "correct": "Đáp án đúng", 
-              "wrong1": "Sai 1", 
-              "wrong2": "Sai 2", 
-              "wrong3": "Sai 3"
-            }
-          ]
+            \`\`\``;
+        } 
+        else if (aiMode === 'tutor') {
+            systemPrompt = `Đóng vai trò là một gia sư tiếng Nhật tận tâm, uyên bác và vui tính.
+            Học viên hỏi/gửi nội dung: "${text}"
+            
+            Nhiệm vụ của bạn: 
+            - Giải đáp trực tiếp thắc mắc của học viên (Ví dụ: Phân biệt từ vựng, giải thích tại sao dùng trợ từ này, phân tích ảnh học viên gửi...).
+            - Trình bày ngắn gọn, dễ hiểu bằng tiếng Việt, có xuống dòng rõ ràng. 
+            - Những từ tiếng Nhật quan trọng hãy in đậm và kèm theo Furigana/Romaji nếu cần.
+            (Không cần tạo khối JSON trong chế độ này).`;
+        } 
+        else if (aiMode === 'chat') {
+            systemPrompt = `Đóng vai trò là một người bạn Nhật Bản thân thiện, đang nhắn tin trò chuyện với người học tiếng Nhật.
+            Học viên nói: "${text}"
+            
+            Nhiệm vụ của bạn:
+            1. Trả lời lại học viên bằng tiếng Nhật một cách tự nhiên, thân thiện (Sử dụng thể lịch sự Desu/Masu hoặc thể ngắn tùy ngữ cảnh học viên dùng).
+            2. Bắt buộc cung cấp bản dịch tiếng Việt cho câu trả lời của bạn ở ngay bên dưới.
+            3. 💡 **Góc sửa lỗi:** Nếu câu tiếng Nhật của học viên có lỗi sai (ngữ pháp, từ vựng, tự nhiên), hãy nhẹ nhàng chỉ ra và sửa lại cho đúng. Nếu học viên nói đúng hoàn toàn, hãy khen ngợi họ!
+            (Không cần tạo khối JSON trong chế độ này).`;
         }
-        \`\`\``;
+
         // Gọi API: Truyền Prompt (đã có text) và MẢNG ẢNH
         const aiResponse = await callGeminiAI(systemPrompt, imagesToSend);
 
         const loader = document.getElementById('aiLoadingBubble');
         if (loader) loader.remove();
 
-        // --- BÓC TÁCH JSON KHỎI TEXT ---
+        // --- BÓC TÁCH JSON (CHỈ KHI Ở CHẾ ĐỘ ANALYZE MỚI LÀM) ---
         let mainText = aiResponse;
         let extractedData = null;
         
-        const jsonMatch = aiResponse.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch && jsonMatch[1]) {
-            try {
-                extractedData = JSON.parse(jsonMatch[1]);
-                mainText = aiResponse.replace(/```json\s*([\s\S]*?)\s*```/, '').trim();
-            } catch (e) {
-                console.error("AI trả về JSON lỗi format:", e);
+        if (aiMode === 'analyze') {
+            const jsonMatch = aiResponse.match(/```json\s*([\s\S]*?)\s*```/);
+            if (jsonMatch && jsonMatch[1]) {
+                try {
+                    extractedData = JSON.parse(jsonMatch[1]);
+                    mainText = aiResponse.replace(/```json\s*([\s\S]*?)\s*```/, '').trim();
+                } catch (e) {
+                    console.error("AI trả về JSON lỗi format:", e);
+                }
             }
         }
 
