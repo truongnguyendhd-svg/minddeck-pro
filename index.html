@@ -3190,6 +3190,41 @@ body.playground-mode .main-content {
 .ai-ext-btn:hover .material-symbols-outlined {
     background: #a855f7; color: white;
 }
+/* ================= BREADCRUMB TRÊN HEADER (APPLE STYLE) ================= */
+.header-breadcrumb {
+    display: flex;
+    align-items: center;
+    font-size: 14px; /* Chữ nhỏ nhắn, tinh tế */
+    font-weight: 700;
+    color: #1d1d1f;
+    white-space: nowrap;
+    overflow-x: auto; /* Cho phép vuốt ngang nếu đường dẫn quá dài */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    mask-image: linear-gradient(to right, black 90%, transparent 100%); /* Làm mờ phần mép phải nếu chữ quá dài */
+}
+.header-breadcrumb::-webkit-scrollbar { display: none; }
+
+.header-breadcrumb .bc-item { 
+    color: #86868b; /* Màu xám mờ cho thư mục cha */
+    cursor: pointer; 
+    transition: 0.2s; 
+}
+.header-breadcrumb .bc-item:hover { 
+    color: #0071e3; /* Sáng màu xanh Apple khi hover */
+}
+.header-breadcrumb .bc-sep { 
+    margin: 0 8px; 
+    color: #d2d2d7; 
+    font-weight: 400; 
+    font-size: 16px;
+}
+.header-breadcrumb .bc-current { 
+    color: #1d1d1f; /* Màu đen nhám cho trang hiện tại */
+    font-weight: 800; 
+}
 </style>
 </head>
 <body>
@@ -3202,14 +3237,14 @@ body.playground-mode .main-content {
             <span class="logo-text" style="color: #1d1d1f; font-weight: 800; letter-spacing: -0.5px;">Alcohol</span>
         </h2>
 
-        <!-- KHỐI 2: NÚT MENU & TIÊU ĐỀ (Chỉ hiện khi đã đăng nhập vào App) -->
-        <div id="headerMenuBlock" class="hidden" style="display: flex; align-items: center; gap: 15px;">
+<!-- KHỐI 2: NÚT MENU & BREADCRUMB -->
+        <div id="headerMenuBlock" class="hidden" style="display: flex; align-items: center; gap: 15px; flex: 1; overflow: hidden;">
             <button id="globalMenuBtn" onclick="openSideMenu()" title="Mở Menu">
                 <span class="material-symbols-outlined" style="font-size: 24px; color: #1d1d1f;">menu</span>
             </button>
-            <h2 id="headerPageTitle" style="font-size: clamp(16px, 4vw, 18px); font-weight: 800; color: #1d1d1f; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                ALCOHOL
-            </h2>
+            
+            <!-- Breadcrumb mới nằm ngay trên Header -->
+            <div id="breadcrumb" class="header-breadcrumb"></div>
         </div>
 
         <!-- BÊN PHẢI: Thanh Tìm kiếm -->
@@ -3225,7 +3260,6 @@ body.playground-mode .main-content {
         </div>
     </div>
 </div>
-<div id="breadcrumb" class="breadcrumb-container" style="display: none;"></div>
 <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText" style="margin-top:15px">Vui lòng đợi...</div></div>
 <div id="toast-container"></div>
 <!-- ================= GLOBAL SIDE MENU ================= -->
@@ -4597,12 +4631,12 @@ function showPage(p) {
         if (bc) bc.style.marginBottom = '20px';
     }
     
+// Luôn hiện Breadcrumb trên Header (Trừ trang Login và Landing)
     if (bc) {
-        // ĐÃ SỬA: Thêm p === 'playgroundPage' vào danh sách ép ẩn hoàn toàn
-        if (p === 'homePage' || p === 'loginPage' || p === 'playgroundPage' || p === 'dashboardPage' || p === 'grammarPage') {
+        if (p === 'loginPage' || p === 'landingPage') {
             bc.style.display = 'none';
         } else {
-            bc.style.display = (bc.innerHTML.trim() !== '') ? 'flex' : 'none';
+            bc.style.display = 'flex';
         }
     }
 
@@ -4783,29 +4817,18 @@ function showConfirm(title, message, okText = "OK", cancelText = "Hủy") {
 
 function updateBreadcrumb(paths) {
     const bc = document.getElementById('breadcrumb'); 
+    if (!bc) return;
     
-    // Nếu mảng rỗng, ẩn breadcrumb và xóa nội dung
-    if (!paths || paths.length === 0) { 
-        bc.style.display = 'none'; 
-        bc.innerHTML = '';
-        return; 
-    } 
-    
-    bc.style.display = 'flex';
-    let h = ''; // Bắt đầu bằng chuỗi rỗng (Đã xóa đoạn code chèn chữ Trang chủ)
-    
-    paths.forEach((p, i) => { 
-        // Chỉ chèn dấu ngăn cách "❯" nếu KHÔNG PHẢI là phần tử đầu tiên
-        if (i > 0) {
-            h += `<span class="bc-sep">❯</span>`; 
-        }
-        
-        // Chèn tên trang hiện tại hoặc link
-        h += i === paths.length - 1 
-            ? `<span class="bc-current">${p.label}</span>` 
-            : `<span class="bc-item" onclick="${p.action}">${p.label}</span>`; 
-    });
-    
+    let h = ''; 
+    if (paths && paths.length > 0) {
+        paths.forEach((p, i) => { 
+            // Dùng dấu gạch chéo (/) phong cách Apple thay vì mũi tên (❯)
+            if (i > 0) h += `<span class="bc-sep">/</span>`; 
+            h += i === paths.length - 1 
+                ? `<span class="bc-current">${p.label}</span>` 
+                : `<span class="bc-item" onclick="${p.action}">${p.label}</span>`; 
+        });
+    }
     bc.innerHTML = h;
 }
 async function loadDeckListIntoSelect(selectId, deckType) {
