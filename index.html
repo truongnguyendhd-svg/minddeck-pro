@@ -9718,34 +9718,39 @@ function scrollToBottom() {
 }
 
 // 3. Hàm chính: Xử lý gửi tin và gọi AI
-// 5. GHI ĐÈ LẠI HÀM GỬI TIN NHẮN (BẢN V3 - SIÊU ỔN ĐỊNH VỚI MARKER CHIẾN THUẬT)
+// 5. GHI ĐÈ LẠI HÀM GỬI TIN NHẮN (BẢN FIX LỖI ÉP AI TRẢ VỀ CHUẨN JSON)
 async function handleSendChatMessage() {
     if (!currentUser) return customAlert("Vui lòng đăng nhập để sử dụng AI!", "⚠️");
 
     const textarea = document.getElementById('chatTextarea');
     let text = textarea.value.trim();
+    
     if (!text && pendingImages.length === 0) return;
 
     const imagesToSend = [...pendingImages];
     pendingImages = []; 
+    
     textarea.value = '';
     textarea.style.height = 'auto'; 
     renderImagePreviews(); 
     
     const messagesZone = document.getElementById('chatMessages');
+
     let safeText = escapeHTML(text).replace(/\n/g, '<br>');
     let formattedUserText = wrapKanjiWithLink(safeText);
 
     const userBubble = document.createElement('div');
     userBubble.className = 'chat-bubble user-bubble';
+    
     let imagesHTML = '';
     if (imagesToSend.length > 0) {
         imagesHTML = `<div class="bubble-image-grid">`;
         imagesToSend.forEach(imgBase64 => {
-            imagesHTML += `<img src="${imgBase64}" class="chat-bubble-image" onclick="window.open(this.src, '_blank')">`;
+            imagesHTML += `<img src="${imgBase64}" class="chat-bubble-image" onclick="window.open(this.src, '_blank')" title="Bấm để xem toàn bộ ảnh">`;
         });
         imagesHTML += `</div>`;
     }
+    
     userBubble.innerHTML = `<div class="bubble-content">${imagesHTML}${formattedUserText}</div>`;
     messagesZone.appendChild(userBubble);
     scrollToBottom();
@@ -9753,89 +9758,133 @@ async function handleSendChatMessage() {
     const loadingBubble = document.createElement('div');
     loadingBubble.className = 'chat-bubble ai-bubble';
     loadingBubble.id = 'aiLoadingBubble';
-    loadingBubble.innerHTML = `<div class="bubble-content" style="display: flex; align-items: center; gap: 12px; color: #86868b; font-size: 15px; font-weight: 600;"><div class="spinner" style="width: 18px; height: 18px; border-width: 2px; border-top-color: #a855f7;"></div>Gia sư AI đang phân tích...</div>`;
+    loadingBubble.innerHTML = `
+        <div class="bubble-content" style="display: flex; align-items: center; gap: 12px; color: #86868b; font-size: 15px; font-weight: 600;">
+            <div class="spinner" style="width: 18px; height: 18px; border-width: 2px; border-top-color: #a855f7;"></div>
+            Gia sư AI đang ${imagesToSend.length > 0 ? 'đọc ảnh và ' : ''}phân tích...
+        </div>
+    `;
     messagesZone.appendChild(loadingBubble);
     scrollToBottom();
 
     try {
-        // --- PROMPT V3: CHIẾN THUẬT MARKER THẺ LẠ ---
-        let systemPrompt = `Bạn là giáo viên tiếng Nhật JLPT.
-        Nhiệm vụ 1: Giải thích nội dung học viên gửi (Dịch, ngữ pháp, từ vựng).
-        Nhiệm vụ 2: Tạo dữ liệu học tập dưới dạng JSON và BẮT BUỘC đặt nó giữa [START_JSON] và [END_JSON].
+        // --- PROMPT MỚI: ÉP BUỘC TRẢ VỀ JSON RÕ RÀNG ---
+        let systemPrompt = `Đóng vai trò là giáo viên tiếng Nhật JLPT. Phân tích nội dung học viên gửi.
         
-        Mẫu JSON bên trong:
+        PHẦN 1 - TRẢ LỜI VĂN BẢN (Dùng in đậm **):
+        1. 📝 **Bản gốc**: (Ghi lại tiếng Nhật).
+        2. 🇻🇳 **Bản dịch**: (Dịch mượt mà).
+        3. 🧩 **Phân tích**: (Giải thích ngữ pháp ngắn gọn).
+        
+        PHẦN 2 - BẮT BUỘC XUẤT DATA (Tuyệt đối không bỏ qua phần này).
+        Hãy xuất 1 khối JSON duy nhất nằm trong cặp dấu \`\`\`json và \`\`\` để hệ thống tạo thẻ Flashcard. 
+        Mẫu bắt buộc:
+        \`\`\`json
         {
-          "vocab": [{"front": "Từ", "reading": "Cách đọc", "meaning": "Nghĩa", "example": "Câu ví dụ"}],
-          "grammar": [{"point": "Cấu trúc", "meaning": "Nghĩa", "note": "Ghi chú"}],
-          "quiz": [{"question": "Câu hỏi", "correct": "Đúng", "wrong1": "Sai 1", "wrong2": "Sai 2", "wrong3": "Sai 3"}]
+          "vocab": [{"front": "Từ vựng tiếng Nhật", "reading": "Hiragana", "meaning": "Nghĩa VN", "example": "Câu ví dụ"}],
+          "grammar": [{"point": "Ngữ pháp", "meaning": "Nghĩa", "note": "Cách dùng"}],
+          "quiz": [{"question": "1 câu hỏi trắc nghiệm tiếng Nhật", "correct": "Đáp án đúng", "wrong1": "Sai 1", "wrong2": "Sai 2", "wrong3": "Sai 3"}]
         }
-        CẢNH BÁO: Phải trả về JSON đầy đủ giữa 2 thẻ Marker, không được thiếu dấu ngoặc.`;
+        \`\`\``;
 
         const aiResponse = await callGeminiAI(systemPrompt, imagesToSend);
-        console.log("DỮ LIỆU AI TRẢ VỀ GỐC:", aiResponse); // <-- Kiểm tra cái này trong F12
 
         const loader = document.getElementById('aiLoadingBubble');
         if (loader) loader.remove();
 
-        // --- BÓC TÁCH JSON BẰNG MARKER CHIẾN THUẬT ---
+        // --- THUẬT TOÁN BẮT JSON CẢI TIẾN (CHỐNG LỖI AI NGU) ---
         let mainText = aiResponse;
         let extractedData = null;
         
-        const startMarker = "[START_JSON]";
-        const endMarker = "[END_JSON]";
-        
-        if (aiResponse.includes(startMarker) && aiResponse.includes(endMarker)) {
-            const jsonPart = aiResponse.split(startMarker)[1].split(endMarker)[0].trim();
-            console.log("CHUỖI JSON TÌM THẤY:", jsonPart); // <-- Kiểm tra chuỗi JSON bóc được
-            
-            try {
-                extractedData = JSON.parse(jsonPart);
-                // Xóa cả Marker và JSON khỏi phần hiển thị
-                mainText = aiResponse.split(startMarker)[0] + aiResponse.split(endMarker)[1];
-            } catch (e) {
-                console.error("LỖI PARSE JSON:", e);
-                // Nếu lỗi, cố gắng cứu dữ liệu bằng cách dọn dẹp dấu nháy
-                try {
-                    let cleanedJson = jsonPart.replace(/[\u201C\u201D]/g, '"'); // Đổi ngoặc kép thông minh thành ngoặc chuẩn
-                    extractedData = JSON.parse(cleanedJson);
-                    mainText = aiResponse.split(startMarker)[0] + aiResponse.split(endMarker)[1];
-                } catch(e2) {}
+        // 1. Cố gắng tìm chuỗi nằm giữa ```json và ```
+        let jsonMatch = aiResponse.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        let jsonString = "";
+
+        if (jsonMatch && jsonMatch[1]) {
+            jsonString = jsonMatch[1].trim();
+        } else {
+            // 2. Fallback: Nếu AI quên gõ dấu ```, tìm thủ công từ dấu { đầu tiên đến dấu } cuối cùng
+            const firstBrace = aiResponse.indexOf('{');
+            const lastBrace = aiResponse.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1 && firstBrace < lastBrace) {
+                jsonString = aiResponse.substring(firstBrace, lastBrace + 1);
             }
         }
 
-        // Format Text hiển thị
-        let formattedAI = mainText.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1d1d1f;">$1</b>').replace(/\n/g, '<br>');
+        // Nếu tìm thấy chuỗi JSON -> Cắt nó ra khỏi câu trả lời chính
+        if (jsonString) {
+            try {
+                extractedData = JSON.parse(jsonString);
+                // Xóa cục JSON thô kệch đi để không hiển thị lên màn hình chat
+                mainText = aiResponse.replace(jsonString, '').replace(/```json|```/gi, '').trim();
+            } catch (e) {
+                console.error("AI trả về JSON sai cú pháp:", jsonString);
+                console.error("Chi tiết lỗi Parse:", e);
+            }
+        }
+
+        // Format Text (Bold, Xuống dòng, X-Ray)
+        let formattedAI = mainText.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1d1d1f;">$1</b>');
+        formattedAI = formattedAI.replace(/\n/g, '<br>');
         formattedAI = wrapKanjiWithLink(formattedAI); 
 
-        // --- RENDER GIAO DIỆN NÚT BẤM ---
+        // --- RENDER GIAO DIỆN TỪ JSON ---
         let extractUI = "";
         if (extractedData) {
             extractUI += `<div class="ai-extracted-zone">
                             <div class="ai-ext-title"><span class="material-symbols-outlined" style="font-size: 16px;">library_add</span> Bóc tách tự động:</div>`;
             
-            if (extractedData.vocab) {
+            // Render Nút Từ Vựng
+            if (extractedData.vocab && Array.isArray(extractedData.vocab)) {
                 extractedData.vocab.forEach(v => {
+                    if(!v.front) return;
+                    const encFront = encodeURIComponent(v.front || '');
+                    const encReading = encodeURIComponent(v.reading || '');
+                    const encMeaning = encodeURIComponent(v.meaning || '');
+                    const encEx = encodeURIComponent(v.example || '');
+                    
                     extractUI += `
-                    <div class="ai-ext-btn" onclick="openSaveDictWordModal('${encodeURIComponent(v.front || '')}', '${encodeURIComponent(v.reading || '')}', '${encodeURIComponent(v.meaning || '')}', '', '${encodeURIComponent(v.example || '')}')">
-                        <div class="ext-content"><span class="ext-type vocab">TỪ VỰNG</span><span class="ext-text">${escapeHTML(v.front)} - ${escapeHTML(v.meaning)}</span></div>
+                    <div class="ai-ext-btn" onclick="openSaveDictWordModal('${encFront}', '${encReading}', '${encMeaning}', '', '${encEx}')">
+                        <div class="ext-content">
+                            <span class="ext-type vocab">TỪ VỰNG</span>
+                            <span class="ext-text">${escapeHTML(v.front)} - ${escapeHTML(v.meaning)}</span>
+                        </div>
                         <span class="material-symbols-outlined">add</span>
                     </div>`;
                 });
             }
-            if (extractedData.grammar) {
+
+            // Render Nút Ngữ Pháp
+            if (extractedData.grammar && Array.isArray(extractedData.grammar)) {
                 extractedData.grammar.forEach(g => {
+                    if(!g.point) return;
+                    const encFront = encodeURIComponent(g.point || '');
+                    const encMeaning = encodeURIComponent(g.meaning || '');
+                    const encInfo = encodeURIComponent(g.note || '');
+                    
                     extractUI += `
-                    <div class="ai-ext-btn" onclick="openSaveDictWordModal('${encodeURIComponent(g.point || '')}', '', '${encodeURIComponent(g.meaning || '')}', '${encodeURIComponent(g.note || '')}', '')">
-                        <div class="ext-content"><span class="ext-type grammar">NGỮ PHÁP</span><span class="ext-text">${escapeHTML(g.point)}</span></div>
+                    <div class="ai-ext-btn" onclick="openSaveDictWordModal('${encFront}', '', '${encMeaning}', '${encInfo}', '')">
+                        <div class="ext-content">
+                            <span class="ext-type grammar">NGỮ PHÁP</span>
+                            <span class="ext-text">${escapeHTML(g.point)}</span>
+                        </div>
                         <span class="material-symbols-outlined">add</span>
                     </div>`;
                 });
             }
-            if (extractedData.quiz) {
+
+            // Render Nút Trắc Nghiệm
+            if (extractedData.quiz && Array.isArray(extractedData.quiz)) {
                 extractedData.quiz.forEach(q => {
+                    if(!q.question || !q.correct) return;
+                    const safeQuizJSON = encodeURIComponent(JSON.stringify(q));
+                    
                     extractUI += `
-                    <div class="ai-ext-btn" onclick="openSaveAIQuizModal('${encodeURIComponent(JSON.stringify(q))}')">
-                        <div class="ext-content"><span class="ext-type quiz">TRẮC NGHIỆM</span><span class="ext-text" style="font-size: 13px;">${escapeHTML(q.question)}</span></div>
+                    <div class="ai-ext-btn" onclick="openSaveAIQuizModal('${safeQuizJSON}')">
+                        <div class="ext-content">
+                            <span class="ext-type quiz">TRẮC NGHIỆM</span>
+                            <span class="ext-text" style="font-size: 13px;">${escapeHTML(q.question)}</span>
+                        </div>
                         <span class="material-symbols-outlined">add</span>
                     </div>`;
                 });
@@ -9852,7 +9901,15 @@ async function handleSendChatMessage() {
     } catch (error) {
         const loader = document.getElementById('aiLoadingBubble');
         if (loader) loader.remove();
-        console.error("CRITICAL ERROR:", error);
+
+        const errorBubble = document.createElement('div');
+        errorBubble.className = 'chat-bubble ai-bubble';
+        errorBubble.innerHTML = `
+            <div class="bubble-content" style="color: #e53e3e; background: #fff5f5; border-color: #feb2b2;">
+                ❌ <b>Lỗi phân tích:</b><br><span style="font-size: 14px;">${error.message}</span>
+            </div>`;
+        messagesZone.appendChild(errorBubble);
+        scrollToBottom();
     }
 }
 /* =========================================================
@@ -10176,7 +10233,6 @@ async function confirmSaveQuizToDeck() {
 </div>
 </body>
 </html>
-
 
 
 
