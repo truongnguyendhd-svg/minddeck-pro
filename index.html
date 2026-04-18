@@ -9751,10 +9751,13 @@ async function handleInstantImageSend(file) {
     const messagesZone = document.getElementById('chatMessages');
 
     try {
-        // 1. Nén ảnh ngay lập tức
+        // 1. Nén ảnh ngay lập tức (Bao gồm cả prefix data:image...)
         const fullBase64Image = await compressImage(file);
+        
+        // Cắt bỏ phần đầu, chỉ lấy dữ liệu tinh khiết để gửi API
         const base64ForAPI = fullBase64Image.split(',')[1];
-        // 2. Tạo bong bóng chat của người dùng chứa ảnh (Vừa paste xong hiện lên luôn)
+
+        // 2. Tạo bong bóng chat của người dùng chứa ảnh
         const userBubble = document.createElement('div');
         userBubble.className = 'chat-bubble user-bubble';
         userBubble.innerHTML = `
@@ -9777,17 +9780,18 @@ async function handleInstantImageSend(file) {
         messagesZone.appendChild(loadingBubble);
         scrollToBottom();
 
-        // 4. Lên lệnh Prompt yêu cầu OCR và phân tích
+        // 4. Prompt ÉP BUỘC ĐỌC ẢNH
         const systemPrompt = `Đóng vai trò là giáo viên tiếng Nhật chuyên luyện thi JLPT. 
         Hãy trích xuất văn bản (OCR) từ bức ảnh đính kèm, sau đó phân tích nội dung.
-        CẢNH BÁO: TÚYỆT ĐỐI KHÔNG TỰ BỊA RA CÂU KHÁC. Chỉ đọc đúng những gì có trong ảnh. Nếu ảnh trống hoặc không có chữ, hãy trả lời: "Tôi không nhìn thấy chữ tiếng Nhật nào trong ảnh."
-        
-        Yêu cầu trả lời thân thiện, trình bày rõ ràng (sử dụng in đậm **):
+        CẢNH BÁO: CHỈ ĐỌC CHÍNH XÁC NHỮNG GÌ CÓ TRONG ẢNH. KHÔNG TỰ BỊA THÊM.
+
+        Yêu cầu trả lời thân thiện, trình bày rõ (sử dụng in đậm **):
         1. 📝 **Bản gốc (OCR)**: (Ghi lại chính xác tiếng Nhật có trong ảnh).
         2. 🇻🇳 **Bản dịch**: (Dịch mượt mà theo ngữ cảnh).
         3. 🧩 **Phân tích ngữ pháp**: (Giải thích chi tiết các điểm ngữ pháp).
         4. 📚 **Từ vựng nổi bật**: (Liệt kê kèm Hiragana và nghĩa).`;
-        // 5. Gọi API gửi cả Text và Ảnh
+
+        // 5. Gọi API gửi cả Text và Ảnh (base64 tinh khiết)
         const aiResponse = await callGeminiAI(systemPrompt, base64ForAPI);
 
         // 6. Ẩn Loading và Hiển thị kết quả (Bọc luôn X-Ray Kanji)
@@ -9796,7 +9800,7 @@ async function handleInstantImageSend(file) {
 
         let formattedAI = aiResponse.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1d1d1f;">$1</b>');
         formattedAI = formattedAI.replace(/\n/g, '<br>');
-        formattedAI = wrapKanjiWithLink(formattedAI); // Kích hoạt X-Ray cho chữ AI trả về
+        formattedAI = wrapKanjiWithLink(formattedAI); 
 
         const aiBubble = document.createElement('div');
         aiBubble.className = 'chat-bubble ai-bubble';
