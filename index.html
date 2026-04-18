@@ -3003,29 +3003,54 @@ body.playground-mode .main-content {
 .chat-send-btn { background: #1d1d1f; color: white; }
 .chat-send-btn:hover { transform: scale(1.05); background: #000; }
 
-/* Khu vực hiển thị Ảnh Preview */
+/* Khu vực hiển thị Ảnh Preview (Hỗ trợ nhiều ảnh) */
 .chat-image-preview {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 10px;
+    margin-left: 50px;
+    overflow-x: auto;
+    padding-bottom: 5px;
+    /* Ẩn thanh cuộn */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.chat-image-preview::-webkit-scrollbar { display: none; }
+
+.preview-item-wrapper {
     position: relative;
     display: inline-block;
-    margin-bottom: 15px;
-    margin-left: 50px;
+    flex-shrink: 0; /* Không cho ảnh bị bóp méo */
 }
+
 .chat-image-preview img {
-    max-height: 120px;
+    height: 80px; /* Thu nhỏ lại một chút cho gọn gàng */
     border-radius: 12px;
     border: 2px solid #e2e8f0;
     box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    object-fit: cover;
 }
+
 .remove-image-btn {
     position: absolute;
-    top: -10px; right: -10px;
-    background: #1d1d1f; color: white;
-    border: none; border-radius: 50%;
-    width: 26px; height: 26px;
-    font-size: 12px; font-weight: bold; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
+    top: -8px; 
+    right: -8px;
+    background: #1d1d1f; 
+    color: white;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    width: 24px; 
+    height: 24px;
+    font-size: 10px; 
+    font-weight: bold; 
+    cursor: pointer;
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    transition: transform 0.2s;
 }
+.remove-image-btn:hover { transform: scale(1.15); background: #e53e3e; }
 
 /* Áp dụng chuẩn X-Ray Kanji cho chữ trong Chat */
 .bubble-content .clickable-kanji {
@@ -9536,12 +9561,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// Xóa ảnh (Chờ Bước 3 dùng)
-function removeChatImage() {
-    document.getElementById('chatImagePreviewZone').classList.add('hidden');
-    document.getElementById('chatImagePreview').src = "";
-    document.getElementById('chatTextarea').focus();
-}
+
 /* =========================================================
    PLAYGROUND: LOGIC XỬ LÝ GỬI TIN NHẮN VÀ GỌI AI (BƯỚC 2)
 ========================================================= */
@@ -9681,10 +9701,13 @@ async function handleSendChatMessage() {
     }
 }
 /* =========================================================
-   PLAYGROUND: NÉN ẢNH & XỬ LÝ SỰ KIỆN PASTE (BƯỚC 3)
+   PLAYGROUND: LOGIC PASTE NHIỀU ẢNH VÀ CHỜ GỬI (BƯỚC 3 MỚI)
 ========================================================= */
 
-// 1. Hàm nén ảnh bằng Canvas (Chuẩn JPEG, Quality 0.7, Max Width 1200px)
+// Mảng lưu trữ các ảnh Base64 đang chờ gửi
+let pendingImages = [];
+
+// 1. Hàm nén ảnh bằng Canvas
 function compressImage(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -9696,28 +9719,21 @@ function compressImage(file) {
                 const canvas = document.createElement('canvas');
                 let width = img.width;
                 let height = img.height;
-
-                // Tính toán tỷ lệ thu nhỏ nếu ảnh rộng hơn 1200px
                 const MAX_WIDTH = 1200;
                 if (width > MAX_WIDTH) {
                     height = Math.round((height * MAX_WIDTH) / width);
                     width = MAX_WIDTH;
                 }
-
-                canvas.width = width;
-                canvas.height = height;
-                
-                // Vẽ ảnh lên canvas với kích thước mới
+                canvas.width = width; canvas.height = height;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
-
-                // Ép kiểu JPEG và giảm chất lượng xuống 70% (0.7) để tối ưu Payload Vercel
+                // Lấy dữ liệu base64 (chất lượng 0.7)
                 const base64String = canvas.toDataURL('image/jpeg', 0.7);
                 resolve(base64String);
             };
-            img.onerror = (err) => reject(new Error("Lỗi đọc dữ liệu ảnh."));
+            img.onerror = () => reject(new Error("Lỗi đọc dữ liệu ảnh."));
         };
-        reader.onerror = (err) => reject(new Error("Lỗi tải file."));
+        reader.onerror = () => reject(new Error("Lỗi tải file."));
     });
 }
 
@@ -9726,76 +9742,128 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatTextarea = document.getElementById('chatTextarea');
     if (chatTextarea) {
         chatTextarea.addEventListener('paste', async (e) => {
-            // Lấy dữ liệu từ Clipboard
             const items = (e.clipboardData || window.clipboardData).items;
-            
             for (let item of items) {
-                // Kiểm tra xem dữ liệu paste vào có phải là ảnh không
                 if (item.type.indexOf('image/') === 0) {
-                    e.preventDefault(); // Chặn hành vi dán mặc định của trình duyệt
+                    e.preventDefault(); 
                     const file = item.getAsFile();
                     if (file) {
-                        await handleInstantImageSend(file);
+                        // Nén ảnh và thêm vào mảng chờ
+                        const base64Image = await compressImage(file);
+                        pendingImages.push(base64Image);
+                        renderImagePreviews(); // Vẽ lại UI
                     }
-                    break; // Chỉ xử lý 1 ảnh mỗi lần paste
                 }
             }
         });
     }
 });
 
-// 3. Hàm xử lý Gửi ảnh trực tiếp và Gọi AI Multimodal
-async function handleInstantImageSend(file) {
+// 3. Hàm Render các ảnh đang chờ gửi ra UI
+function renderImagePreviews() {
+    const previewZone = document.getElementById('chatImagePreviewZone');
+    
+    // Nếu không có ảnh nào, ẩn khu vực preview
+    if (pendingImages.length === 0) {
+        previewZone.classList.add('hidden');
+        previewZone.innerHTML = '';
+        return;
+    }
+
+    // Hiển thị khu vực preview
+    previewZone.classList.remove('hidden');
+    previewZone.innerHTML = '';
+
+    // Tạo HTML cho từng ảnh có nút X
+    pendingImages.forEach((base64, index) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'preview-item-wrapper';
+        wrapper.innerHTML = `
+            <img src="${base64}" title="Ảnh đính kèm">
+            <button class="remove-image-btn" onclick="removePendingImage(${index})">✕</button>
+        `;
+        previewZone.appendChild(wrapper);
+    });
+}
+
+// 4. Hàm xóa 1 ảnh khỏi mảng chờ khi bấm nút X
+function removePendingImage(index) {
+    pendingImages.splice(index, 1); // Xóa phần tử tại vị trí index
+    renderImagePreviews(); // Vẽ lại UI
+    document.getElementById('chatTextarea').focus(); // Trả lại focus cho ô gõ
+}
+
+// 5. GHI ĐÈ LẠI HÀM GỬI TIN NHẮN (GỘP TEXT VÀ MẢNG ẢNH VÀO 1 LÚC)
+async function handleSendChatMessage() {
     if (!currentUser) return customAlert("Vui lòng đăng nhập để sử dụng AI!", "⚠️");
 
+    const textarea = document.getElementById('chatTextarea');
+    let text = textarea.value.trim();
+    
+    // Khóa gửi nếu không có text VÀ không có ảnh nào
+    if (!text && pendingImages.length === 0) return;
+
+    // Lưu lại mảng ảnh hiện tại để xử lý, sau đó làm trống mảng chờ
+    const imagesToSend = [...pendingImages];
+    pendingImages = []; 
+    
+    // Làm sạch UI ngay lập tức
+    textarea.value = '';
+    textarea.style.height = 'auto'; 
+    renderImagePreviews(); 
+    
     const messagesZone = document.getElementById('chatMessages');
 
+    // --- TẠO BONG BÓNG CHAT CỦA USER (Chứa text và tất cả ảnh) ---
+    let safeText = escapeHTML(text).replace(/\n/g, '<br>');
+    let formattedUserText = wrapKanjiWithLink(safeText);
+
+    const userBubble = document.createElement('div');
+    userBubble.className = 'chat-bubble user-bubble';
+    
+    // Render tất cả ảnh vào bong bóng chat
+    let imagesHTML = '';
+    if (imagesToSend.length > 0) {
+        imagesHTML = `<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">`;
+        imagesToSend.forEach(imgBase64 => {
+            imagesHTML += `<img src="${imgBase64}" style="height: 150px; border-radius: 12px; border: 1px solid #e2e8f0; cursor: pointer;" onclick="window.open(this.src)">`;
+        });
+        imagesHTML += `</div>`;
+    }
+    
+    userBubble.innerHTML = `<div class="bubble-content">${imagesHTML}${formattedUserText}</div>`;
+    messagesZone.appendChild(userBubble);
+    scrollToBottom();
+
+    // --- TẠO BONG BÓNG AI LOADING ---
+    const loadingBubble = document.createElement('div');
+    loadingBubble.className = 'chat-bubble ai-bubble';
+    loadingBubble.id = 'aiLoadingBubble';
+    loadingBubble.innerHTML = `
+        <div class="bubble-content" style="display: flex; align-items: center; gap: 12px; color: #86868b; font-size: 15px; font-weight: 600;">
+            <div class="spinner" style="width: 18px; height: 18px; border-width: 2px; border-top-color: #a855f7;"></div>
+            Gia sư AI đang ${imagesToSend.length > 0 ? 'đọc ảnh và ' : ''}phân tích...
+        </div>
+    `;
+    messagesZone.appendChild(loadingBubble);
+    scrollToBottom();
+
     try {
-        // 1. Nén ảnh ngay lập tức (Bao gồm cả prefix data:image...)
-        const fullBase64Image = await compressImage(file);
-        
-        // Cắt bỏ phần đầu, chỉ lấy dữ liệu tinh khiết để gửi API
-        const base64ForAPI = fullBase64Image.split(',')[1];
-
-        // 2. Tạo bong bóng chat của người dùng chứa ảnh
-        const userBubble = document.createElement('div');
-        userBubble.className = 'chat-bubble user-bubble';
-        userBubble.innerHTML = `
-            <div class="bubble-content" style="padding: 10px; background: transparent; border: none;">
-                <img src="${fullBase64Image}" style="max-width: 100%; max-height: 250px; border-radius: 16px; display: block; border: 2px solid #e2e8f0; box-shadow: 0 4px 15px rgba(0,0,0,0.05); cursor: pointer;" onclick="window.open(this.src)" title="Bấm để xem ảnh gốc">
-            </div>`;
-        messagesZone.appendChild(userBubble);
-        scrollToBottom();
-
-        // 3. Tạo bong bóng "AI đang nhìn ảnh..."
-        const loadingBubble = document.createElement('div');
-        loadingBubble.className = 'chat-bubble ai-bubble';
-        loadingBubble.id = 'aiLoadingBubbleImg';
-        loadingBubble.innerHTML = `
-            <div class="bubble-content" style="display: flex; align-items: center; gap: 12px; color: #86868b; font-size: 15px; font-weight: 600;">
-                <div class="spinner" style="width: 18px; height: 18px; border-width: 2px; border-top-color: #a855f7;"></div>
-                Gia sư AI đang đọc ảnh...
-            </div>
-        `;
-        messagesZone.appendChild(loadingBubble);
-        scrollToBottom();
-
-        // 4. Prompt ÉP BUỘC ĐỌC ẢNH
-        const systemPrompt = `Đóng vai trò là giáo viên tiếng Nhật chuyên luyện thi JLPT. 
-        Hãy trích xuất văn bản (OCR) từ bức ảnh đính kèm, sau đó phân tích nội dung.
-        CẢNH BÁO: CHỈ ĐỌC CHÍNH XÁC NHỮNG GÌ CÓ TRONG ẢNH. KHÔNG TỰ BỊA THÊM.
+        // PROMPT CHUẨN JLPT
+        let systemPrompt = `Đóng vai trò là giáo viên tiếng Nhật chuyên luyện thi JLPT. 
+        Hãy phân tích nội dung học viên gửi (văn bản hoặc hình ảnh). 
+        CẢNH BÁO: CHỈ ĐỌC CHÍNH XÁC NHỮNG GÌ CÓ TRONG YÊU CẦU. KHÔNG TỰ BỊA THÊM.
 
         Yêu cầu trả lời thân thiện, trình bày rõ (sử dụng in đậm **):
-        1. 📝 **Bản gốc (OCR)**: (Ghi lại chính xác tiếng Nhật có trong ảnh).
+        1. 📝 **Bản gốc**: (Ghi lại chính xác tiếng Nhật).
         2. 🇻🇳 **Bản dịch**: (Dịch mượt mà theo ngữ cảnh).
         3. 🧩 **Phân tích ngữ pháp**: (Giải thích chi tiết các điểm ngữ pháp).
         4. 📚 **Từ vựng nổi bật**: (Liệt kê kèm Hiragana và nghĩa).`;
 
-        // 5. Gọi API gửi cả Text và Ảnh (base64 tinh khiết)
-        const aiResponse = await callGeminiAI(systemPrompt, base64ForAPI);
+        // Gọi API: Truyền Text và MẢNG ẢNH (Gửi mảng thay vì 1 string)
+        const aiResponse = await callGeminiAI(systemPrompt, imagesToSend);
 
-        // 6. Ẩn Loading và Hiển thị kết quả (Bọc luôn X-Ray Kanji)
-        const loader = document.getElementById('aiLoadingBubbleImg');
+        const loader = document.getElementById('aiLoadingBubble');
         if (loader) loader.remove();
 
         let formattedAI = aiResponse.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1d1d1f;">$1</b>');
@@ -9809,19 +9877,44 @@ async function handleInstantImageSend(file) {
         scrollToBottom();
 
     } catch (error) {
-        const loader = document.getElementById('aiLoadingBubbleImg');
+        const loader = document.getElementById('aiLoadingBubble');
         if (loader) loader.remove();
 
         const errorBubble = document.createElement('div');
         errorBubble.className = 'chat-bubble ai-bubble';
         errorBubble.innerHTML = `
             <div class="bubble-content" style="color: #e53e3e; background: #fff5f5; border-color: #feb2b2;">
-                ❌ <b>Lỗi phân tích ảnh:</b><br><span style="font-size: 14px;">${error.message}</span>
+                ❌ <b>Lỗi phân tích:</b><br><span style="font-size: 14px;">${error.message}</span>
             </div>`;
         messagesZone.appendChild(errorBubble);
         scrollToBottom();
     }
 }
+
+// 6. Nâng cấp hàm gọi Vercel API để hỗ trợ mảng ảnh
+async function callGeminiAI(promptText, imagesArray = []) {
+    try {
+        const payload = { prompt: promptText };
+        // Đính kèm mảng ảnh vào payload
+        if (imagesArray && imagesArray.length > 0) {
+            payload.images = imagesArray; 
+        }
+
+        const response = await fetch('/api/gemini', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Lỗi API AI.');
+        
+        return data.result;
+    } catch (error) {
+        throw error;
+    }
+}
+
 </script>
 <!-- ================= MODAL DÀNH RIÊNG CHO GIA SƯ AI (APPLE STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px;">
