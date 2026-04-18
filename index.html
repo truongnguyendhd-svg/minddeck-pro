@@ -3105,6 +3105,85 @@ body.playground-mode .main-content {
         font-size: 15px !important; /* Chữ nhỏ lại một chút cho dễ nhìn */
     }
 }
+/* ================= CSS CHO KHU VỰC AI BÓC TÁCH (QUICK ADD) ================= */
+.ai-extracted-zone {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px dashed #cbd5e0;
+}
+
+.ai-ext-title {
+    font-size: 12px;
+    font-weight: 800;
+    color: #8b5cf6;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.ai-ext-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    padding: 12px 15px;
+    border-radius: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+
+.ai-ext-btn:hover {
+    transform: translateY(-2px);
+    border-color: #a855f7;
+    box-shadow: 0 6px 15px rgba(168, 85, 247, 0.15);
+}
+
+.ai-ext-btn .ext-content {
+    flex: 1;
+    overflow: hidden;
+}
+
+.ai-ext-btn .ext-type {
+    font-size: 10px;
+    font-weight: 900;
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+.ext-type.vocab { background: #3b82f6; }
+.ext-type.grammar { background: #10b981; }
+.ext-type.quiz { background: #f56565; }
+
+.ai-ext-btn .ext-text {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1d1d1f;
+    vertical-align: middle;
+}
+
+.ai-ext-btn .material-symbols-outlined {
+    color: #a855f7;
+    background: #f3e8ff;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    transition: 0.2s;
+}
+.ai-ext-btn:hover .material-symbols-outlined {
+    background: #a855f7; color: white;
+}
 </style>
 </head>
 <body>
@@ -4049,6 +4128,29 @@ body.playground-mode .main-content {
             
             <button onclick="confirmSaveWordToDeck()" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; border: none; border-radius: 50px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 10px 20px rgba(139, 92, 246, 0.3);">
                 THÊM THẺ MỚI 🚀
+            </button>
+        </div>
+    </div>
+</div>
+<!-- MODAL LƯU NHANH TRẮC NGHIỆM TỪ AI -->
+<div id="saveAIQuizModal" class="modal">
+    <div class="modal-content" style="max-width: 450px;">
+        <div class="modal-header">
+            <h3><span class="material-symbols-outlined" style="color:#f56565;">quiz</span> Lưu câu hỏi Trắc nghiệm</h3>
+            <button class="close-modal" onclick="closeModal('saveAIQuizModal')">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 25px;">
+            <div id="aiQuizPreview" style="background: #fff5f5; padding: 15px; border-radius: 12px; border: 1px solid #fed7d7; margin-bottom: 20px; text-align: left;">
+                <!-- Preview câu hỏi sẽ chèn bằng JS -->
+            </div>
+            
+            <label style="font-weight: 800; color: #4a5568; font-size: 14px; display: block; margin-bottom: 10px;">Chọn bộ bài (Trắc nghiệm):</label>
+            <select id="aiQuizDeckSelect" style="width: 100%; padding: 14px; border-radius: 10px; border: 2px solid #cbd5e0; font-weight: 700; font-size: 15px; color: #2d3748; background: #fff; cursor: pointer; outline: none; margin-bottom: 25px;">
+                <option value="">Đang tải danh sách...</option>
+            </select>
+            
+            <button onclick="confirmSaveQuizToDeck()" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #f56565, #e53e3e); color: white; border: none; border-radius: 50px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 10px 20px rgba(229, 62, 62, 0.3);">
+                THÊM CÂU HỎI 🚀
             </button>
         </div>
     </div>
@@ -9621,94 +9723,163 @@ async function handleSendChatMessage() {
 
     const textarea = document.getElementById('chatTextarea');
     let text = textarea.value.trim();
-
-    // Kiểm tra xem có ảnh đính kèm không (Chuẩn bị cho Bước 3)
-    const imgPreviewZone = document.getElementById('chatImagePreviewZone');
-    const hasImage = !imgPreviewZone.classList.contains('hidden');
     
-    // Khóa gửi nếu rỗng
-    if (!text && !hasImage) return;
+    if (!text && pendingImages.length === 0) return;
 
-    // Lấy Base64 của ảnh nếu có
-    let imageBase64 = null;
-    if (hasImage) {
-        imageBase64 = document.getElementById('chatImagePreview').src;
-    }
-
-    // --- BƯỚC A: LÀM SẠCH KHUNG NHẬP LIỆU ---
+    const imagesToSend = [...pendingImages];
+    pendingImages = []; 
+    
     textarea.value = '';
-    textarea.style.height = 'auto'; // Reset chiều cao textarea
-    removeChatImage(); // Xóa ảnh preview đi
+    textarea.style.height = 'auto'; 
+    renderImagePreviews(); 
     
     const messagesZone = document.getElementById('chatMessages');
 
-    // --- BƯỚC B: TẠO BONG BÓNG CHAT CỦA USER ---
-    // 1. Chống XSS (Mã độc)
-    let safeText = escapeHTML(text);
-    // 2. Đổi dấu xuống dòng \n thành thẻ <br>
-    safeText = safeText.replace(/\n/g, '<br>');
-    // 3. Bọc X-Ray Kanji để user có thể click vào chữ mình vừa gõ
+    let safeText = escapeHTML(text).replace(/\n/g, '<br>');
     let formattedUserText = wrapKanjiWithLink(safeText);
 
     const userBubble = document.createElement('div');
     userBubble.className = 'chat-bubble user-bubble';
     
-    // Nếu có ảnh, nhét ảnh vào trước dòng text
-    let imgHTML = imageBase64 ? `<img src="${imageBase64}" style="max-width: 250px; border-radius: 12px; margin-bottom: 10px; display: block; border: 1px solid #e2e8f0;">` : '';
+    let imagesHTML = '';
+    if (imagesToSend.length > 0) {
+        imagesHTML = `<div class="bubble-image-grid">`;
+        imagesToSend.forEach(imgBase64 => {
+            imagesHTML += `<img src="${imgBase64}" class="chat-bubble-image" onclick="window.open(this.src, '_blank')" title="Bấm để xem toàn bộ ảnh">`;
+        });
+        imagesHTML += `</div>`;
+    }
     
-    userBubble.innerHTML = `<div class="bubble-content">${imgHTML}${formattedUserText}</div>`;
+    userBubble.innerHTML = `<div class="bubble-content">${imagesHTML}${formattedUserText}</div>`;
     messagesZone.appendChild(userBubble);
     scrollToBottom();
 
-    // --- BƯỚC C: TẠO HIỆU ỨNG "AI ĐANG SUY NGHĨ" ---
     const loadingBubble = document.createElement('div');
     loadingBubble.className = 'chat-bubble ai-bubble';
     loadingBubble.id = 'aiLoadingBubble';
     loadingBubble.innerHTML = `
         <div class="bubble-content" style="display: flex; align-items: center; gap: 12px; color: #86868b; font-size: 15px; font-weight: 600;">
             <div class="spinner" style="width: 18px; height: 18px; border-width: 2px; border-top-color: #a855f7;"></div>
-            Gia sư AI đang phân tích đoạn văn...
+            Gia sư AI đang ${imagesToSend.length > 0 ? 'đọc ảnh và ' : ''}phân tích...
         </div>
     `;
     messagesZone.appendChild(loadingBubble);
     scrollToBottom();
 
-    // --- BƯỚC D: GỌI GEMINI API ---
     try {
-        // Viết Prompt chuyên biệt cho tính năng Đọc hiểu
+        // --- NÂNG CẤP PROMPT: ÉP AI TRẢ VỀ JSON KHỐI DỮ LIỆU ---
         let systemPrompt = `Đóng vai trò là giáo viên tiếng Nhật chuyên luyện thi JLPT. 
-        Hãy phân tích đoạn văn bản sau của học viên: "${text}".
+        Phân tích nội dung học viên gửi (văn bản hoặc hình ảnh). CHỈ ĐỌC CHÍNH XÁC NHỮNG GÌ CÓ TRONG YÊU CẦU. KHÔNG TỰ BỊA.
+
+        Yêu cầu 1: Trình bày text bình thường:
+        1. 📝 **Bản gốc**: (Ghi lại tiếng Nhật).
+        2. 🇻🇳 **Bản dịch**: (Dịch mượt mà).
+        3. 🧩 **Phân tích**: (Giải thích ngữ pháp).
         
-        Yêu cầu trả lời thân thiện, dễ hiểu. Cấu trúc trình bày (sử dụng in đậm **):
-        1. 🇻🇳 **Bản dịch tiếng Việt**: (Dịch mượt mà, tự nhiên theo ngữ cảnh).
-        2. 🧩 **Phân tích ngữ pháp**: (Giải thích ngắn gọn các điểm ngữ pháp xuất hiện trong câu).
-        3. 📚 **Từ vựng nổi bật**: (Liệt kê từ vựng quan trọng, kèm Hiragana và nghĩa).`;
+        Yêu cầu 2: CUỐI CÙNG, HÃY TẠO RA 1 KHỐI JSON (Nằm trong \`\`\`json và \`\`\`) chứa dữ liệu bóc tách để làm Flashcard/Trắc nghiệm. Format BẮT BUỘC:
+        \`\`\`json
+        {
+          "vocab": [{"front": "Từ/Kanji", "reading": "Cách đọc", "meaning": "Nghĩa", "example": "Câu chứa từ đó"}],
+          "grammar": [{"point": "Ngữ pháp", "meaning": "Nghĩa", "note": "Giải thích"}],
+          "quiz": [{"question": "Tạo 1 câu trắc nghiệm liên quan", "correct": "Đáp án đúng", "wrong1": "Sai 1", "wrong2": "Sai 2", "wrong3": "Sai 3"}]
+        }
+        \`\`\``;
 
-        // Gọi API (Nếu sau này bạn nâng cấp API trên Vercel nhận cả ảnh, bạn truyền thêm imageBase64 vào)
-        const aiResponse = await callGeminiAI(systemPrompt);
+        const aiResponse = await callGeminiAI(systemPrompt, imagesToSend);
 
-        // Xóa bong bóng Loading
         const loader = document.getElementById('aiLoadingBubble');
         if (loader) loader.remove();
 
-        // --- BƯỚC E: HIỂN THỊ BONG BÓNG AI ---
-        // Biến markdown in đậm **text** thành thẻ HTML <b>
-        let formattedAI = aiResponse.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1d1d1f;">$1</b>');
-        // Xuống dòng
-        formattedAI = formattedAI.replace(/\n/g, '<br>');
+        // --- BÓC TÁCH JSON KHỎI TEXT ---
+        let mainText = aiResponse;
+        let extractedData = null;
         
-        // Cực kỳ tinh tế: Cho AI tự động bọc Kanji chính câu trả lời của nó! 
-        // User đọc lời giải thích mà bí từ nào thì click tra X-Ray luôn từ đó.
-        formattedAI = wrapKanjiWithLink(formattedAI);
+        // Dùng Regex để tìm khối ```json ... ```
+        const jsonMatch = aiResponse.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch && jsonMatch[1]) {
+            try {
+                extractedData = JSON.parse(jsonMatch[1]);
+                // Xóa khối JSON khỏi Text hiển thị cho User
+                mainText = aiResponse.replace(/```json\s*([\s\S]*?)\s*```/, '').trim();
+            } catch (e) {
+                console.error("AI trả về JSON lỗi format:", e);
+            }
+        }
+
+        // Format Text (Bold, Xuống dòng, X-Ray)
+        let formattedAI = mainText.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1d1d1f;">$1</b>');
+        formattedAI = formattedAI.replace(/\n/g, '<br>');
+        formattedAI = wrapKanjiWithLink(formattedAI); 
+
+        // --- TẠO CÁC NÚT "THÊM NHANH" (QUICK ADD) TỪ JSON ---
+        let extractUI = "";
+        if (extractedData) {
+            extractUI += `<div class="ai-extracted-zone">
+                            <div class="ai-ext-title"><span class="material-symbols-outlined" style="font-size: 16px;">library_add</span> Bóc tách tự động:</div>`;
+            
+            // Render Nút Từ Vựng
+            if (extractedData.vocab && extractedData.vocab.length > 0) {
+                extractedData.vocab.forEach(v => {
+                    const encFront = encodeURIComponent(v.front || '');
+                    const encReading = encodeURIComponent(v.reading || '');
+                    const encMeaning = encodeURIComponent(v.meaning || '');
+                    const encEx = encodeURIComponent(v.example || '');
+                    
+                    extractUI += `
+                    <div class="ai-ext-btn" onclick="openSaveDictWordModal('${encFront}', '${encReading}', '${encMeaning}', '', '${encEx}')">
+                        <div class="ext-content">
+                            <span class="ext-type vocab">TỪ VỰNG</span>
+                            <span class="ext-text">${escapeHTML(v.front)} - ${escapeHTML(v.meaning)}</span>
+                        </div>
+                        <span class="material-symbols-outlined">add</span>
+                    </div>`;
+                });
+            }
+
+            // Render Nút Ngữ Pháp
+            if (extractedData.grammar && extractedData.grammar.length > 0) {
+                extractedData.grammar.forEach(g => {
+                    const encFront = encodeURIComponent(g.point || '');
+                    const encMeaning = encodeURIComponent(g.meaning || '');
+                    const encInfo = encodeURIComponent(g.note || '');
+                    
+                    extractUI += `
+                    <div class="ai-ext-btn" onclick="openSaveDictWordModal('${encFront}', '', '${encMeaning}', '${encInfo}', '')">
+                        <div class="ext-content">
+                            <span class="ext-type grammar">NGỮ PHÁP</span>
+                            <span class="ext-text">${escapeHTML(g.point)}</span>
+                        </div>
+                        <span class="material-symbols-outlined">add</span>
+                    </div>`;
+                });
+            }
+
+            // Render Nút Trắc Nghiệm
+            if (extractedData.quiz && extractedData.quiz.length > 0) {
+                extractedData.quiz.forEach(q => {
+                    // Mã hóa object thành string để truyền qua onclick
+                    const safeQuizJSON = encodeURIComponent(JSON.stringify(q));
+                    
+                    extractUI += `
+                    <div class="ai-ext-btn" onclick="openSaveAIQuizModal('${safeQuizJSON}')">
+                        <div class="ext-content">
+                            <span class="ext-type quiz">TRẮC NGHIỆM</span>
+                            <span class="ext-text" style="font-size: 13px;">${escapeHTML(q.question)}</span>
+                        </div>
+                        <span class="material-symbols-outlined">add</span>
+                    </div>`;
+                });
+            }
+            extractUI += `</div>`; // Đóng zone
+        }
 
         const aiBubble = document.createElement('div');
         aiBubble.className = 'chat-bubble ai-bubble';
-        aiBubble.innerHTML = `<div class="bubble-content">${formattedAI}</div>`;
+        aiBubble.innerHTML = `<div class="bubble-content">${formattedAI}${extractUI}</div>`;
         messagesZone.appendChild(aiBubble);
         scrollToBottom();
 
     } catch (error) {
-        // Xử lý lỗi nếu gọi API thất bại
         const loader = document.getElementById('aiLoadingBubble');
         if (loader) loader.remove();
 
@@ -9716,7 +9887,7 @@ async function handleSendChatMessage() {
         errorBubble.className = 'chat-bubble ai-bubble';
         errorBubble.innerHTML = `
             <div class="bubble-content" style="color: #e53e3e; background: #fff5f5; border-color: #feb2b2;">
-                ❌ <b>Lỗi kết nối:</b> Không thể phân tích lúc này.<br><span style="font-size: 14px;">${error.message}</span>
+                ❌ <b>Lỗi phân tích:</b><br><span style="font-size: 14px;">${error.message}</span>
             </div>`;
         messagesZone.appendChild(errorBubble);
         scrollToBottom();
@@ -9937,7 +10108,90 @@ async function callGeminiAI(promptText, imagesArray = []) {
         throw error;
     }
 }
+/* =========================================================
+   HÀM LƯU NHANH TRẮC NGHIỆM TỪ AI VÀO BỘ BÀI
+========================================================= */
+let currentExtractedQuiz = null;
 
+async function openSaveAIQuizModal(encodedQuizJSON) {
+    if (!currentUser) return customAlert("Vui lòng đăng nhập để lưu thẻ!");
+
+    // Giải mã Object câu hỏi AI trả về
+    currentExtractedQuiz = JSON.parse(decodeURIComponent(encodedQuizJSON));
+
+    // Hiển thị Preview lên Modal
+    document.getElementById('aiQuizPreview').innerHTML = `
+        <div style="font-weight:800; color:#2d3748; margin-bottom: 8px;">Q: ${escapeHTML(currentExtractedQuiz.question)}</div>
+        <div style="color:#38a169; font-weight:700; font-size:14px; margin-bottom: 4px;">✓ ĐÚNG: ${escapeHTML(currentExtractedQuiz.correct)}</div>
+        <div style="color:#e53e3e; font-size:13px;">✗ SAI: ${escapeHTML(currentExtractedQuiz.wrong1)}, ${escapeHTML(currentExtractedQuiz.wrong2)}, ${escapeHTML(currentExtractedQuiz.wrong3)}</div>
+    `;
+
+    document.getElementById('saveAIQuizModal').style.display = 'flex';
+    
+    // Tải danh sách bộ bài TRẮC NGHIỆM (type = 'quiz')
+    const selectEl = document.getElementById('aiQuizDeckSelect');
+    selectEl.innerHTML = '<option value="">Đang tải danh sách học phần...</option>';
+
+    try {
+        const { data: decks, error } = await sb.from('decks')
+            .select('id')
+            .eq('type', 'quiz')
+            .eq('owner_id', currentUser.id);
+            
+        if (error) throw error;
+
+        if (!decks || decks.length === 0) {
+            selectEl.innerHTML = '<option value="">Bạn chưa có bộ bài Trắc nghiệm nào. Hãy tạo trước nhé!</option>';
+            selectEl.disabled = true;
+            return;
+        }
+
+        selectEl.disabled = false;
+        let html = '';
+        decks.forEach(d => {
+            html += `<option value="${d.id}">${getCleanName(d.id)}</option>`;
+        });
+        selectEl.innerHTML = html;
+
+    } catch (err) {
+        console.error("Lỗi lấy danh sách deck quiz:", err);
+        selectEl.innerHTML = '<option value="">Lỗi tải dữ liệu.</option>';
+    }
+}
+
+async function confirmSaveQuizToDeck() {
+    const deckId = document.getElementById('aiQuizDeckSelect').value;
+    if (!deckId) return customAlert("Vui lòng chọn một bộ bài hợp lệ!", "⚠️");
+    if (!currentExtractedQuiz) return;
+
+    showLoading("Đang lưu câu hỏi...");
+    try {
+        // Format theo chuẩn bảng Cards (Front = Question, Back = Correct, Info = Đáp án trộn)
+        const frontData = currentExtractedQuiz.question;
+        const backData = currentExtractedQuiz.correct;
+        
+        let options = [currentExtractedQuiz.correct, currentExtractedQuiz.wrong1, currentExtractedQuiz.wrong2, currentExtractedQuiz.wrong3].filter(Boolean);
+        options.sort(() => Math.random() - 0.5); // Trộn đáp án
+        const infoData = options.join('\n');
+
+        const { error } = await sb.from('cards').insert([{
+            deck_id: deckId,
+            front: frontData,
+            back: backData,
+            info: infoData
+        }]);
+
+        if (error) throw error;
+
+        closeModal('saveAIQuizModal');
+        showToast("Đã thêm Câu hỏi trắc nghiệm thành công! ✨");
+    } catch (err) {
+        console.error("Lỗi lưu quiz:", err);
+        customAlert("Không thể lưu. Vui lòng thử lại.", "❌");
+    } finally {
+        hideLoading();
+    }
+}
 </script>
 <!-- ================= MODAL DÀNH RIÊNG CHO GIA SƯ AI (APPLE STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px;">
