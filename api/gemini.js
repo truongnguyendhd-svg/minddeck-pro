@@ -16,13 +16,15 @@ export default async function handler(req, res) {
     let lastErrorMessage = "";
 
     // 2. CHUẨN BỊ DỮ LIỆU GỬI LÊN GOOGLE (MULTIMODAL PAYLOAD)
+    // Cấu trúc bắt buộc của Gemini khi nhận Text
     let partsArray = [{ text: prompt }];
 
-    // NẾU FRONTEND CÓ GỬI ẢNH -> NHÉT THÊM ẢNH VÀO MẢNG PARTS
+    // NẾU FRONTEND GỬI ẢNH -> NHÉT THÊM ẢNH VÀO MẢNG PARTS
     if (image) {
-        // Tự động dọn dẹp chuỗi base64 (Cắt bỏ 'data:image/jpeg;base64,' nếu frontend lỡ gửi kèm)
+        // Lọc chuỗi base64 (Cắt bỏ 'data:image/jpeg;base64,' nếu frontend lỡ gửi kèm)
         const cleanBase64 = image.includes(',') ? image.split(',')[1] : image;
         
+        // Thêm Object chứa ảnh vào mảng
         partsArray.push({
             inlineData: {
                 mimeType: "image/jpeg",
@@ -37,16 +39,18 @@ export default async function handler(req, res) {
         const currentKey = apiKeys[currentIndex];
 
         try {
-            // LƯU Ý: Nếu model gemini-3-flash-preview bị lỗi, hãy đổi thành gemini-1.5-flash
-            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${currentKey}`;
+            // TRẢ LẠI MODEL gemini-3-flash-preview NHƯ YÊU CẦU CỦA BẠN
+            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${currentKey}`;
             
             const response = await fetch(geminiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    // Đưa mảng partsArray đã ghép ảnh (nếu có) vào đây
+                    // Truyền mảng partsArray (Đã chứa cả Text và Ảnh) vào request
                     contents: [{ parts: partsArray }], 
-                    generationConfig: { temperature: 0.2 } // Giảm temperature xuống 0.2 để OCR chính xác hơn, bớt bịa
+                    
+                    // Vẫn nên giữ temperature thấp (0.2) để AI tập trung làm OCR, không bịa chữ
+                    generationConfig: { temperature: 0.2 } 
                 })
             });
 
