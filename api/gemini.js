@@ -3,8 +3,9 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    // 1. LẤY CẢ PROMPT VÀ IMAGE TỪ FRONTEND
-    const { prompt, image } = req.body;
+    // 1. LẤY PROMPT VÀ MẢNG IMAGE(S) TỪ FRONTEND
+    // Frontend gửi key là 'images' (số nhiều)
+    const { prompt, images } = req.body;
 
     const keysString = process.env.GEMINI_API_KEYS; 
     if (!keysString) {
@@ -15,21 +16,21 @@ export default async function handler(req, res) {
     let startIndex = Math.floor(Math.random() * apiKeys.length);
     let lastErrorMessage = "";
 
-    // 2. CHUẨN BỊ DỮ LIỆU GỬI LÊN GOOGLE (MULTIMODAL PAYLOAD)
-    // Cấu trúc bắt buộc của Gemini khi nhận Text
+    // 2. CHUẨN BỊ DỮ LIỆU GỬI LÊN GOOGLE
     let partsArray = [{ text: prompt }];
 
-    // NẾU FRONTEND GỬI ẢNH -> NHÉT THÊM ẢNH VÀO MẢNG PARTS
-    if (image) {
-        // Lọc chuỗi base64 (Cắt bỏ 'data:image/jpeg;base64,' nếu frontend lỡ gửi kèm)
-        const cleanBase64 = image.includes(',') ? image.split(',')[1] : image;
-        
-        // Thêm Object chứa ảnh vào mảng
-        partsArray.push({
-            inlineData: {
-                mimeType: "image/jpeg",
-                data: cleanBase64
-            }
+    // NẾU CÓ ẢNH (MẢNG) -> DÙNG VÒNG LẶP ĐỂ THÊM VÀO
+    if (images && Array.isArray(images) && images.length > 0) {
+        images.forEach(imgString => {
+            // Lọc chuỗi base64 (Cắt bỏ 'data:image/jpeg;base64,')
+            const cleanBase64 = imgString.includes(',') ? imgString.split(',')[1] : imgString;
+            
+            partsArray.push({
+                inlineData: {
+                    mimeType: "image/jpeg",
+                    data: cleanBase64
+                }
+            });
         });
     }
 
@@ -39,17 +40,14 @@ export default async function handler(req, res) {
         const currentKey = apiKeys[currentIndex];
 
         try {
-            // TRẢ LẠI MODEL gemini-3-flash-preview NHƯ YÊU CẦU CỦA BẠN
+            // Gọi model gemini-3-flash-preview theo ý bạn
             const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${currentKey}`;
             
             const response = await fetch(geminiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    // Truyền mảng partsArray (Đã chứa cả Text và Ảnh) vào request
                     contents: [{ parts: partsArray }], 
-                    
-                    // Vẫn nên giữ temperature thấp (0.2) để AI tập trung làm OCR, không bịa chữ
                     generationConfig: { temperature: 0.2 } 
                 })
             });
