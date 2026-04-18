@@ -4624,7 +4624,15 @@ body.playground-mode .main-content {
             
             <div class="grid-2-col" style="margin-bottom: 0;">
                 <div>
-                    <label style="font-size: 12px; color: #4a5568;">TỪ VỰNG / KANJI *</label>
+                    <!-- Cập nhật khối nhãn chứa Nút AI -->
+                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 5px;">
+                        <label style="font-size: 12px; color: #4a5568; margin: 0; font-weight: bold;">TỪ VỰNG / KANJI *</label>
+                        
+                        <!-- NÚT AI GENERATE -->
+                        <button id="btnAiAutoFill" onclick="autoFillDictAdminWithAI()" style="background: #f3e8ff; color: #8b5cf6; border: 1px solid #d8b4fe; border-radius: 6px; font-size: 11px; font-weight: 800; padding: 4px 10px; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s;">
+                            <span class="material-symbols-outlined" style="font-size: 14px;">auto_awesome</span> ĐIỀN TỰ ĐỘNG
+                        </button>
+                    </div>
                     <input type="text" id="dictAdminWord" class="row-input" style="font-size: 20px; font-weight: 900; color: #1e3a8a;">
                 </div>
                 <div>
@@ -8701,6 +8709,8 @@ function openDictAdminModal(dictObj, isAdmin, isNew = false) {
 
     // Mở Wanakana cho ô Reading
     if(typeof wanakana !== 'undefined') wanakana.bind(document.getElementById('dictAdminReading'));
+    const aiBtn = document.getElementById('btnAiAutoFill');
+    if (aiBtn) aiBtn.style.display = isAdmin ? 'flex' : 'none'; // Chỉ Admin mới thấy nút AI
 
     // Tùy biến giao diện theo Quyền
     if (!isAdmin) {
@@ -10387,6 +10397,70 @@ document.addEventListener('click', (e) => {
         }
     }
 });
+/* ================= AI ĐIỀN TỰ ĐỘNG TỪ ĐIỂN ADMIN ================= */
+async function autoFillDictAdminWithAI() {
+    const wordInput = document.getElementById('dictAdminWord').value.trim();
+    
+    if (!wordInput) {
+        return customAlert("Vui lòng nhập Từ vựng hoặc Kanji vào ô đầu tiên trước khi gọi AI!", "⚠️");
+    }
+
+    const aiBtn = document.getElementById('btnAiAutoFill');
+    const originalHTML = aiBtn.innerHTML;
+    
+    // Đổi giao diện nút thành Loading
+    aiBtn.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:#8b5cf6;margin-right:5px;"></div> Đang xử lý...`;
+    aiBtn.disabled = true;
+    aiBtn.style.opacity = "0.7";
+
+    // Lệnh Prompt bắt AI trả đúng chuẩn JSON
+    const prompt = `Bạn là một chuyên gia ngôn ngữ Nhật Bản. Hãy phân tích từ vựng sau: "${wordInput}".
+    Trả về CHỈ MỘT KHỐI JSON DUY NHẤT (không dùng markdown \`\`\`json, không giải thích thêm, không có text bên ngoài), với định dạng chính xác như sau:
+    {
+        "reading": "Cách đọc Hiragana (Nếu là Katakana thì giữ Katakana)",
+        "meaning": "Ý nghĩa tiếng Việt ngắn gọn, rõ ràng",
+        "kanji_meaning": "Nghĩa Hán Việt (VIẾT HOA TOÀN BỘ, nếu không có Kanji thì để trống)",
+        "level": "Chỉ ghi một trong các chữ: N5, N4, N3, N2, N1 (Dự đoán cấp độ JLPT phù hợp)",
+        "example": "Câu ví dụ tiếng Nhật ngắn gọn (Nghĩa tiếng Việt của câu ví dụ)"
+    }`;
+
+    try {
+        let aiResponse = await callGeminiAI(prompt);
+        
+        // Làm sạch response để chống lỗi Parse JSON nếu AI vô tình bọc Markdown
+        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        const data = JSON.parse(aiResponse);
+
+        // Bơm dữ liệu vào các ô Input
+        if (data.reading) document.getElementById('dictAdminReading').value = data.reading;
+        if (data.meaning) document.getElementById('dictAdminMeaning').value = data.meaning;
+        if (data.kanji_meaning) document.getElementById('dictAdminKanji').value = data.kanji_meaning;
+        
+        // Chọn tự động Level (N1-N5)
+        if (data.level) {
+            const levelSelect = document.getElementById('dictAdminLevel');
+            const targetLevel = data.level.toUpperCase().trim();
+            // Kiểm tra xem option đó có tồn tại trong select không
+            if (Array.from(levelSelect.options).some(opt => opt.value === targetLevel)) {
+                levelSelect.value = targetLevel;
+            }
+        }
+        
+        if (data.example) document.getElementById('dictAdminExample').value = data.example;
+
+        showToast("✨ Đã điền tự động thành công!");
+
+    } catch (err) {
+        console.error("Lỗi AI Auto Fill:", err);
+        customAlert("AI không thể phân tích từ này hoặc trả về sai định dạng. Vui lòng thử lại.", "❌");
+    } finally {
+        // Trả lại nút như cũ
+        aiBtn.innerHTML = originalHTML;
+        aiBtn.disabled = false;
+        aiBtn.style.opacity = "1";
+    }
+}
 </script>
 <!-- ================= MODAL DÀNH RIÊNG CHO GIA SƯ AI (APPLE STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px;">
