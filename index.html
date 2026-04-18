@@ -3285,30 +3285,87 @@ body.playground-mode .main-content {
         text-align: center;
     }
 }
-/* ================= MENU CHỌN CHẾ ĐỘ AI PLAYGROUND ================= */
-.ai-mode-selector {
+/* ================= CSS LỰA CHỌN CHẾ ĐỘ AI (POPUP) ================= */
+.ai-mode-trigger {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-bottom: 8px;
-    padding-left: 5px;
-    color: #8b5cf6; /* Màu tím AI */
-}
-.ai-mode-selector select {
-    background: transparent;
+    background: #f3e8ff;
+    color: #8b5cf6;
     border: none;
-    font-size: 13px;
-    font-weight: 800;
-    color: #1d1d1f;
-    outline: none;
+    border-radius: 20px;
+    padding: 8px 12px;
+    margin-bottom: 2px; /* Căn chỉnh cho bằng với nút Gửi */
     cursor: pointer;
     font-family: 'Noto Sans JP', sans-serif;
-    /* Xóa mũi tên mặc định trên iOS/Android để trông liền mạch hơn */
-    appearance: none; 
-    -webkit-appearance: none;
+    font-weight: 700;
+    font-size: 13px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
 }
-.ai-mode-selector select:hover {
-    color: #8b5cf6;
+.ai-mode-trigger:hover {
+    background: #e9d5ff;
+    transform: scale(1.02);
+}
+.ai-mode-trigger .material-symbols-outlined {
+    font-size: 18px;
+}
+
+/* Bảng menu nổi lên */
+.ai-mode-dropdown {
+    position: absolute;
+    bottom: calc(100% + 15px); /* Nổi lên phía trên khung nhập liệu */
+    left: 0;
+    background: #ffffff;
+    border-radius: 16px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.1), 0 5px 15px rgba(0,0,0,0.05);
+    border: 1px solid #e2e8f0;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 1000;
+    min-width: 260px;
+    transform-origin: bottom left;
+    animation: popMenu 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.ai-mode-dropdown.hidden {
+    display: none;
+}
+@keyframes popMenu {
+    from { opacity: 0; transform: scale(0.9) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Các mục bên trong menu */
+.ai-mode-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 15px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: #4a5568;
+    transition: all 0.2s ease;
+}
+.ai-mode-item:hover {
+    background: #f8fafc;
+    color: #1d1d1f;
+}
+.ai-mode-item.active {
+    background: #eff6ff;
+    color: #3b82f6;
+}
+.ai-mode-item .material-symbols-outlined {
+    font-size: 20px;
+}
+
+/* Ẩn chữ trên nút trigger khi dùng điện thoại để tiết kiệm chỗ */
+@media (max-width: 600px) {
+    #aiModeTriggerText { display: none; }
+    .ai-mode-trigger { padding: 8px; border-radius: 50%; width: 36px; height: 36px; justify-content: center; }
 }
 </style>
 </head>
@@ -4503,15 +4560,7 @@ body.playground-mode .main-content {
 
     <!-- 2. Vùng nhập liệu ghim ở đáy (Sticky Bottom) -->
     <div class="chat-input-wrapper">
-        <!-- THÊM MỚI: Thanh chọn chế độ AI -->
-        <div class="ai-mode-selector">
-            <span class="material-symbols-outlined" style="font-size: 16px;">smart_toy</span>
-            <select id="playgroundAiMode">
-                <option value="analyze">✨ Phân tích & Bóc tách thẻ</option>
-                <option value="tutor">🎓 Gia sư giải đáp thắc mắc</option>
-                <option value="chat">💬 Luyện giao tiếp / Sửa lỗi</option>
-            </select>
-        </div>
+
         <!-- Khu vực hiển thị ảnh paste (Mặc định ẩn) -->
         <div id="chatImagePreviewZone" class="chat-image-preview hidden">
             <img id="chatImagePreview" src="" alt="Preview">
@@ -4519,10 +4568,25 @@ body.playground-mode .main-content {
         </div>
         
         <!-- Khung nhập text và nút gửi -->
-        <div class="chat-input-box">
-            <button class="chat-icon-btn" title="Đính kèm ảnh" onclick="customAlert('Tính năng này sẽ kích hoạt ở Bước 3. Nhấn Ctrl+V để dán ảnh nhé!')">
-                <span class="material-symbols-outlined">image</span>
+        <div class="chat-input-box" style="position: relative;">
+            <!-- NÚT MỚI: CHỌN CHẾ ĐỘ AI -->
+            <button id="aiModeTriggerBtn" class="ai-mode-trigger" onclick="toggleAiModeMenu(event)">
+                <span class="material-symbols-outlined" id="aiModeTriggerIcon">auto_awesome</span>
+                <span id="aiModeTriggerText">Bóc tách thẻ</span>
             </button>
+    
+            <!-- BẢNG POPUP MENU LỰA CHỌN CHẾ ĐỘ (Ẩn mặc định) -->
+            <div id="aiModeDropdown" class="ai-mode-dropdown hidden">
+                <div class="ai-mode-item active" onclick="selectAiMode('analyze', 'Bóc tách thẻ', 'auto_awesome', this)">
+                    <span class="material-symbols-outlined">auto_awesome</span> Phân tích & Bóc tách thẻ
+                </div>
+                <div class="ai-mode-item" onclick="selectAiMode('tutor', 'Gia sư', 'school', this)">
+                    <span class="material-symbols-outlined">school</span> Gia sư giải đáp thắc mắc
+                </div>
+                <div class="ai-mode-item" onclick="selectAiMode('chat', 'Trò chuyện', 'chat', this)">
+                    <span class="material-symbols-outlined">chat</span> Luyện giao tiếp / Sửa lỗi
+                </div>
+            </div>
             
             <textarea id="chatTextarea" rows="1" placeholder="Nhập văn bản tiếng Nhật hoặc dán ảnh (Ctrl+V)..."></textarea>
             
@@ -10023,7 +10087,7 @@ async function handleSendChatMessage() {
 
     try {
 // --- CHỌN PROMPT DỰA TRÊN CHẾ ĐỘ NGƯỜI DÙNG CHỌN ---
-        const aiMode = document.getElementById('playgroundAiMode').value;
+        const aiMode = currentAiMode;
         let systemPrompt = "";
 
         if (aiMode === 'analyze') {
@@ -10269,7 +10333,46 @@ async function confirmSaveQuizToDeck() {
         hideLoading();
     }
 }
+/* ================= QUẢN LÝ TRẠNG THÁI CHẾ ĐỘ AI ================= */
+let currentAiMode = 'analyze'; // Mặc định là chế độ bóc tách
 
+function toggleAiModeMenu(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const dropdown = document.getElementById('aiModeDropdown');
+    dropdown.classList.toggle('hidden');
+}
+
+function selectAiMode(mode, shortText, iconName, element) {
+    currentAiMode = mode; // Lưu vào biến toàn cục
+    
+    // Cập nhật giao diện nút
+    document.getElementById('aiModeTriggerText').innerText = shortText;
+    document.getElementById('aiModeTriggerIcon').innerText = iconName;
+
+    // Cập nhật trạng thái 'active' trong menu
+    document.querySelectorAll('.ai-mode-item').forEach(el => el.classList.remove('active'));
+    if (element) element.classList.add('active');
+
+    // Ẩn menu
+    document.getElementById('aiModeDropdown').classList.add('hidden');
+    
+    // Focus lại vào ô nhập liệu
+    document.getElementById('chatTextarea').focus();
+}
+
+// Bắt sự kiện click ra ngoài để tự động đóng popup menu
+document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('aiModeDropdown');
+    const triggerBtn = document.getElementById('aiModeTriggerBtn');
+    
+    if (dropdown && !dropdown.classList.contains('hidden')) {
+        // Nếu click không trúng menu và không trúng nút mở menu thì đóng nó lại
+        if (!dropdown.contains(e.target) && !triggerBtn.contains(e.target)) {
+            dropdown.classList.add('hidden');
+        }
+    }
+});
 </script>
 <!-- ================= MODAL DÀNH RIÊNG CHO GIA SƯ AI (APPLE STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px;">
