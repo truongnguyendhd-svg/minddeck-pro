@@ -4196,7 +4196,7 @@ body.playground-mode .main-content {
             
             <textarea id="chatTextarea" rows="1" placeholder="Nhập văn bản tiếng Nhật hoặc dán ảnh (Ctrl+V)..."></textarea>
             
-            <button id="chatSendBtn" class="chat-send-btn" onclick="customAlert('Tính năng gửi sẽ kích hoạt ở Bước 2!')">
+            <button id="chatSendBtn" class="chat-send-btn" onclick="handleSendChatMessage()">
                 <span class="material-symbols-outlined">arrow_upward</span>
             </button>
         </div>
@@ -9535,6 +9535,144 @@ function removeChatImage() {
     document.getElementById('chatImagePreviewZone').classList.add('hidden');
     document.getElementById('chatImagePreview').src = "";
     document.getElementById('chatTextarea').focus();
+}
+/* =========================================================
+   PLAYGROUND: LOGIC XỬ LÝ GỬI TIN NHẮN VÀ GỌI AI (BƯỚC 2)
+========================================================= */
+
+// 1. Xử lý sự kiện bàn phím cho ô Textarea
+document.addEventListener('DOMContentLoaded', () => {
+    const chatTextarea = document.getElementById('chatTextarea');
+    if (chatTextarea) {
+        chatTextarea.addEventListener('keydown', function(e) {
+            // Nếu bấm Enter và KHÔNG giữ Shift -> Gửi tin nhắn
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault(); // Ngăn không cho xuống dòng
+                handleSendChatMessage();
+            }
+            // Nếu giữ Shift + Enter -> Trình duyệt tự hiểu là xuống dòng, không cần code thêm
+        });
+    }
+});
+
+// 2. Hàm cuộn khung chat xuống dưới cùng
+function scrollToBottom() {
+    const messagesZone = document.getElementById('chatMessages');
+    // Dùng setTimeout để đảm bảo DOM đã render xong thẻ div mới trước khi cuộn
+    setTimeout(() => {
+        messagesZone.scrollTo({
+            top: messagesZone.scrollHeight,
+            behavior: 'smooth'
+        });
+    }, 50);
+}
+
+// 3. Hàm chính: Xử lý gửi tin và gọi AI
+async function handleSendChatMessage() {
+    if (!currentUser) return customAlert("Vui lòng đăng nhập để sử dụng AI!", "⚠️");
+
+    const textarea = document.getElementById('chatTextarea');
+    let text = textarea.value.trim();
+
+    // Kiểm tra xem có ảnh đính kèm không (Chuẩn bị cho Bước 3)
+    const imgPreviewZone = document.getElementById('chatImagePreviewZone');
+    const hasImage = !imgPreviewZone.classList.contains('hidden');
+    
+    // Khóa gửi nếu rỗng
+    if (!text && !hasImage) return;
+
+    // Lấy Base64 của ảnh nếu có
+    let imageBase64 = null;
+    if (hasImage) {
+        imageBase64 = document.getElementById('chatImagePreview').src;
+    }
+
+    // --- BƯỚC A: LÀM SẠCH KHUNG NHẬP LIỆU ---
+    textarea.value = '';
+    textarea.style.height = 'auto'; // Reset chiều cao textarea
+    removeChatImage(); // Xóa ảnh preview đi
+    
+    const messagesZone = document.getElementById('chatMessages');
+
+    // --- BƯỚC B: TẠO BONG BÓNG CHAT CỦA USER ---
+    // 1. Chống XSS (Mã độc)
+    let safeText = escapeHTML(text);
+    // 2. Đổi dấu xuống dòng \n thành thẻ <br>
+    safeText = safeText.replace(/\n/g, '<br>');
+    // 3. Bọc X-Ray Kanji để user có thể click vào chữ mình vừa gõ
+    let formattedUserText = wrapKanjiWithLink(safeText);
+
+    const userBubble = document.createElement('div');
+    userBubble.className = 'chat-bubble user-bubble';
+    
+    // Nếu có ảnh, nhét ảnh vào trước dòng text
+    let imgHTML = imageBase64 ? `<img src="${imageBase64}" style="max-width: 250px; border-radius: 12px; margin-bottom: 10px; display: block; border: 1px solid #e2e8f0;">` : '';
+    
+    userBubble.innerHTML = `<div class="bubble-content">${imgHTML}${formattedUserText}</div>`;
+    messagesZone.appendChild(userBubble);
+    scrollToBottom();
+
+    // --- BƯỚC C: TẠO HIỆU ỨNG "AI ĐANG SUY NGHĨ" ---
+    const loadingBubble = document.createElement('div');
+    loadingBubble.className = 'chat-bubble ai-bubble';
+    loadingBubble.id = 'aiLoadingBubble';
+    loadingBubble.innerHTML = `
+        <div class="bubble-content" style="display: flex; align-items: center; gap: 12px; color: #86868b; font-size: 15px; font-weight: 600;">
+            <div class="spinner" style="width: 18px; height: 18px; border-width: 2px; border-top-color: #a855f7;"></div>
+            Gia sư AI đang phân tích đoạn văn...
+        </div>
+    `;
+    messagesZone.appendChild(loadingBubble);
+    scrollToBottom();
+
+    // --- BƯỚC D: GỌI GEMINI API ---
+    try {
+        // Viết Prompt chuyên biệt cho tính năng Đọc hiểu
+        let systemPrompt = `Đóng vai trò là giáo viên tiếng Nhật chuyên luyện thi JLPT. 
+        Hãy phân tích đoạn văn bản sau của học viên: "${text}".
+        
+        Yêu cầu trả lời thân thiện, dễ hiểu. Cấu trúc trình bày (sử dụng in đậm **):
+        1. 🇻🇳 **Bản dịch tiếng Việt**: (Dịch mượt mà, tự nhiên theo ngữ cảnh).
+        2. 🧩 **Phân tích ngữ pháp**: (Giải thích ngắn gọn các điểm ngữ pháp xuất hiện trong câu).
+        3. 📚 **Từ vựng nổi bật**: (Liệt kê từ vựng quan trọng, kèm Hiragana và nghĩa).`;
+
+        // Gọi API (Nếu sau này bạn nâng cấp API trên Vercel nhận cả ảnh, bạn truyền thêm imageBase64 vào)
+        const aiResponse = await callGeminiAI(systemPrompt);
+
+        // Xóa bong bóng Loading
+        const loader = document.getElementById('aiLoadingBubble');
+        if (loader) loader.remove();
+
+        // --- BƯỚC E: HIỂN THỊ BONG BÓNG AI ---
+        // Biến markdown in đậm **text** thành thẻ HTML <b>
+        let formattedAI = aiResponse.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1d1d1f;">$1</b>');
+        // Xuống dòng
+        formattedAI = formattedAI.replace(/\n/g, '<br>');
+        
+        // Cực kỳ tinh tế: Cho AI tự động bọc Kanji chính câu trả lời của nó! 
+        // User đọc lời giải thích mà bí từ nào thì click tra X-Ray luôn từ đó.
+        formattedAI = wrapKanjiWithLink(formattedAI);
+
+        const aiBubble = document.createElement('div');
+        aiBubble.className = 'chat-bubble ai-bubble';
+        aiBubble.innerHTML = `<div class="bubble-content">${formattedAI}</div>`;
+        messagesZone.appendChild(aiBubble);
+        scrollToBottom();
+
+    } catch (error) {
+        // Xử lý lỗi nếu gọi API thất bại
+        const loader = document.getElementById('aiLoadingBubble');
+        if (loader) loader.remove();
+
+        const errorBubble = document.createElement('div');
+        errorBubble.className = 'chat-bubble ai-bubble';
+        errorBubble.innerHTML = `
+            <div class="bubble-content" style="color: #e53e3e; background: #fff5f5; border-color: #feb2b2;">
+                ❌ <b>Lỗi kết nối:</b> Không thể phân tích lúc này.<br><span style="font-size: 14px;">${error.message}</span>
+            </div>`;
+        messagesZone.appendChild(errorBubble);
+        scrollToBottom();
+    }
 }
 </script>
 <!-- ================= MODAL DÀNH RIÊNG CHO GIA SƯ AI (APPLE STYLE) ================= -->
