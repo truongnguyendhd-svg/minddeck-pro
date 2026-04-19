@@ -6091,7 +6091,7 @@ async function showKanjiXRay(event, kanji) {
         hideLoading();
         
         if (error || !data) {
-            return showToast("Thư viện hiện chưa có phân tích cho chữ này.");
+            return showToast("Thư viện hiện chưa có phân tích cơ bản cho chữ này.");
         }
         
         const content = `
@@ -6109,6 +6109,13 @@ async function showKanjiXRay(event, kanji) {
                 <b style="display: flex; align-items: center; gap: 5px;"><span class="material-symbols-outlined" style="font-size:18px;">lightbulb</span> Mẹo nhớ:</b>
                 <div style="margin-top: 5px;">${data.mnemonics}</div>
             </div>` : ''}
+
+            <!-- KHU VỰC DÀNH CHO AI MỞ RỘNG -->
+            <div id="aiKanjiExpansionZone" style="margin-top: 20px;">
+                <button id="btnAskAIKanji" class="ai-btn-glow" onclick="expandKanjiWithAI('${data.kanji}')" style="width: 100%; padding: 14px; border-radius: 12px; font-weight: 800; font-size: 15px; display: flex; justify-content: center; align-items: center; gap: 8px; cursor: pointer;">
+                    <span class="material-symbols-outlined">auto_awesome</span> TÌM ÂM ĐỌC & TỪ VỰNG BẰNG AI
+                </button>
+            </div>
         `;
         
         document.getElementById('xrayContent').innerHTML = content;
@@ -6119,7 +6126,125 @@ async function showKanjiXRay(event, kanji) {
         showToast("Lỗi khi tra cứu Kanji.");
     }
 }
+// HÀM AI MỞ RỘNG KANJI (ONYOMI, KUNYOMI VÀ TỪ VỰNG)
+async function expandKanjiWithAI(kanji) {
+    const btn = document.getElementById('btnAskAIKanji');
+    const zone = document.getElementById('aiKanjiExpansionZone');
+    
+    // Đổi trạng thái nút thành Loading
+    btn.innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px;border-top-color:#fff;margin-right:10px;"></div> Đang phân tích...';
+    btn.disabled = true;
+    btn.style.cursor = 'wait';
 
+    // Ép AI trả về chuẩn JSON bằng Prompt Kỹ Thuật (Prompt Engineering)
+    const prompt = `Bạn là chuyên gia ngôn ngữ tiếng Nhật. Phân tích chi tiết chữ Kanji: "${kanji}".
+    BẮT BUỘC TRẢ VỀ KẾT QUẢ DƯỚI DẠNG KHỐI JSON DUY NHẤT (Không bọc trong markdown \`\`\`json).
+    Với mỗi âm đọc (cả Onyomi và Kunyomi), hãy tìm TỐI ĐA 5 TỪ VỰNG PHỔ BIẾN NHẤT chứa âm đó.
+    Định dạng bắt buộc:
+    {
+      "onyomi": ["Âm On 1", "Âm On 2"],
+      "kunyomi": ["Âm Kun 1", "Âm Kun 2"],
+      "vocab": [
+        {
+          "reading_type": "Onyomi: シン",
+          "word": "Từ vựng (Kanji)",
+          "reading": "Cách đọc (Hiragana)",
+          "hv": "Nghĩa Hán Việt",
+          "meaning": "Nghĩa tiếng Việt",
+          "example": "Câu ví dụ tiếng Nhật (Nghĩa tiếng Việt)"
+        }
+      ]
+    }`;
+
+    try {
+        // Dùng hàm callGeminiAI đã có sẵn của app
+        let aiResponse = await callGeminiAI(prompt);
+        
+        // Làm sạch response để parse JSON an toàn
+        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        const data = JSON.parse(aiResponse);
+
+        // BẮT ĐẦU VẼ GIAO DIỆN KẾT QUẢ (UI/UX)
+        let html = `<div style="text-align: left; margin-top: 15px; border-top: 2px dashed #cbd5e0; padding-top: 20px; animation: popIn 0.3s ease;">`;
+
+        // 1. Hiển thị Âm đọc (Onyomi / Kunyomi)
+        html += `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px;">
+                <div style="background: #fff5f5; border: 1px solid #feb2b2; padding: 12px; border-radius: 10px;">
+                    <b style="color: #c53030; font-size: 11px; display: block; margin-bottom: 5px; letter-spacing: 0.5px;">🔴 ONYOMI (Âm Ôn)</b>
+                    <div style="font-size: 16px; font-weight: 900; color: #822727;">
+                        ${data.onyomi && data.onyomi.length > 0 ? data.onyomi.join(' 、 ') : '---'}
+                    </div>
+                </div>
+                <div style="background: #ebf8ff; border: 1px solid #90cdf4; padding: 12px; border-radius: 10px;">
+                    <b style="color: #2b6cb0; font-size: 11px; display: block; margin-bottom: 5px; letter-spacing: 0.5px;">🔵 KUNYOMI (Âm Côn)</b>
+                    <div style="font-size: 16px; font-weight: 900; color: #2a4365;">
+                        ${data.kunyomi && data.kunyomi.length > 0 ? data.kunyomi.join(' 、 ') : '---'}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // 2. Hiển thị Từ vựng (Phân loại theo âm)
+        if (data.vocab && data.vocab.length > 0) {
+            html += `<div style="font-size: 13px; font-weight: 800; color: #4a5568; margin-bottom: 12px; text-transform: uppercase;">📚 Từ vựng nổi bật:</div>`;
+            
+            data.vocab.forEach(v => {
+                // Xác định màu sắc thẻ dựa vào việc nó là Onyomi hay Kunyomi để phân biệt cho dễ nhìn
+                const isOnyomi = v.reading_type.toLowerCase().includes('on');
+                const badgeBg = isOnyomi ? '#c53030' : '#2b6cb0';
+                
+                html += `
+                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid ${badgeBg}; border-radius: 10px; padding: 15px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+                        
+                        <div style="font-size: 11px; font-weight: 900; color: ${badgeBg}; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">
+                            [${v.reading_type}]
+                        </div>
+                        
+                        <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+                            <span style="font-size: 22px; font-weight: 900; color: #1d1d1f; font-family: 'Noto Sans JP', sans-serif;">${v.word}</span>
+                            <span style="font-size: 14px; color: #718096; font-weight: 700;">${v.reading}</span>
+                            <span style="font-size: 12px; color: #e53e3e; font-weight: 800;">[${v.hv}]</span>
+                        </div>
+                        
+                        <div style="font-size: 15px; color: #2d3748; margin-bottom: 10px; font-weight: 500;">
+                            ${v.meaning}
+                        </div>
+                        
+                        <div style="font-size: 13px; color: #4a5568; background: #f8fafc; padding: 10px; border-radius: 8px; border-left: 2px solid #cbd5e0; line-height: 1.5;">
+                            <span class="material-symbols-outlined" style="font-size: 14px; vertical-align: middle; color: #a0aec0;">chat</span> 
+                            ${v.example}
+                        </div>
+                        
+                    </div>
+                `;
+            });
+        }
+
+        html += `</div>`;
+        
+        // Đổ HTML vào vùng mở rộng (Thay thế cho nút bấm)
+        zone.innerHTML = html;
+
+        // Auto-scroll nhẹ xuống để người dùng thấy nội dung mới nạp (Mượt mà)
+        const xrayModalContent = document.querySelector('#xrayModal .modal-body');
+        if (xrayModalContent) {
+            setTimeout(() => {
+                xrayModalContent.scrollTo({
+                    top: xrayModalContent.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }, 100);
+        }
+
+    } catch (err) {
+        console.error("Lỗi AI X-Ray:", err);
+        btn.innerHTML = '<span class="material-symbols-outlined">error</span> Lỗi phân tích. Vui lòng thử lại.';
+        btn.disabled = false;
+        btn.style.cursor = 'pointer';
+        btn.style.background = '#e53e3e'; // Đổi nút thành màu đỏ báo lỗi
+    }
+}
 // HÀM XỬ LÝ SMART HINT (TÍNH NĂNG 2)
 async function showSmartHint(event) {
     event.stopPropagation(); // Ngăn lật thẻ
