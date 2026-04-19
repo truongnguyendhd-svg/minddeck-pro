@@ -10501,52 +10501,67 @@ document.addEventListener('click', (e) => {
         }
     }
 });
-/* ================= AI ĐIỀN TỰ ĐỘNG TỪ ĐIỂN ADMIN ================= */
+/* ================= AI ĐIỀN TỰ ĐỘNG TỪ ĐIỂN ADMIN (BẢN FIX LỖI KẸT NÚT) ================= */
 async function autoFillDictAdminWithAI() {
     const wordInput = document.getElementById('dictAdminWord').value.trim();
     
     if (!wordInput) {
-        return customAlert("Vui lòng nhập Từ vựng hoặc Kanji vào ô đầu tiên trước khi gọi AI!", "⚠️");
+        return customAlert("Vui lòng nhập Từ vựng hoặc Kanji trước!", "⚠️");
     }
 
+    // 1. Lấy đúng các thành phần nút của Windows 11
+    const aiBtn = document.getElementById('btnAiAutoFill');
     const aiBtnText = document.getElementById('aiBtnText');
-    const originalText = aiBtnText.innerText;
+    const originalText = aiBtnText ? aiBtnText.innerText : "Điền tự động";
     
-    // Đổi giao diện nút thành Loading
-    aiBtnText.innerHTML = `Đang xử lý...`;
-    aiBtn.disabled = true;
-    
-    // Lệnh Prompt bắt AI trả đúng chuẩn JSON
-    const prompt = `Bạn là một chuyên gia ngôn ngữ Nhật Bản. Hãy phân tích từ vựng sau: "${wordInput}".
-    Trả về CHỈ MỘT KHỐI JSON DUY NHẤT (không dùng markdown \`\`\`json, không giải thích thêm, không có text bên ngoài), với định dạng chính xác như sau:
+    // 2. Đổi giao diện nút thành Loading và KHÓA nút
+    if (aiBtn) {
+        aiBtn.disabled = true;
+        aiBtn.style.cursor = "wait";
+    }
+    if (aiBtnText) aiBtnText.innerHTML = "Đang xử lý...";
+
+    // 3. Lệnh Prompt bắt AI trả JSON
+    const prompt = `Bạn là chuyên gia tiếng Nhật. Phân tích từ: "${wordInput}".
+    Trả về CHỈ MỘT KHỐI JSON DUY NHẤT (không giải thích thêm). Định dạng:
     {
-        "reading": "Cách đọc Hiragana (Nếu là Katakana thì giữ Katakana)",
-        "meaning": "Ý nghĩa tiếng Việt ngắn gọn, rõ ràng",
-        "kanji_meaning": "Nghĩa Hán Việt (VIẾT HOA TOÀN BỘ, nếu không có Kanji thì để trống)",
-        "level": "Chỉ ghi một trong các chữ: N5, N4, N3, N2, N1 (Dự đoán cấp độ JLPT phù hợp)",
-        "example": "Câu ví dụ tiếng Nhật ngắn gọn (Nghĩa tiếng Việt của câu ví dụ)"
+        "reading": "Cách đọc Hiragana",
+        "meaning": "Ý nghĩa tiếng Việt ngắn gọn",
+        "kanji_meaning": "Nghĩa Hán Việt (VIẾT HOA TOÀN BỘ, nếu không có thì để rỗng)",
+        "level": "Chỉ ghi: N5, N4, N3, N2, hoặc N1 (để rỗng nếu không thuộc JLPT)",
+        "example": "Câu ví dụ tiếng Nhật (Nghĩa tiếng Việt)"
     }`;
 
     try {
+        // Gọi Vercel API
         let aiResponse = await callGeminiAI(prompt);
         
-        // Làm sạch response để chống lỗi Parse JSON nếu AI vô tình bọc Markdown
-        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        // BƯỚC BẢO MẬT JSON: Chỉ trích xuất nội dung nằm giữa dấu { và } 
+        // (Chống lỗi AI lảm nhảm text bên ngoài)
+        const startIndex = aiResponse.indexOf('{');
+        const endIndex = aiResponse.lastIndexOf('}');
         
-        const data = JSON.parse(aiResponse);
+        if (startIndex === -1 || endIndex === -1) {
+            throw new Error("AI không trả về dữ liệu chuẩn.");
+        }
+        
+        const cleanJsonString = aiResponse.substring(startIndex, endIndex + 1);
+        const data = JSON.parse(cleanJsonString);
 
-        // Bơm dữ liệu vào các ô Input
+        // Bơm dữ liệu vào UI
         if (data.reading) document.getElementById('dictAdminReading').value = data.reading;
         if (data.meaning) document.getElementById('dictAdminMeaning').value = data.meaning;
         if (data.kanji_meaning) document.getElementById('dictAdminKanji').value = data.kanji_meaning;
         
-        // Chọn tự động Level (N1-N5)
         if (data.level) {
             const levelSelect = document.getElementById('dictAdminLevel');
             const targetLevel = data.level.toUpperCase().trim();
-            // Kiểm tra xem option đó có tồn tại trong select không
-            if (Array.from(levelSelect.options).some(opt => opt.value === targetLevel)) {
-                levelSelect.value = targetLevel;
+            // Lặp qua các option, nếu khớp thì chọn
+            for (let i = 0; i < levelSelect.options.length; i++) {
+                if (levelSelect.options[i].value === targetLevel) {
+                    levelSelect.selectedIndex = i;
+                    break;
+                }
             }
         }
         
@@ -10556,11 +10571,14 @@ async function autoFillDictAdminWithAI() {
 
     } catch (err) {
         console.error("Lỗi AI Auto Fill:", err);
-        customAlert("AI không thể phân tích từ này hoặc trả về sai định dạng. Vui lòng thử lại.", "❌");
+        customAlert("Lỗi xử lý: " + err.message, "❌");
     } finally {
-        // Trả lại nút như cũ
-        aiBtnText.innerText = originalText;
-        aiBtn.disabled = false;
+        // 4. LUÔN LUÔN MỞ KHÓA NÚT DÙ THÀNH CÔNG HAY THẤT BẠI
+        if (aiBtn) {
+            aiBtn.disabled = false;
+            aiBtn.style.cursor = "pointer";
+        }
+        if (aiBtnText) aiBtnText.innerText = originalText;
     }
 }
 </script>
