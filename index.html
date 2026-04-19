@@ -4511,7 +4511,27 @@ textarea.win11-input {
         </div>
     </div>
 </div>
-<div id="todayModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="listModalTitle">📋 Danh sách</h3><button class="close-modal" onclick="closeModal('todayModal')">&times;</button></div><div class="modal-body" id="todayListContent"></div></div></div>
+<!-- MODAL DANH SÁCH HIỆN TẠI (WIN 11 STYLE) -->
+<div id="todayModal" class="modal">
+    <div class="modal-content win11-modal" style="max-width: 500px; overflow: hidden;">
+        
+        <!-- Header Win 11 -->
+        <div class="win11-modal-header" style="background: #fbfbfb; border-bottom: 1px solid #f0f0f0; padding: 10px 16px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: #0067c0; font-size: 20px;">list_alt</span>
+                <h3 id="listModalTitle" style="margin: 0; font-size: 14px; font-weight: 600; color: #1a1a1a; text-transform: uppercase; letter-spacing: 0.5px;">Danh sách</h3>
+            </div>
+            <button class="win11-close-btn" onclick="closeModal('todayModal')">
+                <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+            </button>
+        </div>
+
+        <!-- Body Win 11 (Căn lề nhỏ lại, thanh cuộn sát mép) -->
+        <div class="win11-modal-body" id="todayListContent" style="padding: 8px; max-height: 75vh; overflow-y: auto; overflow-x: hidden; background: #ffffff;">
+            <!-- JS sẽ bơm danh sách vào đây -->
+        </div>
+    </div>
+</div>
 <!-- MODAL GIỚI THIỆU CHẾ ĐỘ CRAM -->
 <div id="cramIntroModal" class="modal">
     <div class="modal-content" style="max-width: 420px; border: none; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.2);">
@@ -8749,25 +8769,43 @@ function showTodayList() {
     if (!sessionCards || sessionCards.length === 0) return;
 
     const list = sessionCards; 
-    document.getElementById('listModalTitle').innerText = "📋 Danh sách hiện tại"; 
     
-    let h = '<ul class="modal-card-list">'; 
+    // Cập nhật Tiêu đề Header Win 11
+    document.getElementById('listModalTitle').innerText = "Danh sách hiện tại"; 
+    
+    // Dùng thẻ div flex column thay cho ul/li để ép sát khoảng cách (gap: 2px chuẩn Win11)
+    let h = '<div style="display: flex; flex-direction: column; gap: 2px;">'; 
     
     // 2. Lặp qua danh sách và tạo HTML
     list.forEach((c, i) => {
-        // Sử dụng escapeHTML để chống lỗi hiển thị và chống Hack (XSS)
         const safeFrontText = escapeHTML(c.front);
         
-        h += `<li onclick="closeModal('todayModal'); currentIndex=${i}; showCard();">
-                <span class="list-idx" style="font-weight:800; color:#3498db; margin-right:12px; min-width:24px;">${i + 1}</span>
-                <span style="flex-grow:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:10px;" title="${safeFrontText}">
+        // Nhấn mạnh thẻ đang học hiện tại (in đậm, số màu xanh)
+        const isCurrent = (i === currentIndex);
+        const indexColor = isCurrent ? '#0067c0' : '#8c8c8c';
+        const textColor = isCurrent ? '#1a1a1a' : '#333333';
+        const textWeight = isCurrent ? '700' : '500';
+        const bgDefault = isCurrent ? '#f0f0f0' : 'transparent';
+        
+        h += `<div onclick="closeModal('todayModal'); currentIndex=${i}; showCard();" 
+                   style="display: flex; align-items: center; padding: 10px 12px; border-radius: 6px; cursor: pointer; transition: 0.1s; background-color: ${bgDefault};"
+                   onmouseover="this.style.backgroundColor='#f6f6f6'" 
+                   onmouseout="this.style.backgroundColor='${bgDefault}'">
+                
+                <!-- Số thứ tự -->
+                <span style="font-weight: 600; color: ${indexColor}; width: 32px; font-size: 13px; flex-shrink: 0;">${i + 1}</span>
+                
+                <!-- Nội dung chữ -->
+                <span style="flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 10px; font-size: 14px; color: ${textColor}; font-weight: ${textWeight};" title="${safeFrontText}">
                     ${safeFrontText}
                 </span>
-                <span class="material-symbols-outlined" style="color:#cbd5e0; font-size:18px;">chevron_right</span>
-              </li>`; 
+                
+                <!-- Icon Mũi tên Win 11 -->
+                <span class="material-symbols-outlined" style="color: #cccccc; font-size: 18px; flex-shrink: 0;">chevron_right</span>
+              </div>`; 
     });
     
-    h += '</ul>';
+    h += '</div>';
     
     // 3. Đổ dữ liệu vào Modal và hiển thị
     document.getElementById('todayListContent').innerHTML = h; 
@@ -11345,16 +11383,14 @@ async function confirmBulkSaveKanji() {
 async function openDeckListPreview() {
     if (!deckToStudyId) return;
     
-    // Đóng modal chọn chế độ
     closeModal('studyOptionsModal');
     showLoading("Đang nạp danh sách thẻ...");
 
     try {
-        // Lấy tất cả thẻ của bộ bài này
         const { data: cards, error } = await sb.from('cards')
             .select('*')
             .eq('deck_id', deckToStudyId)
-            .order('id', { ascending: true }); // Xếp theo thứ tự tạo gốc
+            .order('id', { ascending: true });
 
         if (error) throw error;
         
@@ -11363,36 +11399,34 @@ async function openDeckListPreview() {
             return customAlert("Bộ bài này chưa có thẻ nào!", "⚠️");
         }
 
-        // Tái sử dụng biến sessionCards để hiển thị
         sessionCards = cards;
         
-        // Đổi tiêu đề Modal danh sách
-        document.getElementById('listModalTitle').innerHTML = `
-            <span class="material-symbols-outlined" style="vertical-align: sub; color:#0067c0;">list_alt</span> 
-            Nội dung bộ bài (${cards.length} thẻ)
-        `; 
+        // Đổi tiêu đề Modal Win11
+        document.getElementById('listModalTitle').innerText = `Nội dung bộ bài (${cards.length} thẻ)`; 
         
-        let h = '<ul class="modal-card-list" style="margin-top: 15px;">'; 
+        let h = '<div style="display: flex; flex-direction: column; gap: 2px;">'; 
         
         cards.forEach((c, i) => {
             const safeFrontText = escapeHTML(c.front);
-            // Hiện cả mặt sau mờ mờ ở dưới mặt trước
             const safeBackText = escapeHTML((c.back || "").replace(/\n/g, " - "));
 
-            h += `<li style="cursor: default; background: #fbfbfb; border: 1px solid #e5e5e5; display: flex; align-items: center; padding: 12px 16px; border-radius: 8px; margin-bottom: 8px;">
-                    <span class="list-idx" style="font-weight:700; color:#8c8c8c; margin-right:16px; min-width:24px;">${i + 1}</span>
+            h += `<div style="display: flex; align-items: center; padding: 10px 12px; border-radius: 6px; background: transparent; border-bottom: 1px solid #f0f0f0;">
+                    
+                    <span style="font-weight: 600; color: #8c8c8c; width: 32px; font-size: 13px; flex-shrink: 0;">${i + 1}</span>
+                    
                     <div style="flex-grow:1; overflow:hidden;">
-                        <div style="font-weight:700; color:#1a1a1a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size: 15px;">
+                        <div style="font-weight: 600; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px;">
                             ${safeFrontText}
                         </div>
-                        <div style="color:#666666; font-size: 13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top: 4px;">
+                        <div style="color: #666666; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;">
                             ${safeBackText}
                         </div>
                     </div>
-                  </li>`; 
+                    
+                  </div>`; 
         });
         
-        h += '</ul>';
+        h += '</div>';
         
         document.getElementById('todayListContent').innerHTML = h; 
         document.getElementById('todayModal').style.display = 'flex'; 
