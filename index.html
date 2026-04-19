@@ -9607,12 +9607,10 @@ async function openSaveDictWordModal(encWord, encReading, encMeaning, encKanji, 
     loadCustomDeckList('dictDeckContainer', 'dictDeckSelect', 'dictDeckText', 'dictDeckOptions', 'flashcard');
 }
 
-// HÀM XÁC NHẬN LƯU VÀO DATABASE
 async function confirmSaveWordToDeck() {
-    const deckId = document.getElementById('dictDeckSelect').value;
+    let deckId = document.getElementById('dictDeckSelect').value;
     if (!deckId) return customAlert("Vui lòng chọn một bộ bài hợp lệ!", "⚠️");
 
-    // LẤY DỮ LIỆU TỪ CÁC Ô INPUT (User có thể đã sửa lại cho chuẩn)
     const front = document.getElementById('sdFront').value.trim();
     const reading = document.getElementById('sdReading').value.trim();
     const meaning = document.getElementById('sdMeaning').value.trim();
@@ -9622,7 +9620,6 @@ async function confirmSaveWordToDeck() {
 
     if (!front) return showToast("Không được để trống Từ vựng!");
 
-    // Đóng gói dữ liệu theo format Alcohol
     const backData = `${reading}\n${meaning}`.trim();
     let infoArr = [];
     if (hv) infoArr.push(`[HV] ${hv}`);
@@ -9632,6 +9629,20 @@ async function confirmSaveWordToDeck() {
 
     showLoading("Đang lưu thẻ mới...");
     try {
+        // 🟢 LOGIC TỰ ĐỘNG TẠO BỘ BÀI MỚI NẾU USER CHỌN
+        if (deckId === '__AUTO_NEW_DECK__') {
+            const dateStr = new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+            deckId = `${currentUser.id}:Luu-tu-dong-Tu-vung-${dateStr}:${Date.now()}`;
+            
+            const { error: deckErr } = await sb.from('decks').insert([{
+                id: deckId,
+                owner_id: currentUser.id,
+                type: 'flashcard',
+                is_public: false
+            }]);
+            if (deckErr) throw deckErr;
+        }
+
         const { error } = await sb.from('cards').insert([{
             deck_id: deckId,
             front: front,
@@ -10843,10 +10854,9 @@ async function openSaveAIQuizModal(encodedQuizJSON) {
 }
 
 async function confirmSaveQuizToDeck() {
-    const deckId = document.getElementById('aiQuizDeckSelect').value;
+    let deckId = document.getElementById('aiQuizDeckSelect').value;
     if (!deckId) return customAlert("Vui lòng chọn một bộ bài trắc nghiệm!", "⚠️");
 
-    // Lấy dữ liệu từ Input
     const question = document.getElementById('sqQuestion').value.trim();
     const correct = document.getElementById('sqCorrect').value.trim();
     const w1 = document.getElementById('sqWrong1').value.trim();
@@ -10855,13 +10865,26 @@ async function confirmSaveQuizToDeck() {
 
     if (!question || !correct) return showToast("Vui lòng điền đủ Câu hỏi và Đáp án đúng!");
 
-    // Trộn đáp án ngẫu nhiên cho cột Info
     let options = [correct, w1, w2, w3].filter(o => o !== "");
     options.sort(() => Math.random() - 0.5);
     const infoData = options.join('\n');
 
     showLoading("Đang lưu câu hỏi...");
     try {
+        // 🟢 LOGIC TỰ ĐỘNG TẠO BỘ BÀI TRẮC NGHIỆM MỚI NẾU USER CHỌN
+        if (deckId === '__AUTO_NEW_DECK__') {
+            const dateStr = new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+            deckId = `${currentUser.id}:Luu-tu-dong-Trac-nghiem-${dateStr}:${Date.now()}`;
+            
+            const { error: deckErr } = await sb.from('decks').insert([{
+                id: deckId,
+                owner_id: currentUser.id,
+                type: 'quiz', // Chú ý: Loại bài là 'quiz'
+                is_public: false
+            }]);
+            if (deckErr) throw deckErr;
+        }
+
         const { error } = await sb.from('cards').insert([{
             deck_id: deckId,
             front: question,
@@ -11047,7 +11070,7 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// 4. HÀM TẢI DỮ LIỆU ĐƯỢC LÀM LẠI CHO CUSTOM DROPDOWN
+// 4. HÀM TẢI DỮ LIỆU ĐƯỢC LÀM LẠI CHO CUSTOM DROPDOWN (CÓ THÊM TÙY CHỌN AUTO)
 async function loadCustomDeckList(containerId, inputId, textId, optionsId, deckType) {
     const optionsEl = document.getElementById(optionsId);
     optionsEl.innerHTML = '<div style="padding: 10px; text-align: center; color: #8c8c8c;">Đang tải...</div>';
@@ -11063,16 +11086,19 @@ async function loadCustomDeckList(containerId, inputId, textId, optionsId, deckT
         const { data: profile } = await sb.from('profiles').select('recent_decks').eq('id', currentUser.id).single();
         const recentIds = (profile && profile.recent_decks) ? profile.recent_decks : [];
 
-        if (!decks || decks.length === 0) {
-            optionsEl.innerHTML = `<div style="padding: 10px; text-align: center; color: #8c8c8c;">Chưa có bộ bài nào.</div>`;
-            return;
-        }
-
         let html = '';
         const iconName = deckType === 'quiz' ? 'quiz' : 'style';
 
+        // 🟢 GHIM LỰA CHỌN "TỰ ĐỘNG TẠO BỘ BÀI MỚI" LÊN ĐẦU TIÊN
+        html += `
+            <div class="custom-option" style="background: #f0fdf4; border-bottom: 2px solid #bbf7d0; margin-bottom: 4px;" 
+                 onclick="selectCustomOption('${containerId}', '${inputId}', '${textId}', '__AUTO_NEW_DECK__', '✨ Tự động tạo bộ bài mới', 'add_circle')">
+                <span class="material-symbols-outlined" style="color: #10b981;">add_circle</span>
+                <span class="custom-option-text" style="color: #047857; font-weight: 800;">✨ Tự động tạo bộ bài mới</span>
+            </div>
+        `;
+
         // Hàm render từng dòng
-// Hàm render từng dòng (Đã thêm class chống tràn chữ)
         const renderItem = (d) => {
             const cleanName = getCleanName(d.id);
             return `
@@ -11083,18 +11109,20 @@ async function loadCustomDeckList(containerId, inputId, textId, optionsId, deckT
             `;
         };
 
-        // Phân nhóm "Học gần đây"
-        const recentDecks = decks.filter(d => recentIds.includes(d.id));
-        if (recentDecks.length > 0) {
-            html += `<div class="custom-optgroup">🕒 Học gần đây</div>`;
-            recentDecks.forEach(d => html += renderItem(d));
-        }
+        if (decks && decks.length > 0) {
+            // Phân nhóm "Học gần đây"
+            const recentDecks = decks.filter(d => recentIds.includes(d.id));
+            if (recentDecks.length > 0) {
+                html += `<div class="custom-optgroup">🕒 Học gần đây</div>`;
+                recentDecks.forEach(d => html += renderItem(d));
+            }
 
-        // Phân nhóm "Tất cả"
-        const otherDecks = decks.filter(d => !recentIds.includes(d.id));
-        if (otherDecks.length > 0) {
-            html += `<div class="custom-optgroup">📚 Tất cả bộ bài</div>`;
-            otherDecks.forEach(d => html += renderItem(d));
+            // Phân nhóm "Tất cả"
+            const otherDecks = decks.filter(d => !recentIds.includes(d.id));
+            if (otherDecks.length > 0) {
+                html += `<div class="custom-optgroup">📚 Tất cả bộ bài</div>`;
+                otherDecks.forEach(d => html += renderItem(d));
+            }
         }
 
         optionsEl.innerHTML = html;
@@ -11122,45 +11150,46 @@ function openBulkSaveKanjiModal(encodedVocab, kanji) {
 }
 
 async function confirmBulkSaveKanji() {
-    const deckId = document.getElementById('bskDeckSelect').value;
+    let deckId = document.getElementById('bskDeckSelect').value;
     if (!deckId) return customAlert("Vui lòng chọn bộ bài đích trước!", "⚠️");
 
     showLoading(`Đang khởi tạo ${tempBulkVocabData.length} thẻ...`);
 
     try {
-        // Chuyển đổi format từ JSON của AI sang Schema của bảng 'cards'
+        // 🟢 LOGIC TỰ ĐỘNG TẠO BỘ BÀI MỚI NẾU USER CHỌN
+        if (deckId === '__AUTO_NEW_DECK__') {
+            const dateStr = new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+            deckId = `${currentUser.id}:Luu-tu-dong-Kanji-${dateStr}:${Date.now()}`;
+            
+            const { error: deckErr } = await sb.from('decks').insert([{
+                id: deckId,
+                owner_id: currentUser.id,
+                type: 'flashcard',
+                is_public: false
+            }]);
+            if (deckErr) throw deckErr;
+        }
+
         const cardsToInsert = tempBulkVocabData.map(v => {
             const backPacked = `${v.reading}\n${v.meaning}`.trim();
-
-            // Tách câu ví dụ: "宇宙に行く。(Đi vào vũ trụ)" -> exJp / exVn
             let exJp = v.example || "";
             let exVn = "";
             const match = exJp.match(/(.*?)[(（](.*?)[)）]/);
-            if (match) {
-                exJp = match[1].trim();
-                exVn = match[2].trim();
-            }
+            if (match) { exJp = match[1].trim(); exVn = match[2].trim(); }
 
-            // Gộp Info
             let infoArr = [];
             if (v.hv) infoArr.push(`[HV] ${v.hv}`);
             if (exJp) infoArr.push(`[EX1] ${exJp}`);
             if (exVn) infoArr.push(`[VN1] ${exVn}`);
 
-            return {
-                deck_id: deckId,
-                front: v.word,
-                back: backPacked,
-                info: infoArr.join('\n')
-            };
+            return { deck_id: deckId, front: v.word, back: backPacked, info: infoArr.join('\n') };
         });
 
-        // Insert nguyên 1 mảng (Bulk insert) lên Supabase cực nhanh
         const { error } = await sb.from('cards').insert(cardsToInsert);
         if (error) throw error;
 
         closeModal('bulkSaveKanjiModal');
-        showToast(`🎉 Đã thêm thành công ${tempBulkVocabData.length} thẻ vào bộ bài!`);
+        showToast(`🎉 Đã thêm thành công ${tempBulkVocabData.length} thẻ!`);
         
     } catch (err) {
         console.error("Lỗi Bulk Save:", err);
