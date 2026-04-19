@@ -6085,7 +6085,8 @@ function renderStudy() {
 async function showKanjiXRay(event, kanji) {
     event.stopPropagation(); // Cực kỳ quan trọng: Ngăn không cho lật thẻ
     showLoading("Đang quét cấu trúc...");
-    
+    document.querySelector('#xrayModal .modal-content').style.maxWidth = "400px";
+    document.querySelector('#xrayModal .modal-content').style.transition = "max-width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
     try {
         const { data, error } = await sb.from('kanji_builder').select('*').eq('kanji', kanji).single();
         hideLoading();
@@ -6131,12 +6132,10 @@ async function expandKanjiWithAI(kanji) {
     const btn = document.getElementById('btnAskAIKanji');
     const zone = document.getElementById('aiKanjiExpansionZone');
     
-    // Đổi trạng thái nút thành Loading
     btn.innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px;border-top-color:#fff;margin-right:10px;"></div> Đang phân tích...';
     btn.disabled = true;
     btn.style.cursor = 'wait';
 
-    // Ép AI trả về chuẩn JSON bằng Prompt Kỹ Thuật (Prompt Engineering)
     const prompt = `Bạn là chuyên gia ngôn ngữ tiếng Nhật. Phân tích chi tiết chữ Kanji: "${kanji}".
     BẮT BUỘC TRẢ VỀ KẾT QUẢ DƯỚI DẠNG KHỐI JSON DUY NHẤT (Không bọc trong markdown \`\`\`json).
     Với mỗi âm đọc (cả Onyomi và Kunyomi), hãy tìm TỐI ĐA 5 TỪ VỰNG PHỔ BIẾN NHẤT chứa âm đó.
@@ -6157,92 +6156,103 @@ async function expandKanjiWithAI(kanji) {
     }`;
 
     try {
-        // Dùng hàm callGeminiAI đã có sẵn của app
         let aiResponse = await callGeminiAI(prompt);
-        
-        // Làm sạch response để parse JSON an toàn
         aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
         const data = JSON.parse(aiResponse);
 
-        // BẮT ĐẦU VẼ GIAO DIỆN KẾT QUẢ (UI/UX)
-        let html = `<div style="text-align: left; margin-top: 15px; border-top: 2px dashed #cbd5e0; padding-top: 20px; animation: popIn 0.3s ease;">`;
+        // 🟢 PHÓNG TO MODAL RA 900PX TRÊN DESKTOP
+        document.querySelector('#xrayModal .modal-content').style.maxWidth = "900px";
 
-        // 1. Hiển thị Âm đọc (Onyomi / Kunyomi)
+        // GOM NHÓM TỪ VỰNG THEO ÂM ĐỌC
+        const groupedVocab = {};
+        if (data.vocab) {
+            data.vocab.forEach(v => {
+                const type = v.reading_type || "Khác";
+                if (!groupedVocab[type]) groupedVocab[type] = [];
+                groupedVocab[type].push(v);
+            });
+        }
+
+        // BẮT ĐẦU VẼ GIAO DIỆN
+        let html = `<div style="text-align: left; margin-top: 20px; border-top: 2px dashed #cbd5e0; padding-top: 25px; animation: popIn 0.4s ease;">`;
+
+        // 1. Khối hiển thị chung Âm On / Âm Kun
         html += `
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px;">
-                <div style="background: #fff5f5; border: 1px solid #feb2b2; padding: 12px; border-radius: 10px;">
-                    <b style="color: #c53030; font-size: 11px; display: block; margin-bottom: 5px; letter-spacing: 0.5px;">🔴 ONYOMI (Âm Ôn)</b>
-                    <div style="font-size: 16px; font-weight: 900; color: #822727;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-bottom: 25px;">
+                <div style="background: #fff5f5; border: 1px solid #feb2b2; padding: 15px; border-radius: 12px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+                    <b style="color: #c53030; font-size: 12px; display: block; margin-bottom: 8px; letter-spacing: 0.5px;">🔴 ONYOMI (Âm Ôn)</b>
+                    <div style="font-size: 18px; font-weight: 900; color: #822727;">
                         ${data.onyomi && data.onyomi.length > 0 ? data.onyomi.join(' 、 ') : '---'}
                     </div>
                 </div>
-                <div style="background: #ebf8ff; border: 1px solid #90cdf4; padding: 12px; border-radius: 10px;">
-                    <b style="color: #2b6cb0; font-size: 11px; display: block; margin-bottom: 5px; letter-spacing: 0.5px;">🔵 KUNYOMI (Âm Côn)</b>
-                    <div style="font-size: 16px; font-weight: 900; color: #2a4365;">
+                <div style="background: #ebf8ff; border: 1px solid #90cdf4; padding: 15px; border-radius: 12px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+                    <b style="color: #2b6cb0; font-size: 12px; display: block; margin-bottom: 8px; letter-spacing: 0.5px;">🔵 KUNYOMI (Âm Côn)</b>
+                    <div style="font-size: 18px; font-weight: 900; color: #2a4365;">
                         ${data.kunyomi && data.kunyomi.length > 0 ? data.kunyomi.join(' 、 ') : '---'}
                     </div>
                 </div>
             </div>
+            <div style="font-size: 14px; font-weight: 900; color: #4a5568; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid #edf2f7; padding-bottom: 8px;">📚 Ứng dụng từ vựng:</div>
         `;
 
-        // 2. Hiển thị Từ vựng (Phân loại theo âm)
-        if (data.vocab && data.vocab.length > 0) {
-            html += `<div style="font-size: 13px; font-weight: 800; color: #4a5568; margin-bottom: 12px; text-transform: uppercase;">📚 Từ vựng nổi bật:</div>`;
-            
-            data.vocab.forEach(v => {
-                // Xác định màu sắc thẻ dựa vào việc nó là Onyomi hay Kunyomi để phân biệt cho dễ nhìn
-                const isOnyomi = v.reading_type.toLowerCase().includes('on');
-                const badgeBg = isOnyomi ? '#c53030' : '#2b6cb0';
-                
+        // 2. Render từng Nhóm Âm Đọc (Grid 2 cột trên Desktop)
+        html += `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px;">`;
+        
+        for (const [type, words] of Object.entries(groupedVocab)) {
+            const isOnyomi = type.toLowerCase().includes('on');
+            const badgeBg = isOnyomi ? '#e53e3e' : '#3182ce';
+            const badgeLight = isOnyomi ? '#fff5f5' : '#ebf8ff';
+            const badgeBorder = isOnyomi ? '#fed7d7' : '#bee3f8';
+
+            html += `
+            <div style="background: #ffffff; border: 1px solid ${badgeBorder}; border-top: 5px solid ${badgeBg}; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.04); overflow: hidden; display: flex; flex-direction: column;">
+                <div style="background: ${badgeLight}; padding: 12px 15px; font-weight: 900; color: ${badgeBg}; font-size: 13px; border-bottom: 1px solid ${badgeBorder}; display: flex; align-items: center; gap: 8px;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">label</span> ${type.toUpperCase()}
+                </div>
+                <div style="padding: 0 15px; flex: 1;">
+            `;
+
+            words.forEach((v, index) => {
+                const borderBottom = index < words.length - 1 ? 'border-bottom: 1px dashed #e2e8f0;' : '';
                 html += `
-                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid ${badgeBg}; border-radius: 10px; padding: 15px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
-                        
-                        <div style="font-size: 11px; font-weight: 900; color: ${badgeBg}; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">
-                            [${v.reading_type}]
+                    <div style="padding: 15px 0; ${borderBottom}">
+                        <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; flex-wrap: wrap;">
+                            <span style="font-size: 24px; font-weight: 900; color: #1d1d1f; font-family: 'Noto Sans JP', sans-serif;">${v.word}</span>
+                            <span style="font-size: 14px; color: #718096; font-weight: 800;">${v.reading}</span>
+                            <span style="font-size: 11px; color: #e53e3e; font-weight: 900; background: #fff5f5; padding: 2px 6px; border-radius: 4px;">${v.hv}</span>
                         </div>
-                        
-                        <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
-                            <span style="font-size: 22px; font-weight: 900; color: #1d1d1f; font-family: 'Noto Sans JP', sans-serif;">${v.word}</span>
-                            <span style="font-size: 14px; color: #718096; font-weight: 700;">${v.reading}</span>
-                            <span style="font-size: 12px; color: #e53e3e; font-weight: 800;">[${v.hv}]</span>
+                        <div style="font-size: 15px; color: #2d3748; margin-bottom: 8px; font-weight: 600;">${v.meaning}</div>
+                        <div style="font-size: 13px; color: #4a5568; background: #f8fafc; padding: 8px 12px; border-radius: 8px; border-left: 3px solid #cbd5e0; line-height: 1.5;">
+                            <b style="color: #718096; font-size: 11px; margin-right: 4px;">Ví dụ:</b> ${v.example}
                         </div>
-                        
-                        <div style="font-size: 15px; color: #2d3748; margin-bottom: 10px; font-weight: 500;">
-                            ${v.meaning}
-                        </div>
-                        
-                        <div style="font-size: 13px; color: #4a5568; background: #f8fafc; padding: 10px; border-radius: 8px; border-left: 2px solid #cbd5e0; line-height: 1.5;">
-                            <span class="material-symbols-outlined" style="font-size: 14px; vertical-align: middle; color: #a0aec0;">chat</span> 
-                            ${v.example}
-                        </div>
-                        
                     </div>
                 `;
             });
+
+            html += `</div></div>`; // Đóng thẻ nhóm
         }
+        html += `</div>`; // Đóng thẻ Grid
+
+        // 3. NÚT LƯU HÀNG LOẠT VÀO FLASHCARD
+        const safeVocabData = encodeURIComponent(JSON.stringify(data.vocab));
+        html += `
+            <div style="margin-top: 30px; text-align: center;">
+                <button onclick="openBulkSaveKanjiModal('${safeVocabData}', '${kanji}')" class="win11-btn-primary" style="width: 100%; max-width: 400px; padding: 16px; border-radius: 50px; font-size: 16px; font-weight: 800; display: inline-flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 8px 25px rgba(0, 103, 192, 0.25); transition: all 0.2s;">
+                    <span class="material-symbols-outlined" style="font-size: 22px;">library_add</span> LƯU CÁC TỪ NÀY VÀO BỘ BÀI
+                </button>
+            </div>
+        `;
 
         html += `</div>`;
         
-        // Đổ HTML vào vùng mở rộng (Thay thế cho nút bấm)
         zone.innerHTML = html;
-
-        // Auto-scroll nhẹ xuống để người dùng thấy nội dung mới nạp (Mượt mà)
-        const xrayModalContent = document.querySelector('#xrayModal .modal-body');
-        if (xrayModalContent) {
-            setTimeout(() => {
-                xrayModalContent.scrollTo({
-                    top: xrayModalContent.scrollHeight,
-                    behavior: 'smooth'
-                });
-            }, 100);
-        }
 
     } catch (err) {
         console.error("Lỗi AI X-Ray:", err);
         btn.innerHTML = '<span class="material-symbols-outlined">error</span> Lỗi phân tích. Vui lòng thử lại.';
         btn.disabled = false;
         btn.style.cursor = 'pointer';
-        btn.style.background = '#e53e3e'; // Đổi nút thành màu đỏ báo lỗi
+        btn.style.background = '#e53e3e'; 
     }
 }
 // HÀM XỬ LÝ SMART HINT (TÍNH NĂNG 2)
@@ -11094,6 +11104,71 @@ async function loadCustomDeckList(containerId, inputId, textId, optionsId, deckT
         optionsEl.innerHTML = '<div style="padding: 10px; color: red;">Lỗi tải dữ liệu.</div>';
     }
 }
+// ================= HÀM XỬ LÝ LƯU HÀNG LOẠT KANJI VOCAB =================
+let tempBulkVocabData = [];
+
+function openBulkSaveKanjiModal(encodedVocab, kanji) {
+    if (!currentUser) return customAlert("Vui lòng đăng nhập để lưu thẻ!", "⚠️");
+    
+    // Giải mã mảng từ vựng
+    tempBulkVocabData = JSON.parse(decodeURIComponent(encodedVocab));
+    
+    document.getElementById('bskCount').innerText = tempBulkVocabData.length;
+    document.getElementById('bskKanji').innerText = kanji;
+    document.getElementById('bulkSaveKanjiModal').style.display = 'flex';
+    
+    // Tải danh sách bộ bài bằng hàm Custom Dropdown có sẵn của app
+    loadCustomDeckList('bskDeckContainer', 'bskDeckSelect', 'bskDeckText', 'bskDeckOptions', 'flashcard');
+}
+
+async function confirmBulkSaveKanji() {
+    const deckId = document.getElementById('bskDeckSelect').value;
+    if (!deckId) return customAlert("Vui lòng chọn bộ bài đích trước!", "⚠️");
+
+    showLoading(`Đang khởi tạo ${tempBulkVocabData.length} thẻ...`);
+
+    try {
+        // Chuyển đổi format từ JSON của AI sang Schema của bảng 'cards'
+        const cardsToInsert = tempBulkVocabData.map(v => {
+            const backPacked = `${v.reading}\n${v.meaning}`.trim();
+
+            // Tách câu ví dụ: "宇宙に行く。(Đi vào vũ trụ)" -> exJp / exVn
+            let exJp = v.example || "";
+            let exVn = "";
+            const match = exJp.match(/(.*?)[(（](.*?)[)）]/);
+            if (match) {
+                exJp = match[1].trim();
+                exVn = match[2].trim();
+            }
+
+            // Gộp Info
+            let infoArr = [];
+            if (v.hv) infoArr.push(`[HV] ${v.hv}`);
+            if (exJp) infoArr.push(`[EX1] ${exJp}`);
+            if (exVn) infoArr.push(`[VN1] ${exVn}`);
+
+            return {
+                deck_id: deckId,
+                front: v.word,
+                back: backPacked,
+                info: infoArr.join('\n')
+            };
+        });
+
+        // Insert nguyên 1 mảng (Bulk insert) lên Supabase cực nhanh
+        const { error } = await sb.from('cards').insert(cardsToInsert);
+        if (error) throw error;
+
+        closeModal('bulkSaveKanjiModal');
+        showToast(`🎉 Đã thêm thành công ${tempBulkVocabData.length} thẻ vào bộ bài!`);
+        
+    } catch (err) {
+        console.error("Lỗi Bulk Save:", err);
+        customAlert("Không thể lưu: " + err.message, "❌");
+    } finally {
+        hideLoading();
+    }
+}
 </script>
 <!-- ================= MODAL DÀNH RIÊNG CHO GIA SƯ AI (APPLE STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px;">
@@ -11111,6 +11186,38 @@ async function loadCustomDeckList(containerId, inputId, textId, optionsId, deckT
         <!-- Nội dung (Cuộn mượt mà) -->
         <div id="aiModalContent" style="padding: 24px 24px 40px 24px; overflow-y: auto; font-size: 16px; line-height: 1.7; color: #1d1d1f; font-weight: 500; text-align: left;">
             <!-- Nội dung AI sẽ tự động bơm vào đây -->
+        </div>
+    </div>
+</div>
+<!-- MODAL LƯU HÀNG LOẠT KANJI TỪ X-RAY (WIN 11 STYLE) -->
+<div id="bulkSaveKanjiModal" class="modal" style="z-index: 100000;"> <!-- Z-index cao để đè lên modal Xray -->
+    <div class="modal-content win11-modal" style="max-width: 500px;">
+        <div class="win11-modal-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: #0067c0;">library_add</span>
+                <h3 style="margin: 0; font-size: 15px; font-weight: 600;">Lưu hàng loạt từ vựng</h3>
+            </div>
+            <button class="win11-close-btn" onclick="closeModal('bulkSaveKanjiModal')"><span class="material-symbols-outlined">close</span></button>
+        </div>
+        
+        <div style="padding: 20px 24px;">
+            <div style="background: #f0f9ff; border: 1px dashed #90cdf4; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #2b6cb0; font-size: 14px; line-height: 1.5;">
+                Bạn đang chuẩn bị lưu <b id="bskCount" style="font-size: 18px; color: #1e3a8a;">0</b> từ vựng liên quan đến chữ Kanji <b id="bskKanji" style="font-size: 22px; color: #e53e3e;"></b> vào hệ thống Flashcard.
+            </div>
+
+            <label class="win11-label">CHỌN BỘ BÀI ĐÍCH:</label>
+            <div class="custom-select-container" id="bskDeckContainer">
+                <input type="hidden" id="bskDeckSelect" value="">
+                <div class="custom-select-trigger" onclick="toggleCustomSelect('bskDeckContainer')">
+                    <span id="bskDeckText">-- Chọn bộ bài Flashcard --</span>
+                    <span class="material-symbols-outlined">expand_more</span>
+                </div>
+                <div class="custom-select-options" id="bskDeckOptions"></div>
+            </div>
+
+            <button onclick="confirmBulkSaveKanji()" class="win11-btn-primary" style="width: 100%; margin-top: 25px; padding: 14px; font-size: 15px; display: flex; justify-content: center; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined">save</span> XÁC NHẬN LƯU VÀO BỘ BÀI NÀY
+            </button>
         </div>
     </div>
 </div>
