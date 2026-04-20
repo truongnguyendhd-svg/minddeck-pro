@@ -12512,7 +12512,7 @@ function initPdfDB() {
 }
 
 // Lưu file vào IndexedDB
-async function savePdfToOfflineStore(fileName, arrayBuffer, totalPages) {
+async function savePdfToOfflineStore(fileName, fileBlob, totalPages) {
     try {
         const db = await initPdfDB();
         const id = Date.now().toString(); 
@@ -12520,7 +12520,7 @@ async function savePdfToOfflineStore(fileName, arrayBuffer, totalPages) {
         const newRecord = {
             id: id,
             name: fileName,
-            data: arrayBuffer,
+            data: fileBlob, // 🟢 LƯU NGUYÊN BẢN BLOB/FILE VÀO ĐÂY
             lastPage: 1,
             totalPages: totalPages,
             timestamp: Date.now()
@@ -12530,20 +12530,21 @@ async function savePdfToOfflineStore(fileName, arrayBuffer, totalPages) {
             const tx = db.transaction(PDF_STORE_NAME, 'readwrite');
             const store = tx.objectStore(PDF_STORE_NAME);
             
-            // Lấy tất cả file để xóa bớt nếu vượt quá giới hạn (Giữ bộ nhớ nhẹ nhàng)
             const getAllReq = store.getAll();
             getAllReq.onsuccess = () => {
                 let records = getAllReq.result;
                 if (records.length >= MAX_RECENT_FILES) {
-                    // Sắp xếp cũ nhất lên đầu và xóa
+                    // Xóa bớt file cũ nhất nếu vượt quá 5 file
                     records.sort((a, b) => a.timestamp - b.timestamp);
                     const excess = records.length - MAX_RECENT_FILES + 1;
                     for (let i = 0; i < excess; i++) {
                         store.delete(records[i].id);
                     }
                 }
-                // Lưu file mới
-                store.put(newRecord);
+                
+                // Đẩy file mới vào
+                const putReq = store.put(newRecord);
+                putReq.onerror = (e) => console.error("Lỗi ghi IndexedDB:", e);
             };
             
             tx.oncomplete = () => resolve(id);
@@ -12644,6 +12645,7 @@ async function deleteRecentPdf(event, id) {
 }
 
 // Mở file từ danh sách gần đây
+// Mở file từ danh sách gần đây
 async function openRecentPdf(id) {
     showLoading("Đang nạp file từ bộ nhớ...");
     try {
@@ -12651,21 +12653,28 @@ async function openRecentPdf(id) {
         const tx = db.transaction(PDF_STORE_NAME, 'readonly');
         const req = tx.objectStore(PDF_STORE_NAME).get(id);
         
-        req.onsuccess = () => {
+        req.onsuccess = async () => {
             const fileData = req.result;
             if (!fileData) return hideLoading();
 
             currentOpenPdfId = fileData.id;
-            loadPdfIntoViewer(fileData.data, fileData.lastPage);
+
+            // 🟢 CHUYỂN NGƯỢC BLOB THÀNH ARRAY BUFFER ĐỂ PDF.JS ĐỌC
+            const fileBlob = fileData.data;
+            const arrayBuffer = await fileBlob.arrayBuffer();
+            const typedarray = new Uint8Array(arrayBuffer);
+
+            loadPdfIntoViewer(typedarray, fileData.lastPage);
         };
     } catch (e) {
         hideLoading();
+        console.error(e);
         customAlert("Không thể tải file này.", "❌");
     }
 }
 
 function handlePDFUpload(event) {
-    const file = event.target.files[0];
+    const file = event.target.files[0]; // 🟢 ĐÂY CHÍNH LÀ BLOB
     if (!file || file.type !== "application/pdf") {
         return customAlert("Vui lòng chọn một file PDF hợp lệ!", "⚠️");
     }
@@ -12676,16 +12685,16 @@ function handlePDFUpload(event) {
     fileReader.onload = async function() {
         const typedarray = new Uint8Array(this.result);
         
-        // Mở file trực tiếp
+        // Mở file trên màn hình trước
         const numPages = await loadPdfIntoViewer(typedarray, 1);
         
-        // Âm thầm lưu vào IndexedDB để lần sau mở lại
+        // 🟢 Âm thầm lưu CÁI FILE GỐC vào DB thay vì lưu typedarray
         if (numPages) {
-            currentOpenPdfId = await savePdfToOfflineStore(file.name, typedarray, numPages);
+            currentOpenPdfId = await savePdfToOfflineStore(file.name, file, numPages);
+            console.log("Đã lưu file thành công với ID:", currentOpenPdfId);
         }
         
-        // Reset thẻ input để có thể up lại file cùng tên
-        event.target.value = '';
+        event.target.value = ''; // Reset thẻ input
     };
     fileReader.readAsArrayBuffer(file);
 }
