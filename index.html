@@ -4421,26 +4421,47 @@ textarea.win11-input {
         </div>
     </div>
 
-<!-- BẮT ĐẦU: VÙNG DÍNH (STICKY ZONE) -->
-<div class="grammar-sticky-zone">
-    <!-- Thanh tìm kiếm -->
-    <div class="dict-search-box" style="box-shadow: 0 4px 10px rgba(0,0,0,0.03); background: #ffffff;">
-        <span class="material-symbols-outlined dict-search-icon">search</span>
-        <input type="text" id="grammarSearchInput" class="dict-search-input" placeholder="Tìm kiếm ngữ pháp..." oninput="filterGrammarLocally()">
+    <!-- BẮT ĐẦU: VÙNG DÍNH (STICKY ZONE) -->
+    <div class="grammar-sticky-zone" style="display: flex; flex-direction: column; gap: 15px;">
+        <!-- Thanh tìm kiếm -->
+        <div class="dict-search-box" style="box-shadow: 0 4px 10px rgba(0,0,0,0.03); background: #ffffff; margin-bottom: 0;">
+            <span class="material-symbols-outlined dict-search-icon">search</span>
+            <input type="text" id="grammarSearchInput" class="dict-search-input" placeholder="Tìm kiếm ngữ pháp..." oninput="filterGrammarLocally()">
+        </div>
+    
+        <!-- Thanh lọc cấp độ (Apple Pills) -->
+        <div class="grammar-filter-bar" id="grammarFilterBar" style="margin-bottom: 0;">
+            <div class="grammar-pill active" onclick="loadGrammarData('ALL', this)">Tất cả</div>
+            <div class="grammar-pill" onclick="loadGrammarData('N1', this)">N1</div>
+            <div class="grammar-pill" onclick="loadGrammarData('N2', this)">N2</div>
+            <div class="grammar-pill" onclick="loadGrammarData('N3', this)">N3</div>
+            <div class="grammar-pill" onclick="loadGrammarData('N4', this)">N4</div>
+            <div class="grammar-pill" onclick="loadGrammarData('N5', this)">N5</div>
+        </div>
+    
+        <!-- 🟢 THÊM MỚI: Thanh Chú thích Trạng thái (Legend) -->
+        <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; padding: 10px; background: #fbfbfd; border-radius: 12px; border: 1px solid #edf2f7; font-size: 12px; font-weight: 700;">
+            <div style="display: flex; align-items: center; gap: 6px; color: #64748b;">
+                <div style="width: 16px; height: 16px; border-radius: 4px; background: #f1f5f9; border: 1.5px dashed #cbd5e0;"></div> Chưa thu thập
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; color: #2563eb;">
+                <div style="width: 16px; height: 16px; border-radius: 4px; background: #eff6ff; border: 1.5px solid #93c5fd;"></div> Đang học
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; color: #059669;">
+                <div style="width: 16px; height: 16px; border-radius: 4px; background: #f0fdf4; border: 1.5px solid #34d399; box-shadow: 0 0 8px rgba(16,185,129,0.3);"></div> Thuộc lòng (Mastered)
+            </div>
+        </div>
     </div>
-
-    <!-- Thanh lọc cấp độ (Apple Pills) -->
-    <div class="grammar-filter-bar" id="grammarFilterBar">
-        <div class="grammar-pill active" onclick="loadGrammarData('ALL', this)">Tất cả</div>
-        <div class="grammar-pill" onclick="loadGrammarData('N1', this)">N1</div>
-        <div class="grammar-pill" onclick="loadGrammarData('N2', this)">N2</div>
-        <div class="grammar-pill" onclick="loadGrammarData('N3', this)">N3</div>
-        <div class="grammar-pill" onclick="loadGrammarData('N4', this)">N4</div>
-        <div class="grammar-pill" onclick="loadGrammarData('N5', this)">N5</div>
+    <!-- KẾT THÚC: VÙNG DÍNH -->
+    
+    <!-- 🟢 THÊM MỚI: Thống kê tổng quan Ngữ pháp -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin: 15px 0 0 0; padding: 0 5px;">
+        <div style="font-size: 14px; font-weight: 800; color: #4a5568; text-transform: uppercase;">Tiến độ thu thập</div>
+        <div style="font-size: 14px; font-weight: 800; color: #3b82f6;">
+            <span id="grammarCollectedCount" style="font-size: 20px; font-weight: 900;">0</span> / <span id="grammarTotalCount">0</span> cấu trúc
+        </div>
     </div>
-</div>
-<!-- KẾT THÚC: VÙNG DÍNH -->
-
+    
     <!-- Lưới hiển thị kết quả -->
     <div id="grammarGrid" class="grammar-grid"></div>
 </div>
@@ -10597,7 +10618,7 @@ async function calculateGrammarMastery() {
     }
 }
 
-// ĐÃ NÂNG CẤP: Render Thẻ Ngữ Pháp (CÓ HIỂN THỊ ĐỦ 3 TRẠNG THÁI)
+// ĐÃ NÂNG CẤP: Render Thẻ Ngữ Pháp (CÓ ĐẾM SỐ LƯỢNG)
 function renderGrammarGrid(dataList) {
     const grid = document.getElementById('grammarGrid');
     if (!dataList || dataList.length === 0) {
@@ -10605,28 +10626,33 @@ function renderGrammarGrid(dataList) {
         return;
     }
 
+    let collectedCount = 0; // 🟢 Biến đếm số thẻ đã thu thập
+
     grid.innerHTML = dataList.map(g => {
         const safeJSON = encodeURIComponent(JSON.stringify(g));
         
-        // --- XỬ LÝ TRẠNG THÁI HIỂN THỊ (HEATMAP) ---
         let interval = userGrammarMasteryMap[g.grammar_point] || 0;
+
+        // --- HACK TEST UI (XÓA ĐI NẾU BẠN MUỐN DÙNG THỰC TẾ) ---
+        if (g.grammar_point.includes('に違いない')) interval = 25; 
+        if (g.grammar_point.includes('に向けた')) interval = 5;  
+        // ------------------------------------------------------
+
+        // Nếu thẻ có interval > 0 nghĩa là đã thu thập vào bộ bài
+        if (interval > 0) collectedCount++;
+
         let statusClass = '';
         let badgeHTML = '';
         let stampHTML = '';
 
         if (interval >= 21) {
-            // 🌟 Trạng thái 2: Mastered (Đã vào trí nhớ dài hạn - Xanh lá)
             statusClass = 'status-mastered';
             badgeHTML = `<div class="g-status-badge g-badge-mastered"><span class="material-symbols-outlined" style="font-size:14px;">verified</span> Thuộc lòng</div>`;
             stampHTML = `<div class="grammar-mastery-stamp">MASTERED</div>`;
-            
         } else if (interval > 0) {
-            // 🔄 Trạng thái 1: Learning (Đã lưu vào thẻ nhưng chưa thuộc - Xanh dương)
             statusClass = 'status-learning';
             badgeHTML = `<div class="g-status-badge g-badge-learning"><span class="material-symbols-outlined" style="font-size:14px;">cycle</span> Đang học</div>`;
-            
         } else {
-            // 📥 Trạng thái 0: Chưa học (Uncollected - Viền nét đứt)
             statusClass = 'status-unlearned';
             badgeHTML = `<div class="g-status-badge g-badge-unlearned"><span class="material-symbols-outlined" style="font-size:14px;">library_add</span> Chưa thu thập</div>`;
         }
@@ -10641,6 +10667,12 @@ function renderGrammarGrid(dataList) {
             </div>
         `;
     }).join('');
+
+    // 🟢 CẬP NHẬT CON SỐ LÊN GIAO DIỆN
+    const countEl = document.getElementById('grammarCollectedCount');
+    const totalEl = document.getElementById('grammarTotalCount');
+    if (countEl) countEl.innerText = collectedCount;
+    if (totalEl) totalEl.innerText = dataList.length;
 }
 
 // Bắt Route khi bấm F5
