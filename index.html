@@ -12441,62 +12441,54 @@ async function triggerPdfAI(actionType) {
     showToast("Đã chụp ảnh trang! Hệ thống AI đang được thiết lập...");
 }
 /* =========================================================
-   TÍNH NĂNG SMART SCROLL & SWIPE CHO PDF READER
+   TÍNH NĂNG ĐIỀU HƯỚNG PDF (BẢN CHUẨN UX)
 ========================================================= */
-let isPdfScrollCooldown = false;
 
-// 1. XỬ LÝ LĂN CHUỘT (PC / LAPTOP)
-document.getElementById('pdfViewerContainer').addEventListener('wheel', function(e) {
-    // Nếu chưa load PDF hoặc đang trong thời gian "chờ lật trang" thì bỏ qua
-    if (!pdfDoc || isPdfScrollCooldown) return;
+// 1. TRẢ LẠI QUYỀN CUỘN CHUỘT MƯỢT MÀ
+// Xóa bỏ hoàn toàn sự kiện 'wheel' cũ. Trình duyệt sẽ tự động cuộn từ từ
+// từ câu 1 đến câu 8 một cách mượt mà nhất.
 
-    const container = this;
-    // Cho phép sai số 2px để tương thích với các màn hình Retina/High DPI
-    const isAtBottom = Math.abs(container.scrollHeight - container.clientHeight - container.scrollTop) <= 2;
-    const isAtTop = container.scrollTop <= 2;
+// 2. LẬT TRANG BẰNG PHÍM MŨI TÊN TRÊN BÀN PHÍM (CHO PC/LAPTOP)
+document.addEventListener('keydown', function(e) {
+    // Chỉ kích hoạt khi đang mở chế độ đọc PDF
+    const pdfContainer = document.getElementById('pdfReadState');
+    if (pdfContainer && !pdfContainer.classList.contains('hidden')) {
+        
+        // Bỏ qua nếu người dùng đang gõ chữ vào ô tìm kiếm hoặc Chat AI
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-    // Lăn XUỐNG (deltaY > 0) và đã chạm ĐÁY trang
-    if (e.deltaY > 0 && isAtBottom) {
-        if (pageNum < pdfDoc.numPages) {
-            isPdfScrollCooldown = true; // Khóa lật trang
-            onPdfNextPage();            // Lật trang
-            setTimeout(() => isPdfScrollCooldown = false, 600); // Mở khóa sau 0.6s
-        }
-    } 
-    // Lăn LÊN (deltaY < 0) và đã chạm ĐỈNH trang
-    else if (e.deltaY < 0 && isAtTop) {
-        if (pageNum > 1) {
-            isPdfScrollCooldown = true;
-            onPdfPrevPage();
-            setTimeout(() => isPdfScrollCooldown = false, 600);
+        if (e.key === 'ArrowRight') {
+            e.preventDefault(); // Ngăn cuộn ngang màn hình
+            onPdfNextPage();    // Lật trang sau
+        } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            onPdfPrevPage();    // Lùi trang trước
         }
     }
 });
 
-// 2. TẶNG KÈM: XỬ LÝ VUỐT (SWIPE TRÁI/PHẢI) TRÊN ĐIỆN THOẠI/IPAD
+// 3. VUỐT MÀN HÌNH LẬT TRANG (CHO ĐIỆN THOẠI/TABLET)
 let touchStartX = 0;
 let touchEndX = 0;
 
 document.getElementById('pdfViewerContainer').addEventListener('touchstart', e => {
     touchStartX = e.changedTouches[0].screenX;
-});
+}, {passive: true});
 
 document.getElementById('pdfViewerContainer').addEventListener('touchend', e => {
     if (!pdfDoc) return;
     touchEndX = e.changedTouches[0].screenX;
     
     const distance = touchStartX - touchEndX;
-    const swipeThreshold = 50; // Quãng đường vuốt tối thiểu (pixel)
+    const swipeThreshold = 50; 
 
-    // Vuốt từ Phải sang Trái (Sang trang tiếp theo)
     if (distance > swipeThreshold && pageNum < pdfDoc.numPages) {
-        onPdfNextPage();
+        onPdfNextPage(); // Vuốt trái -> Trang sau
     } 
-    // Vuốt từ Trái sang Phải (Lùi lại trang trước)
     else if (distance < -swipeThreshold && pageNum > 1) {
-        onPdfPrevPage();
+        onPdfPrevPage(); // Vuốt phải -> Trang trước
     }
-});
+}, {passive: true});
 </script>
 <!-- ================= MODAL DÀNH RIÊNG CHO GIA SƯ AI (APPLE STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px;">
