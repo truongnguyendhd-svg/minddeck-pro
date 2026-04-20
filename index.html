@@ -24,10 +24,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <!-- TẢI THƯ VIỆN PDF.js (Core & Worker) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script>
-    // Cấu hình Worker cho PDF.js hoạt động đa luồng (Tránh lag trình duyệt)
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-</script>
+
 <style>
 /* ================= CSS THEO ĐÚNG TIÊU CHUẨN CỦA BẠN ================= */
 :root {
@@ -5661,8 +5658,8 @@ function escapeHTML(str) {
 }
 
 function showPage(p) {
-    // Đã thêm 'playgroundPage' vào danh sách
-    const allPages = ['landingPage', 'loginPage', 'homePage', 'dashboardPage', 'deckSelectionPage', 'reviewPage', 'searchResultPage', 'dictionaryPage', 'playgroundPage', 'grammarPage', 'kanjiPage'];    
+    // ĐÃ BỔ SUNG 'pdfReaderPage' VÀO DANH SÁCH DƯỚI ĐÂY:
+    const allPages = ['landingPage', 'loginPage', 'homePage', 'dashboardPage', 'deckSelectionPage', 'reviewPage', 'searchResultPage', 'dictionaryPage', 'playgroundPage', 'grammarPage', 'kanjiPage', 'pdfReaderPage'];    
     
     allPages.forEach(id => {
         const el = document.getElementById(id);
@@ -12236,8 +12233,10 @@ let pdfDoc = null;
 let pageNum = 1;
 let pageRendering = false;
 let pageNumPending = null;
-const canvas = document.getElementById('pdfCanvas');
-const ctx = canvas.getContext('2d');
+
+// KHÔNG lấy getContext ngay lập tức để tránh lỗi Null khi web mới load
+let pdfCanvas = null;
+let pdfCtx = null;
 
 // 1. Hàm mở trang Reader
 function showPdfReaderPage(skipHash = false) {
@@ -12275,6 +12274,9 @@ function handlePDFUpload(event) {
     }
 
     showLoading("Đang nạp file PDF lên RAM...");
+    // GẮN WORKER Ở ĐÂY LÀ AN TOÀN NHẤT
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
     const fileReader = new FileReader();
 
     fileReader.onload = function() {
@@ -12307,7 +12309,11 @@ function handlePDFUpload(event) {
 // 4. Hàm Render trang ra Canvas
 function renderPage(num) {
     pageRendering = true;
-    
+    // ĐẢM BẢO CANVAS ĐÃ TỒN TẠI TRƯỚC KHI VẼ
+    if (!pdfCanvas) {
+        pdfCanvas = document.getElementById('pdfCanvas');
+        pdfCtx = pdfCanvas.getContext('2d');
+    }
     // Lấy object trang
     pdfDoc.getPage(num).then(page => {
         // TÍNH TOÁN ZOOM: Tự động zoom cho vừa với bề ngang màn hình
