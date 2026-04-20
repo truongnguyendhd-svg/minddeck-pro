@@ -10178,44 +10178,117 @@ async function showKanjiCollection(skipHash = false) {
                 if (allKanjiData.length > 0) localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
             }
         }
-
+        // BƯỚC 2: TẢI TIẾN ĐỘ LIVE VÀ KỶ LỤC TỪ CLOUD (CHỐT FINAL)
+        // Tích hợp: Live Overrides Backup + Luật Tụt 1 Hạng + Bảo vệ thẻ đã xóa
         // ==========================================
-        // BƯỚC 2: QUÉT TIẾN ĐỘ HỌC ĐỂ TÌM MAX INTERVAL CHO TỪNG KANJI
-        // Dùng Join Inner để lấy Front của thẻ cùng lúc với Interval (Siêu tối ưu)
-        // ==========================================
+        
+        // 2.1. Lấy tiến độ thực tế hiện tại (Bổ sung thêm cột interval_count)
         const { data: progressData, error: pErr } = await sb.from('progress')
             .select(`
                 interval,
+                interval_count,
                 cards!inner ( front )
             `)
             .eq('user_id', currentUser.id);
             
         if (pErr) throw pErr;
 
-        userKanjiMasteryMap = {}; // Reset map
-        let unlockedCount = 0; // Đếm số chữ đã từng học (Interval > 0)
+        // 2.2. Lấy Bản sao lưu Kanji trên Cloud (Supabase profiles)
+        const { data: profileData, error: profErr } = await sb.from('profiles')
+            .select('kanji_mastery')
+            .eq('id', currentUser.id)
+            .single();
 
+        let cloudArchiveMap = profileData?.kanji_mastery || {}; 
+        let liveMasteryMap = {}; 
+        let kanjiFailedMap = {}; // Cờ đánh dấu Kanji vừa bị làm Sai
+        let needsCloudUpdate = false; 
+
+        // 2.3. Quét tiến độ Live thực tế
         if (progressData && progressData.length > 0) {
             progressData.forEach(p => {
                 const interval = p.interval || 0;
-                // Nếu thẻ chưa làm (interval 0) thì bỏ qua
+                const count = p.interval_count || 0;
                 if (interval <= 0) return; 
 
-                // Lấy mặt trước và bóc Kanji ra
                 const frontText = p.cards.front || "";
                 const kMatches = frontText.match(/[\u4e00-\u9faf]/g) || [];
                 
                 kMatches.forEach(k => {
-                    // Cập nhật khoảng cách lớn nhất (max interval) cho Kanji này
-                    if (!userKanjiMasteryMap[k] || userKanjiMasteryMap[k] < interval) {
-                        userKanjiMasteryMap[k] = interval;
+                    // Lấy khoảng cách nhớ lớn nhất trong các thẻ hiện có
+                    if (!liveMasteryMap[k] || liveMasteryMap[k] < interval) {
+                        liveMasteryMap[k] = interval;
+                    }
+                    
+                    // Nếu thẻ chứa chữ này vừa bị làm SAI (count = 0) -> Bật cờ phạt
+                    if (count === 0) {
+                        kanjiFailedMap[k] = true;
                     }
                 });
             });
-            unlockedCount = Object.keys(userKanjiMasteryMap).length;
         }
 
-        // Cập nhật thống kê số lượng
+        // 2.4. CHIẾN THUẬT GỘP: BẢO VỆ THÀNH TÍCH & PHẠT "TỤT 1 HẠNG"
+        userKanjiMasteryMap = {}; 
+        
+        // Gộp danh sách Kanji từ cả Thực tế và Kỷ lục Cloud
+        const allKnownKanjis = new Set([...Object.keys(liveMasteryMap), ...Object.keys(cloudArchiveMap)]);
+
+        for (const kanji of allKnownKanjis) {
+            const liveInt = liveMasteryMap[kanji];
+            const archInt = cloudArchiveMap[kanji] || 0;
+
+            if (liveInt !== undefined) {
+                // TRƯỜNG HỢP A: Chữ này vẫn đang có trong kho thẻ hiện tại
+                if (kanjiFailedMap[kanji]) {
+                    // 🚨 User vừa làm SAI: THI HÀNH LUẬT TỤT 1 HẠNG (Dựa trên kỷ lục cũ archInt)
+                    let penalizedInt = 1;
+                    
+                    if (archInt > 45) {
+                        penalizedInt = 45; // Đang Xanh lá (>45) -> Tụt xuống đỉnh Xanh dương (45)
+                    } else if (archInt > 20) {
+                        penalizedInt = 20; // Đang Xanh dương (21-45) -> Tụt xuống đỉnh Cam (20)
+                    } else if (archInt > 6) {
+                        penalizedInt = 6;  // Đang Cam (7-20) -> Tụt xuống đỉnh Đỏ (6)
+                    } else {
+                        penalizedInt = 1;  // Đang Đỏ (1-6) -> Về đáy (1)
+                    }
+
+                    // Lấy mức phạt, nhưng nếu điểm Live tình cờ cao hơn thì vẫn giữ Live
+                    const finalVal = Math.max(liveInt, penalizedInt);
+                    userKanjiMasteryMap[kanji] = finalVal; 
+                    
+                    // Phát hiện sự thay đổi so với Cloud -> Cần cập nhật
+                    if (finalVal !== archInt) needsCloudUpdate = true;
+                    
+                } else {
+                    // 🌟 Làm Đúng / Đang nhớ tốt: BẢO VỆ THÀNH TÍCH CAO NHẤT
+                    const finalVal = Math.max(liveInt, archInt);
+                    userKanjiMasteryMap[kanji] = finalVal;
+                    
+                    if (finalVal !== archInt) needsCloudUpdate = true;
+                }
+            } else {
+                // TRƯỜNG HỢP B: Thẻ chứa chữ này đã bị XÓA khỏi kho
+                // -> LẤY DỮ LIỆU TỪ CLOUD ĐỂ KHÔNG MẤT KANJI TRONG BỘ SƯU TẬP
+                userKanjiMasteryMap[kanji] = archInt;
+            }
+        }
+
+        // 2.5. LƯU NGẦM LÊN CLOUD NẾU CÓ SỰ THAY ĐỔI
+        if (needsCloudUpdate) {
+            sb.from('profiles')
+              .update({ kanji_mastery: userKanjiMasteryMap })
+              .eq('id', currentUser.id)
+              .then(({error}) => {
+                  if (error) console.error("Lỗi đồng bộ Kanji Archive lên Cloud:", error);
+              });
+        }
+
+        // Tính toán thống kê để hiển thị
+        let unlockedCount = Object.keys(userKanjiMasteryMap).length;
+
+        // Cập nhật thống kê số lượng lên giao diện
         document.getElementById('kcMasteredCountPage').innerText = unlockedCount;
         document.getElementById('kcTotalCountPage').innerText = allKanjiData.length;
         
