@@ -3891,6 +3891,45 @@ body.pdf-mode #pdfReadState {
 .pdf-viewer-container {
     -webkit-overflow-scrolling: touch;
 }
+/* ================= TÍNH NĂNG NHẢY TRANG NHANH PDF ================= */
+.pdf-page-indicator {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1d1d1f;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+    min-width: 80px;
+    text-align: center;
+    cursor: pointer; /* Con trỏ chuột hình bàn tay */
+    padding: 4px 8px;
+    border-radius: 8px;
+    transition: background-color 0.2s;
+}
+
+.pdf-page-indicator:hover {
+    background: rgba(0, 0, 0, 0.05); /* Sáng lên khi di chuột vào */
+}
+
+/* Ô nhập số nhảy trang */
+.pdf-jump-input {
+    width: 40px;
+    text-align: center;
+    border: 2px solid #0071e3; /* Viền xanh Apple */
+    border-radius: 6px;
+    font-size: 15px;
+    font-weight: 800;
+    color: #1d1d1f;
+    outline: none;
+    background: #ffffff;
+    padding: 2px 0;
+    -moz-appearance: textfield; /* Ẩn mũi tên trên Firefox */
+}
+
+/* Ẩn mũi tên lên/xuống của thẻ number trên Chrome/Safari */
+.pdf-jump-input::-webkit-outer-spin-button,
+.pdf-jump-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
 </style>
 </head>
 <body>
@@ -4578,7 +4617,7 @@ body.pdf-mode #pdfReadState {
                 <span class="material-symbols-outlined">chevron_left</span>
             </button>
             
-            <div class="pdf-page-indicator">
+            <div class="pdf-page-indicator" title="Nhấn để nhảy trang" onclick="promptPageJump()">
                 <span id="pdfPageNum">1</span> / <span id="pdfPageCount">?</span>
             </div>
             
@@ -12429,7 +12468,60 @@ function onPdfNextPage() {
     queueRenderPage(pageNum);
     document.getElementById('pdfViewerContainer').scrollTo({ top: 0, behavior: 'smooth' });
 }
+// ================= TÍNH NĂNG NHẢY NHANH TRANG BẤT KỲ =================
+function promptPageJump() {
+    if (!pdfDoc) return; // Chưa load file thì không làm gì
+    
+    const pageNumSpan = document.getElementById('pdfPageNum');
+    if (!pageNumSpan || pageNumSpan.tagName === 'INPUT') return; // Tránh click 2 lần
 
+    const totalPages = pdfDoc.numPages;
+    const currentNum = pageNumSpan.innerText;
+
+    // 1. Tạo ô Input thay thế chữ
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'pdf-jump-input';
+    input.value = currentNum;
+    input.min = 1;
+    input.max = totalPages;
+
+    // 2. Tráo đổi Span thành Input
+    pageNumSpan.replaceWith(input);
+    input.focus();
+    input.select(); // Bôi đen sẵn số cũ, gõ số mới đè lên luôn cho tiện
+
+    // 3. Hàm xử lý khi gõ xong
+    const finishJump = () => {
+        let newNum = parseInt(input.value);
+
+        // Bắt lỗi nhập bậy (chữ, số âm, số vượt quá tổng trang)
+        if (isNaN(newNum) || newNum < 1) newNum = 1;
+        if (newNum > totalPages) newNum = totalPages;
+
+        // Trả lại thẻ Span như cũ
+        const span = document.createElement('span');
+        span.id = 'pdfPageNum';
+        span.innerText = newNum;
+        input.replaceWith(span);
+
+        // Nếu người dùng nhập số mới -> Nhảy trang
+        if (newNum !== pageNum) {
+            pageNum = newNum;
+            queueRenderPage(pageNum); // Render trang mới
+            // Cuộn lên đầu tờ giấy
+            document.getElementById('pdfViewerContainer').scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    };
+
+    // 4. Bắt sự kiện hoàn tất (Nhấn Enter hoặc Click ra ngoài)
+    input.addEventListener('blur', finishJump); // Click ra ngoài ô
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            input.blur(); // Bấm Enter sẽ tự động nhả focus (kích hoạt blur ở trên)
+        }
+    });
+}
 // 7. Bật/Tắt Menu AI của PDF
 function togglePdfAiMenu(e) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
