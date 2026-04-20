@@ -12631,26 +12631,197 @@ document.addEventListener('click', (e) => {
     }
 });
 
-// ================= CHUẨN BỊ CHO BƯỚC AI (LẤY ẢNH TRANG) =================
-// Hàm này chụp ảnh thẻ Canvas thành Base64 JPEG để sẵn sàng ném cho Gemini AI
+// ================= HỆ THỐNG SMART PDF AI (TUTOR, EXTRACT, TRANSLATE) =================
+
+// 1. HÀM CHỤP ẢNH TRANG PDF (CANVAS TO BASE64)
 function getPdfPageAsBase64() {
-    // Quality 0.8 để giảm dung lượng file gửi lên Vercel, nhưng vẫn đủ nét để OCR
+    const canvas = document.getElementById('pdfCanvas');
+    if (!canvas) return null;
+    // Chụp với chất lượng 0.8 để tối ưu dung lượng gửi qua Vercel API (OCR vẫn nhận diện cực tốt)
     return canvas.toDataURL('image/jpeg', 0.8);
 }
 
-// Khung hàm chờ bước tiếp theo bạn yêu cầu
+// 2. HÀM XỬ LÝ CHÍNH (TRIGGER AI)
 async function triggerPdfAI(actionType) {
-    document.getElementById('pdfAiDropdown').classList.add('hidden');
+    // Đóng dropdown menu AI
+    const aiDropdown = document.getElementById('pdfAiDropdown');
+    if (aiDropdown) aiDropdown.classList.add('hidden');
     
     // 1. Chụp ảnh màn hình trang PDF hiện tại
     const base64Image = getPdfPageAsBase64();
+    if (!base64Image) {
+        return customAlert("Không tìm thấy dữ liệu trang PDF. Vui lòng thử lại!", "⚠️");
+    }
+
+    // Hiển thị trạng thái Loading
+    showToast("📸 Đã quét trang PDF. AI đang xử lý...");
     
-    // 2. Chờ xử lý logic Prompt và ném vào callGeminiAI(prompt, [base64Image])
-    console.log("Đã chụp xong ảnh trang hiện tại, Base64 Length:", base64Image.length);
-    console.log("Chế độ yêu cầu:", actionType);
-    
-    // Tạm thời báo Toast
-    showToast("Đã chụp ảnh trang! Hệ thống AI đang được thiết lập...");
+    // Mở trước Modal AI với trạng thái Loading mượt mà
+    showAIModal(`
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; color: #5f6368;">
+            <div class="spinner" style="width: 32px; height: 32px; border-width: 3px; border-top-color: #0b57d0; margin-bottom: 16px;"></div>
+            <div style="font-weight: 600; font-size: 16px; color: #1d1d1f;">Gia sư AI đang đọc trang sách...</div>
+            <div style="font-size: 14px; margin-top: 8px; text-align: center;">Tùy vào độ dài của văn bản, quá trình này mất khoảng 5-15 giây.</div>
+        </div>
+    `, "Gia sư PDF");
+
+    let prompt = "";
+    let modalTitle = "";
+
+    // 2. THIẾT LẬP PROMPT THEO CHẾ ĐỘ
+    switch (actionType) {
+        case 'tutor':
+            modalTitle = "👩‍🏫 Gia sư chữa bài";
+            prompt = `Đóng vai trò là một giáo viên tiếng Nhật luyện thi JLPT xuất sắc. Hãy đọc hình ảnh trang sách/đề thi này.
+            Nhiệm vụ của bạn:
+            1. Đọc và nhận diện các câu hỏi trắc nghiệm có trên trang.
+            2. Đưa ra ĐÁP ÁN ĐÚNG cho từng câu.
+            3. Giải thích CHI TIẾT TẠI SAO lại chọn đáp án đó (ngữ pháp, từ vựng, bẫy cần tránh...).
+            Trình bày đẹp mắt, rõ ràng. Những từ tiếng Nhật quan trọng hãy in đậm (sử dụng dấu **).
+            Lưu ý: Chỉ trả lời phần text giải thích, KHÔNG tạo khối JSON.`;
+            break;
+
+        case 'extract_quiz':
+            modalTitle = "✂️ Số hóa đề thi (Extract Quiz)";
+            prompt = `Đóng vai trò là hệ thống bóc tách dữ liệu giáo dục. Hãy đọc hình ảnh trang đề thi trắc nghiệm tiếng Nhật này.
+            Nhiệm vụ: Bóc tách TOÀN BỘ các câu hỏi trắc nghiệm thành một mảng JSON.
+            Yêu cầu BẮT BUỘC: 
+            1. Tìm câu hỏi và 4 đáp án (hoặc 3 đáp án).
+            2. Xác định đáp án nào là đúng nhất (nếu không chắc, hãy tự giải và điền vào "correct").
+            3. CHỈ trả về một khối JSON duy nhất nằm trong \`\`\`json và \`\`\`, tuyệt đối không giải thích thêm bằng văn bản thường.
+            
+            Format JSON BẮT BUỘC:
+            [
+              {
+                "question": "Nội dung câu hỏi tiếng Nhật",
+                "correct": "Nội dung đáp án ĐÚNG",
+                "wrong1": "Nội dung đáp án SAI 1",
+                "wrong2": "Nội dung đáp án SAI 2",
+                "wrong3": "Nội dung đáp án SAI 3"
+              }
+            ]`;
+            break;
+
+        case 'extract_vocab':
+            modalTitle = "📖 Dịch thuật & Trích xuất Từ vựng";
+            prompt = `Đóng vai trò là chuyên gia dịch thuật và giảng viên tiếng Nhật JLPT. Hãy đọc đoạn văn bản (Dokkai) trong hình.
+            
+            Nhiệm vụ 1: Dịch toàn bộ đoạn văn bản sang tiếng Việt một cách mượt mà, tự nhiên (văn phong đọc hiểu). Trình bày phần dịch bình thường (dùng dấu ** để in đậm từ quan trọng).
+            
+            Nhiệm vụ 2: Trích xuất các từ vựng Kanji quan trọng (trình độ N3, N2, N1) có trong bài. BẮT BUỘC đặt mảng từ vựng này vào một khối JSON ở CUỐI CÙNG của câu trả lời (nằm trong \`\`\`json và \`\`\`).
+            
+            Format khối JSON BẮT BUỘC:
+            {
+              "vocab": [ 
+                {
+                  "front": "Từ vựng (Kanji)", 
+                  "reading": "Hiragana", 
+                  "meaning": "Nghĩa tiếng Việt", 
+                  "hv": "HÁN VIỆT"
+                } 
+              ]
+            }`;
+            break;
+    }
+
+    try {
+        // 3. GỌI API GEMINI (Truyền Prompt + Array chứa 1 ảnh Base64)
+        const aiResponse = await callGeminiAI(prompt, [base64Image]);
+
+        // 4. XỬ LÝ KẾT QUẢ TRẢ VỀ (BÓC TÁCH JSON NẾU CÓ)
+        let mainText = aiResponse;
+        let extractedData = null;
+
+        // Dùng Regex lấy khối JSON (Áp dụng cho Mode Extract và Translate)
+        const jsonMatch = aiResponse.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch && jsonMatch[1]) {
+            try {
+                extractedData = JSON.parse(jsonMatch[1]);
+                // Xóa khối JSON khỏi phần text để text hiển thị sạch sẽ
+                mainText = aiResponse.replace(/```json\s*([\s\S]*?)\s*```/, '').trim();
+            } catch (e) {
+                console.error("AI trả về JSON lỗi format:", e);
+            }
+        } else if (actionType === 'extract_quiz') {
+            // Trường hợp rủi ro: Prompt bắt ép JSON nhưng AI quên bọc ```json
+            try {
+                const rawArray = aiResponse.substring(aiResponse.indexOf('['), aiResponse.lastIndexOf(']') + 1);
+                extractedData = JSON.parse(rawArray);
+                mainText = ""; // Không có text phụ
+            } catch (e) {}
+        }
+
+        // 5. FORMAT TEXT HIỂN THỊ (X-Ray Kanji + In đậm)
+        let formattedAI = mainText.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1d1d1f;">$1</b>');
+        formattedAI = formattedAI.replace(/\n/g, '<br>');
+        formattedAI = wrapKanjiWithLink(formattedAI); // Kích hoạt X-Ray Kanji cho chữ Hán
+
+        // 6. TẠO NÚT UI (SỐ HÓA & TRÍCH XUẤT)
+        let extractUI = "";
+
+        // Xử lý nút Trắc nghiệm (Extract Quiz)
+        if (actionType === 'extract_quiz' && Array.isArray(extractedData)) {
+            extractUI += `<div class="ai-extracted-zone">
+                            <div class="ai-ext-title" style="color: #f56565;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">quiz</span> Đã bóc tách ${extractedData.length} câu hỏi:
+                            </div>`;
+            extractedData.forEach((q, index) => {
+                const safeQuizJSON = encodeURIComponent(JSON.stringify(q));
+                extractUI += `
+                <div class="ai-ext-btn" onclick="openSaveAIQuizModal('${safeQuizJSON}')" style="border-left: 3px solid #f56565;">
+                    <div class="ext-content">
+                        <span class="ext-type quiz">CÂU ${index + 1}</span>
+                        <span class="ext-text" style="font-size: 14px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
+                            ${escapeHTML(q.question)}
+                        </span>
+                    </div>
+                    <span class="material-symbols-outlined" style="color: #f56565; background: #fff5f5;">edit_square</span>
+                </div>`;
+            });
+            extractUI += `</div>`;
+        }
+
+        // Xử lý nút Từ vựng (Translate & Vocab)
+        if (actionType === 'extract_vocab' && extractedData && extractedData.vocab) {
+            extractUI += `<div class="ai-extracted-zone">
+                            <div class="ai-ext-title" style="color: #3b82f6;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">style</span> Từ vựng N3/N2 quan trọng:
+                            </div>`;
+            extractedData.vocab.forEach(v => {
+                const encFront = encodeURIComponent(v.front || '');
+                const encReading = encodeURIComponent(v.reading || '');
+                const encMeaning = encodeURIComponent(v.meaning || '');
+                const encHv = encodeURIComponent(v.hv || '');
+                
+                extractUI += `
+                <div class="ai-ext-btn" onclick="openSaveDictWordModal('${encFront}', '${encReading}', '${encMeaning}', '${encHv}', '')" style="border-left: 3px solid #3b82f6;">
+                    <div class="ext-content">
+                        <span class="ext-type vocab">TỪ VỰNG</span>
+                        <span class="ext-text">${escapeHTML(v.front)} - ${escapeHTML(v.meaning)}</span>
+                    </div>
+                    <span class="material-symbols-outlined" style="color: #3b82f6; background: #eff6ff;">add</span>
+                </div>`;
+            });
+            extractUI += `</div>`;
+        }
+
+        // 7. CẬP NHẬT MODAL VỚI KẾT QUẢ CUỐI CÙNG
+        const finalHTML = `
+            <div style="animation: fadeInChat 0.4s ease;">
+                ${formattedAI}
+                ${extractUI}
+            </div>
+        `;
+        showAIModal(finalHTML, modalTitle);
+
+    } catch (err) {
+        console.error("PDF AI Error:", err);
+        showAIModal(`
+            <div style="color: #d93025; background: #fce8e6; padding: 16px; border-radius: 8px; border: 1px solid #fad2cf;">
+                <b>❌ Phân tích thất bại:</b><br>${err.message}
+            </div>
+        `, "Lỗi AI");
+    }
 }
 /* =========================================================
    TÍNH NĂNG ĐIỀU HƯỚNG PDF (BẢN CHUẨN UX)
