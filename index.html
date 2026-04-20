@@ -5166,6 +5166,86 @@ textarea.win11-input {
         </div>
     </div>
 </div>
+<!-- ================= MODAL ADMIN: LƯU NGỮ PHÁP TỪ AI (WIN 11 STYLE) ================= -->
+<div id="adminGrammarModal" class="modal" style="z-index: 100000;">
+    <div class="modal-content win11-modal" style="max-width: 600px;">
+        
+        <!-- Header Win 11 -->
+        <div class="win11-modal-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: #10b981; font-size: 20px;">account_tree</span>
+                <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: #1a1a1a;">Thêm Ngữ pháp (Admin)</h3>
+            </div>
+            <button class="win11-close-btn" onclick="closeModal('adminGrammarModal')">
+                <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+            </button>
+        </div>
+
+        <!-- Body Win 11 -->
+        <div class="win11-modal-body" style="padding: 20px 24px; max-height: 80vh; overflow-y: auto;">
+            
+            <div class="grid-2-col" style="gap: 16px; margin-bottom: 12px;">
+                <div>
+                    <label class="win11-label">Cấu trúc Ngữ pháp *</label>
+                    <input type="text" id="agmPoint" class="win11-input" style="font-size: 16px; font-weight: 700; color: #10b981;">
+                </div>
+                <div>
+                    <label class="win11-label">Cấp độ (JLPT) *</label>
+                    <select id="agmLevel" class="win11-input">
+                        <option value="N3" selected>N3</option>
+                        <option value="N1">N1</option>
+                        <option value="N2">N2</option>
+                        <option value="N4">N4</option>
+                        <option value="N5">N5</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+                <label class="win11-label">Ý nghĩa *</label>
+                <input type="text" id="agmMeaning" class="win11-input" placeholder="Ví dụ: Chắc chắn là, nhất định là...">
+            </div>
+
+            <div style="margin-bottom: 12px;">
+                <label class="win11-label">Cách ghép / Cấu trúc</label>
+                <textarea id="agmStructure" class="win11-input" rows="2" placeholder="Ví dụ: V (thể thông thường) + に違いない"></textarea>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+                <label class="win11-label">Sắc thái & Lưu ý</label>
+                <textarea id="agmNuance" class="win11-input" rows="2" placeholder="Sắc thái biểu đạt..."></textarea>
+            </div>
+
+            <!-- Phân cách -->
+            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px; margin-top: 16px;">
+                <label class="win11-label" style="color: #0067c0; display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">chat</span> VÍ DỤ 1
+                </label>
+                <div class="grid-2-col" style="gap: 12px;">
+                    <textarea id="agmEx1Jp" class="win11-input" rows="2" placeholder="Tiếng Nhật"></textarea>
+                    <textarea id="agmEx1Vn" class="win11-input" rows="2" placeholder="Tiếng Việt"></textarea>
+                </div>
+            </div>
+
+            <div style="border-top: 1px dashed #e5e5e5; padding-top: 12px; margin-top: 12px;">
+                <label class="win11-label" style="color: #8c8c8c; display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">chat</span> VÍ DỤ 2 (Tùy chọn)
+                </label>
+                <div class="grid-2-col" style="gap: 12px;">
+                    <textarea id="agmEx2Jp" class="win11-input" rows="2" placeholder="Tiếng Nhật"></textarea>
+                    <textarea id="agmEx2Vn" class="win11-input" rows="2" placeholder="Tiếng Việt"></textarea>
+                </div>
+            </div>
+
+            <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
+                <button onclick="saveAdminGrammar()" class="win11-btn-primary" style="width: 100%; justify-content: center; display: flex; align-items: center; gap: 8px; padding: 12px; font-size: 15px; background: #10b981;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">cloud_upload</span> LƯU LÊN DATABASE TOÀN CẦU
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
 <script>
 /* ================= HỆ THỐNG ROUTER (LƯU TRẠNG THÁI F5) ================= */
 async function handleRoute() {
@@ -11027,21 +11107,34 @@ async function handleSendChatMessage() {
                 });
             }
 
+// Xác định xem user có phải Admin không
+            const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
+
             if (extractedData.grammar && extractedData.grammar.length > 0) {
                 extractedData.grammar.forEach(g => {
                     const encFront = encodeURIComponent(g.point || '');
                     const encMeaning = encodeURIComponent(g.meaning || '');
                     const encInfo = encodeURIComponent(g.note || '');
-                    
-                    // FIX MỚI: Thêm ví dụ cho cả Ngữ pháp
-                    let combinedExample = "";
-                    if (g.ex_jp) {
-                        combinedExample = g.ex_vn ? `${g.ex_jp} (${g.ex_vn})` : g.ex_jp;
+                    const encExJp = encodeURIComponent(g.ex_jp || '');
+                    const encExVn = encodeURIComponent(g.ex_vn || '');
+
+                    let onClickAction = "";
+
+                    if (isAdmin) {
+                        // 🟢 NẾU LÀ ADMIN: Gọi Modal thêm lên DB Chung
+                        onClickAction = `openAdminGrammarModal('${encFront}', '${encMeaning}', '${encInfo}', '${encExJp}', '${encExVn}')`;
+                    } else {
+                        // 🟠 NẾU LÀ USER THƯỜNG: Gọi Modal lưu vào Flashcard cá nhân
+                        let combinedExample = "";
+                        if (g.ex_jp) {
+                            combinedExample = g.ex_vn ? `${g.ex_jp} (${g.ex_vn})` : g.ex_jp;
+                        }
+                        const encEx = encodeURIComponent(combinedExample);
+                        onClickAction = `openSaveDictWordModal('${encFront}', '', '${encMeaning}', '${encInfo}', '${encEx}')`;
                     }
-                    const encEx = encodeURIComponent(combinedExample);
                     
                     extractUI += `
-                    <div class="ai-ext-btn" onclick="openSaveDictWordModal('${encFront}', '', '${encMeaning}', '${encInfo}', '${encEx}')">
+                    <div class="ai-ext-btn" onclick="${onClickAction}">
                         <div class="ext-content">
                             <span class="ext-type grammar">NGỮ PHÁP</span>
                             <span class="ext-text">${escapeHTML(g.point)}</span>
@@ -11535,6 +11628,90 @@ async function openDeckListPreview() {
     } catch (err) {
         console.error("Lỗi xem danh sách:", err);
         customAlert("Không thể tải danh sách. Vui lòng kiểm tra mạng.", "❌");
+    } finally {
+        hideLoading();
+    }
+}
+/* ================= HỆ THỐNG LƯU NGỮ PHÁP DÀNH CHO ADMIN ================= */
+
+function openAdminGrammarModal(encPoint, encMeaning, encInfo, encExJp, encExVn) {
+    // Đổ dữ liệu AI bóc tách được vào Modal
+    document.getElementById('agmPoint').value = decodeURIComponent(encPoint);
+    document.getElementById('agmMeaning').value = decodeURIComponent(encMeaning);
+    
+    // AI thường trả về phần giải thích trong "note", ta gán tạm vào "Cấu trúc" để Admin tự chỉnh lại
+    document.getElementById('agmStructure').value = decodeURIComponent(encInfo);
+    document.getElementById('agmNuance').value = ""; 
+    document.getElementById('agmLevel').value = "N3"; // Mặc định N3, Admin tự đổi
+    
+    document.getElementById('agmEx1Jp').value = decodeURIComponent(encExJp);
+    document.getElementById('agmEx1Vn').value = decodeURIComponent(encExVn);
+    
+    document.getElementById('agmEx2Jp').value = "";
+    document.getElementById('agmEx2Vn').value = "";
+
+    document.getElementById('adminGrammarModal').style.display = 'flex';
+}
+
+async function saveAdminGrammar() {
+    const point = document.getElementById('agmPoint').value.trim();
+    const meaning = document.getElementById('agmMeaning').value.trim();
+    const level = document.getElementById('agmLevel').value;
+    const structure = document.getElementById('agmStructure').value.trim();
+    const nuance = document.getElementById('agmNuance').value.trim();
+    const ex1_jp = document.getElementById('agmEx1Jp').value.trim();
+    const ex1_vn = document.getElementById('agmEx1Vn').value.trim();
+    const ex2_jp = document.getElementById('agmEx2Jp').value.trim();
+    const ex2_vn = document.getElementById('agmEx2Vn').value.trim();
+
+    if (!point || !meaning) {
+        return customAlert("Cấu trúc ngữ pháp và Ý nghĩa không được để trống!", "⚠️");
+    }
+
+    showLoading("Đang kiểm tra dữ liệu và lưu...");
+
+    try {
+        // 1. KIỂM TRA TRÙNG LẶP (DUPLICATE CHECK)
+        // Query xem trong bảng grammar_dict đã có ngữ pháp này chưa
+        const { data: existingGrammar, error: checkErr } = await sb.from('grammar_dict')
+            .select('id, level')
+            .eq('grammar_point', point);
+
+        if (checkErr) throw checkErr;
+
+        // Nếu mảng trả về có dữ liệu -> Đã tồn tại
+        if (existingGrammar && existingGrammar.length > 0) {
+            hideLoading();
+            return customAlert(
+                `Ngữ pháp <b style="color:#10b981; font-size:20px;">${escapeHTML(point)}</b> đã tồn tại trong Hệ thống toàn cầu (Cấp độ: ${existingGrammar[0].level}).<br><br>Vui lòng kiểm tra lại!`, 
+                "⚠️"
+            );
+        }
+
+        // 2. INSERT VÀO DATABASE NẾU CHƯA TỒN TẠI
+        const { error: insertErr } = await sb.from('grammar_dict').insert([{
+            grammar_point: point,
+            meaning: meaning,
+            level: level,
+            structure: structure,
+            nuance: nuance,
+            ex1_jp: ex1_jp,
+            ex1_vn: ex1_vn,
+            ex2_jp: ex2_jp,
+            ex2_vn: ex2_vn
+        }]);
+
+        if (insertErr) throw insertErr;
+
+        // 3. XÓA CACHE RAM (Để lần sau user vào trang Bộ Sưu Tập Ngữ Pháp sẽ load bản mới nhất)
+        globalGrammarData = [];
+
+        closeModal('adminGrammarModal');
+        showToast("✅ Đã thêm Ngữ pháp vào Hệ thống Toàn cầu!");
+
+    } catch (err) {
+        console.error("Lỗi khi Admin lưu ngữ pháp:", err);
+        customAlert("Lỗi hệ thống: " + err.message, "❌");
     } finally {
         hideLoading();
     }
