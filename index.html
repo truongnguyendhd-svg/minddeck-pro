@@ -22,6 +22,12 @@
 <script src="https://unpkg.com/wanakana"></script>
 <!-- TẢI THƯ VIỆN ĐỌC FILE EXCEL (SheetJS) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- TẢI THƯ VIỆN PDF.js (Core & Worker) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+    // Cấu hình Worker cho PDF.js hoạt động đa luồng (Tránh lag trình duyệt)
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+</script>
 <style>
 /* ================= CSS THEO ĐÚNG TIÊU CHUẨN CỦA BẠN ================= */
 :root {
@@ -3749,6 +3755,120 @@ textarea.win11-input {
     text-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
 }
 .lvl-mastered:hover { transform: scale(1.2) translateY(-5px); z-index: 10; box-shadow: 0 0 25px rgba(16, 185, 129, 0.5); }
+/* ================= SMART PDF READER (APPLE STYLE) ================= */
+/* Khóa cuộn trang cha, để cuộn bên trong khu vực đọc PDF */
+body.pdf-mode {
+    height: 100dvh !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    margin: 0 !important;
+}
+
+body.pdf-mode .main-content {
+    flex: 1 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    background: #e5e5ea; /* Xám tối hơn một chút để nổi bật trang giấy trắng */
+}
+
+/* Trạng thái 1: Khung Upload */
+.pdf-upload-zone {
+    max-width: 600px;
+    margin: 40px auto;
+    padding: 40px 20px;
+    background: #ffffff;
+    border: 2px dashed #0071e3; /* Blue Apple */
+    border-radius: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+}
+.pdf-upload-zone:hover {
+    background: #f0f9ff;
+    transform: translateY(-5px);
+    border-color: #1e3a8a;
+}
+
+/* Trạng thái 2: Khu vực đọc Canvas */
+.pdf-viewer-container {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 20px 10px 100px 10px; /* Chừa 100px ở đáy để không bị thanh công cụ đè */
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    -ms-overflow-style: none; scrollbar-width: none;
+}
+.pdf-viewer-container::-webkit-scrollbar { display: none; }
+
+#pdfCanvas {
+    background: #ffffff;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    border-radius: 8px; /* Giấy hơi bo góc nhẹ cho hiện đại */
+    max-width: 100%;
+    height: auto !important; /* Quan trọng để Responsive */
+}
+
+/* Thanh công cụ lơ lửng dưới đáy (Apple Glassmorphism) */
+.pdf-floating-bar {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: saturate(180%) blur(25px);
+    -webkit-backdrop-filter: saturate(180%) blur(25px);
+    border: 1px solid rgba(0,0,0,0.1);
+    padding: 8px 12px;
+    border-radius: 50px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+    z-index: 1000;
+}
+
+.pdf-nav-btn {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: #f5f5f7;
+    color: #1d1d1f;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: 0.2s;
+}
+.pdf-nav-btn:hover:not(:disabled) { background: #e5e5ea; transform: scale(1.1); }
+.pdf-nav-btn:disabled { color: #d2d2d7; cursor: not-allowed; }
+
+.pdf-page-indicator {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1d1d1f;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+    min-width: 80px;
+    text-align: center;
+}
+
+/* Nút gọi AI nổi bật */
+.pdf-ai-btn {
+    background: linear-gradient(135deg, #a855f7, #ec4899);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 50px;
+    font-weight: 800;
+    font-size: 14px;
+    display: flex; align-items: center; gap: 6px;
+    cursor: pointer; transition: 0.3s;
+    box-shadow: 0 4px 15px rgba(236, 72, 153, 0.3);
+}
+.pdf-ai-btn:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 6px 20px rgba(236, 72, 153, 0.5); }
 </style>
 </head>
 <body>
@@ -3812,6 +3932,9 @@ textarea.win11-input {
         </button>
         <button class="side-menu-btn" onclick="closeSideMenu(); showPlayground()">
             <span class="material-symbols-outlined">menu_book</span> Playground AI
+        </button>
+        <button class="side-menu-btn" onclick="closeSideMenu(); showPdfReaderPage()">
+            <span class="material-symbols-outlined">picture_as_pdf</span> Smart PDF Reader
         </button>
         <!-- THÊM MỚI: Bộ sưu tập Kanji -->
         <button class="side-menu-btn" onclick="closeSideMenu(); showKanjiCollection()">
@@ -5214,7 +5337,84 @@ textarea.win11-input {
         </div>
     </div>
 </div>
+<!-- ================= TRANG SMART PDF READER ================= -->
+<div id="pdfReaderPage" class="hidden">
+    
+    <!-- TRẠNG THÁI 1: TẢI FILE -->
+    <div id="pdfUploadState" style="padding: 20px;">
+        <div class="home-welcome-banner" style="margin-top: 0; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);">
+            <div class="welcome-text">
+                <h2 style="color: #0071e3;">Smart PDF Reader</h2>
+                <p>Mở file PDF sách giáo khoa hoặc đề thi (JLPT). AI sẽ quét trang hiện tại, bóc tách cấu trúc câu, dịch thuật và tự động đóng gói thành Flashcard/Trắc nghiệm.</p>
+                <i style="font-size: 12px; color: #718096; display: block; margin-top: 5px;">* File được xử lý ngay trên thiết bị của bạn, bảo mật tuyệt đối và không tốn dung lượng mạng.</i>
+            </div>
+            <div class="welcome-icon" style="background: linear-gradient(135deg, #0071e3, #3b82f6);">
+                <span class="material-symbols-outlined">picture_as_pdf</span>
+            </div>
+        </div>
 
+        <div class="pdf-upload-zone" onclick="document.getElementById('pdfFileInput').click()">
+            <span class="material-symbols-outlined" style="font-size: 60px; color: #0071e3; margin-bottom: 15px;">upload_file</span>
+            <h3 style="margin: 0 0 10px 0; color: #1d1d1f;">Nhấn để chọn file PDF</h3>
+            <p style="margin: 0; color: #86868b; font-size: 14px;">Hoặc kéo thả file vào đây</p>
+            <input type="file" id="pdfFileInput" accept="application/pdf" style="display: none;" onchange="handlePDFUpload(event)">
+        </div>
+    </div>
+
+    <!-- TRẠNG THÁI 2: ĐỌC SÁCH & CANVAS -->
+    <div id="pdfReadState" class="hidden" style="flex: 1; display: flex; flex-direction: column; position: relative;">
+        
+        <div id="pdfViewerContainer" class="pdf-viewer-container">
+            <canvas id="pdfCanvas"></canvas>
+        </div>
+
+        <!-- Thanh công cụ nổi đáy màn hình -->
+        <div class="pdf-floating-bar">
+            <!-- Nút đóng PDF, quay lại chọn file -->
+            <button class="pdf-nav-btn" style="color: #e53e3e;" onclick="closePDFReader()" title="Đóng PDF">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+            
+            <div style="width: 1px; height: 24px; background: #d2d2d7; margin: 0 5px;"></div>
+
+            <button class="pdf-nav-btn" id="pdfPrevBtn" onclick="onPdfPrevPage()">
+                <span class="material-symbols-outlined">chevron_left</span>
+            </button>
+            
+            <div class="pdf-page-indicator">
+                <span id="pdfPageNum">1</span> / <span id="pdfPageCount">?</span>
+            </div>
+            
+            <button class="pdf-nav-btn" id="pdfNextBtn" onclick="onPdfNextPage()">
+                <span class="material-symbols-outlined">chevron_right</span>
+            </button>
+
+            <div style="width: 1px; height: 24px; background: #d2d2d7; margin: 0 5px;"></div>
+
+            <!-- Nút gọi AI đa năng -->
+            <div style="position: relative;">
+                <button class="pdf-ai-btn" onclick="togglePdfAiMenu(event)">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">auto_awesome</span>
+                    <span class="hide-text-mobile">HỎI AI</span>
+                </button>
+
+                <!-- Menu Dropdown AI (Tái sử dụng style của Playground) -->
+                <div id="pdfAiDropdown" class="ai-mode-dropdown hidden" style="bottom: calc(100% + 15px); right: 0; left: auto; transform-origin: bottom right;">
+                    <div class="ai-mode-item" onclick="triggerPdfAI('extract_quiz')">
+                        <span class="material-symbols-outlined" style="color: #f56565;">quiz</span> ✂️ Bóc tách Đề Trắc nghiệm
+                    </div>
+                    <div class="ai-mode-item" onclick="triggerPdfAI('extract_vocab')">
+                        <span class="material-symbols-outlined" style="color: #3b82f6;">style</span> 📖 Dịch & Tạo Flashcard
+                    </div>
+                    <div class="ai-mode-item" onclick="triggerPdfAI('tutor')">
+                        <span class="material-symbols-outlined" style="color: #10b981;">school</span> 👩‍🏫 Giải thích đáp án trang này
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
 <!-- ================= MODAL ADMIN: QUẢN LÝ TỪ ĐIỂN (WIN 11 STYLE) ================= -->
 <div id="dictAdminModal" class="modal">
     <div class="modal-content win11-modal" style="max-width: 550px;">
@@ -5417,6 +5617,9 @@ async function handleRoute() {
         }
         else { 
             showHome(); 
+        }
+        else if (route === 'pdfreader') {
+            showPdfReaderPage();
         }
     } catch (error) {
         console.error("Lỗi khi khôi phục trang:", error);
@@ -12027,6 +12230,180 @@ async function saveAdminGrammar() {
     } finally {
         hideLoading();
     }
+}
+/* ================= SMART PDF READER (LOGIC CORE) ================= */
+let pdfDoc = null;
+let pageNum = 1;
+let pageRendering = false;
+let pageNumPending = null;
+const canvas = document.getElementById('pdfCanvas');
+const ctx = canvas.getContext('2d');
+
+// 1. Hàm mở trang Reader
+function showPdfReaderPage(skipHash = false) {
+    if (!skipHash) window.location.hash = 'pdfreader';
+    showPage('pdfReaderPage');
+    
+    // Ép body thêm class để khóa cuộn (giống Playground)
+    document.body.classList.add('pdf-mode');
+    
+    updateBreadcrumb([{label: "Smart PDF Reader"}]);
+    updateHeaderTitle("PDF READER");
+    
+    // Đảm bảo ở trạng thái upload nếu chưa có file
+    if (!pdfDoc) {
+        document.getElementById('pdfUploadState').classList.remove('hidden');
+        document.getElementById('pdfReadState').classList.add('hidden');
+    }
+}
+
+// 2. Đóng PDF và quay lại màn hình Chọn file
+function closePDFReader() {
+    pdfDoc = null;
+    pageNum = 1;
+    document.getElementById('pdfFileInput').value = ''; // Xóa file cũ
+    document.getElementById('pdfUploadState').classList.remove('hidden');
+    document.getElementById('pdfReadState').classList.add('hidden');
+    ctx.clearRect(0, 0, canvas.width, canvas.height); // Xóa trắng canvas
+}
+
+// 3. Đọc file local và render bằng PDF.js
+function handlePDFUpload(event) {
+    const file = event.target.files[0];
+    if (!file || file.type !== "application/pdf") {
+        return customAlert("Vui lòng chọn một file PDF hợp lệ!", "⚠️");
+    }
+
+    showLoading("Đang nạp file PDF lên RAM...");
+    const fileReader = new FileReader();
+
+    fileReader.onload = function() {
+        const typedarray = new Uint8Array(this.result);
+
+        // Khởi tạo PDF.js
+        pdfjsLib.getDocument(typedarray).promise.then(pdf => {
+            pdfDoc = pdf;
+            document.getElementById('pdfPageCount').textContent = pdf.numPages;
+            
+            // Chuyển giao diện
+            document.getElementById('pdfUploadState').classList.add('hidden');
+            document.getElementById('pdfReadState').classList.remove('hidden');
+            
+            // Render trang đầu tiên
+            pageNum = 1;
+            renderPage(pageNum);
+            hideLoading();
+            showToast("Đã tải xong file!");
+        }).catch(err => {
+            hideLoading();
+            console.error(err);
+            customAlert("Lỗi khi đọc file PDF. File có thể bị mã hóa (Password).", "❌");
+        });
+    };
+
+    fileReader.readAsArrayBuffer(file);
+}
+
+// 4. Hàm Render trang ra Canvas
+function renderPage(num) {
+    pageRendering = true;
+    
+    // Lấy object trang
+    pdfDoc.getPage(num).then(page => {
+        // TÍNH TOÁN ZOOM: Tự động zoom cho vừa với bề ngang màn hình
+        const containerWidth = document.getElementById('pdfViewerContainer').clientWidth - 20; // Trừ padding
+        const unscaledViewport = page.getViewport({scale: 1.0});
+        // Ép scale để chiều ngang trang bằng chiều ngang màn hình (giới hạn max scale 2.5 cho nét)
+        const scale = Math.min((containerWidth / unscaledViewport.width), 2.5); 
+        
+        const viewport = page.getViewport({scale: scale});
+
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        // Render PDF lên Canvas Context
+        const renderContext = {
+            canvasContext: ctx,
+            viewport: viewport
+        };
+        const renderTask = page.render(renderContext);
+
+        // Chờ render xong
+        renderTask.promise.then(() => {
+            pageRendering = false;
+            if (pageNumPending !== null) {
+                renderPage(pageNumPending);
+                pageNumPending = null;
+            }
+        });
+    });
+
+    // Cập nhật UI bộ đếm trang
+    document.getElementById('pdfPageNum').textContent = num;
+    
+    // Khóa mở nút Next/Prev
+    document.getElementById('pdfPrevBtn').disabled = (num <= 1);
+    document.getElementById('pdfNextBtn').disabled = (num >= pdfDoc.numPages);
+}
+
+// 5. Hàng đợi Render (Chống kẹt khi user bấm Next liên tục)
+function queueRenderPage(num) {
+    if (pageRendering) {
+        pageNumPending = num;
+    } else {
+        renderPage(num);
+    }
+}
+
+// 6. Điều hướng
+function onPdfPrevPage() {
+    if (pageNum <= 1) return;
+    pageNum--;
+    queueRenderPage(pageNum);
+    document.getElementById('pdfViewerContainer').scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function onPdfNextPage() {
+    if (pageNum >= pdfDoc.numPages) return;
+    pageNum++;
+    queueRenderPage(pageNum);
+    document.getElementById('pdfViewerContainer').scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// 7. Bật/Tắt Menu AI của PDF
+function togglePdfAiMenu(e) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    document.getElementById('pdfAiDropdown').classList.toggle('hidden');
+}
+
+// Bắt click ra ngoài để đóng menu PDF AI
+document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('pdfAiDropdown');
+    if (dropdown && !dropdown.classList.contains('hidden') && !e.target.closest('.pdf-ai-btn')) {
+        dropdown.classList.add('hidden');
+    }
+});
+
+// ================= CHUẨN BỊ CHO BƯỚC AI (LẤY ẢNH TRANG) =================
+// Hàm này chụp ảnh thẻ Canvas thành Base64 JPEG để sẵn sàng ném cho Gemini AI
+function getPdfPageAsBase64() {
+    // Quality 0.8 để giảm dung lượng file gửi lên Vercel, nhưng vẫn đủ nét để OCR
+    return canvas.toDataURL('image/jpeg', 0.8);
+}
+
+// Khung hàm chờ bước tiếp theo bạn yêu cầu
+async function triggerPdfAI(actionType) {
+    document.getElementById('pdfAiDropdown').classList.add('hidden');
+    
+    // 1. Chụp ảnh màn hình trang PDF hiện tại
+    const base64Image = getPdfPageAsBase64();
+    
+    // 2. Chờ xử lý logic Prompt và ném vào callGeminiAI(prompt, [base64Image])
+    console.log("Đã chụp xong ảnh trang hiện tại, Base64 Length:", base64Image.length);
+    console.log("Chế độ yêu cầu:", actionType);
+    
+    // Tạm thời báo Toast
+    showToast("Đã chụp ảnh trang! Hệ thống AI đang được thiết lập...");
 }
 </script>
 <!-- ================= MODAL DÀNH RIÊNG CHO GIA SƯ AI (APPLE STYLE) ================= -->
