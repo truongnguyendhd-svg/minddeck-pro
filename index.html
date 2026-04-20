@@ -3985,6 +3985,77 @@ body.pdf-mode #pdfReadState {
 #saveDictWordModal {
     background: rgba(0,0,0,0.7) !important;
 }
+/* ================= DANH SÁCH PDF GẦN ĐÂY ================= */
+.pdf-recent-container {
+    max-width: 600px;
+    margin: 0 auto 40px auto;
+}
+.pdf-recent-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: #5f6368;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.pdf-recent-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.pdf-recent-item {
+    background: #ffffff;
+    border: 1px solid #dadce0;
+    border-radius: 12px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+}
+.pdf-recent-item:hover {
+    border-color: #0b57d0;
+    box-shadow: 0 4px 12px rgba(11, 87, 208, 0.1);
+    transform: translateY(-2px);
+}
+.pdf-recent-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    overflow: hidden;
+}
+.pdf-recent-icon {
+    width: 40px; height: 40px;
+    background: #f0f4f9; color: #0b57d0;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.pdf-recent-text {
+    display: flex; flex-direction: column;
+    overflow: hidden;
+}
+.pdf-recent-name {
+    font-size: 15px; font-weight: 700; color: #1d1d1f;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pdf-recent-meta {
+    font-size: 13px; color: #718096; font-weight: 500; margin-top: 2px;
+}
+.pdf-recent-delete {
+    background: transparent; border: none; color: #a0aec0;
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: 0.2s;
+}
+.pdf-recent-delete:hover {
+    background: #fee2e2; color: #e53e3e;
+}
 </style>
 </head>
 <body>
@@ -4649,6 +4720,15 @@ body.pdf-mode #pdfReadState {
             <h3 style="margin: 0 0 10px 0; color: #1d1d1f;">Nhấn để chọn file PDF</h3>
             <p style="margin: 0; color: #86868b; font-size: 14px;">Hoặc kéo thả file vào đây</p>
             <input type="file" id="pdfFileInput" accept="application/pdf" style="display: none;" onchange="handlePDFUpload(event)">
+        </div>
+        <!-- THÊM MỚI: DANH SÁCH FILE GẦN ĐÂY -->
+        <div id="pdfRecentZone" class="pdf-recent-container hidden">
+            <div class="pdf-recent-title">
+                <span class="material-symbols-outlined" style="font-size: 18px;">history</span> Đã mở gần đây
+            </div>
+            <div id="pdfRecentList" class="pdf-recent-list">
+                <!-- JS sẽ bơm danh sách vào đây -->
+            </div>
         </div>
     </div>
 
@@ -12401,51 +12481,189 @@ async function saveAdminGrammar() {
         hideLoading();
     }
 }
-/* ================= SMART PDF READER (LOGIC CORE) ================= */
+/* ================= SMART PDF READER (LOGIC CORE & OFFLINE STORAGE) ================= */
 let pdfDoc = null;
 let pageNum = 1;
 let pageRendering = false;
 let pageNumPending = null;
 let currentPdfScale = 1.0;
-let isPdfAutoFit = true; // Mặc định mở file là tự động Fit vừa màn hình
-// KHÔNG lấy getContext ngay lập tức để tránh lỗi Null khi web mới load
+let isPdfAutoFit = true; 
 let pdfCanvas = null;
 let pdfCtx = null;
+let currentOpenPdfId = null; // Lưu ID của file đang mở trong Database
 
-// 1. Hàm mở trang Reader
+// ================= HỆ THỐNG INDEXED DB (LƯU PDF OFFLINE) =================
+const PDF_DB_NAME = 'AlcoholPdfStore';
+const PDF_STORE_NAME = 'recent_pdfs';
+const MAX_RECENT_FILES = 5; // Chỉ giữ lại 5 file gần nhất để tránh đầy bộ nhớ máy
+
+function initPdfDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(PDF_DB_NAME, 1);
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(PDF_STORE_NAME)) {
+                db.createObjectStore(PDF_STORE_NAME, { keyPath: 'id' });
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+}
+
+// Lưu file vào IndexedDB
+async function savePdfToOfflineStore(fileName, arrayBuffer, totalPages) {
+    try {
+        const db = await initPdfDB();
+        const id = Date.now().toString(); 
+        
+        const newRecord = {
+            id: id,
+            name: fileName,
+            data: arrayBuffer,
+            lastPage: 1,
+            totalPages: totalPages,
+            timestamp: Date.now()
+        };
+
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(PDF_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(PDF_STORE_NAME);
+            
+            // Lấy tất cả file để xóa bớt nếu vượt quá giới hạn (Giữ bộ nhớ nhẹ nhàng)
+            const getAllReq = store.getAll();
+            getAllReq.onsuccess = () => {
+                let records = getAllReq.result;
+                if (records.length >= MAX_RECENT_FILES) {
+                    // Sắp xếp cũ nhất lên đầu và xóa
+                    records.sort((a, b) => a.timestamp - b.timestamp);
+                    const excess = records.length - MAX_RECENT_FILES + 1;
+                    for (let i = 0; i < excess; i++) {
+                        store.delete(records[i].id);
+                    }
+                }
+                // Lưu file mới
+                store.put(newRecord);
+            };
+            
+            tx.oncomplete = () => resolve(id);
+            tx.onerror = () => reject(tx.error);
+        });
+    } catch (e) {
+        console.error("Lỗi lưu PDF offline:", e);
+        return null;
+    }
+}
+
+// Cập nhật số trang đang đọc dở
+async function updatePdfLastPage(id, page) {
+    if (!id) return;
+    try {
+        const db = await initPdfDB();
+        const tx = db.transaction(PDF_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(PDF_STORE_NAME);
+        const getReq = store.get(id);
+        
+        getReq.onsuccess = () => {
+            if (getReq.result) {
+                let data = getReq.result;
+                data.lastPage = page;
+                data.timestamp = Date.now(); // Cập nhật thời gian mở gần nhất
+                store.put(data);
+            }
+        };
+    } catch (e) {}
+}
+
+// ================= GIAO DIỆN & ĐIỀU KHIỂN =================
+
 function showPdfReaderPage(skipHash = false) {
     if (!skipHash) window.location.hash = 'pdfreader';
     showPage('pdfReaderPage');
     
-    // Ép body thêm class để khóa cuộn (giống Playground)
     document.body.classList.add('pdf-mode');
-    
     updateBreadcrumb([{label: "Smart PDF Reader"}]);
     updateHeaderTitle("PDF READER");
     
-    // Đảm bảo ở trạng thái upload nếu chưa có file
     if (!pdfDoc) {
         document.getElementById('pdfUploadState').classList.remove('hidden');
         document.getElementById('pdfReadState').classList.add('hidden');
+        loadRecentPdfsUI(); // Tải danh sách gần đây
     }
 }
 
-// 2. Đóng PDF và quay lại màn hình Chọn file
-function closePDFReader() {
-    pdfDoc = null;
-    pageNum = 1;
-    isPdfAutoFit = true;
-    document.getElementById('pdfFileInput').value = ''; // Xóa file cũ
-    document.getElementById('pdfUploadState').classList.remove('hidden');
-    document.getElementById('pdfReadState').classList.add('hidden');
+// Tải và hiển thị danh sách file gần đây
+async function loadRecentPdfsUI() {
+    const listZone = document.getElementById('pdfRecentZone');
+    const listEl = document.getElementById('pdfRecentList');
     
-    // 🟢 FIX Ở ĐÂY: Thêm kiểm tra an toàn và sửa đúng tên biến
-    if (pdfCtx && pdfCanvas) {
-        pdfCtx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height); 
+    try {
+        const db = await initPdfDB();
+        const tx = db.transaction(PDF_STORE_NAME, 'readonly');
+        const store = tx.objectStore(PDF_STORE_NAME);
+        const req = store.getAll();
+        
+        req.onsuccess = () => {
+            let files = req.result;
+            if (!files || files.length === 0) {
+                listZone.classList.add('hidden');
+                return;
+            }
+            
+            listZone.classList.remove('hidden');
+            // Sắp xếp mới nhất lên đầu
+            files.sort((a, b) => b.timestamp - a.timestamp);
+            
+            listEl.innerHTML = files.map(f => `
+                <div class="pdf-recent-item" onclick="openRecentPdf('${f.id}')">
+                    <div class="pdf-recent-info">
+                        <div class="pdf-recent-icon"><span class="material-symbols-outlined">menu_book</span></div>
+                        <div class="pdf-recent-text">
+                            <span class="pdf-recent-name" title="${escapeHTML(f.name)}">${escapeHTML(f.name)}</span>
+                            <span class="pdf-recent-meta">Đang đọc: Trang ${f.lastPage} / ${f.totalPages}</span>
+                        </div>
+                    </div>
+                    <button class="pdf-recent-delete" onclick="deleteRecentPdf(event, '${f.id}')" title="Xóa khỏi danh sách">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+                    </button>
+                </div>
+            `).join('');
+        };
+    } catch (e) { console.error(e); }
+}
+
+// Xóa file khỏi danh sách gần đây
+async function deleteRecentPdf(event, id) {
+    event.stopPropagation(); // Ngăn click mở file
+    try {
+        const db = await initPdfDB();
+        const tx = db.transaction(PDF_STORE_NAME, 'readwrite');
+        tx.objectStore(PDF_STORE_NAME).delete(id);
+        tx.oncomplete = () => loadRecentPdfsUI(); // Render lại
+    } catch (e) {}
+}
+
+// Mở file từ danh sách gần đây
+async function openRecentPdf(id) {
+    showLoading("Đang nạp file từ bộ nhớ...");
+    try {
+        const db = await initPdfDB();
+        const tx = db.transaction(PDF_STORE_NAME, 'readonly');
+        const req = tx.objectStore(PDF_STORE_NAME).get(id);
+        
+        req.onsuccess = () => {
+            const fileData = req.result;
+            if (!fileData) return hideLoading();
+
+            currentOpenPdfId = fileData.id;
+            loadPdfIntoViewer(fileData.data, fileData.lastPage);
+        };
+    } catch (e) {
+        hideLoading();
+        customAlert("Không thể tải file này.", "❌");
     }
 }
 
-// 3. Đọc file local và render bằng PDF.js
 function handlePDFUpload(event) {
     const file = event.target.files[0];
     if (!file || file.type !== "application/pdf") {
@@ -12453,111 +12671,98 @@ function handlePDFUpload(event) {
     }
 
     showLoading("Đang nạp file PDF lên RAM...");
-    // GẮN WORKER Ở ĐÂY LÀ AN TOÀN NHẤT
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
     const fileReader = new FileReader();
 
-    fileReader.onload = function() {
+    fileReader.onload = async function() {
         const typedarray = new Uint8Array(this.result);
-
-        // Khởi tạo PDF.js
-        pdfjsLib.getDocument(typedarray).promise.then(pdf => {
-            pdfDoc = pdf;
-            document.getElementById('pdfPageCount').textContent = pdf.numPages;
-            
-            // Chuyển giao diện
-            document.getElementById('pdfUploadState').classList.add('hidden');
-            document.getElementById('pdfReadState').classList.remove('hidden');
-            
-            // Render trang đầu tiên
-            pageNum = 1;
-            renderPage(pageNum);
-            hideLoading();
-            showToast("Đã tải xong file!");
-        }).catch(err => {
-            hideLoading();
-            console.error(err);
-            customAlert("Lỗi khi đọc file PDF. File có thể bị mã hóa (Password).", "❌");
-        });
+        
+        // Mở file trực tiếp
+        const numPages = await loadPdfIntoViewer(typedarray, 1);
+        
+        // Âm thầm lưu vào IndexedDB để lần sau mở lại
+        if (numPages) {
+            currentOpenPdfId = await savePdfToOfflineStore(file.name, typedarray, numPages);
+        }
+        
+        // Reset thẻ input để có thể up lại file cùng tên
+        event.target.value = '';
     };
-
     fileReader.readAsArrayBuffer(file);
 }
 
-// 4. Hàm Render trang ra Canvas
+// Khối xử lý PDF.js chung
+async function loadPdfIntoViewer(typedarray, startPage) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    
+    try {
+        const pdf = await pdfjsLib.getDocument(typedarray).promise;
+        pdfDoc = pdf;
+        document.getElementById('pdfPageCount').textContent = pdf.numPages;
+        
+        document.getElementById('pdfUploadState').classList.add('hidden');
+        document.getElementById('pdfReadState').classList.remove('hidden');
+        
+        pageNum = startPage;
+        renderPage(pageNum);
+        hideLoading();
+        
+        return pdf.numPages;
+    } catch (err) {
+        hideLoading();
+        customAlert("Lỗi khi đọc file PDF. File có thể bị mã hóa.", "❌");
+        return null;
+    }
+}
+
 function renderPage(num) {
     pageRendering = true;
-    
-    // ĐẢM BẢO CANVAS ĐÃ TỒN TẠI TRƯỚC KHI VẼ
     if (!pdfCanvas) {
         pdfCanvas = document.getElementById('pdfCanvas');
         pdfCtx = pdfCanvas.getContext('2d');
     }
 
-    // Lấy object trang PDF.js
     pdfDoc.getPage(num).then(page => {
-        // Lấy kích thước gốc (tỉ lệ 1:1) của trang giấy
         const unscaledViewport = page.getViewport({scale: 1.0});
 
-        // ---------------- LOGIC ZOOM MỚI ----------------
         if (isPdfAutoFit) {
-            // Tự động tính toán Scale để vừa khít chiều ngang màn hình
-            const containerWidth = document.getElementById('pdfViewerContainer').clientWidth - 20; // Trừ 20px padding
+            const containerWidth = document.getElementById('pdfViewerContainer').clientWidth - 20;
             currentPdfScale = containerWidth / unscaledViewport.width;
         }
-        updateZoomPercentageUI();
+        if(typeof updateZoomPercentageUI === 'function') updateZoomPercentageUI();
 
-        // Áp dụng độ thu phóng cuối cùng vào Viewport
         const viewport = page.getViewport({scale: currentPdfScale});
-        // ------------------------------------------------
-
-        // Gán kích thước mới cho thẻ Canvas
         pdfCanvas.height = viewport.height;
         pdfCanvas.width = viewport.width;
 
-        // Tiến hành vẽ PDF lên Canvas
-        const renderContext = {
-            canvasContext: pdfCtx, 
-            viewport: viewport
-        };
+        const renderContext = { canvasContext: pdfCtx, viewport: viewport };
         const renderTask = page.render(renderContext);
 
-        // Chờ vẽ xong
         renderTask.promise.then(() => {
             pageRendering = false;
-            // Nếu trong lúc vẽ mà user bấm qua trang khác -> Vẽ tiếp trang đó
             if (pageNumPending !== null) {
                 renderPage(pageNumPending);
                 pageNumPending = null;
             }
         });
-    }).catch(err => {
-        console.error("Lỗi khi render trang:", err);
-        pageRendering = false;
     });
 
-    // Cập nhật số trang hiện tại lên giao diện
     const pageNumEl = document.getElementById('pdfPageNum');
     if (pageNumEl) pageNumEl.textContent = num;
     
-    // Khóa/Mở nút lật trang (Next/Prev)
     const prevBtn = document.getElementById('pdfPrevBtn');
     const nextBtn = document.getElementById('pdfNextBtn');
     if (prevBtn) prevBtn.disabled = (num <= 1);
     if (nextBtn) nextBtn.disabled = (num >= pdfDoc.numPages);
+
+    // 🟢 LƯU TRANG ĐANG ĐỌC VÀO DATABASE
+    updatePdfLastPage(currentOpenPdfId, num);
 }
 
-// 5. Hàng đợi Render (Chống kẹt khi user bấm Next liên tục)
 function queueRenderPage(num) {
-    if (pageRendering) {
-        pageNumPending = num;
-    } else {
-        renderPage(num);
-    }
+    if (pageRendering) pageNumPending = num;
+    else renderPage(num);
 }
 
-// 6. Điều hướng
 function onPdfPrevPage() {
     if (pageNum <= 1) return;
     pageNum--;
@@ -12570,6 +12775,22 @@ function onPdfNextPage() {
     pageNum++;
     queueRenderPage(pageNum);
     document.getElementById('pdfViewerContainer').scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function closePDFReader() {
+    pdfDoc = null;
+    pageNum = 1;
+    isPdfAutoFit = true;
+    currentOpenPdfId = null; // Xóa id đang mở
+    
+    document.getElementById('pdfUploadState').classList.remove('hidden');
+    document.getElementById('pdfReadState').classList.add('hidden');
+    
+    if (pdfCtx && pdfCanvas) {
+        pdfCtx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height); 
+    }
+    
+    loadRecentPdfsUI(); // Tải lại danh sách gần đây
 }
 // ================= TÍNH NĂNG NHẢY NHANH TRANG BẤT KỲ =================
 function promptPageJump() {
