@@ -12284,7 +12284,11 @@ function closePDFReader() {
     document.getElementById('pdfFileInput').value = ''; // Xóa file cũ
     document.getElementById('pdfUploadState').classList.remove('hidden');
     document.getElementById('pdfReadState').classList.add('hidden');
-    ctx.clearRect(0, 0, canvas.width, canvas.height); // Xóa trắng canvas
+    
+    // 🟢 FIX Ở ĐÂY: Thêm kiểm tra an toàn và sửa đúng tên biến
+    if (pdfCtx && pdfCanvas) {
+        pdfCtx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height); 
+    }
 }
 
 // 3. Đọc file local và render bằng PDF.js
@@ -12345,12 +12349,13 @@ function renderPage(num) {
         
         const viewport = page.getViewport({scale: scale});
 
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
+        // 🟢 FIX Ở ĐÂY: Đổi canvas thành pdfCanvas
+        pdfCanvas.height = viewport.height;
+        pdfCanvas.width = viewport.width;
 
         // Render PDF lên Canvas Context
         const renderContext = {
-            canvasContext: ctx,
+            canvasContext: pdfCtx, // 🟢 FIX Ở ĐÂY: Đổi ctx thành pdfCtx
             viewport: viewport
         };
         const renderTask = page.render(renderContext);
@@ -12363,6 +12368,9 @@ function renderPage(num) {
                 pageNumPending = null;
             }
         });
+    }).catch(err => {
+        console.error("Lỗi khi render trang:", err);
+        pageRendering = false;
     });
 
     // Cập nhật UI bộ đếm trang
