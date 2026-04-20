@@ -3969,6 +3969,33 @@ body.pdf-mode #pdfReadState {
     -webkit-appearance: none;
     margin: 0;
 }
+/* ================= CSS CÔNG CỤ VẼ LÊN PDF ================= */
+.pdf-canvas-wrapper {
+    position: relative;
+    /* Đảm bảo wrapper chỉ to bằng tờ PDF, không bị tràn ra ngoài */
+    display: inline-block; 
+}
+
+.draw-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 10;
+    /* Khi đang ở chế độ vẽ, vô hiệu hóa touch-action để không bị cuộn trang lúc quẹt tay */
+    touch-action: auto; 
+}
+
+/* Chế độ vẽ được bật -> con trỏ hình dấu cộng, khóa cuộn touch */
+.draw-canvas.drawing-mode {
+    cursor: crosshair;
+    touch-action: none; 
+}
+
+/* Nút công cụ đang được chọn (Active) */
+.draw-tool-btn.active {
+    background: #e8f0fe !important; /* Xanh Google nhạt */
+    color: #1a73e8 !important; /* Xanh Google đậm */
+}
 </style>
 </head>
 <body>
@@ -4640,7 +4667,12 @@ body.pdf-mode #pdfReadState {
     <div id="pdfReadState" class="hidden" style="flex: 1; display: flex; flex-direction: column; position: relative;">
         
         <div id="pdfViewerContainer" class="pdf-viewer-container">
-            <canvas id="pdfCanvas"></canvas>
+            <!-- Thêm một wrapper có position relative để chứa 2 lớp Canvas -->
+            <div id="pdfCanvasWrapper" class="pdf-canvas-wrapper">
+                <canvas id="pdfCanvas"></canvas>
+                <!-- Lớp kính trong suốt để vẽ hình đè lên -->
+                <canvas id="drawCanvas" class="draw-canvas"></canvas>
+            </div>
         </div>
 
         <!-- THANH CÔNG CỤ ĐÁY MÀN HÌNH (GOOGLE AI STUDIO STYLE) -->
@@ -4685,7 +4717,21 @@ body.pdf-mode #pdfReadState {
                     <span class="material-symbols-outlined">chevron_right</span>
                 </button>
             </div>
-        
+        <!-- CÔNG CỤ VẼ (Khoanh đáp án) -->
+        <div class="pdf-toolbar-draw" style="display: flex; gap: 4px; margin-left: 20px; border-left: 1px solid #dadce0; padding-left: 20px;">
+            <button class="pdf-nav-btn draw-tool-btn" id="toolSelect" onclick="setDrawTool('none')" title="Chế độ đọc (Cuộn trang)" style="background: #e8f0fe; color: #1a73e8;">
+                <span class="material-symbols-outlined">pan_tool</span>
+            </button>
+            <button class="pdf-nav-btn draw-tool-btn" id="toolCircle" onclick="setDrawTool('circle')" title="Khoanh tròn (Màu đỏ)">
+                <span class="material-symbols-outlined">radio_button_unchecked</span>
+            </button>
+            <button class="pdf-nav-btn draw-tool-btn" id="toolRect" onclick="setDrawTool('rect')" title="Vẽ ô vuông (Màu xanh)">
+                <span class="material-symbols-outlined">check_box_outline_blank</span>
+            </button>
+            <button class="pdf-nav-btn" onclick="clearPageAnnotations()" title="Xóa nháp trang này">
+                <span class="material-symbols-outlined" style="color: #ea4335;">delete</span>
+            </button>
+        </div>
             <!-- BÊN PHẢI: Hành động AI -->
             <div class="pdf-toolbar-right" style="position: relative;">
                 <button class="pdf-ai-btn" onclick="togglePdfAiMenu(event)">
@@ -12503,6 +12549,14 @@ function renderPage(num) {
         // Chờ vẽ xong
         renderTask.promise.then(() => {
             pageRendering = false;
+            // === THÊM ĐOẠN NÀY ĐỂ ĐỒNG BỘ LỚP KÍNH ===
+            if (!drawCanvas) initDrawCanvas();
+            drawCanvas.width = viewport.width;
+            drawCanvas.height = viewport.height;
+            setDrawTool(currentTool); // Cập nhật lại thuộc tính pointer-events
+            redrawAnnotations(); // Vẽ lại các hình đã lưu của trang này ở Scale mới
+            // =========================================
+
             // Nếu trong lúc vẽ mà user bấm qua trang khác -> Vẽ tiếp trang đó
             if (pageNumPending !== null) {
                 renderPage(pageNumPending);
@@ -12710,6 +12764,155 @@ function fitPdfToWidth() {
     
     // Cuộn trang về sát lề trái khi Fit lại
     document.getElementById('pdfViewerContainer').scrollTo({ left: 0, behavior: 'smooth' });
+}
+// ================= HỆ THỐNG VẼ SHAPE (KHOANH ĐÁP ÁN) =================
+let drawCanvas = null;
+let drawCtx = null;
+let currentTool = 'none'; // 'none' (cuộn), 'circle', 'rect'
+let isDrawing = false;
+let startX = 0, startY = 0;
+
+// Lưu trữ nét vẽ: { "page_1": [ {type, x, y, w, h, color, lw} ], "page_2": [...] }
+let pdfAnnotations = {}; 
+
+function setDrawTool(tool) {
+    currentTool = tool;
+    
+    // Cập nhật UI nút bấm
+    document.querySelectorAll('.draw-tool-btn').forEach(btn => {
+        btn.style.background = 'transparent';
+        btn.style.color = '#444746';
+    });
+    
+    const activeBtn = document.getElementById(tool === 'none' ? 'toolSelect' : (tool === 'circle' ? 'toolCircle' : 'toolRect'));
+    if (activeBtn) {
+        activeBtn.style.background = '#e8f0fe';
+        activeBtn.style.color = '#1a73e8';
+    }
+
+    // Bật/Tắt chế độ khóa cuộn màn hình trên thẻ Canvas vẽ
+    if (!drawCanvas) return;
+    if (tool === 'none') {
+        drawCanvas.classList.remove('drawing-mode');
+        drawCanvas.style.pointerEvents = 'none'; // Bấm xuyên qua để cuộn giấy
+    } else {
+        drawCanvas.classList.add('drawing-mode');
+        drawCanvas.style.pointerEvents = 'auto'; // Chặn click để vẽ
+    }
+}
+
+function initDrawCanvas() {
+    drawCanvas = document.getElementById('drawCanvas');
+    drawCtx = drawCanvas.getContext('2d');
+    
+    // Cập nhật sự kiện chuột & cảm ứng
+    const startDraw = (e) => {
+        if (currentTool === 'none') return;
+        e.preventDefault(); // Chống cuộn
+        isDrawing = true;
+        const pos = getPointerPos(e);
+        startX = pos.x; startY = pos.y;
+    };
+
+    const drawing = (e) => {
+        if (!isDrawing || currentTool === 'none') return;
+        e.preventDefault();
+        const pos = getPointerPos(e);
+        
+        // Xóa canvas và vẽ lại các nét cũ trước
+        redrawAnnotations(); 
+        
+        // Vẽ nét nháp hiện tại đang kéo
+        drawShape(currentTool, startX, startY, pos.x - startX, pos.y - startY, true);
+    };
+
+    const stopDraw = (e) => {
+        if (!isDrawing || currentTool === 'none') return;
+        isDrawing = false;
+        const pos = getPointerPos(e);
+        const w = pos.x - startX;
+        const h = pos.y - startY;
+
+        // Bỏ qua nếu click quá nhỏ (chạm nhầm)
+        if (Math.abs(w) < 5 && Math.abs(h) < 5) return;
+
+        // LƯU TỌA ĐỘ THEO TỶ LỆ PHẦN TRĂM (%) để Zoom không bị lệch
+        if (!pdfAnnotations[pageNum]) pdfAnnotations[pageNum] = [];
+        pdfAnnotations[pageNum].push({
+            type: currentTool,
+            x: startX / drawCanvas.width,
+            y: startY / drawCanvas.height,
+            w: w / drawCanvas.width,
+            h: h / drawCanvas.height,
+            color: currentTool === 'circle' ? '#ea4335' : '#34a853', // Tròn Đỏ, Vuông Xanh
+            lw: 3 // Độ dày nét
+        });
+
+        redrawAnnotations(); // Vẽ lại bản chốt
+    };
+
+    drawCanvas.addEventListener('mousedown', startDraw);
+    drawCanvas.addEventListener('mousemove', drawing);
+    window.addEventListener('mouseup', stopDraw); // Bắt event nhả chuột ngoài canvas
+
+    drawCanvas.addEventListener('touchstart', startDraw, {passive: false});
+    drawCanvas.addEventListener('touchmove', drawing, {passive: false});
+    window.addEventListener('touchend', stopDraw);
+}
+
+// Lấy tọa độ chuột hoặc ngón tay chính xác trên Canvas
+function getPointerPos(e) {
+    const rect = drawCanvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+        x: clientX - rect.left,
+        y: clientY - rect.top
+    };
+}
+
+// Hàm vẽ Hình (Dùng chung cho nháp và chốt)
+function drawShape(type, x, y, w, h, isDraft = false) {
+    drawCtx.beginPath();
+    drawCtx.strokeStyle = type === 'circle' ? '#ea4335' : '#34a853'; // Màu
+    drawCtx.lineWidth = 3;
+    drawCtx.globalAlpha = isDraft ? 0.5 : 1.0; // Đang kéo thì mờ mờ
+
+    if (type === 'rect') {
+        drawCtx.rect(x, y, w, h);
+    } else if (type === 'circle') {
+        const radiusX = Math.abs(w / 2);
+        const radiusY = Math.abs(h / 2);
+        const centerX = x + w / 2;
+        const centerY = y + h / 2;
+        // Hỗ trợ vẽ hình Elip (Oval) để khoanh chữ dài
+        drawCtx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
+    }
+    drawCtx.stroke();
+    drawCtx.globalAlpha = 1.0;
+}
+
+// Render lại toàn bộ nét vẽ của trang hiện tại (Dịch % ra Pixel hiện tại)
+function redrawAnnotations() {
+    if (!drawCanvas || !drawCtx) return;
+    drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    
+    const shapes = pdfAnnotations[pageNum];
+    if (shapes && shapes.length > 0) {
+        shapes.forEach(s => {
+            const rx = s.x * drawCanvas.width;
+            const ry = s.y * drawCanvas.height;
+            const rw = s.w * drawCanvas.width;
+            const rh = s.h * drawCanvas.height;
+            drawShape(s.type, rx, ry, rw, rh);
+        });
+    }
+}
+
+// Xóa toàn bộ hình vẽ của trang này
+function clearPageAnnotations() {
+    pdfAnnotations[pageNum] = [];
+    redrawAnnotations();
 }
 </script>
 <!-- ================= MODAL DÀNH RIÊNG CHO GIA SƯ AI (APPLE STYLE) ================= -->
