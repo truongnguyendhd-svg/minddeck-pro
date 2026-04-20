@@ -3267,6 +3267,66 @@ body.playground-mode .main-content {
         text-align: center;
     }
 }
+/* ================= CSS HIỆU ỨNG THÀNH THẠO NGỮ PHÁP ================= */
+.grammar-card {
+    position: relative;
+    overflow: hidden; /* Để chứa con dấu không bị tràn */
+}
+
+/* Trạng thái 1: Đang học (Đã có trong thẻ nhưng chưa thuộc) */
+.grammar-card.status-learning {
+    border: 1.5px solid #93c5fd; /* Viền xanh dương */
+    background: linear-gradient(135deg, #ffffff 0%, #eff6ff 100%);
+}
+.grammar-card.status-learning:hover {
+    box-shadow: 0 15px 30px rgba(59, 130, 246, 0.15);
+    border-color: #3b82f6;
+}
+
+/* Trạng thái 2: Thuộc lòng (Interval > 21) - Phát sáng rực rỡ */
+.grammar-card.status-mastered {
+    border: 1.5px solid #34d399;
+    background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+    /* Hiệu ứng viền phát sáng nhẹ chuẩn Apple */
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.1), inset 0 0 0 1px rgba(255,255,255,0.5);
+}
+.grammar-card.status-mastered:hover {
+    box-shadow: 0 15px 30px rgba(16, 185, 129, 0.25);
+    transform: translateY(-5px) scale(1.02); /* Bay và to lên xíu cho sướng */
+    border-color: #10b981;
+}
+
+/* Con dấu (Stamp) đóng chìm xuống nền cho thẻ Mastered */
+.grammar-mastery-stamp {
+    position: absolute;
+    bottom: -10px;
+    right: -10px;
+    font-size: 80px;
+    color: #10b981;
+    opacity: 0.08; /* Rất mờ để không đè lên chữ */
+    transform: rotate(-15deg);
+    pointer-events: none; /* Không cản trở việc click vào thẻ */
+    font-weight: 900;
+    font-family: 'Segoe UI Variable', sans-serif;
+    letter-spacing: -2px;
+}
+
+/* Huy hiệu nhỏ ở góc trên cùng bên phải */
+.g-status-badge {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 4px 10px;
+    border-radius: 50px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    text-transform: uppercase;
+}
+.g-badge-learning { background: #dbeafe; color: #2563eb; }
+.g-badge-mastered { background: #d1fae5; color: #059669; }
 /* ================= CSS LỰA CHỌN CHẾ ĐỘ AI (POPUP) ================= */
 .ai-mode-trigger {
     display: inline-flex;
@@ -10442,21 +10502,116 @@ function updateHeaderTitle(title) {
 let globalGrammarData = []; // Lưu cache RAM
 let currentGrammarObj = null; // Lưu ngữ pháp đang mở để tạo Flashcard
 
-function showGrammarVault(skipHash = false) {
+let userGrammarMasteryMap = {}; // Lưu { '～に違いない': 25, '～に応じて': 5 }
+
+async function showGrammarVault(skipHash = false) {
     if (!skipHash) window.location.hash = 'grammar';
     showPage('grammarPage');
-    updateBreadcrumb([{label: "Alcohol"}]); // <--- Truyền mảng rỗng để xóa sạch Breadcrumb ẩn
-    updateHeaderTitle("BỘ SƯU TẬP NGỮ PHÁP"); // <--- Đổi Text Header theo yêu cầu
+    updateBreadcrumb([]); 
+    updateHeaderTitle("BỘ SƯU TẬP NGỮ PHÁP"); 
     
-    // Reset search
     document.getElementById('grammarSearchInput').value = '';
     
-    // Tải dữ liệu nếu chưa có
+    // 1. Quét tiến trình người dùng trước để lấy "Heatmap"
+    await calculateGrammarMastery();
+
+    // 2. Tải dữ liệu nếu chưa có, có rồi thì render luôn
     if (globalGrammarData.length === 0) {
         loadGrammarData('ALL');
     } else {
-        renderGrammarGrid(globalGrammarData); // Dùng lại cache
+        renderGrammarGrid(globalGrammarData); 
     }
+}
+
+// Hàm mới: Quét kho thẻ Flashcard của User để xem họ đã học/thuộc ngữ pháp nào
+async function calculateGrammarMastery() {
+    if (!currentUser) return;
+    
+    userGrammarMasteryMap = {}; // Reset map
+    
+    try {
+        // Lấy tất cả thẻ đang học của user và interval SRS của nó
+        const { data: progressData, error } = await sb.from('progress')
+            .select(`interval, cards!inner ( front )`)
+            .eq('user_id', currentUser.id);
+            
+        if (error) throw error;
+        if (!progressData || progressData.length === 0) return;
+
+        // Lưu tạm danh sách mặt trước của các thẻ và interval cao nhất
+        let userFlashcards = {};
+        progressData.forEach(p => {
+            const front = p.cards.front;
+            const interval = p.interval || 0;
+            if (!userFlashcards[front] || userFlashcards[front] < interval) {
+                userFlashcards[front] = interval;
+            }
+        });
+
+        // Nếu globalGrammarData đã tải, map nó với kho flashcard
+        if (globalGrammarData.length > 0) {
+            globalGrammarData.forEach(g => {
+                const point = g.grammar_point;
+                // Xóa dấu ngã (～) để tìm kiếm chính xác hơn trong thẻ
+                const cleanPoint = point.replace(/～/g, ''); 
+
+                // Tìm xem có thẻ flashcard nào của user CHỨA điểm ngữ pháp này không
+                // Và lấy thẻ có interval cao nhất
+                let maxInterval = 0;
+                for (const [frontText, interval] of Object.entries(userFlashcards)) {
+                    if (frontText.includes(cleanPoint)) {
+                        if (interval > maxInterval) maxInterval = interval;
+                    }
+                }
+                
+                if (maxInterval > 0) {
+                    userGrammarMasteryMap[point] = maxInterval;
+                }
+            });
+        }
+    } catch (err) {
+        console.error("Lỗi khi quét tiến độ Ngữ pháp:", err);
+    }
+}
+
+// ĐÃ NÂNG CẤP: Hàm Render Thẻ Ngữ Pháp
+function renderGrammarGrid(dataList) {
+    const grid = document.getElementById('grammarGrid');
+    if (!dataList || dataList.length === 0) {
+        grid.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#a0aec0; padding:30px;">Chưa có dữ liệu ngữ pháp nào.</p>';
+        return;
+    }
+
+    grid.innerHTML = dataList.map(g => {
+        const safeJSON = encodeURIComponent(JSON.stringify(g));
+        
+        // --- XỬ LÝ TRẠNG THÁI HIỂN THỊ (HEATMAP) ---
+        const interval = userGrammarMasteryMap[g.grammar_point] || 0;
+        let statusClass = '';
+        let badgeHTML = '';
+        let stampHTML = '';
+
+        if (interval >= 21) {
+            // Mastered: Đã vào trí nhớ dài hạn (Xanh lá)
+            statusClass = 'status-mastered';
+            badgeHTML = `<div class="g-status-badge g-badge-mastered"><span class="material-symbols-outlined" style="font-size:14px;">verified</span> Thuộc lòng</div>`;
+            stampHTML = `<div class="grammar-mastery-stamp">MASTERED</div>`;
+        } else if (interval > 0) {
+            // Learning: Đã lưu vào thẻ nhưng chưa thuộc (Xanh dương)
+            statusClass = 'status-learning';
+            badgeHTML = `<div class="g-status-badge g-badge-learning"><span class="material-symbols-outlined" style="font-size:14px;">cycle</span> Đang học</div>`;
+        }
+
+        return `
+            <div class="grammar-card ${statusClass}" onclick="openGrammarDetail('${safeJSON}')">
+                ${badgeHTML}
+                <span class="g-card-level">${escapeHTML(g.level || 'N?')}</span>
+                <div class="g-card-point">${escapeHTML(g.grammar_point)}</div>
+                <div class="g-card-meaning">${escapeHTML(g.meaning)}</div>
+                ${stampHTML}
+            </div>
+        `;
+    }).join('');
 }
 
 // Bắt Route khi bấm F5
@@ -10474,16 +10629,17 @@ async function loadGrammarData(level, btnElement = null) {
     grid.innerHTML = '<div style="text-align:center; padding:50px; grid-column:1/-1;"><div class="spinner" style="margin:auto; border-top-color:#1d1d1f;"></div><p style="color:#718096; margin-top:15px;">Đang nạp dữ liệu ngữ pháp...</p></div>';
 
     try {
-        // Query Database
         let query = sb.from('grammar_dict').select('*').order('level', { ascending: true });
-        if (level !== 'ALL') {
-            query = query.eq('level', level);
-        }
+        if (level !== 'ALL') query = query.eq('level', level);
 
         const { data, error } = await query;
         if (error) throw error;
 
-        globalGrammarData = data || []; // Lưu Cache
+        globalGrammarData = data || []; 
+        
+        // 🟢 GỌI HÀM QUÉT MAP NGAY SAU KHI TẢI XONG DICTIONARY
+        await calculateGrammarMastery(); 
+
         renderGrammarGrid(globalGrammarData);
 
     } catch (err) {
@@ -10492,25 +10648,6 @@ async function loadGrammarData(level, btnElement = null) {
     }
 }
 
-function renderGrammarGrid(dataList) {
-    const grid = document.getElementById('grammarGrid');
-    if (!dataList || dataList.length === 0) {
-        grid.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#a0aec0; padding:30px;">Chưa có dữ liệu ngữ pháp nào.</p>';
-        return;
-    }
-
-    grid.innerHTML = dataList.map(g => {
-        // Mã hóa object thành JSON string để truyền qua onclick an toàn
-        const safeJSON = encodeURIComponent(JSON.stringify(g));
-        return `
-            <div class="grammar-card" onclick="openGrammarDetail('${safeJSON}')">
-                <span class="g-card-level">${escapeHTML(g.level || 'N?')}</span>
-                <div class="g-card-point">${escapeHTML(g.grammar_point)}</div>
-                <div class="g-card-meaning">${escapeHTML(g.meaning)}</div>
-            </div>
-        `;
-    }).join('');
-}
 
 // Chức năng tìm kiếm Live (Không gọi API, lọc thẳng trên RAM)
 function filterGrammarLocally() {
