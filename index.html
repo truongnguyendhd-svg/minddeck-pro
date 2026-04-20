@@ -4646,29 +4646,38 @@ body.pdf-mode #pdfReadState {
         <!-- THANH CÔNG CỤ ĐÁY MÀN HÌNH (GOOGLE AI STUDIO STYLE) -->
         <div class="pdf-bottom-toolbar">
             
-        <!-- BÊN TRÁI: Nút Đóng & Công cụ Zoom -->
-            <div class="pdf-toolbar-left">
+        <!-- BÊN TRÁI: Nút Đóng & Menu Zoom -->
+            <div class="pdf-toolbar-left" style="position: relative;">
+                <!-- Nút Đóng -->
                 <button class="pdf-nav-btn" style="color: #5f6368;" onclick="closePDFReader()" title="Đóng tệp PDF">
                     <span class="material-symbols-outlined">close</span>
                 </button>
                 
-                <!-- Vạch phân cách -->
                 <div style="width: 1px; height: 24px; background: #dadce0; margin: 0 4px;"></div>
                 
-                <!-- Nút Thu nhỏ (-) -->
-                <button class="pdf-nav-btn" onclick="zoomOutPdf()" title="Thu nhỏ">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">remove</span>
+                <!-- Nút mở Menu Zoom -->
+                <button class="pdf-nav-btn" onclick="togglePdfZoomMenu(event)" title="Thu phóng">
+                    <span class="material-symbols-outlined" style="color: #444746;">zoom_in</span>
                 </button>
-                
-                <!-- Hiển thị % Zoom và Click để Fit -->
-                <div class="pdf-page-indicator" style="min-width: 50px;" id="pdfZoomDisplay" onclick="fitPdfToWidth()" title="Vừa chiều ngang màn hình">
-                    Fit
+        
+                <!-- Drop-up Menu Zoom (Nổi lên từ góc trái dưới) -->
+                <div id="pdfZoomDropdown" class="ai-mode-dropdown hidden" style="bottom: calc(100% + 12px); left: 0; right: auto; transform-origin: bottom left; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-color: #dadce0; min-width: 180px; padding-bottom: 8px;">
+                    
+                    <!-- Hiển thị % Zoom hiện tại (Không cho click) -->
+                    <div style="padding: 8px 12px; font-weight: 800; color: #0b57d0; border-bottom: 1px solid #f1f3f4; margin-bottom: 4px; text-align: center;" id="pdfZoomPercentage">
+                        Auto Fit
+                    </div>
+        
+                    <div class="ai-mode-item" onclick="zoomInPdf()">
+                        <span class="material-symbols-outlined" style="color: #444746;">zoom_in</span> Phóng to (+)
+                    </div>
+                    <div class="ai-mode-item" onclick="zoomOutPdf()">
+                        <span class="material-symbols-outlined" style="color: #444746;">zoom_out</span> Thu nhỏ (-)
+                    </div>
+                    <div class="ai-mode-item" onclick="fitPdfToWidth()">
+                        <span class="material-symbols-outlined" style="color: #0b57d0;">fit_screen</span> Vừa màn hình
+                    </div>
                 </div>
-                
-                <!-- Nút Phóng to (+) -->
-                <button class="pdf-nav-btn" onclick="zoomInPdf()" title="Phóng to">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">add</span>
-                </button>
             </div>
         
             <!-- Ở GIỮA: Điều hướng trang -->
@@ -12478,12 +12487,7 @@ function renderPage(num) {
             const containerWidth = document.getElementById('pdfViewerContainer').clientWidth - 20; // Trừ 20px padding
             currentPdfScale = containerWidth / unscaledViewport.width;
         }
-
-        // Cập nhật UI hiển thị % Zoom (Fit, 125%, 150%...)
-        const zoomDisplay = document.getElementById('pdfZoomDisplay');
-        if (zoomDisplay) {
-            zoomDisplay.innerText = isPdfAutoFit ? 'Fit' : Math.round(currentPdfScale * 100) + '%';
-        }
+        updateZoomPercentageUI();
 
         // Áp dụng độ thu phóng cuối cùng vào Viewport
         const viewport = page.getViewport({scale: currentPdfScale});
@@ -12608,11 +12612,18 @@ function togglePdfAiMenu(e) {
     document.getElementById('pdfAiDropdown').classList.toggle('hidden');
 }
 
-// Bắt click ra ngoài để đóng menu PDF AI
+// Bắt click ra ngoài để đóng các menu của PDF
 document.addEventListener('click', (e) => {
-    const dropdown = document.getElementById('pdfAiDropdown');
-    if (dropdown && !dropdown.classList.contains('hidden') && !e.target.closest('.pdf-ai-btn')) {
-        dropdown.classList.add('hidden');
+    // Đóng menu AI
+    const aiDropdown = document.getElementById('pdfAiDropdown');
+    if (aiDropdown && !aiDropdown.classList.contains('hidden') && !e.target.closest('.pdf-toolbar-right')) {
+        aiDropdown.classList.add('hidden');
+    }
+
+    // Đóng menu Zoom
+    const zoomDropdown = document.getElementById('pdfZoomDropdown');
+    if (zoomDropdown && !zoomDropdown.classList.contains('hidden') && !e.target.closest('.pdf-toolbar-left')) {
+        zoomDropdown.classList.add('hidden');
     }
 });
 
@@ -12687,29 +12698,41 @@ document.getElementById('pdfViewerContainer').addEventListener('touchend', e => 
     }
 }, {passive: true});
 // ================= CÁC HÀM XỬ LÝ ZOOM PDF =================
+function updateZoomPercentageUI() {
+    const display = document.getElementById('pdfZoomPercentage');
+    if (display) {
+        display.innerText = isPdfAutoFit ? 'Auto Fit' : Math.round(currentPdfScale * 100) + '%';
+    }
+}
+
 function zoomInPdf() {
     if (!pdfDoc) return;
-    isPdfAutoFit = false; // Tắt chế độ Auto Fit
-    currentPdfScale += 0.25; // Phóng to thêm 25%
-    if (currentPdfScale > 4.0) currentPdfScale = 4.0; // Giới hạn max 400%
+    isPdfAutoFit = false;
+    currentPdfScale += 0.25; 
+    if (currentPdfScale > 4.0) currentPdfScale = 4.0;
     queueRenderPage(pageNum);
+    
+    updateZoomPercentageUI(); // Cập nhật số % nhưng KHÔNG đóng menu
 }
 
 function zoomOutPdf() {
     if (!pdfDoc) return;
     isPdfAutoFit = false;
-    currentPdfScale -= 0.25; // Thu nhỏ đi 25%
-    if (currentPdfScale < 0.5) currentPdfScale = 0.5; // Giới hạn min 50%
+    currentPdfScale -= 0.25; 
+    if (currentPdfScale < 0.5) currentPdfScale = 0.5;
     queueRenderPage(pageNum);
+    
+    updateZoomPercentageUI(); // Cập nhật số % nhưng KHÔNG đóng menu
 }
 
 function fitPdfToWidth() {
     if (!pdfDoc) return;
-    isPdfAutoFit = true; // Bật lại chế độ tự động Fit
+    isPdfAutoFit = true;
     queueRenderPage(pageNum);
-    
-    // Cuộn trang về sát lề trái khi Fit lại
     document.getElementById('pdfViewerContainer').scrollTo({ left: 0, behavior: 'smooth' });
+    
+    updateZoomPercentageUI();
+    document.getElementById('pdfZoomDropdown').classList.add('hidden'); // CHỈ NÚT NÀY MỚI ĐÓNG MENU
 }
 </script>
 <!-- ================= MODAL DÀNH RIÊNG CHO GIA SƯ AI (APPLE STYLE) ================= -->
