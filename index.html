@@ -11024,11 +11024,24 @@ async function handleSendChatMessage() {
             \`\`\`json
             {
               "vocab": [ {"front": "Từ", "reading": "Hiragana", "meaning": "Nghĩa", "hv": "HÁN VIỆT", "ex_jp": "Câu VD", "ex_vn": "Nghĩa VD"} ],
-              "grammar": [ {"point": "Ngữ pháp", "meaning": "Nghĩa", "note": "Giải thích", "ex_jp": "Câu VD", "ex_vn": "Nghĩa VD"} ],
+              "grammar": [ 
+                {
+                  "point": "Cấu trúc ngữ pháp", 
+                  "level": "Cấp độ (VD: N3, N2...)", 
+                  "meaning": "Nghĩa tiếng Việt", 
+                  "structure": "Cách ghép / Cấu trúc (VD: N + に応じて)", 
+                  "nuance": "Sắc thái & Lưu ý", 
+                  "ex1_jp": "Câu VD 1 tiếng Nhật", 
+                  "ex1_vn": "Nghĩa VD 1",
+                  "ex2_jp": "Câu VD 2 tiếng Nhật", 
+                  "ex2_vn": "Nghĩa VD 2"
+                } 
+              ],
               "quiz": [ {"question": "Câu hỏi", "correct": "Đúng", "wrong1": "Sai 1", "wrong2": "Sai 2", "wrong3": "Sai 3"} ]
             }
             \`\`\``;
         } 
+        /* ... GIỮ NGUYÊN ĐOẠN CODE XỬ LÝ TUTOR VÀ CHAT Ở GIỮA ... */ 
         else if (aiMode === 'tutor') {
             systemPrompt = `Đóng vai trò là một gia sư tiếng Nhật tận tâm, uyên bác và vui tính.
             Học viên hỏi/gửi nội dung: "${text}"
@@ -11112,24 +11125,28 @@ async function handleSendChatMessage() {
 
             if (extractedData.grammar && extractedData.grammar.length > 0) {
                 extractedData.grammar.forEach(g => {
-                    const encFront = encodeURIComponent(g.point || '');
-                    const encMeaning = encodeURIComponent(g.meaning || '');
-                    const encInfo = encodeURIComponent(g.note || '');
-                    const encExJp = encodeURIComponent(g.ex_jp || '');
-                    const encExVn = encodeURIComponent(g.ex_vn || '');
-
                     let onClickAction = "";
 
                     if (isAdmin) {
-                        // 🟢 NẾU LÀ ADMIN: Gọi Modal thêm lên DB Chung
-                        onClickAction = `openAdminGrammarModal('${encFront}', '${encMeaning}', '${encInfo}', '${encExJp}', '${encExVn}')`;
+                        // 🟢 NẾU LÀ ADMIN: Đóng gói toàn bộ Object g thành chuỗi JSON truyền vào Modal
+                        const safeGrammarJSON = encodeURIComponent(JSON.stringify(g));
+                        onClickAction = `openAdminGrammarModal('${safeGrammarJSON}')`;
                     } else {
-                        // 🟠 NẾU LÀ USER THƯỜNG: Gọi Modal lưu vào Flashcard cá nhân
+                        // 🟠 NẾU LÀ USER THƯỜNG: Vẫn gọi Modal lưu Flashcard cá nhân
+                        const encFront = encodeURIComponent(g.point || '');
+                        const encMeaning = encodeURIComponent(g.meaning || '');
+                        
+                        // Gom thông tin phụ
+                        const extraInfo = `Cấu trúc: ${g.structure || ''} | Sắc thái: ${g.nuance || ''}`;
+                        const encInfo = encodeURIComponent(extraInfo);
+                        
+                        // Lấy ví dụ 1 làm ví dụ cho Flashcard
                         let combinedExample = "";
-                        if (g.ex_jp) {
-                            combinedExample = g.ex_vn ? `${g.ex_jp} (${g.ex_vn})` : g.ex_jp;
+                        if (g.ex1_jp) {
+                            combinedExample = g.ex1_vn ? `${g.ex1_jp} (${g.ex1_vn})` : g.ex1_jp;
                         }
                         const encEx = encodeURIComponent(combinedExample);
+                        
                         onClickAction = `openSaveDictWordModal('${encFront}', '', '${encMeaning}', '${encInfo}', '${encEx}')`;
                     }
                     
@@ -11634,21 +11651,37 @@ async function openDeckListPreview() {
 }
 /* ================= HỆ THỐNG LƯU NGỮ PHÁP DÀNH CHO ADMIN ================= */
 
-function openAdminGrammarModal(encPoint, encMeaning, encInfo, encExJp, encExVn) {
+function openAdminGrammarModal(encodedJSON) {
+    // Giải mã chuỗi JSON thành Object
+    const g = JSON.parse(decodeURIComponent(encodedJSON));
+
     // Đổ dữ liệu AI bóc tách được vào Modal
-    document.getElementById('agmPoint').value = decodeURIComponent(encPoint);
-    document.getElementById('agmMeaning').value = decodeURIComponent(encMeaning);
+    document.getElementById('agmPoint').value = g.point || "";
+    document.getElementById('agmMeaning').value = g.meaning || "";
     
-    // AI thường trả về phần giải thích trong "note", ta gán tạm vào "Cấu trúc" để Admin tự chỉnh lại
-    document.getElementById('agmStructure').value = decodeURIComponent(encInfo);
-    document.getElementById('agmNuance').value = ""; 
-    document.getElementById('agmLevel').value = "N3"; // Mặc định N3, Admin tự đổi
+    // Tự động nhận diện cấp độ (JLPT)
+    const levelSelect = document.getElementById('agmLevel');
+    const targetLevel = (g.level || "N3").toUpperCase().trim();
+    let foundLevel = false;
+    for (let i = 0; i < levelSelect.options.length; i++) {
+        if (levelSelect.options[i].value === targetLevel) {
+            levelSelect.selectedIndex = i;
+            foundLevel = true;
+            break;
+        }
+    }
+    if (!foundLevel) levelSelect.value = "N3"; // Fallback nếu AI trả lời linh tinh
     
-    document.getElementById('agmEx1Jp').value = decodeURIComponent(encExJp);
-    document.getElementById('agmEx1Vn').value = decodeURIComponent(encExVn);
+    // Đổ dữ liệu cấu trúc và sắc thái
+    document.getElementById('agmStructure').value = g.structure || g.note || ""; // Fallback note lỡ AI trả format cũ
+    document.getElementById('agmNuance').value = g.nuance || ""; 
     
-    document.getElementById('agmEx2Jp').value = "";
-    document.getElementById('agmEx2Vn').value = "";
+    // Đổ dữ liệu 2 câu ví dụ
+    document.getElementById('agmEx1Jp').value = g.ex1_jp || g.ex_jp || ""; // Fallback ex_jp format cũ
+    document.getElementById('agmEx1Vn').value = g.ex1_vn || g.ex_vn || "";
+    
+    document.getElementById('agmEx2Jp').value = g.ex2_jp || "";
+    document.getElementById('agmEx2Vn').value = g.ex2_vn || "";
 
     document.getElementById('adminGrammarModal').style.display = 'flex';
 }
