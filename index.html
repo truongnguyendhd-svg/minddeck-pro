@@ -2074,7 +2074,34 @@ body {
     color: #1a1a1a;
     font-size: 15px;
 }
+/* --- KIỂM SOÁT KHOẢNG CÁCH DÒNG BẰNG THẺ <P> (THAY VÌ <BR>) --- */
+.ai-major-content p, 
+.ai-minor-content p, 
+.ai-intro-text p {
+    margin-top: 0;
+    margin-bottom: 12px; /* Khoảng cách đều, đẹp, không bao giờ bị quá rộng */
+    line-height: 1.6;
+}
 
+/* Xóa khoảng trống thừa ở ngay dòng cuối cùng của mỗi bong bóng */
+.ai-major-content p:last-child, 
+.ai-minor-content p:last-child {
+    margin-bottom: 0;
+}
+
+/* Tinh chỉnh lại Tiêu đề lớn cho gọn gàng hơn */
+.ai-major-title {
+    color: #0067c0;
+    font-weight: 800;
+    font-size: 16px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    border-bottom: 1px solid #e5e5e5;
+    padding-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
 /* Đường kẻ ngang */
 .ai-divider {
     border: none;
@@ -11548,24 +11575,25 @@ async function callGeminiAI(promptText, imageBase64 = null) {
         throw error;
     }
 }
-// --- HÀM ĐIỀU KHIỂN MODAL AI (CẤU TRÚC BONG BÓNG CHAT CHUYÊN SÂU) ---
+// --- HÀM ĐIỀU KHIỂN MODAL AI (CẤU TRÚC BONG BÓNG - FIX LỖI KHOẢNG TRỐNG) ---
 function showAIModal(content, title = "Gia sư AI") {
     document.getElementById('aiModalTitle').innerText = title;
     
-    // 1. Phục hồi thẻ <br> về lại dấu \n để thuật toán dễ đọc từng dòng
-    let rawLines = content.replace(/<br\s*\/?>/gi, '\n').split('\n');
+    // 1. Phục hồi thẻ <br> về lại dấu \n
+    let cleanContent = content.replace(/<br\s*\/?>/gi, '\n');
+    let rawLines = cleanContent.split('\n');
 
     let finalHTML = "";
-    let inIntro = true;  // Cờ: Đang ở đoạn văn mở đầu
-    let inMajor = false; // Cờ: Đang nằm trong một Khối Lớn (1, 2, 3)
-    let inMinor = false; // Cờ: Đang nằm trong một Khối Nhỏ (A, B, C)
+    let inIntro = true;  
+    let inMajor = false; 
+    let inMinor = false; 
 
     // Hàm phụ trợ: Đóng các khối div đúng cách
     function closeMinor() {
         if (inMinor) { finalHTML += '</div></div>'; inMinor = false; }
     }
     function closeMajor() {
-        closeMinor(); // Thoát khối nhỏ trước khi thoát khối lớn
+        closeMinor(); 
         if (inMajor) { finalHTML += '</div></div>'; inMajor = false; }
     }
 
@@ -11574,25 +11602,20 @@ function showAIModal(content, title = "Gia sư AI") {
     rawLines.forEach(line => {
         let trimmed = line.trim();
 
-        // Xử lý dòng trống
-        if (!trimmed) {
-            finalHTML += '<br>';
-            return;
-        }
+        // TUYỆT CHIÊU: BỎ QUA HOÀN TOÀN CÁC DÒNG TRỐNG DO AI GÕ THỪA
+        if (!trimmed) return;
 
         // Lọc sạch các dấu # Markdown thừa ở đầu dòng
         trimmed = trimmed.replace(/^#+\s*/, '');
 
         // BẮT MỤC LỚN (Định dạng: "1. Tiêu đề" hoặc "1) Tiêu đề")
-        // Chấp nhận việc tiêu đề có bị bọc bởi thẻ in đậm ** hay <b>
         let majorRegex = /^(?:<b[^>]*>|\*\*)?\s*(\d+[\.\)\]]\s+.*?)(?:<\/b>|\*\*)?$/;
         let majorMatch = trimmed.match(majorRegex);
 
         if (majorMatch) {
-            if (inIntro) { finalHTML += '</div>'; inIntro = false; } // Chốt đoạn mở đầu
-            closeMajor(); // Đóng khối lớn cũ (nếu có)
+            if (inIntro) { finalHTML += '</div>'; inIntro = false; } 
+            closeMajor(); 
             
-            // Mở khối lớn mới (Màu xanh, nét liền)
             finalHTML += `
             <div class="ai-major-bubble">
                 <div class="ai-major-title"><span class="material-symbols-outlined" style="font-size: 20px;">info</span> ${majorMatch[1]}</div>
@@ -11607,9 +11630,8 @@ function showAIModal(content, title = "Gia sư AI") {
         let minorMatch = trimmed.match(minorRegex);
 
         if (minorMatch && inMajor) { 
-            closeMinor(); // Đóng khối nhỏ cũ (nếu có)
+            closeMinor(); 
             
-            // Mở khối nhỏ mới (Nét đứt)
             finalHTML += `
             <div class="ai-minor-bubble">
                 <div class="ai-minor-title">${minorMatch[1]}</div>
@@ -11627,14 +11649,15 @@ function showAIModal(content, title = "Gia sư AI") {
 
         // Đường gạch ngang
         if (processedText === '---') {
-            processedText = '<hr class="ai-divider">';
+            finalHTML += '<hr class="ai-divider">';
+        } else {
+            // BỌC TRONG THẺ <p> THAY VÌ DÙNG <br>
+            finalHTML += `<p>${processedText}</p>`;
         }
-
-        finalHTML += processedText + '<br>';
     });
 
-    if (inIntro) finalHTML += '</div>'; // Đóng thẻ intro nếu AI không có mục lớn nào
-    closeMajor(); // Đóng thẻ cuối cùng
+    if (inIntro) finalHTML += '</div>'; 
+    closeMajor(); 
 
     // 2. Bơm vào Modal và bật Modal
     document.getElementById('aiModalContent').innerHTML = finalHTML;
@@ -11644,7 +11667,6 @@ function showAIModal(content, title = "Gia sư AI") {
 
     modal.style.display = 'flex';
     
-    // Hiệu ứng Pop Win11 (Scale up nhẹ)
     requestAnimationFrame(() => {
         modalBox.style.transform = 'scale(1)';
         modalBox.style.opacity = '1';
