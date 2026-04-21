@@ -1999,20 +1999,50 @@ body {
     padding-top: 20px !important; /* Giảm khoảng không thừa ở trên cùng */
 }
 /* ================= 5 TÍNH NĂNG NÂNG CAO ================= */
-/* 1. X-Ray Kanji */
+/* ================= 1. NÂNG CẤP X-RAY KANJI (BỎ GẠCH CHÂN) ================= */
 .clickable-kanji {
     color: inherit;
-    border-bottom: 2px dashed #3182ce;
+    border-bottom: none !important; /* XÓA BỎ GẠCH ĐỨT KHÚC */
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
     display: inline-block;
-}
-.clickable-kanji:hover {
-    color: #3182ce;
-    transform: scale(1.1) translateY(-2px);
-    background: #ebf8ff;
-    border-radius: 4px;
     padding: 0 2px;
+    border-radius: 4px;
+}
+/* Hiệu ứng bôi xám nền mượt mà khi di chuột vào (Giống Playground) */
+.clickable-kanji:hover {
+    background-color: #e5e5ea !important; 
+    color: #1d1d1f !important;
+    transform: none !important; /* Tắt hiệu ứng nhảy nảy lên gây nhức mắt */
+}
+
+/* ================= 2. TỐI ƯU TYPOGRAPHY MODAL AI ================= */
+#aiModalContent {
+    font-size: 16px !important; /* TĂNG CỠ CHỮ TO HƠN, DỄ ĐỌC HƠN */
+    line-height: 1.8 !important; /* Giãn dòng thoáng hơn */
+    color: #1a1a1a;
+}
+
+/* 3. KHỐI TIÊU ĐỀ (Biến ### thành khối Box Windows 11) */
+.ai-heading-block {
+    background: #f3f8fd; /* Nền xanh nhạt Win11 */
+    border-left: 4px solid #0067c0; /* Viền xanh đậm */
+    color: #0067c0;
+    font-weight: 800;
+    font-size: 15px;
+    padding: 10px 14px;
+    margin: 28px 0 14px 0; /* Khoảng cách trên dưới rộng rãi */
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+
+/* Đường kẻ ngang (Biến --- thành đường gạch mờ) */
+.ai-divider {
+    border: none;
+    border-top: 1px dashed #d2d2d7;
+    margin: 24px 0;
 }
 
 /* 2. Nút Hint trên Flashcard */
@@ -11481,16 +11511,34 @@ async function callGeminiAI(promptText, imageBase64 = null) {
         throw error;
     }
 }
-// --- HÀM ĐIỀU KHIỂN MODAL AI (WINDOWS 11 STYLE) ---
+// --- HÀM ĐIỀU KHIỂN MODAL AI (WINDOWS 11 STYLE - ĐÃ NÂNG CẤP PARSER) ---
 function showAIModal(content, title = "Gia sư AI") {
     document.getElementById('aiModalTitle').innerText = title;
     
-    // Tinh chỉnh Markdown cho Win11 (chữ in đậm màu đen nhánh)
-    const formattedContent = content.replace(/\*\*(.*?)\*\*/g, '<b style="color: #000; font-weight: 700;">$1</b>');
+    // --- BỘ LỌC MARKDOWN THÔNG MINH ---
+    let formattedContent = content;
+
+    // 1. Lọc Heading cấp 3 (### Tiêu đề) -> Biến thành khối Box Xanh
+    formattedContent = formattedContent.replace(/^###\s*(.+)$/gm, '<div class="ai-heading-block">$1</div>');
+    
+    // 2. Lọc Heading cấp 2 (## Tiêu đề) -> Biến thành khối Box Đỏ (Nếu AI có nhả ra)
+    formattedContent = formattedContent.replace(/^##\s*(.+)$/gm, '<div class="ai-heading-block" style="background:#fdf3f4; border-color:#c50f1f; color:#c50f1f;">$1</div>');
+
+    // 3. Lọc đường phân cách ngang (---)
+    formattedContent = formattedContent.replace(/^---\s*$/gm, '<hr class="ai-divider">');
+
+    // 4. Lọc In đậm (**text**) -> Chữ đen sắc nét
+    formattedContent = formattedContent.replace(/\*\*(.*?)\*\*/g, '<b style="color: #000; font-weight: 700;">$1</b>');
+
+    // 5. Xóa các thẻ <br> thừa bị AI tạo ra khi đứng cạnh khối Heading/Divider để UI không bị trống ngoác
+    formattedContent = formattedContent.replace(/<\/div>\s*<br\s*\/?>/g, '</div>');
+    formattedContent = formattedContent.replace(/<hr class="ai-divider">\s*<br\s*\/?>/g, '<hr class="ai-divider">');
+
+    // Bơm vào Modal
     document.getElementById('aiModalContent').innerHTML = formattedContent;
 
     const modal = document.getElementById('aiResponseModal');
-    const modalBox = modal.querySelector('.ai-modal-box'); // <-- Đã đổi Class
+    const modalBox = modal.querySelector('.ai-modal-box');
 
     modal.style.display = 'flex';
     
