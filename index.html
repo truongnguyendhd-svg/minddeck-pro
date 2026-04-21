@@ -11511,31 +11511,38 @@ async function callGeminiAI(promptText, imageBase64 = null) {
         throw error;
     }
 }
-// --- HÀM ĐIỀU KHIỂN MODAL AI (WINDOWS 11 STYLE - ĐÃ NÂNG CẤP PARSER) ---
+// --- HÀM ĐIỀU KHIỂN MODAL AI (WINDOWS 11 STYLE - ĐÃ NÂNG CẤP BỘ LỌC) ---
 function showAIModal(content, title = "Gia sư AI") {
     document.getElementById('aiModalTitle').innerText = title;
     
-    // --- BỘ LỌC MARKDOWN THÔNG MINH ---
-    let formattedContent = content;
+    let html = content;
 
-    // 1. Lọc Heading cấp 3 (### Tiêu đề) -> Biến thành khối Box Xanh
-    formattedContent = formattedContent.replace(/^###\s*(.+)$/gm, '<div class="ai-heading-block">$1</div>');
+    // 1. CHỐNG SPAM DÒNG TRỐNG: Giảm thiểu chuỗi <br><br><br>... thành tối đa 2 <br>
+    html = html.replace(/(?:<br>\s*){3,}/g, '<br><br>');
+
+    // 2. PARSE HEADING: Dùng regex nhận diện cả khi nó đứng sau <br>
+    // Cấp 2 (##) -> Khối Đỏ
+    html = html.replace(/(?:^|<br>)\s*##\s*(.+?)(?=(?:<br>|$))/g, '<div class="ai-heading-block" style="background:#fdf3f4; border-color:#c50f1f; color:#c50f1f;">$1</div>');
     
-    // 2. Lọc Heading cấp 2 (## Tiêu đề) -> Biến thành khối Box Đỏ (Nếu AI có nhả ra)
-    formattedContent = formattedContent.replace(/^##\s*(.+)$/gm, '<div class="ai-heading-block" style="background:#fdf3f4; border-color:#c50f1f; color:#c50f1f;">$1</div>');
+    // Cấp 3 (###) -> Khối Xanh Win11
+    html = html.replace(/(?:^|<br>)\s*###\s*(.+?)(?=(?:<br>|$))/g, '<div class="ai-heading-block">$1</div>');
+    
+    // Cấp 4 (####) -> Khối Xám nhạt, nhỏ gọn (FIX LỖI LỘ TEXT)
+    html = html.replace(/(?:^|<br>)\s*####\s*(.+?)(?=(?:<br>|$))/g, '<div class="ai-heading-block" style="background:#f5f5f7; border-color:#86868b; color:#1d1d1f; font-size:13px; padding:8px 12px; margin: 20px 0 10px 0;">$1</div>');
 
-    // 3. Lọc đường phân cách ngang (---)
-    formattedContent = formattedContent.replace(/^---\s*$/gm, '<hr class="ai-divider">');
+    // 3. PARSE PHÂN CÁCH (---) (FIX LỖI LỘ TEXT)
+    html = html.replace(/(?:^|<br>)\s*---\s*(?=(?:<br>|$))/g, '<hr class="ai-divider">');
 
-    // 4. Lọc In đậm (**text**) -> Chữ đen sắc nét
-    formattedContent = formattedContent.replace(/\*\*(.*?)\*\*/g, '<b style="color: #000; font-weight: 700;">$1</b>');
+    // 4. PARSE IN ĐẬM (Đảm bảo độ tương phản cao)
+    html = html.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1a1a1a; font-weight: 800;">$1</b>');
 
-    // 5. Xóa các thẻ <br> thừa bị AI tạo ra khi đứng cạnh khối Heading/Divider để UI không bị trống ngoác
-    formattedContent = formattedContent.replace(/<\/div>\s*<br\s*\/?>/g, '</div>');
-    formattedContent = formattedContent.replace(/<hr class="ai-divider">\s*<br\s*\/?>/g, '<hr class="ai-divider">');
+    // 5. QUÉT SẠCH KHOẢNG TRỐNG RÁC: Xóa các <br> bám dính vào khối div và hr để CSS Margin hoạt động chuẩn xác
+    html = html.replace(/(?:<br>\s*)*<div class="ai-heading-block/g, '<div class="ai-heading-block');
+    html = html.replace(/<\/div>\s*(?:<br>\s*)*/g, '</div>');
+    html = html.replace(/(?:<br>\s*)*<hr class="ai-divider">\s*(?:<br>\s*)*/g, '<hr class="ai-divider">');
 
     // Bơm vào Modal
-    document.getElementById('aiModalContent').innerHTML = formattedContent;
+    document.getElementById('aiModalContent').innerHTML = html;
 
     const modal = document.getElementById('aiResponseModal');
     const modalBox = modal.querySelector('.ai-modal-box');
