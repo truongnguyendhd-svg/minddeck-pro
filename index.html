@@ -10265,19 +10265,26 @@ function togglePlaygroundMode() {
 // (Bạn hãy tìm hàm handleRoute() ở đầu script, thêm dòng này vào nhánh if-else):
 // else if (route === 'playground') { showPlayground(); }
 
-// 3. LOGIC BẮT SỰ KIỆN BÔI ĐEN VÀ HIỆN POPOVER (ĐÃ SỬA LỖI KẸT TRANG)
+// 3. LOGIC BẮT SỰ KIỆN BÔI ĐEN VÀ HIỆN POPOVER (MỞ RỘNG CHO CẢ MODAL AI)
 document.addEventListener('selectionchange', () => {
-    const playground = document.getElementById('playgroundPage');
     const popover = document.getElementById('selectionPopover');
+    const selection = window.getSelection();
     
-    // FIX LỖI KẸT TRANG: Trói chặt sự kiện này, chỉ cho phép chạy khi đang mở trang Playground
-    if (!playground || playground.classList.contains('hidden')) {
+    // 1. Bỏ qua nếu không bôi đen hoặc đang ở trong ô nhập liệu (Input/Textarea)
+    if (selection.isCollapsed || document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
         popover.style.display = 'none';
         return;
     }
+    
+    // 2. Kiểm tra xem vùng bôi đen có nằm trong các khu vực được phép không
+    const anchorNode = selection.anchorNode;
+    if (!anchorNode || !anchorNode.parentElement) return;
 
-    const selection = window.getSelection();
-    if (selection.isCollapsed || document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
+    const isInsidePlayground = anchorNode.parentElement.closest('#playgroundPage') && !document.getElementById('playgroundPage').classList.contains('hidden');
+    const isInsideAIModal = anchorNode.parentElement.closest('#aiResponseModal') && document.getElementById('aiResponseModal').style.display !== 'none';
+
+    // FIX LỖI: Nếu KHÔNG nằm trong Playground và CŨNG KHÔNG nằm trong Modal AI -> Ẩn Popover
+    if (!isInsidePlayground && !isInsideAIModal) {
         popover.style.display = 'none';
         return;
     }
@@ -10297,6 +10304,7 @@ document.addEventListener('selectionchange', () => {
         let top = rect.bottom + window.scrollY + 8; 
         let left = rect.right + window.scrollX - popoverWidth; 
         
+        // Căn lề chống tràn màn hình
         if (left + popoverWidth > window.innerWidth + window.scrollX) {
             left = window.innerWidth + window.scrollX - popoverWidth - 10;
         }
