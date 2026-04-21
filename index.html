@@ -4109,6 +4109,69 @@ body.pdf-mode #pdfReadState {
     font-size: 20px;
     color: #1f1f1f;
 }
+/* ================= WINDOWS 11 SNIPPING TOOL (CROP PDF) ================= */
+#pdfCropOverlay {
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0, 0, 0, 0.4); /* Màn hình tối đi */
+    z-index: 11000;
+    cursor: crosshair;
+    display: none; /* Mặc định ẩn */
+    touch-action: none; /* Chống cuộn trên mobile khi đang vẽ */
+}
+
+#pdfCropBox {
+    position: absolute;
+    border: 2px solid #0067c0; /* Xanh Win11 */
+    background: rgba(0, 103, 192, 0.1);
+    display: none;
+    pointer-events: none; /* Xuyên click để không chặn sự kiện chuột */
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4); /* Trick làm sáng vùng chọn, tối phần ngoài */
+}
+
+/* Win11 Mini Menu nổi lên sau khi khoanh xong */
+.win11-crop-menu {
+    position: absolute;
+    background: #ffffff;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.05);
+    display: none;
+    flex-direction: column;
+    padding: 4px;
+    z-index: 11001;
+    min-width: 220px;
+    font-family: 'Segoe UI Variable', 'Segoe UI', 'Noto Sans JP', sans-serif;
+    animation: popMenu 0.15s ease-out;
+}
+
+.win11-crop-menu-header {
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #666666;
+    text-transform: uppercase;
+    border-bottom: 1px solid #f0f0f0;
+    margin-bottom: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.win11-crop-btn {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    background: transparent; border: none;
+    width: 100%; text-align: left;
+    font-size: 13px; font-weight: 500; color: #1a1a1a;
+    border-radius: 4px; cursor: pointer; transition: 0.1s;
+}
+.win11-crop-btn:hover { background: #f6f6f6; }
+.win11-crop-btn:active { background: #f0f0f0; }
+
+.win11-crop-btn .material-symbols-outlined { font-size: 18px; color: #0067c0; }
+.win11-crop-btn.cancel { color: #c50f1f; }
+.win11-crop-btn.cancel .material-symbols-outlined { color: #c50f1f; }
 </style>
 </head>
 <body>
@@ -4792,20 +4855,25 @@ body.pdf-mode #pdfReadState {
             <canvas id="pdfCanvas"></canvas>
         </div>
 
-        <!-- 🟢 NÚT AI NỔI GIỮA MÀN HÌNH (FLOATING) -->
-        <div class="pdf-floating-ai-container">
-            <button class="pdf-ai-btn-floating" onclick="togglePdfAiMenu(event)">
+<!-- 🟢 NÚT AI NỔI GIỮA MÀN HÌNH (FLOATING) -->
+        <div class="pdf-floating-ai-container" style="flex-direction: row; gap: 10px;">
+            <!-- Nút quét TOÀN TRANG (Cũ) -->
+            <button class="pdf-ai-btn-floating" onclick="togglePdfAiMenu(event)" title="Quét toàn bộ trang">
                 <span class="material-symbols-outlined">auto_awesome</span>
-                <span>HỎI AI</span>
+                <span>QUÉT TRANG</span>
+            </button>
+            
+            <!-- NÚT MỚI: KHOANH VÙNG (WIN 11 STYLE) -->
+            <button class="pdf-ai-btn-floating" onclick="enablePdfCropMode()" style="color: #0067c0; border-color: #0067c0; background: #f3f8fd;" title="Khoanh vùng để quét (Chính xác & Nhanh hơn)">
+                <span class="material-symbols-outlined">crop</span>
+                <span>KHOANH VÙNG</span>
             </button>
 
             <!-- Menu Dropdown AI (Được căn giữa) -->
             <div id="pdfAiDropdown" class="ai-mode-dropdown hidden" style="bottom: calc(100% + 15px); left: 50%; transform: translateX(-50%); transform-origin: bottom center; box-shadow: 0 8px 24px rgba(0,0,0,0.15); border-color: #dadce0; min-width: 250px;">
-                
                 <div style="padding: 4px 16px 8px 16px; font-weight: 600; color: #5f6368; border-bottom: 1px solid #f1f3f4; margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; text-align: left;">
-                    Chọn chế độ AI
+                    Chọn chế độ (Quét toàn trang)
                 </div>
-
                 <div class="ai-mode-item" onclick="triggerPdfAI('tutor')">
                     <span class="material-symbols-outlined" style="color: #10b981;">school</span> Gia sư chữa bài (Tutor)
                 </div>
@@ -4815,6 +4883,33 @@ body.pdf-mode #pdfReadState {
                 <div class="ai-mode-item" onclick="triggerPdfAI('extract_vocab')">
                     <span class="material-symbols-outlined" style="color: #3b82f6;">translate</span> Dịch thuật Dokkai & Từ vựng
                 </div>
+            </div>
+        </div>
+
+        <!-- 🟢 OVERLAY KHOANH VÙNG (SNIPPING TOOL WIN 11) -->
+        <div id="pdfCropOverlay">
+            <!-- Khung chọn màu xanh -->
+            <div id="pdfCropBox"></div>
+            
+            <!-- Menu Win11 nổi lên sau khi khoanh -->
+            <div id="pdfCropMenu" class="win11-crop-menu">
+                <div class="win11-crop-menu-header">
+                    <span>Vùng đã chọn</span>
+                    <span class="material-symbols-outlined" style="font-size: 14px; cursor: pointer;" onclick="disablePdfCropMode()">close</span>
+                </div>
+                <button class="win11-crop-btn" onclick="executeCropAI('tutor')">
+                    <span class="material-symbols-outlined" style="color: #10b981;">school</span> Gia sư giải đáp vùng này
+                </button>
+                <button class="win11-crop-btn" onclick="executeCropAI('extract_quiz')">
+                    <span class="material-symbols-outlined" style="color: #c50f1f;">quiz</span> Bóc tách Trắc nghiệm
+                </button>
+                <button class="win11-crop-btn" onclick="executeCropAI('extract_vocab')">
+                    <span class="material-symbols-outlined" style="color: #3b82f6;">translate</span> Dịch thuật & Bóc từ vựng
+                </button>
+                <div style="border-top: 1px solid #f0f0f0; margin: 4px 0;"></div>
+                <button class="win11-crop-btn cancel" onclick="disablePdfCropMode()">
+                    <span class="material-symbols-outlined">cancel</span> Hủy khoanh vùng
+                </button>
             </div>
         </div>
 
@@ -12953,13 +13048,13 @@ function getPdfPageAsBase64() {
 }
 
 // 2. HÀM XỬ LÝ CHÍNH (TRIGGER AI)
-async function triggerPdfAI(actionType) {
+async function triggerPdfAI(actionType, croppedBase64 = null) {
     // Đóng dropdown menu AI
     const aiDropdown = document.getElementById('pdfAiDropdown');
     if (aiDropdown) aiDropdown.classList.add('hidden');
     
-    // 1. Chụp ảnh màn hình trang PDF hiện tại
-    const base64Image = getPdfPageAsBase64();
+    // Ưu tiên dùng ảnh cắt (nếu có), nếu không có thì chụp toàn trang
+    const base64Image = croppedBase64 || getPdfPageAsBase64();
     if (!base64Image) {
         return customAlert("Không tìm thấy dữ liệu trang PDF. Vui lòng thử lại!", "⚠️");
     }
@@ -13298,6 +13393,181 @@ document.addEventListener('click', (e) => {
         settingsDropdown.classList.add('hidden');
     }
 });
+/* ================= HỆ THỐNG KHOANH VÙNG (CROP) PDF - WIN 11 STYLE ================= */
+
+let isCroppingMode = false;
+let isDrawingCrop = false;
+let cropStartX = 0, cropStartY = 0;
+let cropRect = { x: 0, y: 0, w: 0, h: 0 }; // Tọa độ hiển thị trên màn hình
+
+// Kích hoạt chế độ Snipping Tool
+function enablePdfCropMode() {
+    isCroppingMode = true;
+    const overlay = document.getElementById('pdfCropOverlay');
+    const cropBox = document.getElementById('pdfCropBox');
+    const cropMenu = document.getElementById('pdfCropMenu');
+    
+    overlay.style.display = 'block';
+    overlay.style.background = 'rgba(0, 0, 0, 0.4)'; // Làm tối màn hình
+    cropBox.style.display = 'none';
+    cropMenu.style.display = 'none';
+    
+    // Khóa cuộn trang khi đang khoanh
+    document.getElementById('pdfViewerContainer').style.overflow = 'hidden';
+    
+    // Đóng dropdown nếu đang mở
+    document.getElementById('pdfAiDropdown').classList.add('hidden');
+}
+
+// Hủy chế độ Snipping Tool
+function disablePdfCropMode() {
+    isCroppingMode = false;
+    document.getElementById('pdfCropOverlay').style.display = 'none';
+    document.getElementById('pdfViewerContainer').style.overflow = 'auto'; // Mở lại cuộn trang
+}
+
+// --- XỬ LÝ SỰ KIỆN CHUỘT / CẢM ỨNG TRÊN OVERLAY ---
+const cropOverlay = document.getElementById('pdfCropOverlay');
+const cropBox = document.getElementById('pdfCropBox');
+const cropMenu = document.getElementById('pdfCropMenu');
+
+function getEventPos(e) {
+    if (e.touches && e.touches.length > 0) {
+        return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+    return { x: e.clientX, y: e.clientY };
+}
+
+// Bắt đầu vẽ
+cropOverlay.addEventListener('mousedown', startCropDraw);
+cropOverlay.addEventListener('touchstart', startCropDraw, { passive: false });
+
+function startCropDraw(e) {
+    if (!isCroppingMode || cropMenu.style.display === 'flex') return;
+    // Nếu bấm trúng menu thì không vẽ lại
+    if (e.target.closest('.win11-crop-menu')) return;
+    
+    e.preventDefault(); // Ngăn hành vi mặc định
+    isDrawingCrop = true;
+    const pos = getEventPos(e);
+    cropStartX = pos.x;
+    cropStartY = pos.y;
+    
+    cropBox.style.display = 'block';
+    cropBox.style.left = cropStartX + 'px';
+    cropBox.style.top = cropStartY + 'px';
+    cropBox.style.width = '0px';
+    cropBox.style.height = '0px';
+}
+
+// Kéo thả vẽ hình chữ nhật
+cropOverlay.addEventListener('mousemove', doCropDraw);
+cropOverlay.addEventListener('touchmove', doCropDraw, { passive: false });
+
+function doCropDraw(e) {
+    if (!isDrawingCrop) return;
+    e.preventDefault();
+    
+    const pos = getEventPos(e);
+    const currentX = pos.x;
+    const currentY = pos.y;
+    
+    // Tính toán có cho phép vẽ ngược (từ phải sang trái, dưới lên trên)
+    cropRect.x = Math.min(cropStartX, currentX);
+    cropRect.y = Math.min(cropStartY, currentY);
+    cropRect.w = Math.abs(currentX - cropStartX);
+    cropRect.h = Math.abs(currentY - cropStartY);
+    
+    cropBox.style.left = cropRect.x + 'px';
+    cropBox.style.top = cropRect.y + 'px';
+    cropBox.style.width = cropRect.w + 'px';
+    cropBox.style.height = cropRect.h + 'px';
+}
+
+// Kết thúc vẽ, hiện Menu
+cropOverlay.addEventListener('mouseup', endCropDraw);
+cropOverlay.addEventListener('touchend', endCropDraw);
+
+function endCropDraw(e) {
+    if (!isDrawingCrop) return;
+    isDrawingCrop = false;
+    
+    // Nếu vùng khoanh quá nhỏ (chỉ là click nhầm) -> Hủy
+    if (cropRect.w < 20 || cropRect.h < 20) {
+        cropBox.style.display = 'none';
+        return;
+    }
+    
+    // Tắt phần màn hình tối (Chỉ chừa lại khung xanh)
+    cropOverlay.style.background = 'transparent';
+    
+    // Hiển thị Menu Win11 ở góc dưới bên phải khung
+    cropMenu.style.display = 'flex';
+    
+    let menuX = cropRect.x + cropRect.w + 10;
+    let menuY = cropRect.y + cropRect.h - 100; // Đẩy lên chút cho vừa tầm mắt
+    
+    // Chống tràn màn hình
+    const menuWidth = 220;
+    if (menuX + menuWidth > window.innerWidth) {
+        menuX = cropRect.x - menuWidth - 10; // Đẩy sang trái khung
+        if (menuX < 0) menuX = 10; // Nếu vẫn tràn thì áp sát lề
+    }
+    if (menuY + 200 > window.innerHeight) {
+        menuY = window.innerHeight - 220; // Đẩy lên
+    }
+    
+    cropMenu.style.left = menuX + 'px';
+    cropMenu.style.top = menuY + 'px';
+}
+
+// --- HÀM THỰC THI CẮT ẢNH & GỌI AI ---
+function executeCropAI(actionType) {
+    const canvas = document.getElementById('pdfCanvas');
+    if (!canvas) return disablePdfCropMode();
+
+    // 1. TÍNH TOÁN TOẠ ĐỘ THỰC TẾ TRÊN CANVAS BITMAP
+    // Lấy toạ độ hiển thị của thẻ canvas trên màn hình (đã bị CSS Zoom/Scroll thay đổi)
+    const rectCanvas = canvas.getBoundingClientRect();
+
+    // Toạ độ vùng khoanh TƯƠNG ĐỐI so với góc trên bên trái của Canvas
+    const relX = cropRect.x - rectCanvas.left;
+    const relY = cropRect.y - rectCanvas.top;
+
+    // Tỷ lệ giữa kích thước Bitmap thực tế và kích thước CSS trên màn hình
+    const scaleX = canvas.width / rectCanvas.width;
+    const scaleY = canvas.height / rectCanvas.height;
+
+    // Toạ độ và kích thước CẮT THẬT SỰ trên Bitmap
+    const sx = relX * scaleX;
+    const sy = relY * scaleY;
+    const sw = cropRect.w * scaleX;
+    const sh = cropRect.h * scaleY;
+
+    // Kiểm tra nếu user khoanh ra ngoài viền trang giấy -> Báo lỗi
+    if (sw <= 0 || sh <= 0 || sx > canvas.width || sy > canvas.height) {
+        disablePdfCropMode();
+        return customAlert("Vùng khoanh không nằm trên trang giấy. Vui lòng khoanh lại!", "⚠️");
+    }
+
+    // 2. CẮT ẢNH BẰNG CANVAS ẨN
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = sw;
+    tempCanvas.height = sh;
+    const tCtx = tempCanvas.getContext('2d');
+    
+    // Vẽ phần đã cắt sang canvas ẩn (Background màu trắng để tránh lỗi nền trong suốt)
+    tCtx.fillStyle = "#ffffff";
+    tCtx.fillRect(0, 0, sw, sh);
+    tCtx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+
+    // Lấy mã Base64 (Chất lượng 0.9 để chữ Hán sắc nét khi AI OCR)
+    const croppedBase64 = tempCanvas.toDataURL('image/jpeg', 0.9);
+
+    // 3. ĐÓNG GIAO DIỆN VÀ GỬI CHO AI
+    disablePdfCropMode();
+    triggerPdfAI(actionType, croppedBase64); // Gọi lại hàm AI hiện tại và truyền ảnh cắt vào
+}
 </script>
 <!-- ================= MODAL DÀNH RIÊNG CHO GIA SƯ AI (APPLE STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px;">
