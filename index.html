@@ -6549,19 +6549,22 @@ async function loadDashboardData() {
 
         // 1. TÍNH SỐ THẺ CẦN ÔN HÔM NAY (due <= now)
         const { count: dueCount, error: err1 } = await sb.from('progress')
-            .select('*', { count: 'exact', head: true })
+            .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
             .eq('user_id', currentUser.id)
+            .eq('cards.decks.type', 'flashcard') // <-- BỘ LỌC CHỈ LẤY FLASHCARD
             .lte('due', now);
         
         // 2. TÍNH SỐ THẺ ĐÃ HỌC (Có tiến trình trên DB)
         const { count: studyingCount, error: err2 } = await sb.from('progress')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', currentUser.id);
+            .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
+            .eq('user_id', currentUser.id)
+            .eq('cards.decks.type', 'flashcard');
 
         // 3. TÍNH SỐ THẺ ĐÃ THUỘC LÒNG (interval >= 21 ngày là trí nhớ dài hạn)
         const { count: masteredCount, error: err3 } = await sb.from('progress')
-            .select('*', { count: 'exact', head: true })
+            .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
             .eq('user_id', currentUser.id)
+            .eq('cards.decks.type', 'flashcard')
             .gte('interval', 21);
 
         // Gắn số liệu lên UI
@@ -14911,8 +14914,9 @@ window.startGlobalReview = async function(skipHash = false) {
 
         // 1. Lấy thẻ trễ hạn
         const { data: dueProgress, error } = await sb.from('progress')
-            .select('*, cards!inner(*)')
+            .select('*, cards!inner(*, decks!inner(type))') // <-- JOIN BẢNG DECKS VÀO
             .eq('user_id', currentUser.id)
+            .eq('cards.decks.type', 'flashcard')            // <-- ÉP KIỂU LÀ FLASHCARD
             .lte('due', now)
             .order('due', { ascending: true }) // Ưu tiên thẻ cũ nhất
             .limit(15); // BATCHING: Ép cứng tối đa 15 thẻ mỗi phiên
