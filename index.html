@@ -4431,6 +4431,55 @@ body.pdf-mode #pdfReadState {
     animation: pulse-audio 1.2s infinite; 
     color: #fff;
 }
+/* ================= CSS WIDGET DASHBOARD MỚI ================= */
+.dash-bottom-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 25px;
+    margin-top: 30px;
+    padding-bottom: 20px;
+}
+
+.dash-widget-box {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 25px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.02);
+    display: flex;
+    flex-direction: column;
+    transition: all 0.3s ease;
+}
+.dash-widget-box:hover {
+    box-shadow: 0 10px 30px rgba(0,0,0,0.06);
+    transform: translateY(-3px);
+}
+
+/* Thanh Tiến Độ JLPT */
+.jlpt-progress-item { margin-bottom: 15px; }
+.jlpt-progress-header { display: flex; justify-content: space-between; font-size: 13px; font-weight: 800; margin-bottom: 6px; }
+.jlpt-track { width: 100%; height: 10px; background: #f1f5f9; border-radius: 10px; overflow: hidden; }
+.jlpt-fill { height: 100%; border-radius: 10px; transition: width 1s cubic-bezier(0.175, 0.885, 0.32, 1.275); width: 0%; }
+
+/* Màu sắc từng cấp độ JLPT */
+.fill-n5 { background: linear-gradient(90deg, #34d399, #10b981); } /* Xanh lá */
+.fill-n4 { background: linear-gradient(90deg, #fcd34d, #f59e0b); } /* Vàng */
+.fill-n3 { background: linear-gradient(90deg, #fdba74, #ea580c); } /* Cam */
+.fill-n2 { background: linear-gradient(90deg, #93c5fd, #3b82f6); } /* Xanh dương */
+.fill-n1 { background: linear-gradient(90deg, #fca5a5, #ef4444); } /* Đỏ */
+
+/* Góc Khám Phá (Daily Discovery) */
+.discovery-content {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 20px 0;
+    transition: transform 0.4s ease, opacity 0.4s ease;
+}
+.discovery-content.flip {
+    transform: rotateX(90deg); opacity: 0;
+}
+.discovery-badge {
+    font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 50px; text-transform: uppercase; margin-bottom: 15px;
+}
 </style>
 </head>
 <body>
@@ -4759,7 +4808,40 @@ body.pdf-mode #pdfReadState {
             <p style="color: #a0aec0; grid-column: 1/-1; font-size: 14px;">Bạn chưa học bộ bài nào gần đây.</p>
         </div>
     </div>
+<!-- 4. KHỐI WIDGET MỚI (JLPT & KHÁM PHÁ) -->
+    <div class="dash-bottom-grid">
+        
+        <!-- WIDGET 1: TIẾN ĐỘ JLPT (ĐO BẰNG LƯỢNG KANJI ĐÃ THUỘC) -->
+        <div class="dash-widget-box">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #1e3a8a; display: flex; align-items: center; gap: 8px;">
+                    <span class="material-symbols-outlined">moving</span> Tiến độ JLPT
+                </h3>
+                <span style="font-size: 12px; color: #718096; font-weight: 600;">(Tính theo Kanji Mastered)</span>
+            </div>
+            <div id="jlptProgressContainer">
+                <div style="text-align:center; padding: 20px; color:#a0aec0;"><div class="spinner" style="margin:0 auto 10px auto; width: 24px; height: 24px;"></div>Đang tính toán...</div>
+            </div>
+        </div>
 
+        <!-- WIDGET 2: GÓC KHÁM PHÁ -->
+        <div class="dash-widget-box" style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #9e5b00; display: flex; align-items: center; gap: 8px;">
+                    <span class="material-symbols-outlined">explore</span> Góc Khám Phá
+                </h3>
+                <button onclick="refreshDiscovery()" style="background: white; border: 1px solid #cbd5e0; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #4a5568; transition: 0.2s;" onmouseover="this.style.transform='rotate(180deg)'" onmouseout="this.style.transform='rotate(0deg)'">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">refresh</span>
+                </button>
+            </div>
+            
+            <!-- Khu vực thẻ sẽ lật -->
+            <div id="discoveryCard" class="discovery-content">
+                <div style="color: #a0aec0;">Đang bốc thăm...</div>
+            </div>
+        </div>
+
+    </div>
 </div>
 
     <div id="searchResultPage" class="hidden">
@@ -6496,6 +6578,8 @@ async function loadDashboardData() {
                 });
             }
         }
+        renderJLPTProgress();
+        refreshDiscovery();
 
     } catch (err) {
         console.error("Lỗi Dashboard:", err);
@@ -14734,6 +14818,150 @@ window.startGlobalReview = async function(skipHash = false) {
         hideLoading();
     }
 };
+/* ================= HÀM XỬ LÝ TIẾN ĐỘ JLPT TRÊN DASHBOARD ================= */
+async function renderJLPTProgress() {
+    const container = document.getElementById('jlptProgressContainer');
+    if (!currentUser) return;
+
+    try {
+        // 1. Tải danh sách Kanji từ Database nếu chưa có trong RAM
+        if (allKanjiData.length === 0) {
+            const cachedDict = localStorage.getItem('minddeck_kanji_dict');
+            if (cachedDict) {
+                allKanjiData = JSON.parse(cachedDict);
+            } else {
+                const { data } = await sb.from('kanji_builder').select('kanji, level');
+                if (data) {
+                    allKanjiData = data;
+                    localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
+                }
+            }
+        }
+
+        // 2. Lấy dữ liệu tiến độ Kanji của User từ Cloud
+        const { data: profile } = await sb.from('profiles').select('kanji_mastery').eq('id', currentUser.id).single();
+        const masteryMap = profile?.kanji_mastery || {};
+
+        // 3. Phân loại theo N5 -> N1
+        const levels = {
+            'N5': { total: 0, mastered: 0, colorClass: 'fill-n5', colorCode: '#10b981' },
+            'N4': { total: 0, mastered: 0, colorClass: 'fill-n4', colorCode: '#f59e0b' },
+            'N3': { total: 0, mastered: 0, colorClass: 'fill-n3', colorCode: '#ea580c' },
+            'N2': { total: 0, mastered: 0, colorClass: 'fill-n2', colorCode: '#3b82f6' },
+            'N1': { total: 0, mastered: 0, colorClass: 'fill-n1', colorCode: '#ef4444' }
+        };
+
+        allKanjiData.forEach(k => {
+            const lvl = k.level;
+            if (levels[lvl]) {
+                levels[lvl].total++;
+                // Tính là "Mastered" nếu khoảng cách nhớ >= 21 ngày (Trí nhớ dài hạn)
+                if (masteryMap[k.kanji] && masteryMap[k.kanji] >= 21) {
+                    levels[lvl].mastered++;
+                }
+            }
+        });
+
+        // 4. Render HTML các thanh Progress Bar
+        let html = '';
+        ['N5', 'N4', 'N3', 'N2', 'N1'].forEach(lvl => {
+            const lData = levels[lvl];
+            if (lData.total === 0) return;
+            const percent = Math.round((lData.mastered / lData.total) * 100);
+            
+            html += `
+                <div class="jlpt-progress-item">
+                    <div class="jlpt-progress-header">
+                        <span style="color: ${lData.colorCode};">${lvl}</span>
+                        <span style="color: #64748b;">${lData.mastered} / ${lData.total} <span style="font-size: 11px;">(${percent}%)</span></span>
+                    </div>
+                    <div class="jlpt-track">
+                        <div class="jlpt-fill ${lData.colorClass}" style="width: ${percent}%"></div>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+
+    } catch (err) {
+        console.error("Lỗi render JLPT:", err);
+        container.innerHTML = '<div style="color:#e53e3e; text-align:center;">Lỗi tính toán tiến độ.</div>';
+    }
+}
+
+/* ================= HÀM XỬ LÝ GÓC KHÁM PHÁ (BỐC THĂM NGẪU NHIÊN) ================= */
+let lastDiscoveryData = null;
+
+async function refreshDiscovery() {
+    const card = document.getElementById('discoveryCard');
+    
+    // Kích hoạt hiệu ứng lật (ẩn đi)
+    card.classList.add('flip');
+
+    setTimeout(async () => {
+        try {
+            // Random 50/50: Khám phá Kanji hoặc Ngữ pháp
+            const isKanji = Math.random() > 0.5;
+            
+            let html = '';
+            
+            if (isKanji && allKanjiData.length > 0) {
+                // Bốc 1 Kanji ngẫu nhiên
+                const randomKanji = allKanjiData[Math.floor(Math.random() * allKanjiData.length)].kanji;
+                
+                // Lấy chi tiết Kanji đó từ DB
+                const { data } = await sb.from('kanji_builder').select('*').eq('kanji', randomKanji).single();
+                
+                if (data) {
+                    html = `
+                        <div class="discovery-badge" style="background: #fffaf0; color: #dd6b20; border: 1px solid #fbd38d;">Kanji trong ngày</div>
+                        <div style="font-size: 60px; font-weight: 900; color: #1d1d1f; line-height: 1.2;">${data.kanji}</div>
+                        <div style="font-size: 16px; font-weight: 700; color: #c50f1f; letter-spacing: 1px; margin: 5px 0;">[ ${data.hv} ]</div>
+                        <div style="font-size: 15px; color: #4a5568; font-weight: 500; margin-bottom: 20px;">${data.meaning}</div>
+                        <button onclick="showKanjiXRay(event, '${data.kanji}')" style="background: #1e3a8a; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                            <span class="material-symbols-outlined" style="font-size: 16px;">troubleshoot</span> X-Ray
+                        </button>
+                    `;
+                }
+            } else {
+                // Bốc 1 Ngữ pháp ngẫu nhiên
+                // Đảm bảo đã load ngữ pháp
+                if (globalGrammarData.length === 0) {
+                    const { data: gData } = await sb.from('grammar_dict').select('*');
+                    if (gData) globalGrammarData = gData;
+                }
+                
+                if (globalGrammarData.length > 0) {
+                    const randomGrammar = globalGrammarData[Math.floor(Math.random() * globalGrammarData.length)];
+                    const safeJSON = encodeURIComponent(JSON.stringify(randomGrammar));
+                    
+                    html = `
+                        <div class="discovery-badge" style="background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;">Ngữ pháp trong ngày</div>
+                        <div style="font-size: 24px; font-weight: 900; color: #1d1d1f; line-height: 1.4; margin: 10px 0;">${randomGrammar.grammar_point}</div>
+                        <div style="font-size: 14px; color: #4a5568; font-weight: 500; margin-bottom: 20px; max-width: 80%;">${randomGrammar.meaning}</div>
+                        <button onclick="openGrammarDetail('${safeJSON}')" style="background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                            <span class="material-symbols-outlined" style="font-size: 16px;">menu_book</span> Xem chi tiết
+                        </button>
+                    `;
+                }
+            }
+            
+            // Nếu lỗi không bốc được thì fallback
+            if (!html) html = '<div style="color: #718096;">Chưa có dữ liệu để khám phá!</div>';
+            
+            // Cập nhật DOM
+            card.innerHTML = html;
+            
+            // Hiện thẻ lên (Lật ngửa)
+            card.classList.remove('flip');
+
+        } catch (e) {
+            console.error(e);
+            card.classList.remove('flip');
+        }
+    }, 400); // Đợi 400ms cho animation úp thẻ hoàn tất rồi mới đổi nội dung
+}
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 12000;">
