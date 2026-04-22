@@ -5389,39 +5389,7 @@ body.pdf-mode #pdfReadState {
     <!-- Lưới hiển thị Kanji -->
     <div id="kcGridPage" class="kanji-collection-grid" style="max-height: none; overflow: visible; background: transparent; border: none; padding: 0;"></div>
 </div>
-<!-- MODAL CHI TIẾT NGỮ PHÁP -->
-<div id="grammarDetailModal" class="modal">
-    <div class="modal-content" style="max-width: 900px; width: 90%; border-radius: 24px; border: none; overflow: hidden; background: #ffffff; max-height: 90vh;">
-        <div class="modal-header" style="background: #ffffff; border-bottom: none; padding: 25px 30px 10px 30px;">
-            <div>
-                <span id="gdLevel" style="font-size: 13px; font-weight: 900; color: #3b82f6; background: #eff6ff; padding: 4px 10px; border-radius: 6px; margin-bottom: 10px; display: inline-block;">N3</span>
-                <h3 id="gdPoint" style="font-size: 32px; font-weight: 900; color: #1d1d1f; margin: 0; font-family: 'Noto Sans JP', sans-serif;">～に違いない</h3>
-            </div>
-            <button class="close-modal" onclick="closeModal('grammarDetailModal')" style="align-self: flex-start; background: #f5f5f7; border-radius: 50%;">&times;</button>
-        </div>
-        
-        <div class="modal-body" style="padding: 10px 30px 30px 30px;">
-            <p id="gdMeaning" style="font-size: 18px; color: #1d1d1f; font-weight: 600; margin-top: 0; margin-bottom: 25px;"></p>
 
-            <div class="grammar-detail-section">
-                <div class="grammar-detail-title"><span class="material-symbols-outlined" style="font-size: 16px; vertical-align: sub;">architecture</span> Cấu trúc ghép từ</div>
-                <div id="gdStructure" style="font-size: 16px; color: #1d1d1f; font-weight: 500;"></div>
-            </div>
-
-            <div class="grammar-detail-section">
-                <div class="grammar-detail-title"><span class="material-symbols-outlined" style="font-size: 16px; vertical-align: sub;">info</span> Sắc thái & Lưu ý</div>
-                <div id="gdNuance" style="font-size: 15px; color: #515154; line-height: 1.6;"></div>
-            </div>
-
-            <div class="grammar-detail-title" style="margin-top: 30px;"><span class="material-symbols-outlined" style="font-size: 16px; vertical-align: sub;">chat</span> Ví dụ minh họa</div>
-            <div id="gdExamples"></div>
-
-            <button onclick="saveGrammarToDeck()" style="width: 100%; margin-top: 20px; padding: 16px; background: #1d1d1f; color: white; border: none; border-radius: 50px; font-weight: 800; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 10px 20px rgba(0,0,0,0.15); transition: 0.2s;">
-                <span class="material-symbols-outlined">library_add</span> TẠO FLASHCARD TỪ NGỮ PHÁP NÀY
-            </button>
-        </div>
-    </div>
-</div>
 <div id="infoModal" class="modal"><div class="modal-content"><div class="modal-header"><h3><span class="material-symbols-outlined">info</span> Thông tin phụ</h3><button class="close-modal" onclick="closeModal('infoModal')">&times;</button></div><div class="modal-body" id="infoText"></div></div></div>
 <!-- MODAL LỰA CHỌN CHẾ ĐỘ HỌC TỪ TRANG QUẢN LÝ (WINDOWS 11 STYLE) -->
 <div id="studyOptionsModal" class="modal">
@@ -11624,46 +11592,217 @@ function filterGrammarLocally() {
     );
     renderGrammarGrid(filtered);
 }
+// Biến toàn cục lưu danh sách ngữ pháp mở rộng từ AI
+let combinedGrammarDataForBulk = [];
 
-// Mở Modal Chi tiết Ngữ pháp
+// 1. Cập nhật lại giao diện khi mở Modal Ngữ pháp
 function openGrammarDetail(encodedJSON) {
     const g = JSON.parse(decodeURIComponent(encodedJSON));
-    currentGrammarObj = g; // Lưu lại để dùng cho nút Add to Deck
+    currentGrammarObj = g; 
 
+    // Đổ dữ liệu cơ bản
     document.getElementById('gdLevel').innerText = g.level || 'N?';
     document.getElementById('gdPoint').innerText = g.grammar_point;
     document.getElementById('gdMeaning').innerText = g.meaning;
     document.getElementById('gdStructure').innerText = g.structure || 'Không có ghi chú cấu trúc.';
     document.getElementById('gdNuance').innerText = g.nuance || 'Không có ghi chú sắc thái.';
 
-    // Xử lý Render 15 Ví dụ từ các cột riêng biệt
+    // Render Ví dụ theo chuẩn Win 11
     const exContainer = document.getElementById('gdExamples');
     exContainer.innerHTML = '';
     let hasExamples = false;
 
-    // Vòng lặp từ 1 đến 15 để kiểm tra các cột ex1_jp -> ex15_jp
     for (let i = 1; i <= 15; i++) {
         const jpText = g[`ex${i}_jp`];
         const vnText = g[`ex${i}_vn`];
-
-        // Nếu cột tiếng Nhật có chữ thì mới hiển thị
         if (jpText && jpText.trim() !== '') {
             hasExamples = true;
             exContainer.innerHTML += `
-                <div class="g-example-box">
-                    <div class="g-example-jp">${wrapKanjiWithLink(escapeHTML(jpText))}</div>
-                    <div class="g-example-vn">${escapeHTML(vnText || '')}</div>
+                <div style="margin-bottom: 12px; padding-left: 12px; border-left: 3px solid #0067c0;">
+                    <div style="font-size: 16px; color: #1a1a1a; font-weight: 600; margin-bottom: 4px;">${wrapKanjiWithLink(escapeHTML(jpText))}</div>
+                    <div style="font-size: 14px; color: #666666;">${escapeHTML(vnText || '')}</div>
                 </div>
             `;
         }
     }
+    if (!hasExamples) exContainer.innerHTML = '<p style="color:#86868b; font-size: 14px;">Chưa có ví dụ cho cấu trúc này.</p>';
 
-    if (!hasExamples) {
-        exContainer.innerHTML = '<p style="color:#86868b; font-size: 14px;">Chưa có ví dụ cho cấu trúc này.</p>';
-    }
+    // RESET LẠI GIAO DIỆN NẾU TRƯỚC ĐÓ CÓ MỞ AI
+    document.getElementById('gdAiExpansionZone').style.display = 'none';
+    document.getElementById('gdAiExpansionZone').innerHTML = '';
+    document.getElementById('gdBasicActions').style.display = 'flex';
+    document.querySelector('#grammarDetailModal .modal-content').style.maxWidth = '650px';
+    
+    const aiBtn = document.getElementById('btnExpandAIGrammar');
+    aiBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 20px;">auto_awesome</span> HỌC SÂU VỚI AI';
+    aiBtn.disabled = false;
 
     document.getElementById('grammarDetailModal').style.display = 'flex';
 }
+
+// 2. HÀM GỌI AI PHÂN TÍCH SÂU NGỮ PHÁP (TƯƠNG ĐƯƠNG & TRÁI NGHĨA)
+async function expandGrammarWithAI() {
+    const btn = document.getElementById('btnExpandAIGrammar');
+    const zone = document.getElementById('gdAiExpansionZone');
+    const modalContent = document.querySelector('#grammarDetailModal .modal-content');
+
+    if (!currentGrammarObj) return;
+
+    btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#9333ea;margin-right:8px;"></div> Đang phân tích...';
+    btn.disabled = true;
+
+    const prompt = `Bạn là chuyên gia luyện thi JLPT. Hãy phân tích cấu trúc ngữ pháp: "${currentGrammarObj.grammar_point}" (Nghĩa: ${currentGrammarObj.meaning}).
+    Mở rộng kiến thức bằng cách tìm ra:
+    1. Tối đa 2 cấu trúc NGỮ PHÁP TƯƠNG ĐƯƠNG (có thể thay thế). Mỗi cấu trúc kèm 2 ví dụ.
+    2. Tối đa 2 cấu trúc NGỮ PHÁP TRÁI NGHĨA (hoặc đối lập ngữ cảnh). Mỗi cấu trúc kèm 2 ví dụ.
+
+    BẮT BUỘC TRẢ VỀ DUY NHẤT 1 KHỐI JSON (Không bọc trong markdown \`\`\`json). Định dạng:
+    {
+      "similar": [
+        {
+          "point": "Cấu trúc", "level": "N?", "meaning": "Nghĩa tiếng Việt", "structure": "Cách ghép", "nuance": "Sắc thái khác biệt",
+          "examples": [ {"jp": "Ví dụ 1 JP", "vn": "Nghĩa VD 1 VN"}, {"jp": "Ví dụ 2 JP", "vn": "Nghĩa VD 2 VN"} ]
+        }
+      ],
+      "opposite": [
+        {
+          "point": "Cấu trúc", "level": "N?", "meaning": "Nghĩa tiếng Việt", "structure": "Cách ghép", "nuance": "Sắc thái",
+          "examples": [ {"jp": "Ví dụ 1 JP", "vn": "Nghĩa VD 1 VN"}, {"jp": "Ví dụ 2 JP", "vn": "Nghĩa VD 2 VN"} ]
+        }
+      ]
+    }`;
+
+    try {
+        let aiResponse = await callGeminiAI(prompt);
+        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        const data = JSON.parse(aiResponse);
+
+        // Mở rộng form ngang ra 1100px
+        modalContent.style.maxWidth = "1100px";
+        zone.style.display = 'block';
+
+        // Ẩn 2 nút cơ bản đi, nhường chỗ cho lưới AI
+        document.getElementById('gdBasicActions').style.display = 'none';
+
+        // Lưu ngữ pháp gốc vào mảng tổng
+        combinedGrammarDataForBulk = [currentGrammarObj];
+
+        let html = `
+            <div style="font-size: 16px; font-weight: 700; color: #1a1a1a; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: #9333ea;">auto_awesome</span> KHÔNG GIAN MỞ RỘNG KIẾN THỨC
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; margin-bottom: 24px;">
+        `;
+
+        // Hàm nội bộ để render thẻ Win 11
+        const renderGrammarBox = (item, typeStr, icon, colorHex, bgColor) => {
+            // Push vào mảng để chờ Bulk Save
+            combinedGrammarDataForBulk.push({
+                grammar_point: item.point,
+                level: item.level,
+                meaning: item.meaning,
+                structure: item.structure,
+                nuance: item.nuance,
+                ex1_jp: item.examples[0]?.jp || "",
+                ex1_vn: item.examples[0]?.vn || "",
+                ex2_jp: item.examples[1]?.jp || "",
+                ex2_vn: item.examples[1]?.vn || ""
+            });
+
+            let exHtml = item.examples.map(ex => `
+                <div style="margin-bottom: 8px; padding-left: 10px; border-left: 2px solid ${colorHex};">
+                    <div style="font-size: 14px; font-weight: 600; color: #1a1a1a;">${wrapKanjiWithLink(escapeHTML(ex.jp))}</div>
+                    <div style="font-size: 13px; color: #666666;">${escapeHTML(ex.vn)}</div>
+                </div>
+            `).join('');
+
+            return `
+                <div style="background: #ffffff; border: 1px solid #e5e5e5; border-top: 4px solid ${colorHex}; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); padding: 16px;">
+                    <div style="font-size: 11px; font-weight: 800; color: ${colorHex}; text-transform: uppercase; margin-bottom: 12px; display: flex; align-items: center; gap: 4px; background: ${bgColor}; display: inline-flex; padding: 4px 8px; border-radius: 4px;">
+                        <span class="material-symbols-outlined" style="font-size: 14px;">${icon}</span> ${typeStr}
+                    </div>
+                    <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px;">
+                        <span style="font-size: 20px; font-weight: 800; color: #1a1a1a; font-family: 'Noto Sans JP', sans-serif;">${escapeHTML(item.point)}</span>
+                        <span style="font-size: 12px; font-weight: 700; color: #666666; background: #f0f0f0; padding: 2px 6px; border-radius: 4px;">${escapeHTML(item.level)}</span>
+                    </div>
+                    <div style="font-size: 14px; color: #1a1a1a; font-weight: 600; margin-bottom: 12px;">${escapeHTML(item.meaning)}</div>
+                    
+                    <div style="background: #fbfbfb; padding: 8px; border-radius: 6px; border: 1px solid #f0f0f0; font-size: 13px; color: #4a4a4a; margin-bottom: 12px;">
+                        <b style="color: #666666;">Cách ghép:</b> ${escapeHTML(item.structure)}<br>
+                        <b style="color: #666666;">Sắc thái:</b> ${escapeHTML(item.nuance)}
+                    </div>
+                    
+                    <div style="font-size: 12px; font-weight: 700; color: #8c8c8c; margin-bottom: 8px; border-bottom: 1px solid #f0f0f0; padding-bottom: 4px;">VÍ DỤ MINH HỌA</div>
+                    ${exHtml}
+                </div>
+            `;
+        };
+
+        if (data.similar && data.similar.length > 0) {
+            html += `<div><h4 style="margin: 0 0 12px 0; color: #0067c0; font-size: 14px; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined">join</span> Tương đương / Thay thế</h4>`;
+            data.similar.forEach(item => { html += renderGrammarBox(item, "Tương đương", "join", "#0067c0", "#e6f2ff"); });
+            html += `</div>`;
+        }
+
+        if (data.opposite && data.opposite.length > 0) {
+            html += `<div><h4 style="margin: 0 0 12px 0; color: #c50f1f; font-size: 14px; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined">alt_route</span> Đối lập / Trái nghĩa</h4>`;
+            data.opposite.forEach(item => { html += renderGrammarBox(item, "Đối lập", "alt_route", "#c50f1f", "#fdf3f4"); });
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+
+        // NÚT LƯU TOÀN BỘ VÀO BỘ BÀI
+        html += `
+            <div style="text-align: center; border-top: 1px solid #f0f0f0; padding-top: 24px;">
+                <button onclick="bulkSaveExpandedGrammar()" class="win11-btn-primary" style="padding: 14px 28px; font-size: 15px; display: inline-flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 15px rgba(0, 103, 192, 0.3);">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">library_add</span> TẠO BỘ ${combinedGrammarDataForBulk.length} THẺ NGỮ PHÁP NÀY
+                </button>
+            </div>
+        `;
+
+        zone.innerHTML = html;
+
+    } catch (err) {
+        console.error("Lỗi AI Expand Grammar:", err);
+        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">error</span> Lỗi mạng. Nhấn thử lại';
+        btn.disabled = false;
+    }
+}
+
+// 3. HÀM CHUYỂN DỮ LIỆU SANG MODAL BULK SAVE
+function bulkSaveExpandedGrammar() {
+    // Biến đổi mảng Grammar thành mảng Flashcard chuẩn
+    const mappedData = combinedGrammarDataForBulk.map(g => {
+        const extraInfo = `Cấu trúc: ${g.structure || ''} | Sắc thái: ${g.nuance || ''}`;
+        let combinedExample = "";
+        if (g.ex1_jp) {
+            combinedExample = g.ex1_vn ? `${g.ex1_jp} (${g.ex1_vn})` : g.ex1_jp;
+        }
+        
+        return {
+            word: g.grammar_point, // Lắp vào cột Front
+            reading: "", // Ngữ pháp không cần cột Reading
+            meaning: g.meaning, // Lắp vào cột Meaning
+            hv: extraInfo, // Đẩy Cấu trúc/Sắc thái vào phần [HV] (Thông tin phụ)
+            example: combinedExample // Đẩy vào phần [EX1]/[VN1]
+        };
+    });
+
+    closeModal('grammarDetailModal');
+
+    // Cập nhật text trong Bulk Save Modal cho phù hợp với Ngữ Pháp
+    const noticeText = document.getElementById('bskNoticeText');
+    if (noticeText) {
+        noticeText.innerHTML = `Bạn đang chuẩn bị tạo <b id="bskCount" style="font-size: 18px; color: #1e3a8a;">${mappedData.length}</b> thẻ từ nhóm ngữ pháp <b id="bskKanji" style="font-size: 20px; color: #e53e3e;">${currentGrammarObj.grammar_point}</b>.`;
+    }
+
+    const encodedData = encodeURIComponent(JSON.stringify(mappedData));
+    
+    // Gọi hàm có sẵn của hệ thống (Tái sử dụng hàm lưu hàng loạt Kanji)
+    openBulkSaveKanjiModal(encodedData, currentGrammarObj.grammar_point);
+}
+
 
 // Cầu nối: Đưa Ngữ pháp vào Modal Lưu Flashcard đã có sẵn của app
 function saveGrammarToDeck() {
@@ -14294,26 +14433,85 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
     </div>
 </div>
-<!-- MODAL LƯU HÀNG LOẠT KANJI TỪ X-RAY (WIN 11 STYLE) -->
-<div id="bulkSaveKanjiModal" class="modal" style="z-index: 100000;">
+<!-- MODAL CHI TIẾT NGỮ PHÁP (WINDOWS 11 STYLE) -->
+<div id="grammarDetailModal" class="modal" style="z-index: 12000;">
+    <div class="modal-content win11-modal" style="max-width: 650px; overflow: hidden; transition: max-width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);">
+        <!-- Header Win 11 -->
+        <div class="win11-modal-header" style="background: #fbfbfb; border-bottom: 1px solid #f0f0f0; padding: 12px 20px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: #0067c0; font-size: 20px;">account_tree</span>
+                <h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #1a1a1a; text-transform: uppercase; letter-spacing: 0.5px;">Chi tiết ngữ pháp</h3>
+            </div>
+            <button class="win11-close-btn" onclick="closeModal('grammarDetailModal')">
+                <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+            </button>
+        </div>
+
+        <!-- Body Win 11 -->
+        <div class="win11-modal-body" style="padding: 24px; max-height: 85vh; overflow-y: auto; background: #ffffff;">
+            
+            <!-- Phần nội dung gốc -->
+            <div style="margin-bottom: 20px;">
+                <span id="gdLevel" style="font-size: 12px; font-weight: 800; color: #0067c0; background: #e6f2ff; padding: 4px 10px; border-radius: 4px; display: inline-block; margin-bottom: 8px;">N3</span>
+                <h2 id="gdPoint" style="margin: 0 0 8px 0; font-size: 28px; font-weight: 900; color: #1a1a1a; font-family: 'Noto Sans JP', sans-serif;"></h2>
+                <p id="gdMeaning" style="font-size: 16px; color: #1a1a1a; font-weight: 600; margin: 0 0 16px 0;"></p>
+            </div>
+
+            <div style="background: #fbfbfb; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                <div style="font-size: 12px; font-weight: 700; color: #666666; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">architecture</span> CẤU TRÚC GHÉP TỪ
+                </div>
+                <div id="gdStructure" style="font-size: 15px; color: #1a1a1a; font-weight: 500;"></div>
+            </div>
+
+            <div style="background: #fbfbfb; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+                <div style="font-size: 12px; font-weight: 700; color: #666666; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">info</span> SẮC THÁI & LƯU Ý
+                </div>
+                <div id="gdNuance" style="font-size: 14px; color: #4a4a4a; line-height: 1.6;"></div>
+            </div>
+
+            <div style="font-size: 13px; font-weight: 700; color: #666666; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid #e5e5e5; padding-bottom: 8px;">
+                <span class="material-symbols-outlined" style="font-size: 16px;">chat</span> VÍ DỤ MINH HỌA
+            </div>
+            <div id="gdExamples" style="margin-bottom: 24px;"></div>
+
+            <!-- Nút thao tác cơ bản -->
+            <div id="gdBasicActions" style="display: flex; gap: 12px;">
+                <button id="btnExpandAIGrammar" onclick="expandGrammarWithAI()" class="win11-btn-secondary" style="flex: 1; justify-content: center; padding: 14px; color: #9333ea; border-color: #e9d5ff; background: #faf5ff;">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">auto_awesome</span> HỌC SÂU VỚI AI
+                </button>
+                <button onclick="saveGrammarToDeck()" class="win11-btn-primary" style="flex: 1; justify-content: center; padding: 14px; display: flex; align-items: center; gap: 8px;">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">style</span> LƯU 1 THẺ NÀY
+                </button>
+            </div>
+
+            <!-- KHU VỰC AI MỞ RỘNG (ẨN MẶC ĐỊNH) -->
+            <div id="gdAiExpansionZone" style="display: none; margin-top: 24px; padding-top: 24px; border-top: 1px dashed #cccccc; animation: fadeInChat 0.3s ease;">
+                <!-- JS sẽ đổ dữ liệu AI vào đây -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL LƯU HÀNG LOẠT (WIN 11 STYLE) -->
+<div id="bulkSaveKanjiModal" class="modal" style="z-index: 12500 !important;">
     <div class="modal-content win11-modal" style="max-width: 500px;">
         <div class="win11-modal-header">
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="material-symbols-outlined" style="color: #0067c0;">library_add</span>
-                <h3 style="margin: 0; font-size: 15px; font-weight: 600;">Lưu hàng loạt từ vựng</h3>
+                <h3 style="margin: 0; font-size: 15px; font-weight: 600;">Lưu thẻ hàng loạt</h3>
             </div>
             <button class="win11-close-btn" onclick="closeModal('bulkSaveKanjiModal')"><span class="material-symbols-outlined">close</span></button>
         </div>
         
-        <!-- 🟢 FIX 3: Tăng chiều cao Modal và đẩy Input xuống dưới đáy -->
         <div style="padding: 20px 24px; min-height: 380px; display: flex; flex-direction: column; justify-content: flex-end;">
             
-            <!-- Khối thông báo (Được đẩy lên trên cùng) -->
-            <div style="background: #f0f9ff; border: 1px dashed #90cdf4; padding: 15px; border-radius: 8px; margin-bottom: auto; color: #2b6cb0; font-size: 14px; line-height: 1.5;">
-                Bạn đang chuẩn bị lưu <b id="bskCount" style="font-size: 18px; color: #1e3a8a;">0</b> từ vựng liên quan đến chữ Kanji <b id="bskKanji" style="font-size: 22px; color: #e53e3e;"></b> vào hệ thống Flashcard.
+            <!-- Khối thông báo (ID bskNoticeText để thay đổi nội dung động) -->
+            <div id="bskNoticeText" style="background: #f0f9ff; border: 1px dashed #90cdf4; padding: 15px; border-radius: 8px; margin-bottom: auto; color: #2b6cb0; font-size: 14px; line-height: 1.5;">
+                Bạn đang chuẩn bị lưu <b id="bskCount" style="font-size: 18px; color: #1e3a8a;">0</b> thẻ liên quan đến <b id="bskKanji" style="font-size: 20px; color: #e53e3e;"></b> vào hệ thống Flashcard.
             </div>
 
-            <!-- Khối Chọn bộ bài (Nằm ở đáy để nảy Drop-up lên vùng trống bên trên) -->
             <div>
                 <label class="win11-label">CHỌN BỘ BÀI ĐÍCH:</label>
                 <div class="custom-select-container" id="bskDeckContainer">
@@ -14326,7 +14524,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
 
                 <button onclick="confirmBulkSaveKanji()" class="win11-btn-primary" style="width: 100%; margin-top: 25px; padding: 14px; font-size: 15px; display: flex; justify-content: center; align-items: center; gap: 8px;">
-                    <span class="material-symbols-outlined">save</span> XÁC NHẬN LƯU VÀO BỘ BÀI NÀY
+                    <span class="material-symbols-outlined">save</span> XÁC NHẬN LƯU THẺ
                 </button>
             </div>
         </div>
