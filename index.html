@@ -14192,12 +14192,11 @@ function disableGrammarSearchMode() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }, 100);
 }
-/* ================= TỰ ĐỘNG GÕ ROMAJI SANG KANA CHO CÁC THANH TÌM KIẾM ================= */
+/* ================= TỰ ĐỘNG GÕ ROMAJI & NÚT CHUYỂN ĐỔI NGÔN NGỮ (あ / A) ================= */
+let isGlobalKanaMode = true; // Mặc định bật gõ tiếng Nhật
+
 document.addEventListener('DOMContentLoaded', () => {
-    // Kiểm tra xem thư viện wanakana đã tải xong chưa
     if (typeof wanakana !== 'undefined') {
-        
-        // Danh sách ID các thanh tìm kiếm cần áp dụng
         const searchInputIds = [
             'globalSearchInput',      // Thanh tìm kiếm trên Header
             'grammarSearchInput',     // Thanh tìm kiếm Ngữ pháp
@@ -14205,12 +14204,67 @@ document.addEventListener('DOMContentLoaded', () => {
             'quickDictSearchInput'    // Thanh tìm kiếm Modal Tra từ nhanh
         ];
 
-        // Lặp qua từng ID và gắn tính năng Wanakana
         searchInputIds.forEach(id => {
             const inputEl = document.getElementById(id);
             if (inputEl) {
-                // bind() tự động chuyển đổi Romaji -> Hiragana khi gõ
+                // 1. Mặc định kích hoạt WanaKana
                 wanakana.bind(inputEl);
+
+                // 2. Tạo nút Toggle (あ/A)
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'kana-toggle-btn';
+                toggleBtn.innerText = 'あ';
+                toggleBtn.title = 'Bật/Tắt gõ tiếng Nhật (Romaji -> Kana)';
+                
+                // Style chuẩn Apple (Kính mờ, không viền)
+                toggleBtn.style.cssText = `
+                    background: transparent;
+                    border: none;
+                    font-weight: 800;
+                    font-size: 15px;
+                    color: #0071e3;
+                    cursor: pointer;
+                    padding: 0 10px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    transition: all 0.2s ease;
+                    flex-shrink: 0;
+                    user-select: none;
+                `;
+
+                // 3. Sự kiện Click để Bật/Tắt
+                toggleBtn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    isGlobalKanaMode = !isGlobalKanaMode; // Đảo trạng thái toàn cầu
+                    
+                    // Cập nhật TẤT CẢ các ô input và nút toggle trong App
+                    searchInputIds.forEach(targetId => {
+                        const targetInput = document.getElementById(targetId);
+                        const targetBtn = targetInput ? targetInput.nextElementSibling : null;
+                        
+                        if (targetInput && targetBtn && targetBtn.classList.contains('kana-toggle-btn')) {
+                            if (isGlobalKanaMode) {
+                                wanakana.bind(targetInput);
+                                targetBtn.innerText = 'あ';
+                                targetBtn.style.color = '#0071e3'; // Xanh Apple
+                            } else {
+                                wanakana.unbind(targetInput);
+                                targetBtn.innerText = 'A';
+                                targetBtn.style.color = '#86868b'; // Xám mờ
+                            }
+                        }
+                    });
+
+                    // Báo Toast và Focus lại ô hiện tại để người dùng gõ tiếp
+                    showToast(isGlobalKanaMode ? "Đã BẬT gõ Tiếng Nhật (Romaji)" : "Đã TẮT gõ Tiếng Nhật (Gõ Tiếng Việt/Anh)");
+                    inputEl.focus(); 
+                };
+
+                // 4. Chèn nút này vào ngay đằng sau ô Input
+                inputEl.parentNode.insertBefore(toggleBtn, inputEl.nextSibling);
             }
         });
     }
