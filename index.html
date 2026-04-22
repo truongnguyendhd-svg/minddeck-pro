@@ -4708,8 +4708,8 @@ body.pdf-mode #pdfReadState {
             <h3><span id="dashDueCount">0</span> Thẻ cần ôn tập</h3>
             <p>Thuật toán Spaced Repetition (SRS) phát hiện bạn đang chuẩn bị quên những thẻ này. Hãy ôn tập ngay để đưa chúng vào trí nhớ dài hạn!</p>
         </div>
-        <button onclick="showHome()" style="background: white; color: #1e3a8a; border: none; padding: 14px 25px; border-radius: 50px; font-weight: 900; font-size: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.1); white-space: nowrap; z-index: 2;">
-            TỚI KHO BÀI HỌC
+        <button id="btnGlobalReview" onclick="startGlobalReview()" style="background: white; color: #1e3a8a; border: none; padding: 14px 25px; border-radius: 50px; font-weight: 900; font-size: 15px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.1); white-space: nowrap; z-index: 2; display: flex; align-items: center; gap: 8px; transition: 0.2s;">
+            ĐANG TẢI...
         </button>
     </div>
 
@@ -6445,7 +6445,21 @@ async function loadDashboardData() {
         document.getElementById('dashStudyingCount').innerText = studyingCount || 0;
         document.getElementById('dashMasteredCount').innerText = masteredCount || 0;
         document.getElementById('dashKanjiCount').innerText = masteredKanjis.size || 0; // Lấy từ biến của Kanji Collection
-
+        // [CẬP NHẬT MỚI]: Xử lý trạng thái nút Ôn tập toàn cục
+        const btnReview = document.getElementById('btnGlobalReview');
+        if (btnReview) {
+            if (dueCount > 0) {
+                btnReview.innerHTML = `<span class="material-symbols-outlined" style="font-size: 20px;">psychology</span> ÔN TẬP TẤT CẢ (${dueCount})`;
+                btnReview.disabled = false;
+                btnReview.style.opacity = '1';
+                btnReview.style.cursor = 'pointer';
+            } else {
+                btnReview.innerHTML = `<span class="material-symbols-outlined" style="font-size: 20px;">check_circle</span> ĐÃ HOÀN THÀNH`;
+                btnReview.disabled = true;
+                btnReview.style.opacity = '0.6';
+                btnReview.style.cursor = 'default';
+            }
+        }
         // 4. RENDER CÁC BỘ BÀI VỪA HỌC GẦN ĐÂY
         const { data: profile } = await sb.from('profiles').select('recent_decks').eq('id', currentUser.id).single();
         const recentIds = (profile && profile.recent_decks) ? profile.recent_decks : [];
@@ -7003,7 +7017,63 @@ async function openCopyDeck(event, deckId) {
     }
     updateHeaderTitle("SAO CHÉP BỘ BÀI");
 }
+/* ================= HÀM ÔN TẬP TOÀN CỤC (GLOBAL REVIEW) ================= */
+async function startGlobalReview() {
+    if (!currentUser) return;
+    showLoading("Đang gom thẻ cần ôn...");
 
+    try {
+        const now = new Date().toISOString();
+
+        // 1. Query lấy trực tiếp các tiến trình bị trễ hạn, inner join lấy nội dung thẻ tương ứng
+        const { data: dueProgress, error } = await sb.from('progress')
+            .select('*, cards!inner(*)')
+            .eq('user_id', currentUser.id)
+            .lte('due', now);
+
+        if (error) throw error;
+
+        if (!dueProgress || dueProgress.length === 0) {
+            hideLoading();
+            return showToast("Tuyệt vời! Bạn không còn thẻ nào cần ôn hôm nay. 🎉");
+        }
+
+        // 2. Chuyển đổi format data trả về cho khớp hoàn toàn với mảng sessionCards chuẩn
+        sessionCards = dueProgress.map(p => {
+            const cardData = p.cards;
+            // Tách phần data progress ra riêng và đưa vào mảng progress (vì hàm showCard() đọc mảng)
+            const { cards, ...progressData } = p; 
+            return {
+                ...cardData,
+                progress: [progressData]
+            };
+        });
+
+        // 3. Trộn ngẫu nhiên thẻ để không bị học theo một mảng cố định nhàm chán
+        sessionCards.sort(() => Math.random() - 0.5);
+
+        // 4. Thiết lập biến State
+        mode = 'review';
+        currentDeckName = 'GLOBAL_REVIEW'; // Đặt tên giả để hệ thống biết đang ở chế độ toàn cục
+        currentIndex = 0;
+
+        // 5. Cập nhật giao diện và vào học
+        updateBreadcrumb([
+            { label: 'Tổng quan', action: 'showDashboard()' },
+            { label: 'Ôn tập toàn cục' }
+        ]);
+        updateHeaderTitle("ÔN TẬP TOÀN CỤC");
+
+        showPage('reviewPage');
+        showCard();
+
+    } catch (err) {
+        console.error("Lỗi khi load Global Review:", err);
+        customAlert("Không thể nạp dữ liệu ôn tập. Vui lòng kiểm tra mạng.", "❌");
+    } finally {
+        hideLoading();
+    }
+}
 async function loadCards(d, skipHash = false) {
     // --- 1. LOGIC TIẾT KIỆM BĂNG THÔNG ---
     const isReviewPageVisible = !document.getElementById('reviewPage').classList.contains('hidden');
@@ -8945,7 +9015,19 @@ function changeCramLevel() {
     targetCramLevel = parseInt(document.getElementById('cramLevelSelect').value);
     showCard(); // Render lại text Cấp độ
 }
-function nextCard() { if (currentIndex < sessionCards.length - 1) { currentIndex++; showCard(); } else showHome(); }
+function nextCard() { 
+    if (currentIndex < sessionCards.length - 1) { 
+        currentIndex++; 
+        showCard(); 
+    } else { 
+        // ĐÃ CẬP NHẬT: Xử lý hướng đi khi hoàn thành phiên học
+        if (currentDeckName === 'GLOBAL_REVIEW') {
+            showDashboard(); // Về lại Dashboard nếu đang học toàn cục
+        } else {
+            showHome(); // Về trang chủ (kho bài) như bình thường
+        }
+    } 
+}
 function flipCard() { 
     if (mode === 'test') return; 
     
