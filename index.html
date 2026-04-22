@@ -11639,7 +11639,6 @@ function openGrammarDetail(encodedJSON) {
 
     document.getElementById('grammarDetailModal').style.display = 'flex';
 }
-
 // 2. HÀM GỌI AI PHÂN TÍCH SÂU NGỮ PHÁP (TƯƠNG ĐƯƠNG & TRÁI NGHĨA)
 async function expandGrammarWithAI() {
     const btn = document.getElementById('btnExpandAIGrammar');
@@ -11677,15 +11676,14 @@ async function expandGrammarWithAI() {
         aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
         const data = JSON.parse(aiResponse);
 
-        // Mở rộng form ngang ra 1100px
         modalContent.style.maxWidth = "1100px";
         zone.style.display = 'block';
-
-        // Ẩn 2 nút cơ bản đi, nhường chỗ cho lưới AI
         document.getElementById('gdBasicActions').style.display = 'none';
 
-        // Lưu ngữ pháp gốc vào mảng tổng
         combinedGrammarDataForBulk = [currentGrammarObj];
+        
+        // Kiểm tra quyền Admin
+        const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
 
         let html = `
             <div style="font-size: 16px; font-weight: 700; color: #1a1a1a; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
@@ -11696,7 +11694,6 @@ async function expandGrammarWithAI() {
 
         // Hàm nội bộ để render thẻ Win 11
         const renderGrammarBox = (item, typeStr, icon, colorHex, bgColor) => {
-            // Push vào mảng để chờ Bulk Save
             combinedGrammarDataForBulk.push({
                 grammar_point: item.point,
                 level: item.level,
@@ -11716,6 +11713,33 @@ async function expandGrammarWithAI() {
                 </div>
             `).join('');
 
+            // 🟢 TẠO NÚT LƯU DB NẾU LÀ ADMIN
+            let adminBtnHtml = "";
+            if (isAdmin) {
+                // Gom dữ liệu chuẩn bị đẩy sang Admin Modal
+                const adminSaveObj = {
+                    point: item.point,
+                    level: item.level,
+                    meaning: item.meaning,
+                    structure: item.structure,
+                    nuance: item.nuance,
+                    ex1_jp: item.examples[0]?.jp || "",
+                    ex1_vn: item.examples[0]?.vn || "",
+                    ex2_jp: item.examples[1]?.jp || "",
+                    ex2_vn: item.examples[1]?.vn || ""
+                };
+                const safeAdminJSON = encodeURIComponent(JSON.stringify(adminSaveObj));
+                
+                adminBtnHtml = `
+                    <div style="margin-top: 16px; padding-top: 12px; border-top: 1px dashed #e5e5e5; display: flex; justify-content: flex-end;">
+                        <button onclick="openAdminGrammarModal('${safeAdminJSON}')" class="win11-btn-secondary" style="padding: 6px 12px; font-size: 12px; color: #10b981; border-color: #bbf7d0; background: #f0fdf4;">
+                            <span class="material-symbols-outlined" style="font-size: 16px;">cloud_upload</span> THÊM VÀO KHO DB (ADMIN)
+                        </button>
+                    </div>
+                `;
+            }
+
+            // ĐÃ SỬA: Bỏ thẻ div ngoài cùng, thêm CSS trực tiếp vào card
             return `
                 <div style="background: #ffffff; border: 1px solid #e5e5e5; border-top: 4px solid ${colorHex}; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); padding: 16px;">
                     <div style="font-size: 11px; font-weight: 800; color: ${colorHex}; text-transform: uppercase; margin-bottom: 12px; display: flex; align-items: center; gap: 4px; background: ${bgColor}; display: inline-flex; padding: 4px 8px; border-radius: 4px;">
@@ -11734,25 +11758,29 @@ async function expandGrammarWithAI() {
                     
                     <div style="font-size: 12px; font-weight: 700; color: #8c8c8c; margin-bottom: 8px; border-bottom: 1px solid #f0f0f0; padding-bottom: 4px;">VÍ DỤ MINH HỌA</div>
                     ${exHtml}
+                    ${adminBtnHtml} <!-- Chèn nút Admin ở đây -->
                 </div>
             `;
         };
 
+        // ĐÃ SỬA: Thêm flex-direction: column và gap: 16px để các block không dính nhau
         if (data.similar && data.similar.length > 0) {
-            html += `<div><h4 style="margin: 0 0 12px 0; color: #0067c0; font-size: 14px; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined">join</span> Tương đương / Thay thế</h4>`;
+            html += `<div style="display: flex; flex-direction: column; gap: 16px;">
+                        <h4 style="margin: 0; color: #0067c0; font-size: 14px; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined">join</span> Tương đương / Thay thế</h4>`;
             data.similar.forEach(item => { html += renderGrammarBox(item, "Tương đương", "join", "#0067c0", "#e6f2ff"); });
             html += `</div>`;
         }
 
         if (data.opposite && data.opposite.length > 0) {
-            html += `<div><h4 style="margin: 0 0 12px 0; color: #c50f1f; font-size: 14px; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined">alt_route</span> Đối lập / Trái nghĩa</h4>`;
+            html += `<div style="display: flex; flex-direction: column; gap: 16px;">
+                        <h4 style="margin: 0; color: #c50f1f; font-size: 14px; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined">alt_route</span> Đối lập / Trái nghĩa</h4>`;
             data.opposite.forEach(item => { html += renderGrammarBox(item, "Đối lập", "alt_route", "#c50f1f", "#fdf3f4"); });
             html += `</div>`;
         }
 
         html += `</div>`;
 
-        // NÚT LƯU TOÀN BỘ VÀO BỘ BÀI
+        // NÚT LƯU TOÀN BỘ VÀO BỘ BÀI DÀNH CHO USER
         html += `
             <div style="text-align: center; border-top: 1px solid #f0f0f0; padding-top: 24px;">
                 <button onclick="bulkSaveExpandedGrammar()" class="win11-btn-primary" style="padding: 14px 28px; font-size: 15px; display: inline-flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 15px rgba(0, 103, 192, 0.3);">
@@ -11769,6 +11797,7 @@ async function expandGrammarWithAI() {
         btn.disabled = false;
     }
 }
+
 
 // 3. HÀM CHUYỂN DỮ LIỆU SANG MODAL BULK SAVE
 function bulkSaveExpandedGrammar() {
