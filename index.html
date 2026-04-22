@@ -8940,8 +8940,16 @@ function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = fal
 
 function skipBoostCard() {
     clearTimeout(boostTimer);
-    showToast("Đã bỏ qua ⏭️");
-    nextBoostCard();
+    
+    if (mode === 'assessment') {
+        // Trong Sát hạch, lười suy nghĩ mà bấm Bỏ qua sẽ bị tính là RỚT THẺ luôn
+        showToast("Bỏ qua bị tính là Sai! ❌");
+        handleBoostAnswer(null, false, false, true); 
+    } else {
+        // Boost mode bình thường thì cho qua nhẹ nhàng
+        showToast("Đã bỏ qua ⏭️");
+        nextBoostCard();
+    }
 }
 
 function nextBoostCard() {
@@ -15203,8 +15211,10 @@ async function processAssessmentResult(card) {
     else q = 5;                                   // EASY
 
     // 2. Thuật toán SRS
-    let p = card.progress && card.progress.length > 0 ? card.progress[0] : { ef: 2.5, interval: 1, interval_count: 0 };
-    let { ef, interval, interval_count } = p;
+    let p = card.progress && card.progress.length > 0 ? card.progress[0] : null;
+    let ef = p ? p.ef : 2.5;
+    let interval = p ? p.interval : 1;
+    let interval_count = p ? p.interval_count : 0;
     
     if (q >= 2) { 
         if (q == 2) ef = Math.max(1.3, ef - 0.15); 
@@ -15220,19 +15230,34 @@ async function processAssessmentResult(card) {
     const due = new Date(); 
     due.setDate(due.getDate() + interval);
     
-    // 3. Đẩy lên Supabase âm thầm
-    sb.from('progress').upsert({ 
-        user_id: currentUser.id, card_id: card.id, ef, interval, interval_count, due: due.toISOString() 
-    }).then(); // Không await để tránh nghẽn luồng UI
+    // 3. Đóng gói dữ liệu
+    const payload = { 
+        user_id: currentUser.id, 
+        card_id: card.id, 
+        ef: ef, 
+        interval: interval, 
+        interval_count: interval_count, 
+        due: due.toISOString() 
+    };
 
-    // 4. Phân loại thẻ
+    // 🟢 QUAN TRỌNG NHẤT: Bắt buộc truyền ID vào để Supabase hiểu đây là lệnh Cập nhật (Update) chứ không phải Tạo mới (Insert)
+    if (p && p.id) {
+        payload.id = p.id;
+    }
+
+    // 4. Đẩy lên Supabase (Kèm lệnh bắt lỗi nếu có)
+    sb.from('progress').upsert(payload).then(({error}) => {
+        if (error) console.error("Lỗi cập nhật SRS lên Supabase:", error);
+    }); 
+
+    // 5. Phân loại thẻ
     if (q < 4) {
         boostState.remedialCards.push(card);
     } else {
         boostState.passedCards.push(card);
     }
 
-    // 5. Chuyển thẻ tiếp theo
+    // 6. Chuyển thẻ tiếp theo
     currentIndex++;
     if (currentIndex < sessionCards.length) {
         generateAspectMatrixForCurrentCard();
