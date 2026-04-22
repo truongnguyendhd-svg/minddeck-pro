@@ -8039,55 +8039,55 @@ function renderBoostCard() {
         });
         return pool.sort(() => 0.5 - Math.random()).slice(0, 3);
     };
-
+    if (mode !== 'assessment') {
 // 2. CHỌN GAME PHÙ HỢP VỚI ĐIỀU KIỆN
-    let availableGames = [1, 4, 9, 10, 11]; // Word Match và True/False luôn chơi được
-    
-    // Nếu có reading dài >= 1 ký tự, chơi Typing & Scramble được
-    if (c.reading.length >= 1 && wanakana.isJapanese(c.reading)) {
-        availableGames.push(2); 
-        availableGames.push(5);
-    }
-    
-    // Nếu có Ví dụ JP và VN
-    if (c.exampleJP && c.exampleVN) {
-        availableGames.push(6); // Sentence Builder
+        let availableGames = [1, 4, 9, 10, 11]; // Word Match và True/False luôn chơi được
         
-        // KIỂM TRA CHO GAME KANJI FILLER
-        const hasKanji = /[\u4e00-\u9faf]/.test(c.exampleJP);
-        if (hasKanji) {
-            availableGames.push(7);
+        // Nếu có reading dài >= 1 ký tự, chơi Typing & Scramble được
+        if (c.reading.length >= 1 && wanakana.isJapanese(c.reading)) {
+            availableGames.push(2); 
+            availableGames.push(5);
         }
-    }
-// Xóa khoảng trắng để tính độ dài cho chuẩn
-    const cleanReading = c.reading.replace(/\s/g, ''); 
-    
-    // ĐIỀU KIỆN GỌI GAME 8 KANA SEARCH: 
-    // Độ dài từ 2 đến 6 ký tự và phải là tiếng Nhật
-    if (cleanReading.length >= 2 && cleanReading.length <= 6 && wanakana.isJapanese(cleanReading)) {
-        availableGames.push(8);
-    }
-    // --- LOGIC MỚI: XỬ LÝ GAME THEO Ý NGƯỜI DÙNG CHỌN ---
-    if (boostState.selectedGame === 'random') {
-        // Nếu chọn Random -> Máy tự bốc như cũ
-        currentBoostGame = availableGames[Math.floor(Math.random() * availableGames.length)];
-    } else {
-        const chosenGame = parseInt(boostState.selectedGame);
         
-        // Kiểm tra xem thẻ hiện tại có ĐỦ DỮ LIỆU để chơi game bạn đã chọn không?
-        if (availableGames.includes(chosenGame)) {
-            // Đủ dữ liệu -> Chơi game bạn chọn
-            currentBoostGame = chosenGame;
-        } else {
-            // KHÔNG ĐỦ DỮ LIỆU (VD: Chọn ghép câu nhưng thẻ không có câu ví dụ)
-            // -> Fallback: Chuyển tạm thẻ này về một game cơ bản có sẵn
-            currentBoostGame = availableGames[Math.floor(Math.random() * availableGames.length)];
+        // Nếu có Ví dụ JP và VN
+        if (c.exampleJP && c.exampleVN) {
+            availableGames.push(6); // Sentence Builder
             
-            // Hiện thông báo nhỏ để người dùng không bị bất ngờ
-            console.log("Thẻ này thiếu dữ liệu cho game đã chọn. Tự động chuyển game dự phòng.");
+            // KIỂM TRA CHO GAME KANJI FILLER
+            const hasKanji = /[\u4e00-\u9faf]/.test(c.exampleJP);
+            if (hasKanji) {
+                availableGames.push(7);
+            }
+        }
+    // Xóa khoảng trắng để tính độ dài cho chuẩn
+        const cleanReading = c.reading.replace(/\s/g, ''); 
+        
+        // ĐIỀU KIỆN GỌI GAME 8 KANA SEARCH: 
+        // Độ dài từ 2 đến 6 ký tự và phải là tiếng Nhật
+        if (cleanReading.length >= 2 && cleanReading.length <= 6 && wanakana.isJapanese(cleanReading)) {
+            availableGames.push(8);
+        }
+        // --- LOGIC MỚI: XỬ LÝ GAME THEO Ý NGƯỜI DÙNG CHỌN ---
+        if (boostState.selectedGame === 'random') {
+            // Nếu chọn Random -> Máy tự bốc như cũ
+            currentBoostGame = availableGames[Math.floor(Math.random() * availableGames.length)];
+        } else {
+            const chosenGame = parseInt(boostState.selectedGame);
+            
+            // Kiểm tra xem thẻ hiện tại có ĐỦ DỮ LIỆU để chơi game bạn đã chọn không?
+            if (availableGames.includes(chosenGame)) {
+                // Đủ dữ liệu -> Chơi game bạn chọn
+                currentBoostGame = chosenGame;
+            } else {
+                // KHÔNG ĐỦ DỮ LIỆU (VD: Chọn ghép câu nhưng thẻ không có câu ví dụ)
+                // -> Fallback: Chuyển tạm thẻ này về một game cơ bản có sẵn
+                currentBoostGame = availableGames[Math.floor(Math.random() * availableGames.length)];
+                
+                // Hiện thông báo nhỏ để người dùng không bị bất ngờ
+                console.log("Thẻ này thiếu dữ liệu cho game đã chọn. Tự động chuyển game dự phòng.");
+            }
         }
     }
-
     // 3. RENDER GIAO DIỆN TỪNG GAME
     switch(currentBoostGame) {
 
@@ -14937,28 +14937,58 @@ window.startGlobalReview = async function(skipHash = false) {
     }
 };
 
-// TẠO MA TRẬN 3 CHẶNG CHO THẺ HIỆN TẠI
+// TẠO MA TRẬN 3 CHẶNG CHO THẺ HIỆN TẠI (ĐÃ FIX LỌC DỮ LIỆU CHUẨN XÁC)
 function generateAspectMatrixForCurrentCard() {
     const c = sessionCards[currentIndex];
     const parsed = parseCardData(c);
     let matrix = [];
 
-    // Chặng 1: Nghĩa & Âm thanh [1, 4, 9] (Đã loại Game 10)
+    // ----------------------------------------------------
+    // CHẶNG 1: Nghĩa & Âm thanh [1, 4, 9] (Word Match, T/F, Audio)
+    // ----------------------------------------------------
     const stage1 = [1, 4, 9];
     matrix.push(stage1[Math.floor(Math.random() * stage1.length)]);
 
-    // Chặng 2: Cấu trúc Kanji
+    // ----------------------------------------------------
+    // CHẶNG 2: Cấu trúc Kanji [11, 7]
+    // ----------------------------------------------------
     const hasKanji = /[\u4e00-\u9faf]/.test(c.front);
     if (hasKanji) {
-        if (parsed.exampleJP) matrix.push(Math.random() > 0.5 ? 11 : 7);
-        else matrix.push(11);
+        // Chỉ chơi Game 7 (Kanji Filler) nếu thẻ có câu ví dụ chứa Kanji
+        const exampleHasKanji = parsed.exampleJP && /[\u4e00-\u9faf]/.test(parsed.exampleJP);
+        if (exampleHasKanji) {
+            matrix.push(Math.random() > 0.5 ? 11 : 7);
+        } else {
+            matrix.push(11);
+        }
     }
 
-    // Chặng 3: Đọc hiểu & Ngữ cảnh
-    let stage3 = [2, 5, 8];
-    if (parsed.exampleJP && parsed.exampleVN) stage3.push(6);
-    matrix.push(stage3[Math.floor(Math.random() * stage3.length)]);
+    // ----------------------------------------------------
+    // CHẶNG 3: Đọc hiểu & Ngữ cảnh [2, 5, 8, 6]
+    // ----------------------------------------------------
+    let stage3Pool = [];
+    
+    // Nếu có Ví dụ -> Chơi Game 6 (Xếp câu)
+    if (parsed.exampleJP && parsed.exampleVN) stage3Pool.push(6);
+    
+    const cleanReading = parsed.reading.replace(/\s/g, '');
+    if (cleanReading.length >= 1 && wanakana.isJapanese(cleanReading)) {
+        stage3Pool.push(2); // Typing
+        stage3Pool.push(5); // Scramble
+        
+        // Game 8 (Kana Search) chỉ hợp với từ có độ dài từ 2 đến 6 ký tự
+        if (cleanReading.length >= 2 && cleanReading.length <= 6) {
+            stage3Pool.push(8);
+        }
+    }
+    
+    // Fallback: Nếu thẻ không có cách đọc, không có ví dụ -> Cho chơi lại Game 1
+    if (stage3Pool.length === 0) stage3Pool.push(1);
 
+    matrix.push(stage3Pool[Math.floor(Math.random() * stage3Pool.length)]);
+
+    // ----------------------------------------------------
+    // Gán vào State
     boostState.matrixQueue = matrix;
     boostState.penaltyPoints = 0;
     boostState.isMeaningFailed = false;
