@@ -3255,10 +3255,11 @@ body.playground-mode .main-content {
 
 /* 2. Tính năng cuộn Sticky che nền trắng cực mượt */
 .grammar-sticky-zone {
-    position: sticky;
+    position: -webkit-sticky !important; /* QUAN TRỌNG: Bắt buộc cho Safari/iOS */
+    position: sticky !important;
     top: var(--header-height); /* Tự động dính ngay dưới mí của Header */
     z-index: 1050;
-    background: #ffffff; /* Nền trắng tinh để che khuất thẻ bị cuộn lên */
+    background: #ffffff; 
     
     /* Bù trừ khoảng đệm để nền trắng che kín 2 mép màn hình */
     margin-left: -25px;
@@ -4371,7 +4372,7 @@ body.pdf-mode #pdfReadState {
 }
 
 .grammar-sticky-zone {
-    transition: padding 0.35s ease, gap 0.35s ease;
+    transition: padding 0.35s ease, gap 0.35s ease, margin-top 0.35s ease;
 }
 
 /* KHI KÍCH HOẠT TÌM KIẾM (Thu gọn chiều cao về 0) */
@@ -4395,6 +4396,10 @@ body.pdf-mode #pdfReadState {
     gap: 0 !important;
     padding-top: 10px !important;
     padding-bottom: 10px !important;
+    
+    /* 🟢 Kéo ngược vùng dính lên 15px để triệt tiêu khoảng hở padding của thẻ cha */
+    margin-top: -15px !important; 
+    
     box-shadow: 0 4px 15px rgba(0,0,0,0.05); /* Bóng đổ cho thanh search nổi lên */
 }
 
@@ -14156,25 +14161,29 @@ executeCropAI = function(actionType) {
 };
 /* ================= LOGIC XỬ LÝ FOCUS TÌM KIẾM NGỮ PHÁP ================= */
 function enableGrammarSearchMode() {
-    // Thêm class vào trang để CSS tự động ẩn Banner, Filter, Legend
-    document.getElementById('grammarPage').classList.add('grammar-search-active');
+    const page = document.getElementById('grammarPage');
+    page.classList.add('grammar-search-active');
     
-    // Tự động cuộn trang lên sát mép Header để trải nghiệm gõ phím rộng rãi nhất
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-}
+    // Đợi 150ms để bàn phím điện thoại (đặc biệt là iPhone) bung lên hoàn tất
+    // Tránh việc tranh chấp cuộn trang giữa iOS và JS gây giật khựng
+    setTimeout(() => {
+        const headerEl = document.querySelector('.app-header');
+        const headerHeight = headerEl ? headerEl.offsetHeight : 60;
+        
+        // TÍNH TOÁN TOẠ ĐỘ ĐÍCH CHÍNH XÁC TUYỆT ĐỐI:
+        // Khi Banner ẩn đi 100%, vùng dính search sẽ trượt lên nằm sát lề trên của #grammarPage.
+        // Do #grammarPage có sẵn padding-top: 10px -> ta cộng thêm 10px.
+        const pageAbsoluteTop = page.getBoundingClientRect().top + window.scrollY;
+        const finalStickyTop = pageAbsoluteTop + 10;
+        
+        // Trừ đi chiều cao Header để thanh search nằm vừa khít mép dưới Header
+        const targetY = finalStickyTop - headerHeight;
 
-function disableGrammarSearchMode() {
-    const input = document.getElementById('grammarSearchInput');
-    
-    // Xóa từ khóa, đóng bàn phím ảo
-    input.value = '';
-    input.blur(); 
-    
-    // Xóa class để hiện lại các Banner, Filter
-    document.getElementById('grammarPage').classList.remove('grammar-search-active');
-    
-    // Kích hoạt lại hàm lọc để hiển thị toàn bộ danh sách ngữ pháp như cũ
-    filterGrammarLocally(); 
+        window.scrollTo({ 
+            top: targetY, 
+            behavior: 'smooth' 
+        });
+    }, 150);
 }
 /* ================= LOGIC XỬ LÝ FOCUS TÌM KIẾM NGỮ PHÁP ================= */
 function enableGrammarSearchMode() {
