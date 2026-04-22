@@ -12033,18 +12033,61 @@ document.addEventListener('scroll', () => document.getElementById('selectionPopo
 
 // ================= 4 HÀNH ĐỘNG CỦA POPOVER =================
 
-// Action 1: Tra từ nhanh
-function popoverActionSearch(e) {
+// Action 1: Tra từ nhanh & Quản lý (Admin)
+async function popoverActionSearch(e) {
     e.preventDefault(); e.stopPropagation();
     document.getElementById('selectionPopover').classList.remove('show');
     
-    // Gắn vào Modal tra từ nhanh đã có
-    const dictModal = document.getElementById('quickDictModal');
-    const quickInput = document.getElementById('quickDictSearchInput');
-    if (dictModal && quickInput) {
-        quickInput.value = globalSelectedText;
-        dictModal.style.display = 'flex';
-        searchQuickDictionary(); // Hàm có sẵn
+    if (!globalSelectedText) return;
+
+    showLoading("Đang tra cứu hệ thống...");
+    
+    try {
+        // Dò Database tìm chính xác từ được bôi đen
+        const { data, error } = await sb.from('dictionary')
+            .select('*')
+            .eq('word', globalSelectedText)
+            .single();
+
+        const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
+        
+        if (data) {
+            // CÓ TỪ: Mở modal xem chi tiết (Mở cho cả Admin và User xem)
+            openDictAdminModal(data, isAdmin);
+        } else {
+            // KHÔNG CÓ TỪ
+            if (isAdmin) {
+                // ĐẶC QUYỀN ADMIN: Mở form Trống để Thêm mới
+                openDictAdminModal({ word: globalSelectedText }, true, true);
+                showToast("Từ này mới, mời sếp bổ sung!");
+            } else {
+                // BÌNH THƯỜNG: Mở bảng tra từ nhanh để user thấy thông báo lỗi và tra từ khác
+                const dictModal = document.getElementById('quickDictModal');
+                const quickInput = document.getElementById('quickDictSearchInput');
+                if (dictModal && quickInput) {
+                    quickInput.value = globalSelectedText;
+                    dictModal.style.display = 'flex';
+                    searchQuickDictionary();
+                }
+            }
+        }
+    } catch (err) {
+        // Lỗi Supabase khi .single() không tìm thấy kết quả (Mã 406)
+        const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
+        if (isAdmin) {
+            openDictAdminModal({ word: globalSelectedText }, true, true);
+            showToast("Từ này mới, mời sếp bổ sung!");
+        } else {
+            const dictModal = document.getElementById('quickDictModal');
+            const quickInput = document.getElementById('quickDictSearchInput');
+            if (dictModal && quickInput) {
+                quickInput.value = globalSelectedText;
+                dictModal.style.display = 'flex';
+                searchQuickDictionary();
+            }
+        }
+    } finally {
+        hideLoading();
     }
 }
 
