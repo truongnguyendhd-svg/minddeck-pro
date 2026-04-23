@@ -1879,6 +1879,32 @@ body {
     .audio-btn-huge { width: 80px; height: 80px; margin: 10px auto; }
     .audio-btn-huge .material-symbols-outlined { font-size: 40px; }
 }
+/* ================= GAME FULLSCREEN MODE ================= */
+body.game-fullscreen-mode .app-header { display: none !important; }
+body.game-fullscreen-mode .breadcrumb-container { display: none !important; }
+
+/* Kéo dài không gian khi ẩn header */
+body.game-fullscreen-mode #reviewPage {
+    height: 100dvh !important;
+    padding-top: 0 !important;
+}
+
+/* Nút thoát game màu đỏ nhạt */
+.btn-exit-game {
+    border: none;
+    background: #fee2e2;
+    color: #c50f1f;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: 0.2s;
+}
+.btn-exit-game:hover { background: #fca5a5; }
 /* ================= MENU BÊN (SIDE MENU) TRANG QUẢN LÝ ================= */
 .hamburger-btn {
     background: #f8fafc;
@@ -7586,6 +7612,12 @@ function showCard() {
     const isCram = (mode === 'cram');
     const isBoost = (mode === 'boost' || mode === 'assessment'); // <-- Assessment dùng chung UI Boost
     const isRemedial = (mode === 'remedial'); // <-- THÊM DÒNG NÀY
+    // --- BẬT/TẮT FULLSCREEN MODE (ẨN HEADER KHI CHƠI GAME) ---
+    if (isBoost) {
+        document.body.classList.add('game-fullscreen-mode');
+    } else {
+        document.body.classList.remove('game-fullscreen-mode');
+    }
 
     document.getElementById('testArea').classList.toggle('hidden', !isTest);
     document.getElementById('studyArea').classList.toggle('hidden', isTest || isBoost);
@@ -8280,25 +8312,22 @@ function renderBoostCard() {
     
     // XÁC ĐỊNH GAME HIỆN TẠI
     if (mode === 'assessment') {
-        currentBoostGame = boostState.matrixQueue[0]; // Lấy game đầu tiên trong hàng đợi
-        
-        // Render Header riêng cho Sát hạch
+        currentBoostGame = boostState.matrixQueue[0];
         document.querySelector('.boost-header').innerHTML = `
             <div style="color: #4a5568; font-weight: 800;">Thẻ: <span style="color:#0067c0">${currentIndex + 1}/${sessionCards.length}</span></div>
             <div style="color: #9e5b00; font-size: 13px; font-weight: 700; background: #fffaf0; padding: 4px 10px; border-radius: 8px;">
                 Chặng ${boostState.currentStageIdx}/${boostState.totalStageCount}
             </div>
-            <div id="assessmentPenaltyTracker" class="penalty-tracker">Lỗi: ${boostState.penaltyPoints}</div>
+            <button onclick="confirmExitBoost()" class="btn-exit-game"><span class="material-symbols-outlined" style="font-size:18px;">logout</span> Thoát</button>
         `;
     } else {
-        // Logic Boost Mode cũ
         document.querySelector('.boost-header').innerHTML = `
             <div style="color: #4a5568;">Vòng: <span id="boostRoundDisp">${boostState.currentRound}</span>/<span id="boostTotalDisp">${boostState.mode === 'endless' ? '∞' : boostState.maxRounds}</span></div>
             <div class="boost-stats">
                 <span class="b-stat-correct">✓ <span id="boostCorrectCount">${boostState.correct}</span></span>
                 <span class="b-stat-wrong">✗ <span id="boostWrongCount">${boostState.wrong}</span></span>
             </div>
-            <button onclick="skipBoostCard()" class="study-action-btn" style="border:none; background:#edf2f7;">Bỏ qua ❯</button>
+            <button onclick="confirmExitBoost()" class="btn-exit-game"><span class="material-symbols-outlined" style="font-size:18px;">logout</span> Thoát</button>
         `;
     }
 
@@ -8450,13 +8479,14 @@ function renderBoostCard() {
             let shuffled = poolPieces.sort(() => 0.5 - Math.random());
             
             zone.innerHTML = `
-                <div id="scrambleDropZone" class="scramble-zone" style="min-height: 60px; border-color:#38a169;"></div>
-                <div id="scramblePool" class="scramble-pool"></div>
-                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: 25px; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
+                <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0;">
+                    <div id="scrambleDropZone" class="scramble-zone" style="min-height: 60px; border-color:#38a169;"></div>
+                    <div id="scramblePool" class="scramble-pool"></div>
+                </div>
+                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: auto; flex-shrink: 0; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
                     <span class="material-symbols-outlined" style="font-size: 18px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
                 </button>
-            `;
-            
+            `;            
             const pool = document.getElementById('scramblePool');
             const drop = document.getElementById('scrambleDropZone');
             let currentAnswer = [];
@@ -8495,13 +8525,14 @@ function renderBoostCard() {
             let sentenceChunks = chunkData.chunks.sort(() => 0.5 - Math.random());
             
             zone.innerHTML = `
-                <div id="sentenceDropZone" class="scramble-zone" style="background:#f0f9ff; border-color:#3182ce; justify-content:flex-start;"></div>
-                <div id="sentencePool" class="scramble-pool"></div>
-                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: 25px; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
+                <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0;">
+                    <div id="sentenceDropZone" class="scramble-zone" style="background:#f0f9ff; border-color:#3182ce; justify-content:flex-start;"></div>
+                    <div id="sentencePool" class="scramble-pool"></div>
+                </div>
+                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: auto; flex-shrink: 0; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
                     <span class="material-symbols-outlined" style="font-size: 18px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
                 </button>
-            `;
-            
+            `;            
             const sPool = document.getElementById('sentencePool');
             const sDrop = document.getElementById('sentenceDropZone');
             let builtSentenceChunks = [];
@@ -8591,15 +8622,13 @@ function renderBoostCard() {
             let poolKanji = [...targetKanjiSequence, ...distractorArr].sort(() => 0.5 - Math.random());            
             // 3. RENDER GIAO DIỆN
             zone.innerHTML = `
-                <div class="kf-sentence-container">
-                    ${sentenceHTML}
+                <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0;">
+                    <div class="kf-sentence-container">${sentenceHTML}</div>
+                    <div id="kf-pool" class="scramble-pool"></div>
                 </div>
-                <div id="kf-pool" class="scramble-pool"></div>
-                                <!-- THÊM NÚT ĐẦU HÀNG VÀO ĐÂY -->
-                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: 25px; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
+                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: auto; flex-shrink: 0; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
                     <span class="material-symbols-outlined" style="font-size: 18px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
                 </button>
-
             `;
             
             const kfPool = document.getElementById('kf-pool');
@@ -8718,14 +8747,14 @@ function renderBoostCard() {
             
             // 4. RENDER GIAO DIỆN
             zone.innerHTML = `
-                <div class="kana-grid" style="grid-template-columns: repeat(${gridSize}, 45px);"></div>
-                <div style="font-size: 14px; color: #a0aec0; font-weight: bold; text-transform: uppercase;">Đang chọn:</div>
-                <div id="kanaCurrentWord" class="kana-current-word">_</div>
-                                <!-- THÊM NÚT ĐẦU HÀNG VÀO ĐÂY -->
-                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: 15px; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
+                <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; align-items: center;">
+                    <div class="kana-grid" style="grid-template-columns: repeat(${gridSize}, 45px);"></div>
+                    <div style="font-size: 14px; color: #a0aec0; font-weight: bold; text-transform: uppercase;">Đang chọn:</div>
+                    <div id="kanaCurrentWord" class="kana-current-word">_</div>
+                </div>
+                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: auto; flex-shrink: 0; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
                     <span class="material-symbols-outlined" style="font-size: 18px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
                 </button>
-
             `;
             
             const gridContainer = zone.querySelector('.kana-grid');
@@ -8996,19 +9025,19 @@ function renderBoostCard() {
                     ).join('');
 
                     zone.innerHTML = `
-                        <div class="kb-layout">
-                            <div class="kb-target-box ${gameData.structure}" id="kb-target-box">
-                                ${slotsHTML}
-                            </div>
-                            <div class="kb-pool-grid" id="kb-pool">
-                                ${poolHTML}
+                        <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0;">
+                            <div class="kb-layout">
+                                <div class="kb-target-box ${gameData.structure}" id="kb-target-box">
+                                    ${slotsHTML}
+                                </div>
+                                <div class="kb-pool-grid" id="kb-pool">
+                                    ${poolHTML}
+                                </div>
                             </div>
                         </div>
-                                                <!-- THÊM NÚT ĐẦU HÀNG VÀO ĐÂY -->
-                        <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: 25px; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
+                        <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: auto; flex-shrink: 0; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
                             <span class="material-symbols-outlined" style="font-size: 18px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
                         </button>
-
                     `;
 
                     const targetBox = document.getElementById('kb-target-box');
@@ -9241,6 +9270,7 @@ function nextBoostCard() {
 }
 
 function endBoostSession() {
+    document.body.classList.remove('game-fullscreen-mode');
     clearTimeout(boostTimer); // Dừng mọi bộ đếm giờ nếu đang chạy
     
     // 1. Ẩn khu vực chơi, hiện màn hình Tổng kết
@@ -15538,6 +15568,7 @@ async function processAssessmentResult(card) {
 
 // MÀN HÌNH TỔNG KẾT PHASE 2
 function endAssessmentSession() {
+    document.body.classList.remove('game-fullscreen-mode');
     document.getElementById('boostArea').classList.add('hidden');
     const summaryPage = document.getElementById('boostSummaryPage');
     summaryPage.classList.remove('hidden');
@@ -15715,6 +15746,14 @@ function exitStudySession() {
         setTimeout(() => {
             openStudyOptionsModal(pendingModalReturn.id, pendingModalReturn.name, pendingModalReturn.type);
         }, 150); // Chờ hiệu ứng chuyển trang DOM chạy xong
+    }
+}
+// Xác nhận thoát game và hiện tổng kết
+async function confirmExitBoost() {
+    const ok = await showConfirm("Thoát trò chơi?", "Bạn có chắc chắn muốn dừng lại? Tiến độ hiện tại vẫn sẽ được lưu lại.", "Thoát", "Chơi tiếp");
+    if (ok) {
+        if (mode === 'assessment') endAssessmentSession();
+        else endBoostSession();
     }
 }
 </script>
