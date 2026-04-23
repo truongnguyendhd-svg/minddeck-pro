@@ -1883,26 +1883,30 @@ body {
 body.game-fullscreen-mode .app-header { display: none !important; }
 body.game-fullscreen-mode .breadcrumb-container { display: none !important; }
 
-/* Kéo dài không gian khi ẩn header */
+/* Tràn viền khung nền */
 body.game-fullscreen-mode #reviewPage {
     height: 100dvh !important;
     padding-top: 0 !important;
+    background: #ffffff !important; /* Đổi nền ngoài cùng thành trắng luôn */
+}
+
+/* XÓA BO GÓC CỦA LỚP MÀU TRẮNG NGOÀI CÙNG */
+body.game-fullscreen-mode .unified-study-container {
+    border-radius: 0 !important; 
+    box-shadow: none !important;
+    border: none !important;
+}
+
+/* LÀM PHẲNG LỚP CHỨA GAME (Xóa viền và bóng đổ) */
+body.game-fullscreen-mode #boostCardDisplay {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important; /* Trả lại toàn bộ không gian cho game */
 }
 
 /* Nút thoát game màu đỏ nhạt */
 .btn-exit-game {
-    border: none;
-    background: #fee2e2;
-    color: #c50f1f;
-    padding: 6px 12px;
-    border-radius: 8px;
-    font-weight: 600;
-    font-size: 13px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    transition: 0.2s;
+    border: none; background: #fee2e2; color: #c50f1f; padding: 6px 12px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s;
 }
 .btn-exit-game:hover { background: #fca5a5; }
 /* ================= MENU BÊN (SIDE MENU) TRANG QUẢN LÝ ================= */
@@ -5102,25 +5106,32 @@ body.pdf-mode #pdfReadState {
                 </div>
             </div>
             <!-- KHU VỰC BOOST MODE -->
-            <div id="boostArea" class="hidden">
+            <div id="boostArea" class="hidden" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+                
+                <!-- Thanh Header Game -->
                 <div class="boost-header">
-                    <div style="color: #4a5568;">Vòng: <span id="boostRoundDisp">1</span>/<span id="boostTotalDisp">10</span></div>
-                    <div class="boost-stats">
-                        <span class="b-stat-correct">✓ <span id="boostCorrectCount">0</span></span>
-                        <span class="b-stat-wrong">✗ <span id="boostWrongCount">0</span></span>
-                    </div>
-                    <button onclick="skipBoostCard()" class="study-action-btn" style="border:none; background:#edf2f7;">Bỏ qua ❯</button>
+                    <!-- JS sẽ bơm nút Thoát và số câu vào đây -->
                 </div>
                 
+                <!-- Thanh đếm giờ (Nếu có) -->
                 <div id="boostTimerContainer" class="boost-timer-container">
                     <div id="boostTimerBar" class="boost-timer-bar"></div>
                 </div>
             
-                <div class="main-card-display" id="boostCardDisplay" style="justify-content: center;">
+                <!-- Lớp chứa Game -->
+                <div class="main-card-display" id="boostCardDisplay" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
                     <div id="boostPrompt" style="font-size: 14px; font-weight: 800; color: #a0aec0; margin-bottom: 10px; text-transform: uppercase;"></div>
                     <h2 id="boostQuestion" style="text-align: center; font-weight: 900; font-size: 32px; color: #2d3748; margin: 0 0 20px 0;"></h2>
-                    <div id="boostInteractiveZone" style="width: 100%;"></div>
+                    <div id="boostInteractiveZone" style="flex: 1; display: flex; flex-direction: column; min-height: 0;"></div>
                 </div>
+
+                <!-- LỚP ĐỘC LẬP: NÚT CHỊU THUA (NẰM SÁT ĐÁY) -->
+                <div id="boostGiveUpZone" style="display: none; padding-top: 15px; margin-top: auto; flex-shrink: 0;">
+                    <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 14px; font-size: 15px; font-weight: 700;">
+                        <span class="material-symbols-outlined" style="font-size: 20px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
+                    </button>
+                </div>
+
             </div>
             <!-- MÀN HÌNH TỔNG KẾT BOOST -->
             <div id="boostSummaryPage" class="hidden">
@@ -8336,7 +8347,7 @@ function renderBoostCard() {
     const zone = document.getElementById('boostInteractiveZone');
     const prompt = document.getElementById('boostPrompt');
     const question = document.getElementById('boostQuestion');
-    
+    document.getElementById('boostGiveUpZone').style.display = 'none'; // Ẩn nút chịu thua mặc định
     zone.innerHTML = ''; 
     zone.style.background = '';
     zone.style.borderColor = '';
@@ -8477,15 +8488,12 @@ function renderBoostCard() {
             }
             
             let shuffled = poolPieces.sort(() => 0.5 - Math.random());
-            
+            document.getElementById('boostGiveUpZone').style.display = 'block';
             zone.innerHTML = `
                 <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0;">
                     <div id="scrambleDropZone" class="scramble-zone" style="min-height: 60px; border-color:#38a169;"></div>
                     <div id="scramblePool" class="scramble-pool"></div>
                 </div>
-                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: auto; flex-shrink: 0; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
-                </button>
             `;            
             const pool = document.getElementById('scramblePool');
             const drop = document.getElementById('scrambleDropZone');
@@ -8523,15 +8531,12 @@ function renderBoostCard() {
             const chunkData = chunkJapaneseSentence(c.exampleJP);
             const targetSentence = chunkData.original;
             let sentenceChunks = chunkData.chunks.sort(() => 0.5 - Math.random());
-            
+            document.getElementById('boostGiveUpZone').style.display = 'block';
             zone.innerHTML = `
                 <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0;">
                     <div id="sentenceDropZone" class="scramble-zone" style="background:#f0f9ff; border-color:#3182ce; justify-content:flex-start;"></div>
                     <div id="sentencePool" class="scramble-pool"></div>
                 </div>
-                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: auto; flex-shrink: 0; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
-                </button>
             `;            
             const sPool = document.getElementById('sentencePool');
             const sDrop = document.getElementById('sentenceDropZone');
@@ -8621,14 +8626,12 @@ function renderBoostCard() {
             // Trộn mảng đáp án đúng + đáp án nhiễu
             let poolKanji = [...targetKanjiSequence, ...distractorArr].sort(() => 0.5 - Math.random());            
             // 3. RENDER GIAO DIỆN
+            document.getElementById('boostGiveUpZone').style.display = 'block';
             zone.innerHTML = `
                 <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0;">
                     <div class="kf-sentence-container">${sentenceHTML}</div>
                     <div id="kf-pool" class="scramble-pool"></div>
                 </div>
-                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: auto; flex-shrink: 0; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
-                </button>
             `;
             
             const kfPool = document.getElementById('kf-pool');
@@ -8746,15 +8749,13 @@ function renderBoostCard() {
             }
             
             // 4. RENDER GIAO DIỆN
+            document.getElementById('boostGiveUpZone').style.display = 'block';
             zone.innerHTML = `
                 <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; align-items: center;">
                     <div class="kana-grid" style="grid-template-columns: repeat(${gridSize}, 45px);"></div>
                     <div style="font-size: 14px; color: #a0aec0; font-weight: bold; text-transform: uppercase;">Đang chọn:</div>
                     <div id="kanaCurrentWord" class="kana-current-word">_</div>
                 </div>
-                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: auto; flex-shrink: 0; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
-                </button>
             `;
             
             const gridContainer = zone.querySelector('.kana-grid');
@@ -9023,7 +9024,7 @@ function renderBoostCard() {
                     let poolHTML = gameData.pool.map(piece =>
                         `<div class="kb-piece" onclick="handleKanjiPieceClick(this)">${piece}</div>`
                     ).join('');
-
+                    document.getElementById('boostGiveUpZone').style.display = 'block';
                     zone.innerHTML = `
                         <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0;">
                             <div class="kb-layout">
@@ -9035,9 +9036,6 @@ function renderBoostCard() {
                                 </div>
                             </div>
                         </div>
-                        <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="margin-top: auto; flex-shrink: 0; width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 12px; font-size: 14px;">
-                            <span class="material-symbols-outlined" style="font-size: 18px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
-                        </button>
                     `;
 
                     const targetBox = document.getElementById('kb-target-box');
