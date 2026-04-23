@@ -5646,34 +5646,30 @@ body.pdf-mode #pdfReadState {
             </div>
         </div>
 
-        <!-- Footer (Ghim đáy Modal) -->
-        <div class="study-modal-footer">
-            <!-- ĐƯỜNG PHÂN CÁCH NHỎ -->
-            <div style="font-size: 12px; font-weight: 600; color: #8c8c8c; text-transform: uppercase; margin-bottom: 12px; text-align: center;">Chọn chế độ học</div>
-
-            <!-- NHÓM NÚT CHO FLASHCARD -->
-            <div id="flashcardOptionsGroup" style="display: flex; flex-direction: column; gap: 10px;">
-                <button class="win11-btn-primary" onclick="startStudyFromManage('review')" style="width: 100%; justify-content: center; padding: 12px; background: #0f6f2e; display: flex; flex-direction: column; align-items: center; height: auto;">
-                    <div style="display: flex; align-items: center; gap: 8px; font-size: 15px;">
-                        <span class="material-symbols-outlined" style="font-size: 20px;">psychology</span> Ôn tập SRS (Dài hạn)
+<!-- Footer (Ghim đáy Modal) -->
+        <div class="study-modal-footer" style="display: flex; align-items: center; gap: 12px; overflow: visible;">
+            
+            <!-- Vùng chứa Drop-up chọn chế độ -->
+            <div style="position: relative; flex: 1;">
+                <button id="studyModeTriggerBtn" class="ai-mode-trigger" onclick="toggleStudyModeMenu(event)" style="width: 100%; justify-content: space-between; padding: 10px 14px; height: 42px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="material-symbols-outlined" id="studyModeTriggerIcon" style="color: #0f6f2e;">psychology</span>
+                        <span id="studyModeTriggerText" style="font-size: 14px;">Ôn tập SRS</span>
                     </div>
+                    <span class="material-symbols-outlined" style="font-size: 18px; color: #8c8c8c;">expand_less</span>
                 </button>
-                
-                <button class="win11-btn-primary" onclick="startStudyFromManage('cram')" style="width: 100%; justify-content: center; padding: 12px; font-size: 15px; background: #c50f1f;">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">rocket_launch</span> Học nhồi nhét (Trước thi)
-                </button>
-                
-                <button class="win11-btn-primary" onclick="startStudyFromManage('boost')" style="width: 100%; justify-content: center; padding: 12px; font-size: 15px; background: #9e5b00;">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">bolt</span> Boost Mode (11 Trò chơi)
-                </button>
+
+                <!-- Bảng Drop-up (Nảy lên trên) -->
+                <div id="studyModeDropdown" class="ai-mode-dropdown hidden" style="bottom: calc(100% + 8px); top: auto; left: 0; width: 100%; transform-origin: bottom center;">
+                    <!-- JS sẽ bơm danh sách vào đây tùy theo loại bộ bài -->
+                </div>
             </div>
 
-            <!-- NHÓM NÚT CHO TRẮC NGHIỆM -->
-            <div id="quizOptionsGroup" style="display: none; flex-direction: column; gap: 10px;">
-                <button class="win11-btn-primary" onclick="startStudyFromManage('test')" style="width: 100%; justify-content: center; padding: 16px; font-size: 15px; background: #c50f1f;">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">quiz</span> Bắt đầu làm bài thi
-                </button>
-            </div>
+            <!-- Nút Bắt đầu (Go) -->
+            <button onclick="executeStudyMode()" class="win11-btn-primary" style="padding: 10px 24px; font-size: 14px; display: flex; align-items: center; gap: 6px; flex-shrink: 0; background: #10b981; height: 42px;">
+                <span class="material-symbols-outlined" style="font-size: 20px;">play_arrow</span> BẮT ĐẦU
+            </button>
+
         </div>
 
     </div>
@@ -7069,7 +7065,10 @@ async function openDeckSelection(m, skipHash = false) {
         const titles = { 'review': 'ÔN TẬP SRS', 'cram': 'HỌC NHỒI NHÉT', 'test': 'LUYỆN ĐỀ THI', 'boost': 'BOOST MODE' };
 updateHeaderTitle(titles[m] || "CHỌN HỌC PHẦN");
 }
-// Mở Modal chọn chế độ học từ trang Quản lý
+// Biến toàn cục lưu chế độ đang chọn trong Modal
+let selectedStudyModeModal = 'review'; 
+
+// 1. Hàm mở Modal (Đã sửa lại logic bơm Drop-up)
 function openStudyOptionsModal(deckId, deckName, type) {
     deckToStudyId = deckId;
     // Lưu lại thông tin để phục vụ tính năng "Quay về"
@@ -7083,17 +7082,79 @@ function openStudyOptionsModal(deckId, deckName, type) {
 
     document.getElementById('studyOptionsDeckName').innerText = deckName;
     
-    // Ẩn/hiện nút dựa theo loại bộ bài
+    // Ẩn dropdown menu nếu đang mở
+    document.getElementById('studyModeDropdown').classList.add('hidden');
+
+    // Đổ danh sách vào Drop-up dựa theo loại bộ bài (Flashcard hay Quiz)
+    const dropdown = document.getElementById('studyModeDropdown');
     if (type === 'quiz') {
-        document.getElementById('flashcardOptionsGroup').style.display = 'none';
-        document.getElementById('quizOptionsGroup').style.display = 'flex';
+        dropdown.innerHTML = `
+            <div class="ai-mode-item active" onclick="selectStudyModeModal('test', 'Luyện đề thi', 'quiz', '#c50f1f', this)">
+                <span class="material-symbols-outlined" style="color: #c50f1f;">quiz</span> Luyện đề thi
+            </div>
+        `;
+        // Mặc định chọn luôn cái đầu tiên
+        selectStudyModeModal('test', 'Luyện đề thi', 'quiz', '#c50f1f', dropdown.firstElementChild, true);
     } else {
-        document.getElementById('flashcardOptionsGroup').style.display = 'flex';
-        document.getElementById('quizOptionsGroup').style.display = 'none';
+        dropdown.innerHTML = `
+            <div class="ai-mode-item active" onclick="selectStudyModeModal('review', 'Ôn tập SRS', 'psychology', '#0f6f2e', this)">
+                <span class="material-symbols-outlined" style="color: #0f6f2e;">psychology</span> Ôn tập SRS (Dài hạn)
+            </div>
+            <div class="ai-mode-item" onclick="selectStudyModeModal('cram', 'Học nhồi nhét', 'rocket_launch', '#c50f1f', this)">
+                <span class="material-symbols-outlined" style="color: #c50f1f;">rocket_launch</span> Học nhồi nhét (Trước thi)
+            </div>
+            <div class="ai-mode-item" onclick="selectStudyModeModal('boost', 'Boost Mode', 'bolt', '#9e5b00', this)">
+                <span class="material-symbols-outlined" style="color: #9e5b00;">bolt</span> Boost Mode (11 Trò chơi)
+            </div>
+        `;
+        // Mặc định chọn luôn "Ôn tập SRS"
+        selectStudyModeModal('review', 'Ôn tập SRS', 'psychology', '#0f6f2e', dropdown.firstElementChild, true);
     }
     
     document.getElementById('studyOptionsModal').style.display = 'flex';
 }
+
+// 2. Các hàm Helper xử lý Drop-up chọn chế độ
+function toggleStudyModeMenu(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    document.getElementById('studyModeDropdown').classList.toggle('hidden');
+}
+
+function selectStudyModeModal(mode, text, icon, color, element, isInit = false) {
+    selectedStudyModeModal = mode; // Lưu vào state
+
+    // Đổi hiển thị ở nút Trigger
+    document.getElementById('studyModeTriggerText').innerText = text;
+    const iconEl = document.getElementById('studyModeTriggerIcon');
+    iconEl.innerText = icon;
+    iconEl.style.color = color;
+
+    // Đổi active background trong danh sách Drop-up
+    const dropdown = document.getElementById('studyModeDropdown');
+    dropdown.querySelectorAll('.ai-mode-item').forEach(el => el.classList.remove('active'));
+    if (element) element.classList.add('active');
+
+    // Ẩn menu (Trừ lúc đang khởi tạo modal)
+    if (!isInit) dropdown.classList.add('hidden');
+}
+
+// Hàm thực thi khi bấm nút "BẮT ĐẦU" (Go)
+function executeStudyMode() {
+    startStudyFromManage(selectedStudyModeModal);
+}
+
+// Lắng nghe click ra ngoài để tự động đóng Drop-up
+document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('studyModeDropdown');
+    const triggerBtn = document.getElementById('studyModeTriggerBtn');
+    
+    if (dropdown && !dropdown.classList.contains('hidden')) {
+        if (!dropdown.contains(e.target) && !triggerBtn.contains(e.target)) {
+            dropdown.classList.add('hidden');
+        }
+    }
+});
 
 // Bắt đầu học theo chế độ đã chọn
 function startStudyFromManage(selectedMode) {
