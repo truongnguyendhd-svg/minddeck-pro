@@ -15232,25 +15232,21 @@ async function processAssessmentResult(card) {
     
     // 3. Đóng gói dữ liệu
     const payload = { 
-        user_id: currentUser.id, 
-        card_id: card.id, 
         ef: ef, 
         interval: interval, 
         interval_count: interval_count, 
         due: due.toISOString() 
     };
 
-    // 🟢 QUAN TRỌNG NHẤT: Bắt buộc truyền ID vào để Supabase hiểu đây là lệnh Cập nhật (Update) chứ không phải Tạo mới (Insert)
-    if (p && p.id) {
-        payload.id = p.id;
-    }
+    // 4. 🟢 FIX DỨT ĐIỂM: Dùng lệnh UPDATE quét theo card_id. 
+    // Nếu trong DB có các tiến trình rác bị trùng lặp từ code cũ, nó sẽ dọn dẹp và đồng bộ hết về ngày mai.
+    // Lệnh await giúp đảm bảo mạng load xong 100% mới cho nhảy thẻ.
+    await sb.from('progress')
+        .update(payload)
+        .eq('user_id', currentUser.id)
+        .eq('card_id', card.id);
 
-    // 4. Đẩy lên Supabase (Kèm lệnh bắt lỗi nếu có)
-    sb.from('progress').upsert(payload).then(({error}) => {
-        if (error) console.error("Lỗi cập nhật SRS lên Supabase:", error);
-    }); 
-
-    // 5. Phân loại thẻ
+    // 5. Phân loại thẻ vào danh sách Khắc phục (Remedial) hoặc Đã thuộc
     if (q < 4) {
         boostState.remedialCards.push(card);
     } else {
