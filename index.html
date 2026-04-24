@@ -7002,43 +7002,67 @@ async function loadDashboardData() {
         const cloudKanjiMastery = (profile && profile.kanji_mastery) ? profile.kanji_mastery : {};
         const kanjiUnlockedCount = Object.keys(cloudKanjiMastery).length;
         // =====================================
-        // [MỚI] HIỂN THỊ MỤC TIÊU (GOAL WIDGET)
+        // [MỚI] HIỂN THỊ MỤC TIÊU (GOAL WIDGET) SIÊU AN TOÀN
         // =====================================
+        const goalWidget = document.getElementById('dashGoalWidget');
         const goalEmpty = document.getElementById('goalEmptyState');
         const goalDataUI = document.getElementById('goalDataState');
         
-        if (profile && profile.study_goal) {
-            // Có dữ liệu -> Hiện Widget chỉ số, Ẩn cái nút Tạo
-            goalEmpty.style.display = 'none';
-            goalDataUI.style.display = 'flex';
-            
-            const goalData = profile.study_goal;
-            document.getElementById('goalTargetLevel').innerText = goalData.level;
-            
-            // Tính số ngày còn lại
-            const today = new Date();
-            const targetDate = new Date(goalData.target_date);
-            const timeDiff = targetDate.getTime() - today.getTime();
-            const daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
-            
-            const daysEl = document.getElementById('goalDaysLeft');
-            if (daysLeft > 0) {
-                daysEl.innerText = `Còn ${daysLeft} ngày`;
-                daysEl.style.color = '#e53e3e'; daysEl.style.background = '#fff5f5'; daysEl.style.borderColor = '#fed7d7';
-            } else {
-                daysEl.innerText = `Đã đến ngày thi!`;
-                daysEl.style.color = '#38a169'; daysEl.style.background = '#f0fff4'; daysEl.style.borderColor = '#c6f6d5';
-            }
+        if (goalWidget) goalWidget.style.display = 'block'; // Đảm bảo thẻ cha luôn hiện
 
-            document.getElementById('goalAiAdvice').innerText = goalData.ai_advice || "Hãy kiên trì học mỗi ngày nhé!";
-            document.getElementById('goalDailyNew').innerText = goalData.daily_new || 15;
-            document.getElementById('goalDailyReview').innerText = goalData.daily_review || 50;
+        if (profile && profile.study_goal) {
+            try {
+                // 1. Ép kiểu dữ liệu (Phòng hờ Supabase trả về chuỗi string)
+                let goalData = profile.study_goal;
+                if (typeof goalData === 'string') {
+                    goalData = JSON.parse(goalData);
+                }
+
+                // 2. Chuyển đổi hiển thị
+                if (goalEmpty) goalEmpty.style.display = 'none';
+                if (goalDataUI) goalDataUI.style.display = 'flex';
+                
+                // 3. Bơm dữ liệu an toàn (Kiểm tra thẻ HTML có tồn tại không)
+                const safeSetText = (id, text) => {
+                    const el = document.getElementById(id);
+                    if (el) el.innerText = text;
+                };
+
+                safeSetText('goalTargetLevel', goalData.level || 'N3');
+                safeSetText('goalAiAdvice', goalData.ai_advice || "Hãy kiên trì học mỗi ngày nhé!");
+                safeSetText('goalDailyNew', goalData.daily_new || 15);
+                safeSetText('goalDailyReview', goalData.daily_review || 50);
+                
+                // 4. Tính số ngày còn lại an toàn
+                const daysEl = document.getElementById('goalDaysLeft');
+                if (daysEl && goalData.target_date) {
+                    const today = new Date();
+                    const targetDate = new Date(goalData.target_date);
+                    const timeDiff = targetDate.getTime() - today.getTime();
+                    const daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
+                    
+                    if (daysLeft > 0) {
+                        daysEl.innerText = `Còn ${daysLeft} ngày`;
+                        daysEl.style.color = '#e53e3e'; 
+                        daysEl.style.background = '#fff5f5'; 
+                        daysEl.style.borderColor = '#fed7d7';
+                    } else {
+                        daysEl.innerText = `Đã đến ngày thi!`;
+                        daysEl.style.color = '#38a169'; 
+                        daysEl.style.background = '#f0fff4'; 
+                        daysEl.style.borderColor = '#c6f6d5';
+                    }
+                }
+            } catch (renderError) {
+                console.error("Lỗi vẽ giao diện Goal Widget:", renderError);
+                // Lỗi nặng thì fallback về UI tạo mới
+                if (goalEmpty) goalEmpty.style.display = 'flex';
+                if (goalDataUI) goalDataUI.style.display = 'none';
+            }
         } else {
-            // Chưa có dữ liệu -> Hiện UI nhắc nhở, Ẩn cái chỉ số đi
-            goalEmpty.style.display = 'flex';
-            goalDataUI.style.display = 'none';
-            
-            // 🟢 ĐÃ XÓA DÒNG setTimeout MỞ MODAL GÂY LỖI NHẢY POP-UP LIÊN TỤC
+            // Chưa có dữ liệu -> Hiện UI nhắc nhở tạo lộ trình
+            if (goalEmpty) goalEmpty.style.display = 'flex';
+            if (goalDataUI) goalDataUI.style.display = 'none';
         }
 
         // Gắn số liệu lên UI
