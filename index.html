@@ -10106,6 +10106,30 @@ async function saveFullDeck() {
         return customAlert("Vui lòng điền nội dung hợp lệ cho ít nhất một thẻ!", "⚠️");
     }
 
+    // ==========================================
+    // 🟢 CHỐT CHẶN 1: QUÉT TRÙNG LẶP TRƯỚC KHI LƯU
+    // ==========================================
+    showLoading("Đang kiểm tra trùng lặp...");
+    try {
+        if (cardsToProcess.length > 0) {
+            const dupeCheck = await checkDuplicateCards(cardsToProcess);
+            if (dupeCheck.hasDuplicate) {
+                hideLoading();
+                // Phục hồi lại nút Lưu
+                if (btnSave) {
+                    btnSave.disabled = false;
+                    if (btnText) btnText.innerText = editingDeckId ? "Cập nhật" : "Lưu bộ bài";
+                    btnSave.style.opacity = "1";
+                    btnSave.style.cursor = "pointer";
+                }
+                return showDuplicateAlert(dupeCheck);
+            }
+        }
+    } catch (err) {
+        hideLoading();
+        return customAlert(err.message, "❌");
+    }
+
     showLoading("Đang xử lý dữ liệu...");
 
     try {
@@ -10777,6 +10801,18 @@ async function smartImportExcel() {
             });
 
             if (cardsToSave.length === 0) throw new Error("Không tìm thấy dữ liệu hợp lệ trong file!");
+
+            // ==========================================
+            // 🟢 CHỐT CHẶN 2: QUÉT TRÙNG LẶP EXCEL
+            // ==========================================
+            document.getElementById('loadingText').innerText = "Đang kiểm tra trùng lặp...";
+            const dupeCheck = await checkDuplicateCards(cardsToSave);
+            if (dupeCheck.hasDuplicate) {
+                hideLoading();
+                // Reset ô input file để user có thể up lại file đã sửa
+                fileInput.value = ""; 
+                return showDuplicateAlert(dupeCheck);
+            }
 
             document.getElementById('loadingText').innerText = `Đang lưu ${cardsToSave.length} thẻ lên Cloud...`;
 
@@ -11554,8 +11590,14 @@ async function confirmSaveWordToDeck() {
     if (exVn) infoArr.push(`[VN1] ${exVn}`);
     const infoData = infoArr.join('\n');
 
-    showLoading("Đang lưu thẻ mới...");
+    showLoading("Đang kiểm tra dữ liệu...");
     try {
+        // 🟢 CHỐT CHẶN 3: QUÉT TRÙNG LẶP TỪ ĐIỂN / AI
+        const dupeCheck = await checkDuplicateCards([{ front: front }]);
+        if (dupeCheck.hasDuplicate) {
+            hideLoading();
+            return showDuplicateAlert(dupeCheck);
+        }
         // 🟢 LOGIC TỰ ĐỘNG TẠO BỘ BÀI MỚI NẾU USER CHỌN
         if (deckId === '__AUTO_NEW_DECK__') {
             const dateStr = new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
@@ -13818,6 +13860,16 @@ async function confirmBulkSaveKanji() {
             return { deck_id: deckId, front: v.word, back: backPacked, info: infoArr.join('\n') };
         });
 
+        // 🟢 CHỐT CHẶN 4: QUÉT TRÙNG LẶP LƯU HÀNG LOẠT
+        document.getElementById('loadingText').innerText = "Đang kiểm tra trùng lặp...";
+        const dupeCheck = await checkDuplicateCards(cardsToInsert);
+        if (dupeCheck.hasDuplicate) {
+            hideLoading();
+            return showDuplicateAlert(dupeCheck);
+        }
+        
+        document.getElementById('loadingText').innerText = "Đang lưu thẻ...";
+
         const { error } = await sb.from('cards').insert(cardsToInsert);
         if (error) throw error;
 
@@ -15843,6 +15895,67 @@ async function confirmExitBoost() {
         if (mode === 'assessment') endAssessmentSession();
         else endBoostSession();
     }
+}
+/* ================= MÁY QUÉT TRÙNG LẶP (ANTI-DUPLICATE ENGINE) ================= */
+// Hàm này nhận vào mảng các thẻ chuẩn bị lưu. Trả về true nếu có trùng lặp.
+async function checkDuplicateCards(cardsArray) {
+    if (!currentUser || !cardsArray || cardsArray.length === 0) return { hasDuplicate: false };
+
+    // 1. Kiểm tra trùng lặp CỤC BỘ (Ngay trong danh sách vừa nhập/import)
+    const fronts = cardsArray.map(c => c.front.trim());
+    const uniqueFronts = new Set();
+    const localDupes = new Set();
+
+    for (let f of fronts) {
+        if (uniqueFronts.has(f)) localDupes.add(f);
+        else uniqueFronts.add(f);
+    }
+
+    if (localDupes.size > 0) {
+        return { hasDuplicate: true, words: Array.from(localDupes), type: 'local' };
+    }
+
+    // 2. Kiểm tra trùng lặp TOÀN CẦU (Trên Database của User)
+    try {
+        // Truy vấn bảng cards, JOIN với bảng decks để lọc đúng thẻ của currentUser
+        const { data, error } = await sb.from('cards')
+            .select('id, front, decks!inner(owner_id)')
+            .eq('decks.owner_id', currentUser.id)
+            .in('front', Array.from(uniqueFronts));
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+            // Lọc bỏ trường hợp "Đang Edit đúng cái thẻ đó" thì không tính là trùng
+            const incomingIds = cardsArray.map(c => c.id).filter(Boolean);
+            const realDupes = data.filter(dbCard => !incomingIds.includes(dbCard.id));
+
+            if (realDupes.length > 0) {
+                const dupeWords = [...new Set(realDupes.map(d => d.front))];
+                return { hasDuplicate: true, words: dupeWords, type: 'database' };
+            }
+        }
+    } catch (err) {
+        console.error("Lỗi khi quét trùng lặp:", err);
+        throw new Error("Không thể kiểm tra trùng lặp do lỗi mạng.");
+    }
+
+    return { hasDuplicate: false };
+}
+
+// Hàm hiển thị cảnh báo lỗi trùng lặp chuẩn UX
+function showDuplicateAlert(dupeCheckResult) {
+    let msg = dupeCheckResult.type === 'local'
+        ? "Có các thẻ bị <b>trùng lặp với nhau</b> ngay trong danh sách bạn vừa nhập:<br><br>"
+        : "Không thể tạo! Các thẻ sau <b>ĐÃ TỒN TẠI</b> trong kho dữ liệu của bạn:<br><br>";
+    
+    // Chỉ hiển thị tối đa 5 từ để không bị tràn màn hình, còn lại để dấu ...
+    const displayWords = dupeCheckResult.words.slice(0, 5).join(' , ');
+    const moreStr = dupeCheckResult.words.length > 5 ? '... và nhiều từ khác' : '';
+    
+    msg += `<b style="color:#c50f1f; font-size:18px;">${displayWords} ${moreStr}</b><br><br>Hãy xóa hoặc sửa lại để tiếp tục.`;
+    
+    customAlert(msg, "⚠️ Trùng lặp dữ liệu");
 }
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
