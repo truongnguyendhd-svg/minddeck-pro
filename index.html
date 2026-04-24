@@ -4918,6 +4918,41 @@ body.pdf-mode #pdfReadState {
         <h2 class="dash-greeting" id="dashGreeting">Chào buổi sáng!</h2>
         <p class="dash-subtitle">Dưới đây là tiến trình học tập của bạn.</p>
     </div>
+    <!-- DÁN THÊM KHỐI NÀY VÀO ĐÂY: KHỐI HIỂN THỊ MỤC TIÊU (MẶC ĐỊNH ẨN) -->
+    <div id="dashGoalWidget" class="dash-widget-box" style="display: none; margin-bottom: 25px; background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%); border-left: 5px solid #0067c0; position: relative; overflow: hidden;">
+        <!-- Icon nền chìm -->
+        <span class="material-symbols-outlined" style="position: absolute; right: -10px; top: -10px; font-size: 120px; color: rgba(0, 103, 192, 0.03); pointer-events: none;">flag</span>
+        
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 15px; position: relative; z-index: 1;">
+            <div>
+                <div style="font-size: 12px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">Mục tiêu JLPT</div>
+                <div style="display: flex; align-items: baseline; gap: 10px;">
+                    <h3 id="goalTargetLevel" style="margin: 0; font-size: 32px; font-weight: 900; color: #1d1d1f;">N1</h3>
+                    <span id="goalDaysLeft" style="font-size: 16px; font-weight: 700; color: #e53e3e; background: #fff5f5; padding: 4px 10px; border-radius: 8px; border: 1px solid #fed7d7;">Còn 180 ngày</span>
+                </div>
+            </div>
+            
+            <!-- Phân tích từ AI -->
+            <div style="flex: 1; min-width: 250px; background: #f0f9ff; border: 1px solid #bee3f8; padding: 12px 16px; border-radius: 12px;">
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; color: #0067c0; margin-bottom: 6px;">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">auto_awesome</span> KẾ HOẠCH TỪ AI:
+                </div>
+                <div id="goalAiAdvice" style="font-size: 14px; color: #2d3748; line-height: 1.5; font-weight: 500;">
+                    Đang phân tích lộ trình...
+                </div>
+                <div style="margin-top: 10px; display: flex; gap: 15px; font-size: 13px; font-weight: 700; color: #4a5568;">
+                    <div>Học mới: <span id="goalDailyNew" style="color: #38a169;">0</span> thẻ/ngày</div>
+                    <div>Ôn tập: <span id="goalDailyReview" style="color: #dd6b20;">0</span> thẻ/ngày</div>
+                </div>
+            </div>
+            
+            <!-- Nút chỉnh sửa mục tiêu -->
+            <button onclick="openGoalSetterModal()" style="background: transparent; border: 1px solid #cbd5e0; border-radius: 8px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #4a5568; transition: 0.2s;" title="Đổi mục tiêu">
+                <span class="material-symbols-outlined" style="font-size: 18px;">edit</span>
+            </button>
+        </div>
+    </div>
+    <!-- KẾT THÚC KHỐI THÊM MỚI -->
 
 <!-- 1. KHỐI NHIỆM VỤ HÔM NAY -->
     <div class="dash-action-card">
@@ -6960,6 +6995,42 @@ async function loadDashboardData() {
         const recentIds = (profile && profile.recent_decks) ? profile.recent_decks : [];
         const cloudKanjiMastery = (profile && profile.kanji_mastery) ? profile.kanji_mastery : {};
         const kanjiUnlockedCount = Object.keys(cloudKanjiMastery).length;
+        // =====================================
+        // [MỚI] HIỂN THỊ MỤC TIÊU (GOAL WIDGET)
+        // =====================================
+        const goalWidget = document.getElementById('dashGoalWidget');
+        if (profile && profile.study_goal) {
+            const goalData = profile.study_goal;
+            goalWidget.style.display = 'flex';
+            
+            document.getElementById('goalTargetLevel').innerText = goalData.level;
+            
+            // Tính số ngày còn lại
+            const today = new Date();
+            const targetDate = new Date(goalData.target_date);
+            const timeDiff = targetDate.getTime() - today.getTime();
+            const daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
+            
+            if (daysLeft > 0) {
+                document.getElementById('goalDaysLeft').innerText = `Còn ${daysLeft} ngày`;
+                document.getElementById('goalDaysLeft').style.color = '#e53e3e';
+                document.getElementById('goalDaysLeft').style.background = '#fff5f5';
+                document.getElementById('goalDaysLeft').style.borderColor = '#fed7d7';
+            } else {
+                document.getElementById('goalDaysLeft').innerText = `Đã đến ngày thi!`;
+                document.getElementById('goalDaysLeft').style.color = '#38a169';
+                document.getElementById('goalDaysLeft').style.background = '#f0fff4';
+                document.getElementById('goalDaysLeft').style.borderColor = '#c6f6d5';
+            }
+
+            document.getElementById('goalAiAdvice').innerText = goalData.ai_advice;
+            document.getElementById('goalDailyNew').innerText = goalData.daily_new;
+            document.getElementById('goalDailyReview').innerText = goalData.daily_review;
+        } else {
+            // Lần đầu đăng nhập chưa có mục tiêu -> Hiển thị Modal Onboarding
+            goalWidget.style.display = 'none';
+            setTimeout(() => { openGoalSetterModal(); }, 1000); // Đợi load xong giao diện rồi Pop-up
+        }
 
         // Gắn số liệu lên UI
         document.getElementById('dashDueCount').innerText = dueCount || 0;
@@ -16219,6 +16290,86 @@ function showDuplicateAlert(dupeCheckResult) {
     
     customAlert(msg, "Trùng lặp dữ liệu", "warning");
 }
+/* ================= MODULE 1: JLPT GOAL SETTER & AI ADAPTIVE PACING ================= */
+
+function openGoalSetterModal() {
+    // Set mặc định ngày thi là 6 tháng sau cho input date
+    const targetDate = new Date();
+    targetDate.setMonth(targetDate.getMonth() + 6);
+    document.getElementById('goalDateInput').value = targetDate.toISOString().split('T')[0];
+    
+    document.getElementById('goalSetterModal').style.display = 'flex';
+}
+
+async function calculateAndSaveGoal() {
+    if (!currentUser) return;
+
+    const level = document.getElementById('goalLevelInput').value;
+    const targetDateStr = document.getElementById('goalDateInput').value;
+    const habit = document.getElementById('goalHabitInput').value.trim();
+
+    if (!targetDateStr) return showToast("Vui lòng chọn ngày thi dự kiến!");
+
+    // Tính toán số ngày còn lại (Để cho AI tham khảo)
+    const today = new Date();
+    const targetDate = new Date(targetDateStr);
+    const timeDiff = targetDate.getTime() - today.getTime();
+    const daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
+
+    if (daysLeft <= 0) return customAlert("Ngày thi phải ở trong tương lai!", "⚠️");
+
+    // UI Loading trên nút
+    const btn = document.getElementById('btnSubmitGoal');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<div class="spinner" style="width: 20px; height: 20px; border-top-color: white; margin-right: 8px;"></div> AI đang phân bổ lộ trình...';
+    btn.disabled = true;
+
+    // Prompt bắt ép JSON cực kỳ khắt khe cho Gemini
+    const prompt = `Đóng vai trò là một gia sư JLPT nghiêm khắc nhưng thấu hiểu. 
+    Học viên có mục tiêu thi đỗ ${level} vào ngày thi sắp tới. Thời gian còn lại: ${daysLeft} ngày.
+    Thói quen/Lịch sinh hoạt của học viên: "${habit || 'Không có ghi chú gì đặc biệt, hãy lên lịch tiêu chuẩn'}".
+    
+    Hãy tính toán và trả về ĐÚNG 1 KHỐI JSON DUY NHẤT (không dùng markdown \`\`\`json). Định dạng BẮT BUỘC:
+    {
+      "daily_new": 20, 
+      "daily_review": 60,
+      "ai_advice": "Dựa vào thói quen của bạn, tôi khuyên bạn nên... (viết 2-3 câu động viên ngắn gọn, chân thành tiếng Việt)"
+    }
+    Lưu ý: "daily_new" là số từ/ngữ pháp MỚI cần học mỗi ngày. "daily_review" là số thẻ CŨ cần ôn mỗi ngày. Tổng khối lượng N5(~1000 thẻ), N4(~2000), N3(~4000), N2(~6000), N1(~10000). Hãy chia cho ${daysLeft} ngày để ra số hợp lý.`;
+
+    try {
+        let aiResponse = await callGeminiAI(prompt);
+        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        const aiData = JSON.parse(aiResponse);
+
+        // Đóng gói dữ liệu để lưu vào Supabase JSON column
+        const goalData = {
+            level: level,
+            target_date: targetDateStr,
+            daily_new: aiData.daily_new || 15,
+            daily_review: aiData.daily_review || 50,
+            ai_advice: aiData.ai_advice || "Hãy cố gắng học đều đặn mỗi ngày nhé!",
+            updated_at: new Date().toISOString()
+        };
+
+        // Lưu lên Database
+        const { error } = await sb.from('profiles').update({ study_goal: goalData }).eq('id', currentUser.id);
+        if (error) throw error;
+
+        closeModal('goalSetterModal');
+        showToast("✨ Đã thiết lập lộ trình thành công!");
+        
+        // Tải lại Dashboard để hiển thị Widget
+        loadDashboardData();
+
+    } catch (err) {
+        console.error("Lỗi AI Goal Setter:", err);
+        customAlert("Không thể kết nối với AI. Vui lòng thử lại bằng câu văn đơn giản hơn.", "❌");
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 12000;">
@@ -16362,6 +16513,56 @@ function showDuplicateAlert(dupeCheckResult) {
         <!-- Body có thanh cuộn mượt -->
         <div class="win11-modal-body" id="smartHintContent" style="padding: 20px 24px; background: #ffffff; max-height: 70vh; overflow-y: auto; overflow-x: hidden;">
             <!-- JS sẽ bơm nội dung vào đây -->
+        </div>
+    </div>
+</div>
+<!-- MODAL THIẾT LẬP MỤC TIÊU & LỊCH TRÌNH (WIN 11 STYLE) -->
+<div id="goalSetterModal" class="modal" style="z-index: 13000;">
+    <div class="modal-content win11-modal" style="max-width: 500px;">
+        <div class="win11-modal-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: #0067c0; font-size: 20px;">target</span>
+                <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: #1a1a1a;">Thiết lập Lộ trình JLPT</h3>
+            </div>
+            <!-- Bỏ nút X nếu bắt buộc phải nhập lúc Onboarding, nhưng vẫn nên giữ để UX tốt -->
+            <button class="win11-close-btn" onclick="closeModal('goalSetterModal')">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+
+        <div class="win11-modal-body" style="padding: 20px 24px;">
+            <p style="font-size: 14px; color: #666; line-height: 1.5; margin-top: 0; margin-bottom: 20px;">
+                Để AI có thể tính toán chính xác số thẻ bạn cần học mỗi ngày, hãy cho chúng tôi biết mục tiêu và thói quen sinh hoạt của bạn.
+            </p>
+
+            <div class="grid-2-col" style="gap: 16px; margin-bottom: 16px;">
+                <div>
+                    <label class="win11-label">BẠN MUỐN THI ĐỖ CẤP ĐỘ NÀO?</label>
+                    <select id="goalLevelInput" class="win11-input" style="cursor: pointer;">
+                        <option value="N5">JLPT N5</option>
+                        <option value="N4">JLPT N4</option>
+                        <option value="N3" selected>JLPT N3</option>
+                        <option value="N2">JLPT N2</option>
+                        <option value="N1">JLPT N1</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="win11-label">NGÀY THI DỰ KIẾN</label>
+                    <input type="date" id="goalDateInput" class="win11-input" style="cursor: pointer;">
+                </div>
+            </div>
+
+            <div style="margin-bottom: 24px;">
+                <label class="win11-label" style="display: flex; align-items: center; gap: 6px;">
+                    <span class="material-symbols-outlined" style="font-size: 16px; color: #9333ea;">auto_awesome</span> THỜI GIAN RẢNH / THÓI QUEN CỦA BẠN
+                </label>
+                <textarea id="goalHabitInput" class="win11-input" rows="3" placeholder="VD: Ngày thường tôi đi làm về muộn chỉ học được 30 phút buổi tối. Cuối tuần tôi rảnh cả ngày thứ Bảy..."></textarea>
+                <div style="font-size: 12px; color: #8c8c8c; margin-top: 6px;">* AI sẽ dựa vào đây để phân bổ bài học hợp lý cho bạn.</div>
+            </div>
+
+            <button id="btnSubmitGoal" onclick="calculateAndSaveGoal()" class="win11-btn-primary" style="width: 100%; padding: 14px; font-size: 15px; display: flex; justify-content: center; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="font-size: 20px;">rocket_launch</span> TẠO LỘ TRÌNH VỚI AI
+            </button>
         </div>
     </div>
 </div>
