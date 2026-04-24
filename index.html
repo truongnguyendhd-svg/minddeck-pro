@@ -6221,6 +6221,9 @@ body.pdf-mode #pdfReadState {
                         <!-- JS sẽ bơm danh sách vào đây -->
                     </div>
                 </div>
+                <div id="newDeckNameWrapper_Dict" style="display: none; margin-top: 10px; animation: fadeInChat 0.2s ease;">
+                    <input type="text" id="newDeckNameInput_Dict" class="win11-input" placeholder="Gõ tên bộ bài mới (VD: Từ vựng khó)...">
+                </div>
             </div>
             
             <div style="margin-top: 20px;">
@@ -6299,6 +6302,9 @@ body.pdf-mode #pdfReadState {
                             <span class="material-symbols-outlined" style="font-size: 18px;">expand_more</span>
                         </div>
                         <div class="custom-select-options" id="aiQuizOptions"></div>
+                    </div>
+                    <div id="newDeckNameWrapper_Quiz" style="display: none; margin-top: 10px; animation: fadeInChat 0.2s ease;">
+                        <input type="text" id="newDeckNameInput_Quiz" class="win11-input" placeholder="Gõ tên bộ Trắc nghiệm mới...">
                     </div>
                 </div>
                 
@@ -6784,7 +6790,23 @@ let pendingModalReturn = null; // Cờ nhớ thông tin Modal để quay lại
 let isInlineListLoaded = false; // Cờ kiểm tra danh sách đã load chưa
 /* ================= 3. UTILITIES ================= */
 function sanitizeTagName(tag) {
-    return tag.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').trim();
+    // 🟢 ĐÃ SỬA: Cho phép giữ lại dấu ngoặc tròn ( ) và dấu gạch dưới _
+    return tag.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').replace(/[^a-zA-Z0-9\s\-\(\)\_]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').trim();
+}
+// HÀM MỚI: Tự động đánh số (1), (2) nếu tên bộ bài đã tồn tại
+async function generateUniqueDeckName(baseName, deckType) {
+    // 1. Lấy danh sách tên tất cả bộ bài hiện có của User
+    const { data } = await sb.from('decks').select('id').eq('owner_id', currentUser.id).eq('type', deckType);
+    const existingNames = data ? data.map(d => getCleanName(d.id)) : [];
+
+    // 2. Vòng lặp kiểm tra trùng lặp
+    let finalName = baseName;
+    let counter = 1;
+    while (existingNames.includes(finalName)) {
+        finalName = `${baseName} (${counter})`;
+        counter++;
+    }
+    return finalName;
 }
 function getCleanName(id) {
     if (!id) return "";
@@ -11719,8 +11741,16 @@ async function confirmSaveWordToDeck() {
         }
         // 🟢 LOGIC TỰ ĐỘNG TẠO BỘ BÀI MỚI NẾU USER CHỌN
         if (deckId === '__AUTO_NEW_DECK__') {
-            const dateStr = new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
-            deckId = `${currentUser.id}:Luu-tu-dong-Tu-vung-${dateStr}:${Date.now()}`;
+            const rawName = document.getElementById('newDeckNameInput_Dict').value.trim();
+            if (!rawName) {
+                hideLoading();
+                return customAlert("Vui lòng nhập tên cho bộ bài mới!", "⚠️");
+            }
+
+            // Gọi hàm sinh tên chống trùng lặp
+            const uniqueName = await generateUniqueDeckName(rawName, 'flashcard');
+            
+            deckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
             
             const { error: deckErr } = await sb.from('decks').insert([{
                 id: deckId,
@@ -13667,13 +13697,21 @@ async function confirmSaveQuizToDeck() {
     try {
         // 🟢 LOGIC TỰ ĐỘNG TẠO BỘ BÀI TRẮC NGHIỆM MỚI NẾU USER CHỌN
         if (deckId === '__AUTO_NEW_DECK__') {
-            const dateStr = new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
-            deckId = `${currentUser.id}:Luu-tu-dong-Trac-nghiem-${dateStr}:${Date.now()}`;
+            const rawName = document.getElementById('newDeckNameInput_Quiz').value.trim();
+            if (!rawName) {
+                hideLoading();
+                return customAlert("Vui lòng nhập tên cho bộ bài mới!", "⚠️");
+            }
+
+            // Gọi hàm sinh tên chống trùng lặp
+            const uniqueName = await generateUniqueDeckName(rawName, 'flashcard');
+            
+            deckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
             
             const { error: deckErr } = await sb.from('decks').insert([{
                 id: deckId,
                 owner_id: currentUser.id,
-                type: 'quiz', // Chú ý: Loại bài là 'quiz'
+                type: 'flashcard',
                 is_public: false
             }]);
             if (deckErr) throw deckErr;
@@ -13855,6 +13893,21 @@ function selectCustomOption(containerId, inputId, textId, value, rawName, iconNa
     const container = document.getElementById(containerId);
     container.querySelectorAll('.custom-option').forEach(el => el.classList.remove('selected'));
     event.currentTarget.classList.add('selected');
+    // 🟢 CODE MỚI: Ẩn hiện ô nhập Text
+    let wrapperId = '';
+    if (containerId === 'dictDeckContainer') wrapperId = 'newDeckNameWrapper_Dict';
+    if (containerId === 'aiQuizContainer') wrapperId = 'newDeckNameWrapper_Quiz';
+    if (containerId === 'bskDeckContainer') wrapperId = 'newDeckNameWrapper_Bulk';
+
+    if (wrapperId) {
+        const wrapper = document.getElementById(wrapperId);
+        if (value === '__AUTO_NEW_DECK__') {
+            wrapper.style.display = 'block';
+            setTimeout(() => document.getElementById(wrapperId.replace('Wrapper', 'Input')).focus(), 50); // Tự động focus vào ô gõ chữ
+        } else {
+            wrapper.style.display = 'none';
+        }
+    }
 }
 
 // 3. Đóng Dropdown khi click ra ngoài màn hình
@@ -13886,9 +13939,9 @@ async function loadCustomDeckList(containerId, inputId, textId, optionsId, deckT
         // 🟢 GHIM LỰA CHỌN "TỰ ĐỘNG TẠO BỘ BÀI MỚI" LÊN ĐẦU TIÊN
         html += `
             <div class="custom-option" style="background: #f0fdf4; border-bottom: 2px solid #bbf7d0; margin-bottom: 4px;" 
-                 onclick="selectCustomOption('${containerId}', '${inputId}', '${textId}', '__AUTO_NEW_DECK__', '✨ Tự động tạo bộ bài mới', 'add_circle')">
+                 onclick="selectCustomOption('${containerId}', '${inputId}', '${textId}', '__AUTO_NEW_DECK__', '➕ Tạo bộ bài mới (Nhập tên)', 'add_circle')">
                 <span class="material-symbols-outlined" style="color: #10b981;">add_circle</span>
-                <span class="custom-option-text" style="color: #047857; font-weight: 800;">✨ Tự động tạo bộ bài mới</span>
+                <span class="custom-option-text" style="color: #047857; font-weight: 800;">➕ Tạo bộ bài mới (Nhập tên)</span>
             </div>
         `;
 
@@ -13952,8 +14005,16 @@ async function confirmBulkSaveKanji() {
     try {
         // 🟢 LOGIC TỰ ĐỘNG TẠO BỘ BÀI MỚI NẾU USER CHỌN
         if (deckId === '__AUTO_NEW_DECK__') {
-            const dateStr = new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
-            deckId = `${currentUser.id}:Luu-tu-dong-Kanji-${dateStr}:${Date.now()}`;
+            const rawName = document.getElementById('newDeckNameInput_Bulk').value.trim();
+            if (!rawName) {
+                hideLoading();
+                return customAlert("Vui lòng nhập tên cho bộ bài mới!", "⚠️");
+            }
+
+            // Gọi hàm sinh tên chống trùng lặp
+            const uniqueName = await generateUniqueDeckName(rawName, 'flashcard');
+            
+            deckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
             
             const { error: deckErr } = await sb.from('decks').insert([{
                 id: deckId,
@@ -16261,6 +16322,9 @@ function showDuplicateAlert(dupeCheckResult) {
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="custom-select-options" id="bskDeckOptions"></div>
+                </div>
+                <div id="newDeckNameWrapper_Bulk" style="display: none; margin-top: 10px; animation: fadeInChat 0.2s ease;">
+                    <input type="text" id="newDeckNameInput_Bulk" class="win11-input" placeholder="Gõ tên bộ bài mới (VD: Kanji N3)...">
                 </div>
 
                 <button onclick="confirmBulkSaveKanji()" class="win11-btn-primary" style="width: 100%; margin-top: 25px; padding: 14px; font-size: 15px; display: flex; justify-content: center; align-items: center; gap: 8px;">
