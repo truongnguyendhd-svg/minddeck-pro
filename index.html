@@ -6906,12 +6906,25 @@ async function loadDashboardData() {
             .eq('cards.decks.type', 'flashcard')
             .gte('interval', 21);
 
+        // 4. TRUY VẤN BẢNG PROFILES (Lấy Lịch sử học gần đây & Kỷ lục Kanji)
+        const { data: profile } = await sb.from('profiles')
+            .select('recent_decks, kanji_mastery')
+            .eq('id', currentUser.id)
+            .single();
+            
+        const recentIds = (profile && profile.recent_decks) ? profile.recent_decks : [];
+        const cloudKanjiMastery = (profile && profile.kanji_mastery) ? profile.kanji_mastery : {};
+        const kanjiUnlockedCount = Object.keys(cloudKanjiMastery).length;
+
         // Gắn số liệu lên UI
         document.getElementById('dashDueCount').innerText = dueCount || 0;
         document.getElementById('dashStudyingCount').innerText = studyingCount || 0;
         document.getElementById('dashMasteredCount').innerText = masteredCount || 0;
-        document.getElementById('dashKanjiCount').innerText = Object.keys(userKanjiMasteryMap).length || 0;
-        // [CẬP NHẬT MỚI]: Xử lý trạng thái nút Ôn tập toàn cục
+        
+        // 🟢 CẬP NHẬT MỚI: Hiển thị số lượng Kanji lấy thẳng từ Cloud Archive
+        document.getElementById('dashKanjiCount').innerText = kanjiUnlockedCount;
+
+        // Xử lý trạng thái nút Ôn tập toàn cục
         const btnReview = document.getElementById('btnGlobalReview');
         if (btnReview) {
             if (dueCount > 0) {
@@ -6926,10 +6939,8 @@ async function loadDashboardData() {
                 btnReview.style.cursor = 'default';
             }
         }
-        // 4. RENDER CÁC BỘ BÀI VỪA HỌC GẦN ĐÂY
-        const { data: profile } = await sb.from('profiles').select('recent_decks').eq('id', currentUser.id).single();
-        const recentIds = (profile && profile.recent_decks) ? profile.recent_decks : [];
-
+        
+        // 5. RENDER CÁC BỘ BÀI VỪA HỌC GẦN ĐÂY
         const recentContainer = document.getElementById('dashRecentDecks');
         if (recentIds.length > 0) {
             // Truy vấn lấy thông tin các bộ bài này
