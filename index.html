@@ -16328,10 +16328,9 @@ async function calculateAndSaveGoal() {
 
     const btn = document.getElementById('btnSubmitGoal');
     const originalText = btn.innerHTML;
-    btn.innerHTML = '<div class="spinner" style="width: 20px; height: 20px; border-top-color: white; margin-right: 8px;"></div> AI đang phân bổ lộ trình...';
+    btn.innerHTML = '<div class="spinner" style="width: 20px; height: 20px; border-top-color: white; margin-right: 8px;"></div> Đang xử lý...';
     btn.disabled = true;
 
-    // 🟢 TẠO DỮ LIỆU DỰ PHÒNG (FALLBACK): Lỡ AI lỗi thì dùng cái này lưu luôn
     let goalDataToSave = {
         level: level,
         target_date: targetDateStr,
@@ -16350,29 +16349,32 @@ async function calculateAndSaveGoal() {
         aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
         const aiData = JSON.parse(aiResponse);
 
-        // Nếu AI parse JSON thành công, ghi đè lên dữ liệu dự phòng
         if (aiData.daily_new) goalDataToSave.daily_new = aiData.daily_new;
         if (aiData.daily_review) goalDataToSave.daily_review = aiData.daily_review;
         if (aiData.ai_advice) goalDataToSave.ai_advice = aiData.ai_advice;
 
     } catch (err) {
-        console.warn("AI Goal Setter Lỗi (Đã dùng Fallback):", err);
-        showToast("AI trả lời chậm, áp dụng lộ trình tiêu chuẩn! ⚡");
+        console.warn("Lỗi AI (Dùng dữ liệu dự phòng):", err);
     } 
 
-    // BẮT BUỘC LƯU LÊN SUPABASE (Dù AI thành công hay thất bại)
+    // BƯỚC QUAN TRỌNG NHẤT: DÙNG UPSERT ĐỂ CHỐNG LỖI DB
     try {
-        const { error } = await sb.from('profiles').update({ study_goal: goalDataToSave }).eq('id', currentUser.id);
+        console.log("Đang lưu lên Supabase:", goalDataToSave);
+        
+        const { error } = await sb.from('profiles').upsert({ 
+            id: currentUser.id, // Bắt buộc truyền ID vào khi dùng Upsert
+            study_goal: goalDataToSave 
+        });
+        
         if (error) throw error;
 
         closeModal('goalSetterModal');
         showToast("✨ Đã thiết lập lộ trình thành công!");
+        loadDashboardData(); // Load lại giao diện
         
-        // Load lại giao diện để nó hiện con số lên
-        loadDashboardData();
     } catch (dbErr) {
         console.error("Lỗi Database khi lưu Goal:", dbErr);
-        customAlert("Lỗi lưu dữ liệu. Có thể bảng 'profiles' chưa có cột 'study_goal'.", "❌");
+        customAlert("Lỗi lưu dữ liệu: " + dbErr.message, "❌");
     } finally {
         btn.innerHTML = originalText;
         btn.disabled = false;
