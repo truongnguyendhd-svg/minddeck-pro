@@ -5979,7 +5979,25 @@ body.pdf-mode #pdfReadState {
         </div>
     </div>
 </div>
-<div id="customAlert" class="modal"><div class="modal-content" style="max-width: 400px; text-align: center; border-radius: 20px; overflow: hidden; border: none;"><div class="modal-body" style="padding: 40px 30px;"><div id="alertIcon" style="font-size: 50px; margin-bottom: 15px;">💡</div><div id="alertMsg" style="margin-bottom: 25px; font-weight: 800; font-size: 18px; color: #2d3748; line-height: 1.5;"></div><button onclick="closeModal('customAlert')" style="width: 100%; padding: 14px; background: linear-gradient(135deg, #4299e1, #3182ce); color: white; border: none; border-radius: 50px; font-weight: 800; cursor: pointer;">Đã hiểu</button></div></div></div>
+<!-- MODAL THÔNG BÁO CHUẨN APPLE / WIN 11 -->
+<div id="customAlert" class="modal" style="z-index: 13000;">
+    <div class="modal-content win11-modal" style="max-width: 380px; padding: 30px 24px 24px 24px; text-align: center;">
+        
+        <!-- Icon tròn có nền màu nhẹ -->
+        <div id="alertIconBox" style="width: 64px; height: 64px; border-radius: 50%; background: #f3f8fd; color: #0067c0; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto;">
+            <span id="alertIcon" class="material-symbols-outlined" style="font-size: 32px;">info</span>
+        </div>
+        
+        <!-- Tiêu đề -->
+        <h3 id="alertTitle" style="margin: 0 0 10px 0; font-size: 18px; font-weight: 800; color: #1d1d1f; letter-spacing: -0.5px;">Thông báo</h3>
+        
+        <!-- Lời nhắn -->
+        <div id="alertMsg" style="font-size: 14px; color: #515154; line-height: 1.5; margin-bottom: 24px;"></div>
+        
+        <!-- Nút bấm Win 11 -->
+        <button onclick="closeModal('customAlert')" class="win11-btn-primary" style="width: 100%; padding: 12px; font-size: 15px; border-radius: 8px;">Đã hiểu</button>
+    </div>
+</div>
 <div id="confirmModal" class="modal"><div class="modal-content" style="max-width: 400px; text-align: center; padding: 30px;"><div id="confirmTitle" style="font-weight: 800; color: #2d3748; font-size: 20px;">Xác nhận</div><p id="confirmMsg" style="color: #718096; line-height: 1.5; margin-bottom: 25px;"></p><div style="display: flex; gap: 10px;"><button id="confirmCancelBtn" style="flex: 1; padding: 12px; border-radius: 50px; border: none; background: #edf2f7; color: #4a5568; font-weight: 700; cursor: pointer;">Hủy</button><button id="confirmOkBtn" style="flex: 1; padding: 12px; border-radius: 50px; border: none; background: linear-gradient(135deg, #f56565, #e53e3e); color: white; font-weight: 700; cursor: pointer;">OK</button></div></div></div>
 <div id="quizResultModal" class="modal">
     <div class="modal-content">
@@ -6965,9 +6983,36 @@ function hideLoading() { document.getElementById('loadingOverlay').style.display
 function showToast(msg) { const c = document.getElementById('toast-container'); const t = document.createElement('div'); t.className = 'toast'; t.innerText = msg; c.appendChild(t); setTimeout(() => t.remove(), 3000); }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
-function customAlert(msg, icon = "💡") {
-    document.getElementById('alertMsg').innerHTML = msg; // Đổi thành innerHTML
-    document.getElementById('alertIcon').innerHTML = icon; // Nên đổi luôn icon thành innerHTML cho đồng bộ
+function customAlert(msg, title = "Thông báo", type = "info") {
+    document.getElementById('alertMsg').innerHTML = msg;
+    document.getElementById('alertTitle').innerText = title; // Hỗ trợ title động
+    
+    const iconBox = document.getElementById('alertIconBox');
+    const iconSpan = document.getElementById('alertIcon');
+    
+    // Tự động nhận diện loại lỗi để đổi màu Icon cho chuyên nghiệp
+    if (type === "error" || title.includes("❌")) {
+        iconBox.style.background = "#fdf3f4";
+        iconBox.style.color = "#c50f1f";
+        iconSpan.innerText = "error";
+        document.getElementById('alertTitle').innerText = title.replace("❌", "").trim();
+    } else if (type === "warning" || title.includes("⚠️") || title.includes("Trùng lặp")) {
+        iconBox.style.background = "#fff8f0";
+        iconBox.style.color = "#9e5b00";
+        iconSpan.innerText = "warning";
+        document.getElementById('alertTitle').innerText = title.replace("⚠️", "").trim();
+    } else if (type === "success" || title.includes("🎉") || title.includes("✨")) {
+        iconBox.style.background = "#f0fdf4";
+        iconBox.style.color = "#107c10";
+        iconSpan.innerText = "check_circle";
+        document.getElementById('alertTitle').innerText = title.replace(/[🎉✨]/g, "").trim();
+    } else { // Mặc định là Info màu xanh dương
+        iconBox.style.background = "#f3f8fd";
+        iconBox.style.color = "#0067c0";
+        iconSpan.innerText = "info";
+        document.getElementById('alertTitle').innerText = title.replace("💡", "").trim();
+    }
+    
     document.getElementById('customAlert').style.display = 'flex';
 }
 
@@ -15946,16 +15991,23 @@ async function checkDuplicateCards(cardsArray) {
 // Hàm hiển thị cảnh báo lỗi trùng lặp chuẩn UX
 function showDuplicateAlert(dupeCheckResult) {
     let msg = dupeCheckResult.type === 'local'
-        ? "Có các thẻ bị <b>trùng lặp với nhau</b> ngay trong danh sách bạn vừa nhập:<br><br>"
-        : "Không thể tạo! Các thẻ sau <b>ĐÃ TỒN TẠI</b> trong kho dữ liệu của bạn:<br><br>";
+        ? "Có các thẻ bị trùng lặp với nhau ngay trong danh sách bạn vừa nhập:"
+        : "Không thể tạo! Các thẻ sau <b>đã tồn tại</b> trong kho dữ liệu của bạn:";
     
-    // Chỉ hiển thị tối đa 5 từ để không bị tràn màn hình, còn lại để dấu ...
+    // Lấy tối đa 5 từ
     const displayWords = dupeCheckResult.words.slice(0, 5).join(' , ');
-    const moreStr = dupeCheckResult.words.length > 5 ? '... và nhiều từ khác' : '';
+    // Nếu nhiều hơn 5 từ thì hiển thị thêm số lượng ẩn
+    const moreStr = dupeCheckResult.words.length > 5 ? `<span style="color:#8c8c8c; font-size: 12px; font-weight: 500;"><br>... và ${dupeCheckResult.words.length - 5} từ khác</span>` : '';
     
-    msg += `<b style="color:#c50f1f; font-size:18px;">${displayWords} ${moreStr}</b><br><br>Hãy xóa hoặc sửa lại để tiếp tục.`;
+    // Bọc các từ trùng lặp vào một cái hộp xám bo tròn tinh tế
+    msg += `
+        <div style="background: #f5f5f7; border: 1px solid #e5e5e5; padding: 12px; border-radius: 8px; margin: 12px 0; color: #c50f1f; font-weight: 800; font-size: 16px;">
+            ${displayWords} ${moreStr}
+        </div>
+        Vui lòng xóa thẻ ở trên hoặc sửa lại nội dung để tiếp tục.
+    `;
     
-    customAlert(msg, "⚠️ Trùng lặp dữ liệu");
+    customAlert(msg, "Trùng lặp dữ liệu", "warning");
 }
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
