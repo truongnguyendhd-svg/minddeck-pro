@@ -358,6 +358,8 @@ body.study-mode #reviewPage {
     transform: translateY(-4px);
     filter: brightness(1.1);
 }
+
+.btn-group button { flex: 1; padding: 16px 10px; border-radius: 12px; border: none; font-weight: 800; color: white; cursor: pointer; font-size: 16px; transition: 0.2s; }
 .btn-group button:hover:not(:disabled) { transform: translateY(-4px); filter: brightness(1.1); }
 .btn-group button:disabled {
     /* Xóa bỏ viền và background xám cũ để lộ ra màu gradient tươi nguyên bản */
@@ -381,34 +383,10 @@ body.study-mode #reviewPage {
     /* Ngăn người dùng click xuyên qua lớp mờ */
     pointer-events: none; 
 }
-/* PHONG CÁCH NÚT MỚI: PHẲNG, MÀU PASTEL (Giống nút Thoát) */
-.btn-group button {
-    color: #1d1d1f;
-    background: #f5f5f7;
-    border: 1px solid #d2d2d7 !important;
-    box-shadow: none !important;
-    font-weight: 700;
-}
-.btn-sai { 
-    color: #c50f1f !important; 
-    background: #fdf3f4 !important; 
-    border-color: #f8d7da !important; 
-}
-.btn-de { 
-    color: #107c10 !important; 
-    background: #f3fbf3 !important; 
-    border-color: #dff6dd !important; 
-}
-.btn-kho {
-    color: #9e5b00 !important;
-    background: #fffaf0 !important;
-    border-color: #fce8cd !important;
-}
-.btn-tot {
-    color: #0067c0 !important;
-    background: #f3f8fd !important;
-    border-color: #cce3f6 !important;
-}
+.btn-sai { background: linear-gradient(135deg, #f56565, #e53e3e); }
+.btn-kho { background: linear-gradient(135deg, #ed8936, #dd6b20); }
+.btn-tot { background: linear-gradient(135deg, #48bb78, #38a169); }
+.btn-de { background: linear-gradient(135deg, #4299e1, #3182ce); }
 .test-option { width: 100%; text-align: left; padding: 18px 25px; margin-bottom: 12px; border-radius: 15px; border: 2px solid #edf2f7; background: #fff; cursor: pointer; font-size: 17px; transition: 0.2s; color: #4a5568; font-weight: 500;}
 .test-option:hover:not(:disabled) { border-color: #3498db; background: #f0f9ff; transform: translateY(-3px); }
 .test-option.correct { background: linear-gradient(135deg, #f0fff4, #c6f6d5) !important; border-color: #48bb78 !important; color: #22543d !important; font-weight: 700;}
@@ -7821,11 +7799,12 @@ function renderStudy() {
         }
     }
 
-    // CÁC NÚT PHỤ: Chuyển nút Info sang góc dưới trái và đổi thành icon bóng đèn
+    // Các Nút Phụ (Sửa, Info, Hint)
     const editBtnHTML = `<button onclick="openQuickEdit(event)" class="btn-edit-inside" title="Sửa thẻ nhanh"><span class="material-symbols-outlined" style="font-size:22px;">edit</span></button>`;
-    const infoBtnHTML = `<button onclick="handleInfoClick(event)" class="btn-info-inside" style="left: 15px; right: auto; color: #f6ad55;" title="Thông tin phụ"><span class="material-symbols-outlined" style="font-size:26px;">lightbulb</span></button>`;
+    const infoBtnHTML = `<button onclick="handleInfoClick(event)" class="btn-info-inside" title="Thông tin phụ"><span class="material-symbols-outlined" style="font-size:22px;">info</span></button>`;
+    const hintBtnHTML = !showBack ? `<button onclick="showSmartHint(event)" class="btn-hint-inside" title="Gợi ý thông minh"><span class="material-symbols-outlined" style="font-size:26px;">lightbulb</span></button>` : '';
 
-    // NỘI DUNG TIẾN ĐỘ
+    // TẠO NỘI DUNG TIẾN ĐỘ ĐỂ NHÚNG VÀO GÓC THẺ
     let progressStr = `${currentIndex + 1}/${sessionCards.length}`;
     if (mode === 'cram') {
         progressStr += ` <span style="color:#e53e3e; font-size:13px; margin-left: 4px;">(Cấp ${c.cramLevel || 1}/${targetCramLevel})</span>`;
@@ -7835,23 +7814,30 @@ function renderStudy() {
     if (!showBack) {
         const questionText = isRev ? c.back : c.front;
         const dynamicSize = getDynamicFontSize(questionText);
-        cardArea.innerHTML = progressHTML + editBtnHTML + `<b style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(questionText))}</b>` + infoBtnHTML;
+        // Cộng thêm progressHTML vào thẻ
+        cardArea.innerHTML = progressHTML + editBtnHTML + `<b style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(questionText))}</b>` + infoBtnHTML + hintBtnHTML;
         
-        // ĐÃ XÓA DÒNG KHÓA NÚT BẤM - NÚT BÂY GIỜ LUÔN MỞ KHÓA
+        // Ẩn cụm nút trong Remedial
         if (mode === 'remedial' && answerGroup) answerGroup.innerHTML = ''; 
+        else if (answerGroup) answerGroup.querySelectorAll('button').forEach(btn => btn.disabled = true);
         
     } else {
         const answerText = isRev ? c.front : c.back;
         const dynamicSize = getDynamicFontSize(answerText);
+        // Cộng thêm progressHTML vào thẻ
         cardArea.innerHTML = progressHTML + editBtnHTML + `<i style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoBtnHTML;
         
         // NẾU LÀ REMEDIAL: HIỆN NÚT "TIẾP THEO" BỰ
         if (mode === 'remedial') {
             if (answerGroup) {
-                answerGroup.classList.remove('hidden'); 
+                answerGroup.classList.remove('hidden'); // Mở lại group để chứa nút
                 answerGroup.innerHTML = `<button class="btn-remedial-next" onclick="nextCard()">ĐÃ NHỚ - TIẾP THEO ❯</button>`;
             }
         } 
+        // NẾU LÀ SRS BÌNH THƯỜNG
+        else if (answerGroup) {
+            answerGroup.querySelectorAll('button').forEach(btn => btn.disabled = false);
+        }
     }
 }
 
@@ -10882,9 +10868,8 @@ async function getKanjiBuilderData(targetKanji) {
 }
 /* ================= TÍNH NĂNG ĐỔI MÀU THẺ (DARK/LIGHT MODE) ================= */
 // 1. Đọc trạng thái đã lưu từ trình duyệt
-// Nếu chưa từng lưu cài đặt (người dùng mới), mặc định là true (Dark Mode)
-let savedTheme = localStorage.getItem('minddeck_dark_card');
-let isDarkCard = savedTheme !== null ? savedTheme === 'true' : true;
+let isDarkCard = localStorage.getItem('minddeck_dark_card') === 'true';
+
 // 2. Hàm khi người dùng bấm nút Đổi màu
 function toggleCardTheme() {
     isDarkCard = !isDarkCard; // Đảo ngược trạng thái
@@ -16019,7 +16004,6 @@ async function confirmExitBoost() {
 </div>
 </body>
 </html>
-
 
 
 
