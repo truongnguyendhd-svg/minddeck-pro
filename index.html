@@ -5664,6 +5664,13 @@ body.pdf-mode #pdfReadState {
                 <button class="win11-crop-btn" onclick="executeCropAI('extract_vocab')">
                     <span class="material-symbols-outlined" style="color: #3b82f6;">translate</span> Chuyên gia Đọc hiểu (Dokkai)
                 </button>
+                
+                <!-- BẮT ĐẦU: Nút Copy Ảnh mới -->
+                <button class="win11-crop-btn" onclick="copyCroppedImageToClipboard()">
+                    <span class="material-symbols-outlined" style="color: #4a5568;">content_copy</span> Copy ảnh vào Clipboard
+                </button>
+                <!-- KẾT THÚC: Nút Copy Ảnh mới -->
+
                 <div style="border-top: 1px solid #f0f0f0; margin: 4px 0;"></div>
                 <button class="win11-crop-btn cancel" onclick="disablePdfCropMode()">
                     <span class="material-symbols-outlined">cancel</span> Hủy khoanh vùng
@@ -15712,6 +15719,58 @@ executeCropAI = function(actionType) {
     disablePdfCropMode();
     triggerPdfAI(actionType, croppedBase64);
 };
+// ================= HÀM COPY ẢNH KHOANH VÙNG VÀO CLIPBOARD =================
+async function copyCroppedImageToClipboard() {
+    const pCanvas = document.getElementById('pdfCanvas');
+    if (!pCanvas) return disablePdfCropMode();
+
+    // 1. Tính toán tọa độ cắt y hệt như gửi AI
+    const rectCanvas = pCanvas.getBoundingClientRect();
+    const relX = cropRect.x - rectCanvas.left;
+    const relY = cropRect.y - rectCanvas.top;
+    const scaleX = pCanvas.width / rectCanvas.width;
+    const scaleY = pCanvas.height / rectCanvas.height;
+
+    const sx = relX * scaleX;
+    const sy = relY * scaleY;
+    const sw = cropRect.w * scaleX;
+    const sh = cropRect.h * scaleY;
+
+    if (sw <= 0 || sh <= 0 || sx > pCanvas.width || sy > pCanvas.height) {
+        disablePdfCropMode();
+        return customAlert("Vùng khoanh không nằm trên trang giấy. Vui lòng khoanh lại!", "⚠️");
+    }
+
+    // 2. Tạo Canvas ảo để gộp ảnh
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = sw;
+    tempCanvas.height = sh;
+    const tCtx = tempCanvas.getContext('2d');
+    
+    tCtx.fillStyle = "#ffffff";
+    tCtx.fillRect(0, 0, sw, sh);
+    
+    // Cắt và vẽ PDF
+    tCtx.drawImage(pCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+    // Cắt và vẽ Nét bút (Nếu có)
+    const dCanvas = document.getElementById('pdfDrawCanvas');
+    if (dCanvas) {
+        tCtx.drawImage(dCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+    }
+
+    // 3. Đóng gói thành file Blob (PNG) và đẩy vào Clipboard hệ thống
+    tempCanvas.toBlob(async (blob) => {
+        try {
+            const item = new ClipboardItem({ "image/png": blob });
+            await navigator.clipboard.write([item]);
+            showToast("📋 Đã copy ảnh thành công! Hãy Paste (Ctrl+V) ra chỗ khác.");
+        } catch (error) {
+            console.error("Clipboard API Error:", error);
+            customAlert("Trình duyệt không hỗ trợ Copy ảnh trực tiếp hoặc bạn chưa cấp quyền Clipboard.", "⚠️");
+        }
+        disablePdfCropMode(); // Tắt giao diện cắt
+    }, 'image/png');
+}
 /* ================= LOGIC XỬ LÝ FOCUS TÌM KIẾM NGỮ PHÁP ================= */
 function enableGrammarSearchMode() {
     const page = document.getElementById('grammarPage');
