@@ -12551,13 +12551,14 @@ async function showGrammarVault(skipHash = false) {
 }
 
 // Hàm mới: Quét kho thẻ Flashcard của User để xem họ đã học/thuộc ngữ pháp nào
+// (Đã Fix lỗi F5 mất dữ liệu)
 async function calculateGrammarMastery() {
     if (!currentUser) return;
     
     userGrammarMasteryMap = {}; // Reset map
     
     try {
-        // Lấy tất cả thẻ đang học của user và interval SRS của nó
+        // 1. Lấy tất cả thẻ đang học của user và interval SRS của nó
         const { data: progressData, error } = await sb.from('progress')
             .select(`interval, cards!inner ( front )`)
             .eq('user_id', currentUser.id);
@@ -12575,7 +12576,15 @@ async function calculateGrammarMastery() {
             }
         });
 
-        // Nếu globalGrammarData đã tải, map nó với kho flashcard
+        // 2. 🟢 FIX LỖI F5: NẾU TỪ ĐIỂN NGỮ PHÁP ĐANG TRỐNG, TỰ ĐỘNG TẢI NGẦM TỪ DATABASE
+        if (globalGrammarData.length === 0) {
+            const { data: gData, error: gErr } = await sb.from('grammar_dict').select('*');
+            if (!gErr && gData) {
+                globalGrammarData = gData; // Nạp vào RAM luôn để sau này vào trang Ngữ pháp khỏi phải tải lại
+            }
+        }
+
+        // 3. Tiến hành đối chiếu (Map)
         if (globalGrammarData.length > 0) {
             globalGrammarData.forEach(g => {
                 const point = g.grammar_point;
@@ -12583,7 +12592,6 @@ async function calculateGrammarMastery() {
                 const cleanPoint = point.replace(/～/g, ''); 
 
                 // Tìm xem có thẻ flashcard nào của user CHỨA điểm ngữ pháp này không
-                // Và lấy thẻ có interval cao nhất
                 let maxInterval = 0;
                 for (const [frontText, interval] of Object.entries(userFlashcards)) {
                     if (frontText.includes(cleanPoint)) {
