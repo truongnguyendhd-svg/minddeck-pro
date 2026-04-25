@@ -16549,6 +16549,68 @@ async function saveJLPTGoal() {
 }
 
 // 3. Hàm tính toán và Render Lộ trình (Đọc từ SUPABASE + Chốt sổ đầu ngày)
+// HÀM MỚI: ĐỒNG BỘ KANJI NGẦM (GIẢI QUYẾT LỖI ĐÓNG BĂNG TIẾN ĐỘ)
+async function syncKanjiMastery() {
+    if (!currentUser) return 0;
+    try {
+        // Lấy tiến độ SRS thực tế
+        const { data: progressData } = await sb.from('progress')
+            .select('interval, interval_count, cards!inner(front)')
+            .eq('user_id', currentUser.id);
+            
+        // Lấy Kỷ lục cũ trên Cloud
+        const { data: profile } = await sb.from('profiles')
+            .select('kanji_mastery').eq('id', currentUser.id).single();
+            
+        let cloudArchive = profile?.kanji_mastery || {};
+        let liveMap = {};
+        let failedMap = {};
+
+        // Quét
+        if (progressData) {
+            progressData.forEach(p => {
+                const intv = p.interval || 0;
+                const count = p.interval_count || 0;
+                if (intv <= 0) return;
+                const kMatches = (p.cards.front || "").match(/[\u4e00-\u9faf]/g) || [];
+                kMatches.forEach(k => {
+                    if (!liveMap[k] || liveMap[k] < intv) liveMap[k] = intv;
+                    if (count === 0) failedMap[k] = true;
+                });
+            });
+        }
+
+        // Trộn và Bảo vệ kỷ lục (Giống logic trong trang Pokedex)
+        let finalMap = {};
+        let changed = false;
+        const allKeys = new Set([...Object.keys(liveMap), ...Object.keys(cloudArchive)]);
+        
+        for (const k of allKeys) {
+            const lVal = liveMap[k];
+            const cVal = cloudArchive[k] || 0;
+            if (lVal !== undefined) {
+                if (failedMap[k]) {
+                    let pen = cVal > 45 ? 45 : (cVal > 20 ? 20 : (cVal > 6 ? 6 : 1));
+                    finalMap[k] = Math.max(lVal, pen);
+                } else {
+                    finalMap[k] = Math.max(lVal, cVal);
+                }
+                if (finalMap[k] !== cVal) changed = true;
+            } else {
+                finalMap[k] = cVal;
+            }
+        }
+
+        // Nếu có sự thay đổi (học thêm từ mới, hoặc bị phạt tụt hạng) -> Update Cloud
+        if (changed) {
+            sb.from('profiles').update({ kanji_mastery: finalMap }).eq('id', currentUser.id).then();
+        }
+        return Object.keys(finalMap).length;
+    } catch (e) {
+        console.error("Lỗi đồng bộ Kanji:", e);
+        return 0;
+    }
+}
 async function renderRoadmapWidget() {
     const zone = document.getElementById('jlptRoadmapZone');
     if (!currentUser) return;
@@ -16599,7 +16661,7 @@ async function renderRoadmapWidget() {
             
         await calculateGrammarMastery(); 
         const grammarCount = Object.keys(userGrammarMasteryMap).length;
-        const kanjiCount = profile.kanji_mastery ? Object.keys(profile.kanji_mastery).length : 0;
+        const kanjiCount = await syncKanjiMastery(); // Quét và đồng bộ ngay lập tức
 
         // ========================================================
         // 🟢 THUẬT TOÁN MỚI: CHỐT SỔ ĐẦU NGÀY (DAILY SNAPSHOT)
@@ -16699,31 +16761,43 @@ async function generateDailyStoryWithAI() {
 
     showLoading(`AI đang viết bài Đọc hiểu ${targetLevel} độc bản cho bạn...\nVui lòng đợi 15-20 giây ☕`);
 
-    // PROMPT ĐÃ ĐƯỢC VIẾT LẠI ĐỂ RA ĐỀ ĐỌC HIỂU
+    // ĐÃ SỬA PROMPT: YÊU CẦU TÁCH RIÊNG TỪ VỰNG VÀ NGỮ PHÁP
     const prompt = `Đóng vai trò là người ra đề thi JLPT ${targetLevel}. Hãy viết MỘT ĐOẠN VĂN NGẮN (Dokkai) thú vị, tự nhiên (khoảng 5-8 câu).
     
     Yêu cầu:
     1. Đoạn văn BẮT BUỘC chứa khoảng 10 từ vựng/kanji và 2-3 ngữ pháp của ${targetLevel}.
-    2. Đặt 1 câu hỏi trắc nghiệm đọc hiểu liên quan đến nội dung đoạn văn (có 4 đáp án).
-    3. Đưa ra lời giải thích ngắn gọn bằng tiếng Việt tại sao lại chọn đáp án đó.
+    2. Đặt 1 câu hỏi trắc nghiệm đọc hiểu liên quan (có 4 đáp án).
+    3. Đưa ra lời giải thích ngắn gọn bằng tiếng Việt.
+    4. Trích xuất Từ vựng và Ngữ pháp thành 2 mảng riêng biệt.
     
     TRẢ VỀ DUY NHẤT 1 KHỐI JSON. Định dạng chuẩn xác như sau:
     {
       "title_jp": "Tiêu đề tiếng Nhật",
-      "story_jp": "Nội dung đoạn văn tiếng Nhật (Gộp thành 1 chuỗi dài, dùng \\n để xuống dòng nếu cần).",
+      "story_jp": "Nội dung đoạn văn tiếng Nhật.",
       "story_vn": "Bản dịch toàn bộ đoạn văn sang tiếng Việt.",
       "quiz": {
-        "question": "Câu hỏi trắc nghiệm (Tiếng Nhật)",
-        "correct_answer": "Đáp án đúng (Tiếng Nhật)",
-        "wrong_answers": ["Đáp án sai 1", "Đáp án sai 2", "Đáp án sai 3"],
-        "explanation": "Giải thích ngắn gọn bằng tiếng Việt tại sao chọn đáp án này."
+        "question": "Câu hỏi trắc nghiệm",
+        "correct_answer": "Đáp án đúng",
+        "wrong_answers": ["Sai 1", "Sai 2", "Sai 3"],
+        "explanation": "Giải thích ngắn gọn"
       },
-      "flashcards": [
+      "vocab": [
         {
-          "front": "Từ vựng / Ngữ pháp",
+          "front": "Từ vựng (Kanji)",
           "reading": "Cách đọc Hiragana",
           "meaning": "Ý nghĩa tiếng Việt",
           "hv": "Nghĩa Hán Việt (Nếu có)",
+          "ex_jp": "1 Câu ví dụ tiếng Nhật rút ra từ bài",
+          "ex_vn": "Nghĩa câu ví dụ"
+        }
+      ],
+      "grammar": [
+        {
+          "point": "Cấu trúc ngữ pháp",
+          "level": "${targetLevel}",
+          "meaning": "Nghĩa tiếng Việt",
+          "structure": "Cách ghép (VD: Vru + わけだ)",
+          "nuance": "Sắc thái & Lưu ý",
           "ex_jp": "1 Câu ví dụ tiếng Nhật rút ra từ bài",
           "ex_vn": "Nghĩa câu ví dụ"
         }
@@ -16736,44 +16810,77 @@ async function generateDailyStoryWithAI() {
         const data = JSON.parse(aiResponse);
 
         currentGeneratedStoryData = data; 
+        const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email); // Check Admin
 
-        // 1. RENDER NỘI DUNG MỞ
+        // RENDER NỘI DUNG MỞ (Tiêu đề, Text, Trắc nghiệm)
         document.getElementById('storyTitleJp').innerText = data.title_jp;
         document.getElementById('storyContentJp').innerHTML = wrapKanjiWithLink(escapeHTML(data.story_jp).replace(/\n/g, '<br><br>'));
         
-        // 2. RENDER CÂU HỎI TRẮC NGHIỆM
         document.getElementById('storyQuizQuestion').innerText = data.quiz.question;
         const optionsBox = document.getElementById('storyQuizOptions');
         optionsBox.innerHTML = '';
         
-        // Trộn đáp án
-        let options = [data.quiz.correct_answer, ...data.quiz.wrong_answers];
-        options.sort(() => Math.random() - 0.5);
-
+        let options = [data.quiz.correct_answer, ...data.quiz.wrong_answers].sort(() => Math.random() - 0.5);
         options.forEach(opt => {
             let btn = document.createElement('button');
             btn.className = 'dokkai-quiz-opt';
             btn.innerText = opt;
-            // Gắn sự kiện click
             btn.onclick = () => handleStoryQuizAnswer(btn, opt, data.quiz.correct_answer);
             optionsBox.appendChild(btn);
         });
 
-        // 3. RENDER NỘI DUNG KHÓA (Giải thích, Bản dịch, Thẻ)
+        // RENDER NỘI DUNG KHÓA (Giải thích, Bản dịch, Thẻ)
         document.getElementById('storyContentVn').innerHTML = escapeHTML(data.story_vn).replace(/\n/g, '<br><br>');
         document.getElementById('storyQuizExplanation').innerText = data.quiz.explanation;
         
-        document.getElementById('storyCardCount').innerText = `${data.flashcards.length} Thẻ`;
+        let totalCards = (data.vocab ? data.vocab.length : 0) + (data.grammar ? data.grammar.length : 0);
+        document.getElementById('storyCardCount').innerText = `${totalCards} Thẻ`;
+        
         const cardsZone = document.getElementById('storyCardsZone');
-        cardsZone.innerHTML = data.flashcards.map(c => `
-            <div style="padding: 12px; background: #fbfbfb; border: 1px solid #e5e5e5; border-radius: 8px; display: flex; align-items: center; gap: 10px;">
-                <span class="material-symbols-outlined" style="color: #3b82f6;">style</span>
-                <div>
-                    <div style="font-weight: 800; color: #1a1a1a;">${escapeHTML(c.front)}</div>
-                    <div style="font-size: 13px; color: #666666;">${escapeHTML(c.meaning)}</div>
+        let cardsHTML = '';
+
+        // 1. Render Từ vựng
+        if (data.vocab) {
+            cardsHTML += data.vocab.map(c => `
+                <div style="padding: 12px; background: #fbfbfb; border: 1px solid #e5e5e5; border-left: 3px solid #3b82f6; border-radius: 8px; display: flex; align-items: center; gap: 10px;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 800; color: #1a1a1a;">${escapeHTML(c.front)}</div>
+                        <div style="font-size: 13px; color: #666666;">${escapeHTML(c.meaning)}</div>
+                    </div>
                 </div>
-            </div>
-        `).join('');
+            `).join('');
+        }
+
+        // 2. Render Ngữ pháp (Kèm Nút Admin)
+        if (data.grammar) {
+            cardsHTML += data.grammar.map(g => {
+                let adminBtn = "";
+                if (isAdmin) {
+                    const adminSaveObj = {
+                        point: g.point, level: g.level, meaning: g.meaning,
+                        structure: g.structure, nuance: g.nuance,
+                        ex1_jp: g.ex_jp, ex1_vn: g.ex_vn
+                    };
+                    const safeAdminJSON = encodeURIComponent(JSON.stringify(adminSaveObj));
+                    adminBtn = `
+                        <button onclick="openAdminGrammarModal('${safeAdminJSON}')" title="Thêm vào DB Toàn Cầu" style="background: #ecfdf5; color: #10b981; border: 1px solid #a7f3d0; border-radius: 6px; padding: 4px 8px; cursor: pointer; display: flex; align-items: center;">
+                            <span class="material-symbols-outlined" style="font-size: 16px;">cloud_upload</span>
+                        </button>
+                    `;
+                }
+
+                return `
+                <div style="padding: 12px; background: #fbfbfb; border: 1px solid #e5e5e5; border-left: 3px solid #10b981; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 800; color: #10b981; font-size: 12px; margin-bottom: 2px;">NGỮ PHÁP</div>
+                        <div style="font-weight: 800; color: #1a1a1a;">${escapeHTML(g.point)}</div>
+                        <div style="font-size: 13px; color: #666666;">${escapeHTML(g.meaning)}</div>
+                    </div>
+                    ${adminBtn}
+                </div>`;
+            }).join('');
+        }
+        cardsZone.innerHTML = cardsHTML;
 
         // Khóa lại trạng thái UI trước khi chơi
         document.getElementById('dokkaiUnlockZone').classList.remove('unlocked');
@@ -16837,12 +16944,34 @@ async function saveStoryAndStudy() {
         const data = currentGeneratedStoryData;
         const deckId = `${currentUser.id}:Dokkai_${Date.now()}`;
 
+        // 1. Lưu Bộ bài mới
         const { error: deckErr } = await sb.from('decks').insert([{
             id: deckId, owner_id: currentUser.id, type: 'flashcard', is_public: false
         }]);
         if (deckErr) throw deckErr;
 
-        const cardsToSave = data.flashcards.map(c => {
+        // 2. Gộp Từ vựng và Ngữ pháp lại thành Mảng chung để tạo Thẻ
+        let combinedCards = [];
+        
+        if (data.vocab) {
+            data.vocab.forEach(v => combinedCards.push(v));
+        }
+        
+        if (data.grammar) {
+            data.grammar.forEach(g => {
+                combinedCards.push({
+                    front: g.point,
+                    reading: "", // Ngữ pháp không có Furigana
+                    meaning: g.meaning,
+                    hv: `Cấu trúc: ${g.structure || ''} | Sắc thái: ${g.nuance || ''}`,
+                    ex_jp: g.ex_jp,
+                    ex_vn: g.ex_vn
+                });
+            });
+        }
+
+        // 3. Map sang định dạng Database
+        const cardsToSave = combinedCards.map(c => {
             const backPacked = `${c.reading || ''}\n${c.meaning || ''}`.trim();
             let infoArr = [];
             if (c.hv) infoArr.push(`[HV] ${c.hv}`);
@@ -16857,9 +16986,12 @@ async function saveStoryAndStudy() {
 
         closeModal('aiStoryModal');
         currentGeneratedStoryData = null;
-        renderRoadmapWidget();
+        
+        // Quét lại Dashboard để tiến độ hiển thị đúng
+        renderRoadmapWidget(); 
         showToast(`✨ Đã tạo xong bài học. Bắt đầu ngay thôi!`);
 
+        // 4. BAY THẲNG VÀO CHẾ ĐỘ HỌC SRS
         mode = 'review';
         await loadCards(deckId); 
 
