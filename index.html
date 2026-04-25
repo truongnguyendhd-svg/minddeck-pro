@@ -16465,8 +16465,6 @@ async function renderRoadmapWidget() {
     if (!currentUser) return;
 
     try {
-        // --- LẤY DỮ LIỆU TỪ SUPABASE ---
-        // Lấy mục tiêu JLPT (study_goal) và Kanji (kanji_mastery) trong 1 lần query để tối ưu hiệu năng
         const { data: profile, error: profErr } = await sb.from('profiles')
             .select('study_goal, kanji_mastery')
             .eq('id', currentUser.id)
@@ -16477,7 +16475,6 @@ async function renderRoadmapWidget() {
         const goal = profile.study_goal;
 
         if (!goal) {
-            // Trạng thái 1: Chưa cài đặt mục tiêu
             zone.innerHTML = `
                 <div class="roadmap-widget">
                     <div class="roadmap-empty-state">
@@ -16493,39 +16490,36 @@ async function renderRoadmapWidget() {
             return;
         }
 
-        // Trạng thái 2: Đã có mục tiêu -> Tính toán
-        // Supabase tự động parse JSON column thành Object, không cần JSON.parse()
         const targetDate = new Date(goal.target_date);
         const today = new Date();
-        
-        // Tính số ngày còn lại
         const diffTime = Math.abs(targetDate - today);
         const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         
         if (daysLeft <= 0 || targetDate < today) {
-            // Đã đến ngày thi hoặc quá hạn
             zone.innerHTML = `<div class="roadmap-widget"><div class="roadmap-empty-state"><h3 style="color:#10b981;">🎉 Hôm nay là ngày thi JLPT! Chúc bạn làm bài tốt!</h3><button onclick="openJLPTGoalModal()" class="win11-btn-secondary" style="margin: 15px auto 0 auto;">Tạo lộ trình mới</button></div></div>`;
             return;
         }
 
         const quota = JLPT_QUOTA[goal.level];
         
-        // --- LẤY SỐ LƯỢNG THỰC TẾ ---
-        // A. Lấy số Từ vựng (Tổng Flashcard đang có)
-        const { count: vocabCount } = await sb.from('cards')
-            .select('*, decks!inner(type)', { count: 'exact', head: true })
-            .eq('decks.owner_id', currentUser.id)
-            .eq('decks.type', 'flashcard');
+        // ========================================================
+        // 🟢 ĐÃ SỬA: LẤY SỐ LƯỢNG "ĐÃ HỌC" THAY VÌ "ĐÃ TẠO"
+        // ========================================================
+        // A. Lấy số Từ vựng (Chỉ đếm các thẻ Flashcard ĐÃ CÓ TIẾN TRÌNH SRS)
+        const { count: vocabStudiedCount } = await sb.from('progress')
+            .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
+            .eq('user_id', currentUser.id)
+            .eq('cards.decks.type', 'flashcard');
             
-        // B. Lấy số Ngữ pháp (Đếm số key trong userGrammarMasteryMap)
+        // B. Lấy số Ngữ pháp (Đã được tính dựa trên tiến trình thẻ thực tế)
         await calculateGrammarMastery(); 
         const grammarCount = Object.keys(userGrammarMasteryMap).length;
 
-        // C. Lấy số Kanji 
+        // C. Lấy số Kanji (Dựa trên kỷ lục ghi nhận từ quá trình học)
         const kanjiCount = profile.kanji_mastery ? Object.keys(profile.kanji_mastery).length : 0;
 
-        // --- TÍNH TOÁN SỐ LƯỢNG THẺ CẦN THÊM MỖI NGÀY ---
-        const dailyVocab = Math.max(0, Math.ceil((quota.vocab - vocabCount) / daysLeft));
+        // --- TÍNH TOÁN SỐ LƯỢNG CẦN HỌC MỖI NGÀY ---
+        const dailyVocab = Math.max(0, Math.ceil((quota.vocab - vocabStudiedCount) / daysLeft));
         const dailyGrammar = Math.max(0, Math.ceil((quota.grammar - grammarCount) / daysLeft));
         const dailyKanji = Math.max(0, Math.ceil((quota.kanji - kanjiCount) / daysLeft));
 
@@ -16534,8 +16528,9 @@ async function renderRoadmapWidget() {
             <div class="checklist-item ${isDone ? 'done' : ''}">
                 <div class="check-icon-box"><span class="material-symbols-outlined" style="font-size: 16px;">check</span></div>
                 <div class="checklist-text">
-                    <h4>${isDone ? `Hoàn thành mục tiêu ${label}` : `Cần tạo ${dailyTarget} ${label} mới`}</h4>
-                    <p>Kho thẻ hiện tại: ${currentTotal || 0} / ${quotaTotal}</p>
+                    <!-- 🟢 ĐÃ SỬA CHỮ "TẠO" THÀNH "HỌC MỚI" -->
+                    <h4>${isDone ? `Đã nạp đủ lượng ${label}` : `Cần học mới ${dailyTarget} ${label}`}</h4>
+                    <p>Đã ngấm vào đầu: ${currentTotal || 0} / ${quotaTotal}</p>
                 </div>
             </div>
         `;
@@ -16560,18 +16555,19 @@ async function renderRoadmapWidget() {
                 <div style="font-size: 14px; color: #4a4a4a; margin-bottom: 15px; font-weight: 500;">Mục tiêu hôm nay của bạn:</div>
                 
                 <div class="checklist-grid">
-                    ${buildChecklistItem('Từ vựng', dailyVocab, vocabCount, quota.vocab, dailyVocab === 0)}
+                    ${buildChecklistItem('Từ vựng', dailyVocab, vocabStudiedCount, quota.vocab, dailyVocab === 0)}
                     ${buildChecklistItem('Ngữ pháp', dailyGrammar, grammarCount, quota.grammar, dailyGrammar === 0)}
                     ${buildChecklistItem('Chữ Kanji', dailyKanji, kanjiCount, quota.kanji, dailyKanji === 0)}
                 </div>
                 
                 ${(dailyVocab > 0 || dailyGrammar > 0 || dailyKanji > 0) ? `
-                    <div style="margin-top: 20px; border-top: 1px dashed #e2e8f0; padding-top: 15px; display: flex; justify-content: flex-end;">
-                        <button onclick="showImportForm()" class="win11-btn-primary" style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
-                            <span class="material-symbols-outlined" style="font-size: 18px;">auto_awesome</span> MỞ AI GENERATOR ĐỂ TẠO THẺ
+                    <div style="margin-top: 20px; border-top: 1px dashed #e2e8f0; padding-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 13px; color: #718096; max-width: 60%;">*Hệ thống chỉ tính những thẻ bạn <b>đã ấn bắt đầu học</b> (Ôn tập SRS) ít nhất 1 lần.</span>
+                        <button onclick="startGlobalReview()" class="win11-btn-primary" style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
+                            <span class="material-symbols-outlined" style="font-size: 18px;">psychology</span> VÀO HỌC NGAY
                         </button>
                     </div>
-                ` : `<div style="margin-top: 15px; text-align: center; color: #10b981; font-weight: 800;">🎉 Tuyệt vời! Kho dữ liệu của bạn đã đủ để đi thi. Bây giờ chỉ cần ôn tập mỗi ngày thôi!</div>`}
+                ` : `<div style="margin-top: 15px; text-align: center; color: #10b981; font-weight: 800;">🎉 Tuyệt vời! Lượng kiến thức trong đầu bạn đã đủ để đi thi. Bây giờ chỉ cần duy trì ôn tập mỗi ngày thôi!</div>`}
             </div>
         `;
     } catch (err) {
