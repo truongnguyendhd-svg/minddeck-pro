@@ -16459,7 +16459,7 @@ async function saveJLPTGoal() {
     }
 }
 
-// 3. Hàm tính toán và Render Lộ trình (Đọc từ SUPABASE)
+// 3. Hàm tính toán và Render Lộ trình (Đọc từ SUPABASE + Chốt sổ đầu ngày)
 async function renderRoadmapWidget() {
     const zone = document.getElementById('jlptRoadmapZone');
     if (!currentUser) return;
@@ -16502,38 +16502,59 @@ async function renderRoadmapWidget() {
 
         const quota = JLPT_QUOTA[goal.level];
         
-        // ========================================================
-        // 🟢 ĐÃ SỬA: LẤY SỐ LƯỢNG "ĐÃ HỌC" THAY VÌ "ĐÃ TẠO"
-        // ========================================================
-        // A. Lấy số Từ vựng (Chỉ đếm các thẻ Flashcard ĐÃ CÓ TIẾN TRÌNH SRS)
+        // --- 1. LẤY TỔNG SỐ LƯỢNG THỰC TẾ HIỆN TẠI ---
         const { count: vocabStudiedCount } = await sb.from('progress')
             .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
             .eq('user_id', currentUser.id)
             .eq('cards.decks.type', 'flashcard');
             
-        // B. Lấy số Ngữ pháp (Đã được tính dựa trên tiến trình thẻ thực tế)
         await calculateGrammarMastery(); 
         const grammarCount = Object.keys(userGrammarMasteryMap).length;
-
-        // C. Lấy số Kanji (Dựa trên kỷ lục ghi nhận từ quá trình học)
         const kanjiCount = profile.kanji_mastery ? Object.keys(profile.kanji_mastery).length : 0;
 
-        // --- TÍNH TOÁN SỐ LƯỢNG CẦN HỌC MỖI NGÀY ---
-        const dailyVocab = Math.max(0, Math.ceil((quota.vocab - vocabStudiedCount) / daysLeft));
-        const dailyGrammar = Math.max(0, Math.ceil((quota.grammar - grammarCount) / daysLeft));
-        const dailyKanji = Math.max(0, Math.ceil((quota.kanji - kanjiCount) / daysLeft));
+        // ========================================================
+        // 🟢 THUẬT TOÁN MỚI: CHỐT SỔ ĐẦU NGÀY (DAILY SNAPSHOT)
+        // ========================================================
+        const todayStr = new Date().toLocaleDateString();
+        let dailySnapshot = JSON.parse(localStorage.getItem(`minddeck_snapshot_${currentUser.id}`)) || {};
+
+        // Nếu qua ngày mới, hoặc chưa có sổ -> Chốt sổ lưu lại số dư đầu ngày
+        if (dailySnapshot.date !== todayStr) {
+            dailySnapshot = {
+                date: todayStr,
+                vocab: vocabStudiedCount || 0,
+                grammar: grammarCount || 0,
+                kanji: kanjiCount || 0
+            };
+            localStorage.setItem(`minddeck_snapshot_${currentUser.id}`, JSON.stringify(dailySnapshot));
+        }
+
+        // --- 2. TÍNH MỤC TIÊU CẦN LÀM TRONG HÔM NAY (Dựa trên số dư ĐẦU NGÀY) ---
+        const targetVocabToday = Math.max(0, Math.ceil((quota.vocab - dailySnapshot.vocab) / daysLeft));
+        const targetGrammarToday = Math.max(0, Math.ceil((quota.grammar - dailySnapshot.grammar) / daysLeft));
+        const targetKanjiToday = Math.max(0, Math.ceil((quota.kanji - dailySnapshot.kanji) / daysLeft));
+
+        // --- 3. TÍNH TIẾN ĐỘ ĐÃ LÀM ĐƯỢC TRONG HÔM NAY ---
+        const doneVocabToday = Math.max(0, (vocabStudiedCount || 0) - dailySnapshot.vocab);
+        const doneGrammarToday = Math.max(0, (grammarCount || 0) - dailySnapshot.grammar);
+        const doneKanjiToday = Math.max(0, (kanjiCount || 0) - dailySnapshot.kanji);
 
         // --- VẼ UI CHECKLIST ---
-        const buildChecklistItem = (label, dailyTarget, currentTotal, quotaTotal, isDone) => `
-            <div class="checklist-item ${isDone ? 'done' : ''}">
-                <div class="check-icon-box"><span class="material-symbols-outlined" style="font-size: 16px;">check</span></div>
-                <div class="checklist-text">
-                    <!-- 🟢 ĐÃ SỬA CHỮ "TẠO" THÀNH "HỌC MỚI" -->
-                    <h4>${isDone ? `Đã nạp đủ lượng ${label}` : `Cần học mới ${dailyTarget} ${label}`}</h4>
-                    <p>Đã ngấm vào đầu: ${currentTotal || 0} / ${quotaTotal}</p>
+        const buildChecklistItem = (label, targetToday, doneToday, currentTotal, quotaTotal) => {
+            // Điều kiện hoàn thành: Làm đủ target hôm nay, HOẶC đã học max tổng quota
+            const isDone = (targetToday > 0 && doneToday >= targetToday) || (currentTotal >= quotaTotal);
+            
+            return `
+                <div class="checklist-item ${isDone ? 'done' : ''}">
+                    <div class="check-icon-box"><span class="material-symbols-outlined" style="font-size: 16px;">check</span></div>
+                    <div class="checklist-text">
+                        <h4>${isDone ? `Hoàn thành mục tiêu ${label}` : `Cần học mới ${targetToday} ${label}`}</h4>
+                        <p style="font-size: 12px; margin-bottom: 2px;">Hôm nay đã nạp: <b style="color: ${isDone ? '#10b981' : '#d97706'};">${doneToday} / ${targetToday}</b></p>
+                        <p style="font-size: 11px; opacity: 0.7;">Tổng kết: ${currentTotal || 0} / ${quotaTotal}</p>
+                    </div>
                 </div>
-            </div>
-        `;
+            `;
+        };
 
         zone.innerHTML = `
             <div class="roadmap-widget">
@@ -16552,22 +16573,22 @@ async function renderRoadmapWidget() {
                     </div>
                 </div>
                 
-                <div style="font-size: 14px; color: #4a4a4a; margin-bottom: 15px; font-weight: 500;">Mục tiêu hôm nay của bạn:</div>
+                <div style="font-size: 14px; color: #4a4a4a; margin-bottom: 15px; font-weight: 500;">Nhiệm vụ hôm nay của bạn:</div>
                 
                 <div class="checklist-grid">
-                    ${buildChecklistItem('Từ vựng', dailyVocab, vocabStudiedCount, quota.vocab, dailyVocab === 0)}
-                    ${buildChecklistItem('Ngữ pháp', dailyGrammar, grammarCount, quota.grammar, dailyGrammar === 0)}
-                    ${buildChecklistItem('Chữ Kanji', dailyKanji, kanjiCount, quota.kanji, dailyKanji === 0)}
+                    ${buildChecklistItem('Từ vựng', targetVocabToday, doneVocabToday, vocabStudiedCount, quota.vocab)}
+                    ${buildChecklistItem('Ngữ pháp', targetGrammarToday, doneGrammarToday, grammarCount, quota.grammar)}
+                    ${buildChecklistItem('Chữ Kanji', targetKanjiToday, doneKanjiToday, kanjiCount, quota.kanji)}
                 </div>
                 
-                ${(dailyVocab > 0 || dailyGrammar > 0 || dailyKanji > 0) ? `
+                ${(targetVocabToday > 0 || targetGrammarToday > 0 || targetKanjiToday > 0) ? `
                     <div style="margin-top: 20px; border-top: 1px dashed #e2e8f0; padding-top: 15px; display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 13px; color: #718096; max-width: 60%;">*Hệ thống chỉ tính những thẻ bạn <b>đã ấn bắt đầu học</b> (Ôn tập SRS) ít nhất 1 lần.</span>
+                        <span style="font-size: 13px; color: #718096; max-width: 60%;">*Chỉ tính những thẻ bạn <b>đã ấn bắt đầu học</b> (Ôn tập SRS) ít nhất 1 lần.</span>
                         <button onclick="startGlobalReview()" class="win11-btn-primary" style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
                             <span class="material-symbols-outlined" style="font-size: 18px;">psychology</span> VÀO HỌC NGAY
                         </button>
                     </div>
-                ` : `<div style="margin-top: 15px; text-align: center; color: #10b981; font-weight: 800;">🎉 Tuyệt vời! Lượng kiến thức trong đầu bạn đã đủ để đi thi. Bây giờ chỉ cần duy trì ôn tập mỗi ngày thôi!</div>`}
+                ` : `<div style="margin-top: 15px; text-align: center; color: #10b981; font-weight: 800;">🎉 Tuyệt vời! Bạn đã hoàn thành toàn bộ chỉ tiêu của ngày hôm nay. Hãy nghỉ ngơi hoặc ôn tập tự do nhé!</div>`}
             </div>
         `;
     } catch (err) {
