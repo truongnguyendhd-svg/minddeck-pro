@@ -16944,22 +16944,17 @@ function handleStoryQuizAnswer(clickedBtn, selectedAns, correctAns) {
     }, 300);
 }
 
-// Hàm Lưu toàn bộ câu chuyện (Giữ nguyên không cần sửa, chỉ đảm bảo nó đang ở đó)
+// Hàm Lưu bài học AI Story (ĐÃ BỔ SUNG LỌC TRÙNG LẶP)
 async function saveStoryAndStudy() {
     if (!currentGeneratedStoryData || !currentUser) return;
-    showLoading("Đang đóng gói bài học & Chuẩn bị thẻ...");
+    
+    // Đổi lời báo loading cho chính xác
+    showLoading("Đang kiểm tra trùng lặp và đóng gói bài học...");
 
     try {
         const data = currentGeneratedStoryData;
-        const deckId = `${currentUser.id}:Dokkai_${Date.now()}`;
-
-        // 1. Lưu Bộ bài mới
-        const { error: deckErr } = await sb.from('decks').insert([{
-            id: deckId, owner_id: currentUser.id, type: 'flashcard', is_public: false
-        }]);
-        if (deckErr) throw deckErr;
-
-        // 2. Gộp Từ vựng và Ngữ pháp lại thành Mảng chung để tạo Thẻ
+        
+        // 1. Gộp Từ vựng và Ngữ pháp lại thành Mảng chung
         let combinedCards = [];
         
         if (data.vocab) {
@@ -16979,30 +16974,71 @@ async function saveStoryAndStudy() {
             });
         }
 
-        // 3. Map sang định dạng Database
-        const cardsToSave = combinedCards.map(c => {
+        // 2. Map sang định dạng Database (Tạo sẵn ID nhưng CHƯA lưu vội)
+        const tempDeckId = `${currentUser.id}:Dokkai_${Date.now()}`;
+        const cardsToProcess = combinedCards.map(c => {
             const backPacked = `${c.reading || ''}\n${c.meaning || ''}`.trim();
             let infoArr = [];
             if (c.hv) infoArr.push(`[HV] ${c.hv}`);
             if (c.ex_jp) infoArr.push(`[EX1] ${c.ex_jp}`);
             if (c.ex_vn) infoArr.push(`[VN1] ${c.ex_vn}`);
 
-            return { deck_id: deckId, front: c.front, back: backPacked, info: infoArr.join('\n') };
+            return { deck_id: tempDeckId, front: c.front, back: backPacked, info: infoArr.join('\n') };
         });
 
-        const { error: cardsErr } = await sb.from('cards').insert(cardsToSave);
+        // ==========================================
+        // 🟢 BƯỚC 3: KÍCH HOẠT MÁY LỌC TRÙNG LẶP
+        // ==========================================
+        const filterResult = await filterDuplicateCardsForBulk(cardsToProcess);
+
+        // NẾU TẤT CẢ TỪ VỰNG TRONG TRUYỆN ĐỀU ĐÃ HỌC RỒI -> HỦY BỎ
+        if (filterResult.validCards.length === 0) {
+            hideLoading();
+            return customAlert(`Tuyệt vời! Toàn bộ <b>${filterResult.duplicateWords.length}</b> từ vựng & ngữ pháp trong bài đọc này đều đã tồn tại trong kho dữ liệu của bạn.<br><br>Bạn đã làm chủ được bài đọc này mà không cần tạo thẻ mới!`, "⚠️ Không có thẻ mới", "warning");
+        }
+
+        document.getElementById('loadingText').innerText = `Đang lưu ${filterResult.validCards.length} thẻ mới lên Cloud...`;
+
+        // ==========================================
+        // BƯỚC 4: LƯU LÊN SUPABASE VÀ HỌC NGAY
+        // ==========================================
+        // 4.1. Lưu Bộ bài mới (Chỉ lưu khi chắc chắn có thẻ hợp lệ)
+        const { error: deckErr } = await sb.from('decks').insert([{
+            id: tempDeckId, owner_id: currentUser.id, type: 'flashcard', is_public: false
+        }]);
+        if (deckErr) throw deckErr;
+
+        // 4.2. Lưu Các thẻ ĐÃ ĐƯỢC LỌC SẠCH
+        const { error: cardsErr } = await sb.from('cards').insert(filterResult.validCards);
         if (cardsErr) throw cardsErr;
 
         closeModal('aiStoryModal');
         currentGeneratedStoryData = null;
         
-        // Quét lại Dashboard để tiến độ hiển thị đúng
+        // Quét lại Dashboard
         renderRoadmapWidget(); 
-        showToast(`✨ Đã tạo xong bài học. Bắt đầu ngay thôi!`);
 
-        // 4. BAY THẲNG VÀO CHẾ ĐỘ HỌC SRS
+        hideLoading();
+
+        // 5. THÔNG BÁO TỔNG KẾT VÀ CHUYỂN VÀO HỌC
+        if (filterResult.duplicateWords.length > 0) {
+            // Nếu có lọc bỏ thẻ trùng, hiện bảng thông báo để user biết tại sao số thẻ bị giảm
+            const skippedWords = filterResult.duplicateWords.slice(0, 3).join(', ');
+            const moreStr = filterResult.duplicateWords.length > 3 ? `... và ${filterResult.duplicateWords.length - 3} thẻ khác` : '';
+            
+            customAlert(`
+                🎉 <b>Đã đưa vào bộ bài:</b> ${filterResult.validCards.length} thẻ mới.<br><br>
+                ⏭️ <b>Bỏ qua:</b> ${filterResult.duplicateWords.length} thẻ đã có sẵn trong kho:<br>
+                <span style="color:#d97706; font-size:13px; line-height:1.6; display:inline-block; margin-top:5px;">${skippedWords} ${moreStr}</span><br><br>
+                <i>Bấm 'Đã hiểu' để bắt đầu học ngay!</i>
+            `, "✨ Hoàn tất", "success");
+        } else {
+            showToast(`✨ Đã tạo xong bài học. Bắt đầu ngay thôi!`);
+        }
+
+        // BAY THẲNG VÀO CHẾ ĐỘ HỌC SRS
         mode = 'review';
-        await loadCards(deckId); 
+        await loadCards(tempDeckId); 
 
     } catch (err) {
         hideLoading();
