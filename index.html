@@ -4760,6 +4760,71 @@ body.pdf-mode #pdfReadState {
     color: #4a5568;
 }
 /*Hết ================= CSS CHO JLPT ROADMAP WIDGET ================= */
+/* ================= CSS CHO AI STORY MODAL ================= */
+.story-container {
+    display: flex;
+    gap: 20px;
+    height: 60vh;
+    min-height: 400px;
+}
+
+.story-left-panel {
+    flex: 1;
+    background: #fbfbfd;
+    border: 1px solid #e5e5e5;
+    border-radius: 12px;
+    padding: 20px;
+    overflow-y: auto;
+    font-family: 'Noto Sans JP', sans-serif;
+}
+
+.story-right-panel {
+    flex: 1;
+    background: #ffffff;
+    border: 1px solid #e5e5e5;
+    border-radius: 12px;
+    padding: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.story-sentence {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed #d2d2d7;
+}
+
+.story-sentence-jp {
+    font-size: 16px;
+    color: #1a1a1a;
+    font-weight: 600;
+    line-height: 1.6;
+    margin-bottom: 4px;
+}
+
+.story-sentence-vn {
+    font-size: 14px;
+    color: #666666;
+    line-height: 1.4;
+}
+
+.story-card-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.story-card-item:last-child { border-bottom: none; }
+
+@media (max-width: 768px) {
+    .story-container { flex-direction: column; height: 75vh; }
+    .story-left-panel, .story-right-panel { flex: none; height: 50%; }
+}
+/* Hết ================= CSS CHO AI STORY MODAL ================= */
+
 </style>
 </head>
 <body>
@@ -16582,10 +16647,12 @@ async function renderRoadmapWidget() {
                 </div>
                 
                 ${(targetVocabToday > 0 || targetGrammarToday > 0 || targetKanjiToday > 0) ? `
-                    <div style="margin-top: 20px; border-top: 1px dashed #e2e8f0; padding-top: 15px; display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 13px; color: #718096; max-width: 60%;">*Chỉ tính những thẻ bạn <b>đã ấn bắt đầu học</b> (Ôn tập SRS) ít nhất 1 lần.</span>
-                        <button onclick="startGlobalReview()" class="win11-btn-primary" style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
-                            <span class="material-symbols-outlined" style="font-size: 18px;">psychology</span> VÀO HỌC NGAY
+                    <div style="margin-top: 20px; border-top: 1px dashed #e2e8f0; padding-top: 15px; display: flex; flex-direction: column; gap: 10px;">
+                        <button onclick="generateDailyStoryWithAI()" class="win11-btn-primary" style="width: 100%; padding: 16px; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; background: linear-gradient(135deg, #9333ea, #7e22ce); border: none; box-shadow: 0 4px 15px rgba(147, 51, 234, 0.3);">
+                            <span class="material-symbols-outlined" style="font-size: 20px;">auto_awesome</span> GỌI AI SÁNG TÁC BÀI HỌC HÔM NAY
+                        </button>
+                        <button onclick="startGlobalReview()" class="win11-btn-secondary" style="width: 100%; justify-content: center; padding: 12px; font-size: 14px; color: #4a5568;">
+                            <span class="material-symbols-outlined" style="font-size: 18px;">psychology</span> Ôn tập thẻ cũ (SRS)
                         </button>
                     </div>
                 ` : `<div style="margin-top: 15px; text-align: center; color: #10b981; font-weight: 800;">🎉 Tuyệt vời! Bạn đã hoàn thành toàn bộ chỉ tiêu của ngày hôm nay. Hãy nghỉ ngơi hoặc ôn tập tự do nhé!</div>`}
@@ -16594,6 +16661,154 @@ async function renderRoadmapWidget() {
     } catch (err) {
         console.error("Lỗi Render Roadmap:", err);
         zone.innerHTML = `<div style="color: #e53e3e; text-align: center; padding: 20px;">Lỗi tải dữ liệu lộ trình.</div>`;
+    }
+}
+/* ================= HỆ THỐNG AI DAILY STORY (BÀI HỌC CÁ NHÂN HÓA) ================= */
+
+let currentGeneratedStoryData = null; // Lưu tạm dữ liệu JSON AI trả về
+
+async function generateDailyStoryWithAI() {
+    if (!currentUser) return customAlert("Vui lòng đăng nhập!", "⚠️");
+
+    // Lấy cấp độ JLPT mục tiêu của user để AI viết cho chuẩn
+    let targetLevel = "N3"; 
+    try {
+        const { data } = await sb.from('profiles').select('study_goal').eq('id', currentUser.id).single();
+        if (data && data.study_goal && data.study_goal.level) {
+            targetLevel = data.study_goal.level;
+        }
+    } catch(e) {}
+
+    showLoading("AI đang sáng tác câu chuyện độc bản cho bạn...\nVui lòng đợi 15-20 giây ☕");
+
+    // PROMPT ĐẶC BIỆT: ÉP AI TRẢ VỀ JSON CẤU TRÚC CHUẨN
+    const prompt = `Đóng vai trò là giáo viên tiếng Nhật. Hãy sáng tác MỘT CÂU CHUYỆN NGẮN thú vị (đời sống, viễn tưởng, hài hước...) phù hợp với trình độ JLPT ${targetLevel}.
+    
+    Yêu cầu cốt lõi:
+    - Trong truyện BẮT BUỘC chứa khoảng 10-15 từ vựng/kanji quan trọng của ${targetLevel}.
+    - BẮT BUỘC sử dụng khoảng 2-3 cấu trúc ngữ pháp của ${targetLevel}.
+    
+    TRẢ VỀ DUY NHẤT 1 KHỐI JSON (KHÔNG bọc trong \`\`\`json). Định dạng chuẩn xác như sau:
+    {
+      "title_jp": "Tên truyện tiếng Nhật",
+      "title_vn": "Tên truyện tiếng Việt",
+      "sentences": [
+        { "jp": "Câu 1 tiếng Nhật.", "vn": "Câu 1 tiếng Việt." },
+        { "jp": "Câu 2 tiếng Nhật.", "vn": "Câu 2 tiếng Việt." }
+      ],
+      "flashcards": [
+        {
+          "front": "Từ vựng / Cấu trúc ngữ pháp (Tiếng Nhật)",
+          "reading": "Cách đọc Hiragana (Nếu là ngữ pháp thì để trống)",
+          "meaning": "Ý nghĩa tiếng Việt",
+          "hv": "Nghĩa Hán Việt (Nếu có)",
+          "ex_jp": "Câu ví dụ (LẤY CHÍNH CÂU CHỨA TỪ NÀY TRONG TRUYỆN Ở TRÊN)",
+          "ex_vn": "Nghĩa câu ví dụ"
+        }
+      ]
+    }`;
+
+    try {
+        let aiResponse = await callGeminiAI(prompt);
+        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        const data = JSON.parse(aiResponse);
+
+        currentGeneratedStoryData = data; // Lưu vào RAM
+
+        // RENDER GIAO DIỆN
+        document.getElementById('storyTitleJp').innerText = data.title_jp;
+        document.getElementById('storyTitleVn').innerText = data.title_vn;
+
+        // Render Cột trái (Câu chuyện)
+        const storyZone = document.getElementById('storyContentZone');
+        storyZone.innerHTML = data.sentences.map(s => `
+            <div class="story-sentence">
+                <div class="story-sentence-jp">${wrapKanjiWithLink(escapeHTML(s.jp))}</div>
+                <div class="story-sentence-vn">${escapeHTML(s.vn)}</div>
+            </div>
+        `).join('');
+
+        // Render Cột phải (Danh sách thẻ sẽ tạo)
+        document.getElementById('storyCardCount').innerText = data.flashcards.length;
+        const cardsZone = document.getElementById('storyCardsZone');
+        cardsZone.innerHTML = data.flashcards.map(c => `
+            <div class="story-card-item">
+                <span class="material-symbols-outlined" style="color: #3b82f6; font-size: 24px;">style</span>
+                <div>
+                    <div style="font-weight: 800; color: #1a1a1a;">${escapeHTML(c.front)}</div>
+                    <div style="font-size: 13px; color: #666666;">${escapeHTML(c.meaning)}</div>
+                </div>
+            </div>
+        `).join('');
+
+        hideLoading();
+        document.getElementById('aiStoryModal').style.display = 'flex';
+
+    } catch (err) {
+        hideLoading();
+        console.error("AI Story Error:", err);
+        customAlert("AI đang bận hoặc trả về sai định dạng. Vui lòng nhấn nút thử lại!", "❌");
+    }
+}
+
+// Hàm Lưu toàn bộ câu chuyện thành Bộ bài và nhảy thẳng vào học
+async function saveStoryAndStudy() {
+    if (!currentGeneratedStoryData || !currentUser) return;
+    
+    showLoading("Đang đóng gói bài học & Chuẩn bị thẻ...");
+
+    try {
+        const data = currentGeneratedStoryData;
+        const deckId = `${currentUser.id}:Story_${Date.now()}`;
+        const deckName = `Truyện: ${data.title_jp}`;
+
+        // 1. Tạo Deck mới
+        const { error: deckErr } = await sb.from('decks').insert([{
+            id: deckId,
+            owner_id: currentUser.id,
+            type: 'flashcard',
+            is_public: false
+        }]);
+        if (deckErr) throw deckErr;
+
+        // 2. Map dữ liệu thành thẻ Flashcard chuẩn của hệ thống
+        const cardsToSave = data.flashcards.map(c => {
+            const backPacked = `${c.reading || ''}\n${c.meaning || ''}`.trim();
+            
+            let infoArr = [];
+            if (c.hv) infoArr.push(`[HV] ${c.hv}`);
+            if (c.ex_jp) infoArr.push(`[EX1] ${c.ex_jp}`);
+            if (c.ex_vn) infoArr.push(`[VN1] ${c.ex_vn}`);
+
+            return {
+                deck_id: deckId,
+                front: c.front,
+                back: backPacked,
+                info: infoArr.join('\n')
+            };
+        });
+
+        // 3. Đẩy lên DB
+        const { error: cardsErr } = await sb.from('cards').insert(cardsToSave);
+        if (cardsErr) throw cardsErr;
+
+        // Đóng Modal và Reset dữ liệu
+        closeModal('aiStoryModal');
+        currentGeneratedStoryData = null;
+        
+        // Cập nhật lại số liệu Dashboard ngầm bên dưới
+        renderRoadmapWidget();
+
+        showToast(`✨ Đã tạo xong bài học. Bắt đầu ngay thôi!`);
+
+        // 4. BAY THẲNG VÀO CHẾ ĐỘ HỌC SRS
+        mode = 'review';
+        await loadCards(deckId); // Gửi ID bộ bài vừa tạo vào máy cày SRS
+
+    } catch (err) {
+        hideLoading();
+        console.error("Lỗi Save Story:", err);
+        customAlert("Không thể lưu bài học: " + err.message, "❌");
     }
 }
 </script>
@@ -16716,6 +16931,55 @@ async function renderRoadmapWidget() {
 
                 <button onclick="confirmBulkSaveKanji()" class="win11-btn-primary" style="width: 100%; margin-top: 25px; padding: 14px; font-size: 15px; display: flex; justify-content: center; align-items: center; gap: 8px;">
                     <span class="material-symbols-outlined">save</span> XÁC NHẬN LƯU THẺ
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- MODAL AI DAILY STORY (WIN 11 STYLE) -->
+<div id="aiStoryModal" class="modal" style="z-index: 13500;">
+    <div class="modal-content win11-modal" style="max-width: 900px; width: 95%;">
+        <div class="win11-modal-header" style="background: #fbfbfb; border-bottom: 1px solid #f0f0f0;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: #9333ea; font-size: 20px;">auto_awesome</span>
+                <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: #1a1a1a; text-transform: uppercase;">Bài học hôm nay của bạn</h3>
+            </div>
+            <button class="win11-close-btn" onclick="closeModal('aiStoryModal')">
+                <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+            </button>
+        </div>
+        
+        <div class="win11-modal-body" style="padding: 20px; background: #ffffff;">
+            
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h2 id="storyTitleJp" style="margin: 0 0 5px 0; color: #1d1d1f; font-weight: 900; font-family: 'Noto Sans JP', sans-serif;"></h2>
+                <div id="storyTitleVn" style="color: #666666; font-size: 15px; font-weight: 600;"></div>
+            </div>
+
+            <div class="story-container">
+                <!-- Cột trái: Câu chuyện -->
+                <div class="story-left-panel" id="storyContentZone">
+                    <!-- JS Render -->
+                </div>
+
+                <!-- Cột phải: Danh sách thẻ -->
+                <div class="story-right-panel">
+                    <div style="padding: 12px 16px; background: #f0fdf4; border-bottom: 1px solid #bbf7d0; color: #047857; font-weight: 800; font-size: 13px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10;">
+                        <span>THẺ SẼ ĐƯỢC TẠO</span>
+                        <span id="storyCardCount" style="background: #10b981; color: white; padding: 2px 8px; border-radius: 50px;">0</span>
+                    </div>
+                    <div id="storyCardsZone" style="overflow-y: auto; flex: 1;">
+                        <!-- JS Render -->
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top: 20px; display: flex; gap: 12px;">
+                <button onclick="generateDailyStoryWithAI()" class="win11-btn-secondary" style="flex: 1; justify-content: center; padding: 14px;">
+                    <span class="material-symbols-outlined">refresh</span> ĐỔI BÀI KHÁC
+                </button>
+                <button onclick="saveStoryAndStudy()" class="win11-btn-primary" style="flex: 2; justify-content: center; padding: 14px; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+                    <span class="material-symbols-outlined">style</span> LƯU BỘ BÀI VÀ HỌC NGAY ❯
                 </button>
             </div>
         </div>
