@@ -8771,6 +8771,13 @@ function startBoostSession(gameId) {
 
 function renderBoostCard() {
     clearTimeout(boostTimer);
+    
+    // ĐỒNG BỘ INDEX TOÀN CỤC THEO HÀNG ĐỢI ĐỂ CÁC GAME HOẠT ĐỘNG CHUẨN XÁC
+    if (mode === 'assessment') {
+        if (boostState.activeQueue.length === 0) return;
+        currentIndex = boostState.activeQueue[0];
+    }
+    
     const rawCard = sessionCards[currentIndex];
     if (!rawCard) {
         if (mode === 'assessment') return endAssessmentSession();
@@ -8779,14 +8786,20 @@ function renderBoostCard() {
 
     const c = parseCardData(rawCard);
     
-    // XÁC ĐỊNH GAME HIỆN TẠI
+    // XÁC ĐỊNH GAME HIỆN TẠI VÀ HEADER UI
     if (mode === 'assessment') {
-        currentBoostGame = boostState.matrixQueue[0];
+        // Lấy game hiện tại của thẻ dựa theo Chặng
+        currentBoostGame = rawCard.matrix[boostState.currentRound - 1];
+        
+        // Tính toán để hiển thị UI Header: Thẻ thứ X / Tổng thẻ của Chặng này
+        const totalInRound = boostState.activeQueue.length + (boostState.processedInRound || 0);
+        const currentInRound = (boostState.processedInRound || 0) + 1;
+        
         document.querySelector('.boost-header').innerHTML = `
-            <div style="color: #4a5568; font-weight: 800;">Thẻ: <span style="color:#0067c0">${currentIndex + 1}/${sessionCards.length}</span></div>
-            <div style="color: #9e5b00; font-size: 13px; font-weight: 700; background: #fffaf0; padding: 4px 10px; border-radius: 8px;">
-                Chặng ${boostState.currentStageIdx}/${boostState.totalStageCount}
+            <div style="color: #9e5b00; font-size: 13px; font-weight: 800; background: #fffaf0; padding: 4px 10px; border-radius: 8px; border: 1px solid #fce8cd;">
+                CHẶNG ${boostState.currentRound}/3
             </div>
+            <div style="color: #4a5568; font-weight: 700; font-size: 14px;">Thẻ: <span style="color:#0067c0; font-weight: 900;">${currentInRound}/${totalInRound}</span></div>
             <button onclick="confirmExitBoost()" class="btn-exit-game"><span class="material-symbols-outlined" style="font-size:18px;">logout</span> Thoát</button>
         `;
     } else {
@@ -9641,97 +9654,7 @@ function handleBoostTyping() {
 }
 
 // Xử lý chung kết quả ĐÚNG/SAI cho mọi mini-games
-function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = false) {
-    clearTimeout(boostTimer);
-    document.getElementById('boostInteractiveZone').style.pointerEvents = 'none';
-    
-    const c = sessionCards[currentIndex];
 
-    // =====================================
-    // LOGIC ASSESSMENT (SÁT HẠCH)
-    // =====================================
-    if (mode === 'assessment') {
-        if (!isCorrect) {
-            boostState.penaltyPoints++;
-            
-            // Chặng 1 là mảng [1, 4]. Nếu game đang chơi nằm trong mảng này -> Bắt cờ Rớt Nghĩa
-            if ([1, 4].includes(currentBoostGame)) {
-                boostState.isMeaningFailed = true;
-            }
-
-            // 🟢 NẾU BẤM CHỊU THUA HOẶC ĐỂ HẾT GIỜ (GAME 10) -> ÉP RỚT THẺ LẬP TỨC
-            if (isGiveUp || isTimeout) {
-                boostState.isMeaningFailed = true; // Ép thẻ về FAIL (q=0)
-                boostState.matrixQueue = []; // Hủy bỏ các chặng còn lại của thẻ này
-                
-                setTimeout(() => {
-                    document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto';
-                    processAssessmentResult(c); // Đẩy kết quả lên DB và chuyển qua thẻ mới
-                }, 400); 
-                return;
-            }
-
-            // Nếu chỉ là chọn sai đáp án bình thường -> Cho phép làm lại
-            if (element) {
-                element.classList.add('shake-error');
-                setTimeout(() => element.classList.remove('shake-error'), 400);
-            }
-            incrementPenalty(); // Gọi UI chớp đỏ
-            
-            // Cho phép user chọn lại trong Assessment để họ tự nhận ra lỗi
-            setTimeout(() => { document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto'; }, 500);
-            return; // Dừng lại không next chặng
-        }
-
-        // TRẢ LỜI ĐÚNG -> QUA CHẶNG
-        if (element) {
-            element.style.background = '#c6f6d5';
-            element.style.borderColor = '#38a169';
-            element.style.color = '#22543d';
-        }
-
-        setTimeout(() => {
-            document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto';
-            boostState.matrixQueue.shift(); // Xóa chặng vừa chơi
-
-            if (boostState.matrixQueue.length > 0) {
-                // VẪN CÒN CHẶNG -> LOAD GAME TIẾP THEO CHO THẺ NÀY
-                boostState.currentStageIdx++;
-                renderBoostCard();
-            } else {
-                // HOÀN THÀNH 3 CHẶNG -> TÍNH ĐIỂM & ĐẨY LÊN DB
-                processAssessmentResult(c);
-            }
-        }, 600);
-        return;
-    }
-
-    // =====================================
-    // LOGIC BOOST MODE CŨ (Giữ nguyên)
-    // =====================================
-    if (isCorrect) {
-        boostState.correct++;
-        if(element) {
-            element.style.background = '#c6f6d5';
-            element.style.borderColor = '#38a169';
-            element.style.color = '#22543d';
-        }
-        boostState.history.push({ front: c.front, back: c.back, status: 'correct' });
-    } else {
-        boostState.wrong++;
-        if(element) {
-            element.style.background = '#fed7d7';
-            element.style.borderColor = '#e53e3e';
-            element.style.color = '#822727';
-        }
-        boostState.history.push({ front: c.front, back: c.back, status: 'wrong' });
-    }
-
-    setTimeout(() => {
-        document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto'; 
-        nextBoostCard();
-    }, 800);
-}
 
 function skipBoostCard() {
     clearTimeout(boostTimer);
@@ -15892,12 +15815,12 @@ window.startGlobalReview = async function(skipHash = false) {
 
         // 1. Lấy thẻ trễ hạn
         const { data: dueProgress, error } = await sb.from('progress')
-            .select('*, cards!inner(*, decks!inner(type))') // <-- JOIN BẢNG DECKS VÀO
+            .select('*, cards!inner(*, decks!inner(type))') 
             .eq('user_id', currentUser.id)
-            .eq('cards.decks.type', 'flashcard')            // <-- ÉP KIỂU LÀ FLASHCARD
+            .eq('cards.decks.type', 'flashcard')            
             .lte('due', now)
-            .order('due', { ascending: true }) // Ưu tiên thẻ cũ nhất
-            .limit(15); // BATCHING: Ép cứng tối đa 15 thẻ mỗi phiên
+            .order('due', { ascending: true }) 
+            .limit(15); // BATCHING: Ép cứng tối đa 15 thẻ
 
         if (error) throw error;
 
@@ -15906,31 +15829,38 @@ window.startGlobalReview = async function(skipHash = false) {
             return showToast("Tuyệt vời! Bạn không còn thẻ nào cần ôn hôm nay. 🎉");
         }
 
-        // 2. Chuyển đổi dữ liệu
+        // 2. Chuyển đổi dữ liệu và gắn State riêng cho TỪNG THẺ
         sessionCards = dueProgress.map(p => {
             const cardData = p.cards;
             const { cards, ...progressData } = p; 
+            
+            // Gắn ma trận 3 game và bộ đếm lỗi cho từng thẻ ngay từ đầu
+            const matrix = generateAspectMatrixForCard(cardData);
+            
             return {
                 ...cardData,
-                progress: [progressData]
+                progress: [progressData],
+                matrix: matrix,
+                penaltyPoints: 0,
+                isMeaningFailed: false,
+                isFailed: false, // Bị rớt (chịu thua/hết giờ)
+                isProcessed: false // Đã tính điểm và đẩy lên DB chưa
             };
         });
 
-        // 3. Thiết lập State cho Assessment
+        // 3. Thiết lập State tổng cho Vòng lặp Round-Robin
         mode = 'assessment';
         currentDeckName = 'GLOBAL_REVIEW'; 
-        currentIndex = 0;
         
         boostState = {
-            assessmentCards: sessionCards, // Giữ mảng thẻ để quản lý loop
-            remedialCards: [], // Mảng chứa thẻ bị rớt
-            passedCards: [], // Mảng chứa thẻ qua môn
-            matrixQueue: [], // Chặng game của thẻ hiện tại
-            penaltyPoints: 0,
-            isMeaningFailed: false,
-            totalStageCount: 0,
-            currentStageIdx: 0
+            currentRound: 1, // Đang ở Chặng mấy (1, 2, 3)
+            activeQueue: [], // Hàng đợi chứa index của các thẻ còn sống sót
+            passedCards: [], 
+            remedialCards: []
         };
+        
+        // Nạp tất cả thẻ vào hàng đợi của Chặng 1 và Xáo trộn
+        boostState.activeQueue = sessionCards.map((_, i) => i).sort(() => Math.random() - 0.5);
 
         updateBreadcrumb([
             { label: 'Tổng quan', action: 'showDashboard()' },
@@ -15938,12 +15868,11 @@ window.startGlobalReview = async function(skipHash = false) {
         ]);
         updateHeaderTitle("SÁT HẠCH SRS");
 
-        // 4. Tạo ma trận cho thẻ đầu tiên và bắt đầu
-        generateAspectMatrixForCurrentCard();
-        
         document.getElementById('studyArea').classList.add('hidden');
         document.getElementById('boostArea').classList.remove('hidden');
         showPage('reviewPage');
+        
+        // Bắt đầu
         showCard();
 
     } catch (err) {
@@ -15954,76 +15883,239 @@ window.startGlobalReview = async function(skipHash = false) {
     }
 };
 
-// TẠO MA TRẬN 3 CHẶNG CHO THẺ HIỆN TẠI (ĐÃ FIX LỌC DỮ LIỆU CHUẨN XÁC)
-function generateAspectMatrixForCurrentCard() {
-    const c = sessionCards[currentIndex];
-    const parsed = parseCardData(c);
+// TẠO MA TRẬN 3 CHẶNG CHO TỪNG THẺ (DỰA VÀO DỮ LIỆU CỦA THẺ ĐÓ)
+function generateAspectMatrixForCard(cardObj) {
+    const parsed = parseCardData(cardObj);
     let matrix = [];
 
-    // ----------------------------------------------------
     // CHẶNG 1: Nghĩa & Âm thanh [1, 4, 9] (Word Match, T/F, Audio)
-    // ----------------------------------------------------
     const stage1 = [1, 4];
     matrix.push(stage1[Math.floor(Math.random() * stage1.length)]);
 
-    // ----------------------------------------------------
     // CHẶNG 2: Cấu trúc Kanji [11, 7]
-    // ----------------------------------------------------
-    const hasKanji = /[\u4e00-\u9faf]/.test(c.front);
+    const hasKanji = /[\u4e00-\u9faf]/.test(cardObj.front);
     if (hasKanji) {
-        // Chỉ chơi Game 7 (Kanji Filler) nếu thẻ có câu ví dụ chứa Kanji
         const exampleHasKanji = parsed.exampleJP && /[\u4e00-\u9faf]/.test(parsed.exampleJP);
         if (exampleHasKanji) {
             matrix.push(Math.random() > 0.5 ? 11 : 7);
         } else {
             matrix.push(11);
         }
+    } else {
+        // Nếu không có Kanji -> Fallback cho mượn tạm Game Audio hoặc Scramble
+        matrix.push(Math.random() > 0.5 ? 9 : 5);
     }
 
-    // ----------------------------------------------------
     // CHẶNG 3: Đọc hiểu & Ngữ cảnh [2, 5, 8, 6]
-    // ----------------------------------------------------
     let stage3Pool = [];
-    
-    // Nếu có Ví dụ -> Chơi Game 6 (Xếp câu)
     if (parsed.exampleJP && parsed.exampleVN) stage3Pool.push(6);
     
     const cleanReading = parsed.reading.replace(/\s/g, '');
     if (cleanReading.length >= 1 && wanakana.isJapanese(cleanReading)) {
-        stage3Pool.push(2); // Typing
-        stage3Pool.push(5); // Scramble
-        
-        // Game 8 (Kana Search) chỉ hợp với từ có độ dài từ 2 đến 6 ký tự
+        stage3Pool.push(2); 
+        stage3Pool.push(5); 
         if (cleanReading.length >= 2 && cleanReading.length <= 6) {
             stage3Pool.push(8);
         }
     }
-    
-    // Fallback: Nếu thẻ không có cách đọc, không có ví dụ -> Cho chơi lại Game 1
     if (stage3Pool.length === 0) stage3Pool.push(1);
 
     matrix.push(stage3Pool[Math.floor(Math.random() * stage3Pool.length)]);
 
-    // ----------------------------------------------------
-    // Gán vào State
-    boostState.matrixQueue = matrix;
-    boostState.penaltyPoints = 0;
-    boostState.isMeaningFailed = false;
-    boostState.totalStageCount = matrix.length;
-    boostState.currentStageIdx = 1;
+    return matrix;
+}
+function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = false) {
+    clearTimeout(boostTimer);
+    document.getElementById('boostInteractiveZone').style.pointerEvents = 'none';
+    
+    const c = sessionCards[currentIndex];
+
+    // =====================================
+    // LOGIC SÁT HẠCH MỚI (ROUND-ROBIN)
+    // =====================================
+    if (mode === 'assessment') {
+        if (!isCorrect) {
+            c.penaltyPoints++;
+            
+            // Bắt cờ Rớt Nghĩa nếu sai ở game T/F hoặc Match
+            if ([1, 4].includes(currentBoostGame)) {
+                c.isMeaningFailed = true;
+            }
+
+            // NẾU BẤM CHỊU THUA HOẶC ĐỂ HẾT GIỜ -> TỬ VONG NHANH (RỚT THẺ)
+            if (isGiveUp || isTimeout) {
+                c.isFailed = true;
+                c.isMeaningFailed = true; // Ép về 0 điểm
+                
+                setTimeout(() => {
+                    document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto';
+                    processAssessmentResult(c); // Đẩy kết quả lên DB luôn
+                    nextAssessmentCard(); // Nhảy sang thẻ khác trong hàng đợi
+                }, 400); 
+                return;
+            }
+
+            // Nếu chỉ là chọn sai bình thường -> Cho phép làm lại (không đổi thẻ)
+            if (element) {
+                element.classList.add('shake-error');
+                setTimeout(() => element.classList.remove('shake-error'), 400);
+            }
+            incrementPenalty(); 
+            setTimeout(() => { document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto'; }, 500);
+            return; 
+        }
+
+        // TRẢ LỜI ĐÚNG -> QUA BÀI TRONG CHẶNG NÀY
+        if (element) {
+            element.style.background = '#c6f6d5';
+            element.style.borderColor = '#38a169';
+            element.style.color = '#22543d';
+        }
+
+        setTimeout(() => {
+            document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto';
+            nextAssessmentCard(); // Gọi thẻ tiếp theo trong hàng đợi
+        }, 600);
+        return;
+    }
+
+    // =====================================
+    // LOGIC BOOST MODE TỰ DO CŨ (Giữ nguyên)
+    // =====================================
+    if (isCorrect) {
+        boostState.correct++;
+        if(element) {
+            element.style.background = '#c6f6d5';
+            element.style.borderColor = '#38a169';
+            element.style.color = '#22543d';
+        }
+        boostState.history.push({ front: c.front, back: c.back, status: 'correct' });
+    } else {
+        boostState.wrong++;
+        if(element) {
+            element.style.background = '#fed7d7';
+            element.style.borderColor = '#e53e3e';
+            element.style.color = '#822727';
+        }
+        boostState.history.push({ front: c.front, back: c.back, status: 'wrong' });
+    }
+
+    setTimeout(() => {
+        document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto'; 
+        nextBoostCard();
+    }, 800);
 }
 
-// HÀM GHI NHẬN LỖI SAI NHỎ BÊN TRONG CÁC GAME XẾP CHỮ (Dùng cho Game 7 & 11)
+// BỘ ĐIỀU CHUYỂN HÀNG ĐỢI SÁT HẠCH (ROUND-ROBIN MANAGER)
+function nextAssessmentCard() {
+    // 1. Rút thẻ vừa làm xong khỏi hàng đợi hiện tại
+    boostState.activeQueue.shift();
+    boostState.processedInRound = (boostState.processedInRound || 0) + 1;
+
+    if (boostState.activeQueue.length > 0) {
+        // NẾU HÀNG ĐỢI VẪN CÒN -> Chuyển sang thẻ tiếp theo cùng Chặng
+        showCard();
+    } else {
+        // HẾT HÀNG ĐỢI CỦA CHẶNG HIỆN TẠI
+        if (boostState.currentRound < 3) {
+            // NẾU CHƯA TỚI CHẶNG CUỐI (Tăng vòng lặp)
+            boostState.currentRound++;
+            boostState.processedInRound = 0;
+            boostState.activeQueue = [];
+            
+            // Xây dựng lại hàng đợi mới: Bỏ qua những thẻ đã Rớt (isFailed)
+            sessionCards.forEach((c, idx) => {
+                if (!c.isFailed && !c.isProcessed) {
+                    boostState.activeQueue.push(idx);
+                }
+            });
+
+            if (boostState.activeQueue.length > 0) {
+                // Trộn thẻ cho khỏi nhàm chán
+                boostState.activeQueue.sort(() => Math.random() - 0.5);
+                showCard();
+            } else {
+                // Toàn bộ thẻ đều rớt ở các chặng trước -> Kết thúc sớm
+                endAssessmentSession();
+            }
+        } else {
+            // NẾU ĐÃ KẾT THÚC CHẶNG 3 -> Sát hạch hoàn tất
+            // Cập nhật Database cho những thẻ qua môn an toàn
+            sessionCards.forEach(c => {
+                if (!c.isProcessed) processAssessmentResult(c);
+            });
+            endAssessmentSession();
+        }
+    }
+}
+
+// HÀM GHI NHẬN LỖI SAI NHỎ VÀO THEO TỪNG THẺ
 window.incrementPenalty = function() {
     if (mode !== 'assessment') return;
-    boostState.penaltyPoints++;
+    const c = sessionCards[currentIndex];
+    
     const tracker = document.getElementById('assessmentPenaltyTracker');
     if (tracker) {
-        tracker.innerText = `Lỗi: ${boostState.penaltyPoints}`;
+        tracker.innerText = `Lỗi: ${c.penaltyPoints}`;
         tracker.classList.add('warning');
         setTimeout(() => tracker.classList.remove('warning'), 400);
     }
 };
+
+// TÍNH ĐIỂM SRS & ĐẨY LÊN DATABASE (BẢN UPDATE LỌC BIẾN RIÊNG)
+async function processAssessmentResult(card) {
+    if (card.isProcessed) return; // Tránh cập nhật đúp
+    card.isProcessed = true;
+
+    const penalty = card.penaltyPoints;
+    const meaningFailed = card.isMeaningFailed;
+    
+    // 1. Tính hệ số Quality (q)
+    let q = 0;
+    if (card.isFailed || meaningFailed || penalty > 5) q = 0; // FAIL
+    else if (penalty >= 3) q = 2;                             // HARD
+    else if (penalty >= 1) q = 4;                             // GOOD
+    else q = 5;                                               // EASY
+
+    // 2. Thuật toán SRS
+    let p = card.progress && card.progress.length > 0 ? card.progress[0] : null;
+    let ef = p ? p.ef : 2.5;
+    let interval = p ? p.interval : 1;
+    let interval_count = p ? p.interval_count : 0;
+    
+    if (q >= 2) { 
+        if (q == 2) ef = Math.max(1.3, ef - 0.15); 
+        else if (q == 5) ef += 0.1; 
+        interval_count++; 
+        interval = interval_count == 1 ? 1 : interval_count == 2 ? 6 : Math.round(interval * ef); 
+    } else { 
+        ef = Math.max(1.3, ef - 0.2); 
+        interval_count = 0; 
+        interval = 1; 
+    }
+    
+    const due = new Date(); 
+    due.setDate(due.getDate() + interval);
+    
+    // 3. Phân loại thẻ vào mảng kết quả
+    if (q < 4) {
+        boostState.remedialCards.push(card);
+    } else {
+        boostState.passedCards.push(card);
+    }
+
+    // 4. Update Database chạy ngầm
+    sb.from('progress').upsert({ 
+        user_id: currentUser.id, 
+        card_id: card.id, 
+        ef: ef, 
+        interval: interval, 
+        interval_count: interval_count, 
+        due: due.toISOString() 
+    }).then(({error}) => {
+        if (error) console.error("Lỗi đồng bộ SRS thẻ:", error);
+    });
+}
 /* ================= HÀM XỬ LÝ TIẾN ĐỘ JLPT TRÊN DASHBOARD ================= */
 async function renderJLPTProgress() {
     const container = document.getElementById('jlptProgressContainer');
@@ -16167,70 +16259,6 @@ async function refreshDiscovery() {
             card.classList.remove('flip');
         }
     }, 400); // Đợi 400ms cho animation úp thẻ hoàn tất rồi mới đổi nội dung
-}
-/* ================= ENGINE CHẤM ĐIỂM SÁT HẠCH (ASSESSMENT PROCESSOR) ================= */
-async function processAssessmentResult(card) {
-    const penalty = boostState.penaltyPoints;
-    const meaningFailed = boostState.isMeaningFailed;
-    
-    // 1. Tính hệ số Quality (q)
-    let q = 0;
-    if (meaningFailed || penalty > 5) q = 0;      // FAIL
-    else if (penalty >= 3) q = 2;                 // HARD
-    else if (penalty >= 1) q = 4;                 // GOOD
-    else q = 5;                                   // EASY
-
-    // 2. Thuật toán SRS
-    let p = card.progress && card.progress.length > 0 ? card.progress[0] : null;
-    let ef = p ? p.ef : 2.5;
-    let interval = p ? p.interval : 1;
-    let interval_count = p ? p.interval_count : 0;
-    
-    if (q >= 2) { 
-        if (q == 2) ef = Math.max(1.3, ef - 0.15); 
-        else if (q == 5) ef += 0.1; 
-        interval_count++; 
-        interval = interval_count == 1 ? 1 : interval_count == 2 ? 6 : Math.round(interval * ef); 
-    } else { 
-        ef = Math.max(1.3, ef - 0.2); 
-        interval_count = 0; 
-        interval = 1; 
-    }
-    
-    const due = new Date(); 
-    due.setDate(due.getDate() + interval);
-    
-    // 3. Đóng gói dữ liệu
-    const payload = { 
-        ef: ef, 
-        interval: interval, 
-        interval_count: interval_count, 
-        due: due.toISOString() 
-    };
-
-    // 4. 🟢 FIX DỨT ĐIỂM: Dùng lệnh UPDATE quét theo card_id. 
-    // Nếu trong DB có các tiến trình rác bị trùng lặp từ code cũ, nó sẽ dọn dẹp và đồng bộ hết về ngày mai.
-    // Lệnh await giúp đảm bảo mạng load xong 100% mới cho nhảy thẻ.
-    await sb.from('progress')
-        .update(payload)
-        .eq('user_id', currentUser.id)
-        .eq('card_id', card.id);
-
-    // 5. Phân loại thẻ vào danh sách Khắc phục (Remedial) hoặc Đã thuộc
-    if (q < 4) {
-        boostState.remedialCards.push(card);
-    } else {
-        boostState.passedCards.push(card);
-    }
-
-    // 6. Chuyển thẻ tiếp theo
-    currentIndex++;
-    if (currentIndex < sessionCards.length) {
-        generateAspectMatrixForCurrentCard();
-        renderBoostCard();
-    } else {
-        endAssessmentSession();
-    }
 }
 
 // MÀN HÌNH TỔNG KẾT PHASE 2
