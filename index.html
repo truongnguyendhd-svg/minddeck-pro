@@ -4849,6 +4849,50 @@ body.pdf-mode #pdfReadState {
     user-select: auto;
 }
 /*Hết ================= CSS CHO AI STORY DOKKAI MODE ================= */
+/* ================= CSS MỚI CHO DECK MENU DROPDOWN ================= */
+.deck-more-btn {
+    position: absolute;
+    top: 8px; right: 8px;
+    background: transparent;
+    border: none;
+    color: #a0aec0;
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    cursor: pointer;
+    z-index: 10;
+    transition: 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.deck-more-btn:hover { background: #f1f5f9; color: #1d1d1f; }
+
+.deck-dropdown-menu {
+    position: absolute;
+    top: 40px; right: 8px;
+    background: #ffffff;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.05);
+    display: none;
+    flex-direction: column;
+    padding: 4px;
+    z-index: 1000;
+    min-width: 200px;
+    font-family: 'Segoe UI Variable', 'Segoe UI', 'Noto Sans JP', sans-serif;
+    animation: popMenu 0.15s ease-out;
+}
+.deck-dropdown-menu.show { display: flex; }
+
+/* Trạng thái tích chọn (Checkmark) cho Public/Private */
+.menu-check-icon {
+    font-size: 16px;
+    width: 20px;
+    display: inline-block;
+    color: #0067c0;
+    font-weight: 800;
+}
+/* Hết================= CSS MỚI CHO DECK MENU DROPDOWN ================= */
 
 </style>
 </head>
@@ -10132,12 +10176,9 @@ async function renderManageDeckList() {
             .order('sort_order', { ascending: true })
             .order('created_at', { ascending: false });
         
-        // Logic lọc:
         if (!currentFolderId) {
-            // Ở ngoài gốc: Lấy public HOẶC (của mình + không có thư mục)
             deckQuery = deckQuery.or(`is_public.eq.true,and(owner_id.eq.${currentUser.id},folder_id.is.null)`);
         } else {
-            // Trong thư mục: Chỉ lấy bộ bài của mình nằm trong thư mục này
             deckQuery = deckQuery.eq('owner_id', currentUser.id).eq('folder_id', currentFolderId);
         }
 
@@ -10151,49 +10192,83 @@ async function renderManageDeckList() {
             return;
         }
 
-        // Render từng thẻ học phần
-        decks.forEach((d, index) => {
+        // 3. Render từng thẻ học phần
+        decks.forEach((d) => {
             const isOwner = d.owner_id === currentUser.id;
             const card = document.createElement('div'); 
             card.className = 'deck-card';
             
-// Thay đổi UX: Bấm vào thẻ để mở bảng chọn chế độ học
-            card.onclick = () => {
-                openStudyOptionsModal(d.id, getCleanName(d.id), d.type);
-            };
-            const safeId = encodeURIComponent(d.id).replace(/'/g, "%27");
+            // Xử lý Click vào thẻ để học
+            card.onclick = () => { openStudyOptionsModal(d.id, getCleanName(d.id), d.type); };
+            
+            const safeId = encodeURIComponent(d.id).replace(/'/g, "\\'");
+            const cleanName = escapeHTML(getCleanName(d.id));
             const authorName = d.profiles?.full_name || 'Ẩn danh';
             const authorAvatar = d.profiles?.avatar_url || 'https://emojicdn.elk.sh/👤?size=40';
 
-            let editBtn = isOwner ? `<button class="action-btn btn-edit" data-tooltip="Sửa bộ bài" onclick="openEditDeck(event, decodeURIComponent('${safeId}'))"><span class="material-symbols-outlined">edit</span></button>` : '';
-            let copyBtn = `<button class="action-btn btn-copy" data-tooltip="Copy" onclick="openCopyDeck(event, decodeURIComponent('${safeId}'))"><span class="material-symbols-outlined">content_copy</span></button>`;
-            
-            let folderBtns = "";
-            if (isOwner) {
-                folderBtns += `<button class="action-btn" data-tooltip="Di chuyển" onclick="openMoveDeckModal(event, decodeURIComponent('${safeId}'))"><span class="material-symbols-outlined">drive_file_move</span></button>`;
-                if (currentFolderId) {
-                    if (index > 0) folderBtns += `<button class="action-btn" data-tooltip="Đẩy lên" onclick="reorderDeck(event, decodeURIComponent('${safeId}'), 'up', ${d.sort_order})"><span class="material-symbols-outlined">arrow_upward</span></button>`;
-                    if (index < decks.length - 1) folderBtns += `<button class="action-btn" data-tooltip="Đẩy xuống" onclick="reorderDeck(event, decodeURIComponent('${safeId}'), 'down', ${d.sort_order})"><span class="material-symbols-outlined">arrow_downward</span></button>`;
-                }
-            }
-
-// XÁC ĐỊNH ICON VÀ MÀU SẮC DỰA TRÊN LOẠI BỘ BÀI (type)
             const typeIcon = d.type === 'quiz' ? 'quiz' : 'style';
             const typeClass = d.type === 'quiz' ? 'icon-quiz' : 'icon-flashcard';
             const typeLabel = d.type === 'quiz' ? 'Bộ Trắc Nghiệm' : 'Bộ Flashcard';
 
-            card.innerHTML = `
-                <div class="deck-status-badge ${d.is_public ? 'badge-public' : 'badge-private'}" data-tooltip="${d.is_public ? 'Công khai' : 'Riêng tư'}">
-                     <span class="material-symbols-outlined">${d.is_public ? 'public' : 'lock'}</span>
-                </div>
-                <div class="deck-actions">${folderBtns}${editBtn}${copyBtn}</div>
+            let topElementsHTML = "";
+
+            if (isOwner) {
+                // LÀ THẺ CỦA MÌNH -> Hiển thị Nút 3 chấm (Dropdown 5 tùy chọn)
+                const checkPublic = d.is_public ? '<span class="material-symbols-outlined menu-check-icon">check</span>' : '<span class="menu-check-icon"></span>';
+                const checkPrivate = !d.is_public ? '<span class="material-symbols-outlined menu-check-icon">check</span>' : '<span class="menu-check-icon"></span>';
+
+                topElementsHTML = `
+                    <button class="deck-more-btn" onclick="toggleDeckMenu(event, '${d.id}', this)">
+                        <span class="material-symbols-outlined">more_horiz</span>
+                    </button>
+                    <div class="deck-dropdown-menu" id="deck-menu-${d.id}">
+                        <button class="win11-crop-btn" onclick="openEditDeck(event, decodeURIComponent('${safeId}'))">
+                            <span class="material-symbols-outlined">edit</span> Sửa nội dung / Đổi tên
+                        </button>
+                        <button class="win11-crop-btn" onclick="openMoveDeckModal(event, decodeURIComponent('${safeId}'))">
+                            <span class="material-symbols-outlined">drive_file_move</span> Di chuyển
+                        </button>
+                        <button class="win11-crop-btn" onclick="openCopyDeck(event, decodeURIComponent('${safeId}'))">
+                            <span class="material-symbols-outlined">content_copy</span> Nhân bản (Copy)
+                        </button>
+                        <div style="border-top: 1px solid #f0f0f0; margin: 4px 0;"></div>
+                        
+                        <div style="font-size: 11px; font-weight: 700; color: #8c8c8c; padding: 4px 12px; text-transform: uppercase;">Trạng thái:</div>
+                        <button class="win11-crop-btn" onclick="toggleDeckVisibility(event, '${d.id}', true)">
+                            ${checkPublic} <span class="material-symbols-outlined" style="font-size: 16px; color:#10b981;">public</span> Công khai
+                        </button>
+                        <button class="win11-crop-btn" onclick="toggleDeckVisibility(event, '${d.id}', false)">
+                            ${checkPrivate} <span class="material-symbols-outlined" style="font-size: 16px; color:#666;">lock</span> Riêng tư
+                        </button>
+                        
+                        <div style="border-top: 1px solid #f0f0f0; margin: 4px 0;"></div>
+                        <button class="win11-crop-btn cancel" onclick="deleteDeckFromDashboard(event, '${d.id}', '${cleanName.replace(/'/g, "\\'")}')">
+                            <span class="material-symbols-outlined">delete</span> Xóa bộ bài
+                        </button>
+                    </div>
+                `;
                 
-                <!-- ICON PHÂN BIỆT ĐƯỢC CHÈN VÀO ĐÂY -->
+                // Nếu Public thì thêm Badge Công Khai (Riêng tư thì ẩn hoàn toàn)
+                if (d.is_public) {
+                    topElementsHTML += `<div class="deck-status-badge badge-public" data-tooltip="Công khai"><span class="material-symbols-outlined">public</span></div>`;
+                }
+
+            } else {
+                // LÀ THẺ NGƯỜI KHÁC (Public) -> Chỉ hiện nút Copy và Badge Công khai
+                topElementsHTML = `
+                    <div class="deck-status-badge badge-public" data-tooltip="Công khai"><span class="material-symbols-outlined">public</span></div>
+                    <button class="action-btn btn-copy" style="position: absolute; top:8px; right:8px;" data-tooltip="Copy về máy" onclick="openCopyDeck(event, decodeURIComponent('${safeId}'))">
+                        <span class="material-symbols-outlined">content_copy</span>
+                    </button>
+                `;
+            }
+
+            card.innerHTML = `
+                ${topElementsHTML}
                 <div class="deck-type-icon ${typeClass}" data-tooltip="${typeLabel}">
                     <span class="material-symbols-outlined">${typeIcon}</span>
                 </div>
-                
-                <div class="deck-title">${getCleanName(d.id)}</div>
+                <div class="deck-title">${cleanName}</div>
                 <div class="deck-creator">
                     <img src="${authorAvatar}" class="creator-avatar-mini" onerror="this.src='https://emojicdn.elk.sh/👤?size=40'">
                     <span class="creator-name">${isOwner ? 'Tôi' : authorName}</span>
@@ -10207,6 +10282,91 @@ async function renderManageDeckList() {
         list.innerHTML = '<p style="text-align:center; color:#e53e3e; grid-column:1/-1">Lỗi kết nối dữ liệu.</p>';
     }
 }
+// ================= CÁC HÀM XỬ LÝ DROPDOWN DECK MENU =================
+
+// 1. Mở/Đóng menu Dropdown
+function toggleDeckMenu(event, deckId, btnElement) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    // Đóng tất cả các menu khác
+    document.querySelectorAll('.deck-dropdown-menu').forEach(menu => {
+        if (menu.id !== `deck-menu-${deckId}`) menu.classList.remove('show');
+    });
+
+    // Đẩy z-index của thẻ hiện tại lên trên cùng để menu không bị chìm
+    document.querySelectorAll('.deck-card').forEach(card => card.style.zIndex = '1');
+    btnElement.closest('.deck-card').style.zIndex = '100';
+
+    const menu = document.getElementById(`deck-menu-${deckId}`);
+    if (menu) menu.classList.toggle('show');
+}
+
+// 2. Chuyển đổi trạng thái Public/Private trực tiếp
+async function toggleDeckVisibility(event, deckId, makePublic) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    showLoading("Đang cập nhật trạng thái...");
+    try {
+        const { error } = await sb.from('decks').update({ is_public: makePublic }).eq('id', deckId);
+        if (error) throw error;
+        
+        showToast(makePublic ? "🌐 Đã chuyển thành Công khai" : "🔒 Đã chuyển thành Riêng tư");
+        renderManageDeckList(); // Render lại để thấy thay đổi
+    } catch (err) {
+        customAlert("Lỗi: " + err.message, "❌");
+        hideLoading();
+    }
+}
+
+// 3. Xóa bộ bài trực tiếp từ Dashboard (Không cần mở Edit Mode)
+async function deleteDeckFromDashboard(event, deckId, deckName) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    // Đóng menu lại trước khi hiện Alert
+    const menu = document.getElementById(`deck-menu-${deckId}`);
+    if (menu) menu.classList.remove('show');
+
+    const ok = await showConfirm(
+        "Xóa vĩnh viễn?", 
+        `Xác nhận xóa bộ bài "${deckName}" và toàn bộ thẻ bên trong? Hành động này không thể hoàn tác.`, 
+        "Xóa bộ bài"
+    );
+    
+    if (ok) {
+        showLoading("Đang xóa dữ liệu...");
+        try {
+            await sb.from('cards').delete().eq('deck_id', deckId);
+            await sb.from('decks').delete().eq('id', deckId);
+            
+            // Xóa thẻ khỏi lịch sử học gần đây trên Profile
+            const { data } = await sb.from('profiles').select('recent_decks').eq('id', currentUser.id).single();
+            if (data && data.recent_decks) {
+                const newRecent = data.recent_decks.filter(id => id !== deckId);
+                await sb.from('profiles').update({ recent_decks: newRecent }).eq('id', currentUser.id);
+            }
+
+            showToast("🗑️ Đã xóa học phần thành công!");
+            renderManageDeckList(); // Tải lại danh sách
+        } catch (err) {
+            customAlert("Lỗi xóa dữ liệu: " + err.message, "❌");
+        } finally {
+            hideLoading();
+        }
+    }
+}
+
+// 4. Lắng nghe click ra ngoài để tự động đóng các Menu đang mở
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.deck-dropdown-menu') && !e.target.closest('.deck-more-btn')) {
+        document.querySelectorAll('.deck-dropdown-menu').forEach(menu => menu.classList.remove('show'));
+        document.querySelectorAll('.deck-card').forEach(card => card.style.zIndex = '1');
+    }
+});
+// Hết================= CÁC HÀM XỬ LÝ DROPDOWN DECK MENU =================
+
 function showNewForm(type, skipHash = false) {
     // 1. Cập nhật URL Hash để hỗ trợ phím Back/F5
     if (!skipHash) window.location.hash = `new/${type}`;
