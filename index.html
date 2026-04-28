@@ -10222,8 +10222,11 @@ async function renderManageDeckList() {
                         <span class="material-symbols-outlined">more_horiz</span>
                     </button>
                     <div class="deck-dropdown-menu" id="deck-menu-${d.id}">
+                        <button class="win11-crop-btn" onclick="openRenameDeckModal(event, '${d.id}', '${cleanName.replace(/'/g, "\\'")}')">
+                            <span class="material-symbols-outlined" style="color: #0067c0;">edit_square</span> Đổi tên nhanh
+                        </button>
                         <button class="win11-crop-btn" onclick="openEditDeck(event, decodeURIComponent('${safeId}'))">
-                            <span class="material-symbols-outlined">edit</span> Sửa nội dung / Đổi tên
+                            <span class="material-symbols-outlined" style="color: #10b981;">list_alt</span> Sửa thẻ bên trong
                         </button>
                         <button class="win11-crop-btn" onclick="openMoveDeckModal(event, decodeURIComponent('${safeId}'))">
                             <span class="material-symbols-outlined">drive_file_move</span> Di chuyển
@@ -10365,6 +10368,86 @@ document.addEventListener('click', (e) => {
         document.querySelectorAll('.deck-card').forEach(card => card.style.zIndex = '1');
     }
 });
+// 1. Mở cửa sổ nhập tên mới
+function openRenameDeckModal(event, deckId, currentName) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    // Đóng dropdown menu
+    const menu = document.getElementById(`deck-menu-${deckId}`);
+    if (menu) menu.classList.remove('show');
+
+    // Đổ dữ liệu vào Modal
+    document.getElementById('renameOldDeckId').value = deckId;
+    const inputEl = document.getElementById('renameDeckInput');
+    inputEl.value = currentName;
+    
+    document.getElementById('renameDeckModal').style.display = 'flex';
+    
+    // Tự động focus và bôi đen chữ cũ để gõ luôn cho tiện
+    setTimeout(() => {
+        inputEl.focus();
+        inputEl.select();
+    }, 100);
+}
+
+// 2. Xác nhận và tiến hành đổi tên an toàn
+async function confirmRenameDeck() {
+    const oldId = document.getElementById('renameOldDeckId').value;
+    const newName = document.getElementById('renameDeckInput').value.trim();
+    const cleanOldName = getCleanName(oldId);
+
+    if (!newName) return customAlert("Tên bộ bài không được để trống!", "⚠️");
+    if (newName === cleanOldName) return closeModal('renameDeckModal'); // Không đổi gì cả
+
+    showLoading("Đang đổi tên bộ bài...");
+    try {
+        // 1. Lấy toàn bộ thông tin của bộ bài cũ (để giữ nguyên type, public, folder)
+        const { data: oldDeck, error: err1 } = await sb.from('decks').select('*').eq('id', oldId).single();
+        if (err1 || !oldDeck) throw new Error("Không tìm thấy bộ bài gốc.");
+
+        // 2. Tạo ID mới với tên mới (Chống trùng lặp)
+        const uniqueName = await generateUniqueDeckName(newName, oldDeck.type);
+        const newDeckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
+
+        // 3. Tạo bộ bài mới y hệt bộ bài cũ
+        const { error: err2 } = await sb.from('decks').insert({
+            id: newDeckId,
+            owner_id: currentUser.id,
+            type: oldDeck.type,
+            is_public: oldDeck.is_public,
+            folder_id: oldDeck.folder_id,
+            sort_order: oldDeck.sort_order
+        });
+        if (err2) throw err2;
+
+        // 4. Chuyển TẤT CẢ thẻ từ bộ bài cũ sang bộ bài mới
+        const { error: err3 } = await sb.from('cards').update({ deck_id: newDeckId }).eq('deck_id', oldId);
+        if (err3) throw err3;
+
+        // 5. Cập nhật lịch sử "Học gần đây" trên Profile nếu có
+        const { data: profile } = await sb.from('profiles').select('recent_decks').eq('id', currentUser.id).single();
+        if (profile && profile.recent_decks) {
+            const newRecent = profile.recent_decks.map(id => id === oldId ? newDeckId : id);
+            await sb.from('profiles').update({ recent_decks: newRecent }).eq('id', currentUser.id);
+        }
+
+        // 6. Xóa bộ bài cũ đi
+        await sb.from('decks').delete().eq('id', oldId);
+
+        closeModal('renameDeckModal');
+        showToast("✨ Đã đổi tên thành công!");
+        
+        // Load lại giao diện
+        renderManageDeckList();
+
+    } catch (err) {
+        console.error("Lỗi đổi tên:", err);
+        customAlert("Không thể đổi tên: " + err.message, "❌");
+    } finally {
+        hideLoading();
+    }
+}
 // Hết================= CÁC HÀM XỬ LÝ DROPDOWN DECK MENU =================
 
 function showNewForm(type, skipHash = false) {
@@ -17568,6 +17651,34 @@ async function saveStoryAndStudy() {
         <!-- Body có thanh cuộn mượt -->
         <div class="win11-modal-body" id="smartHintContent" style="padding: 20px 24px; background: #ffffff; max-height: 70vh; overflow-y: auto; overflow-x: hidden;">
             <!-- JS sẽ bơm nội dung vào đây -->
+        </div>
+    </div>
+</div>
+<!-- MODAL ĐỔI TÊN NHANH (WINDOWS 11 STYLE) -->
+<div id="renameDeckModal" class="modal" style="z-index: 15500;">
+    <div class="modal-content win11-modal" style="max-width: 400px;">
+        <div class="win11-modal-header" style="background: #fbfbfb; border-bottom: 1px solid #f0f0f0;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: #0067c0; font-size: 20px;">edit_square</span>
+                <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: #1a1a1a;">Đổi tên bộ bài</h3>
+            </div>
+            <button class="win11-close-btn" onclick="closeModal('renameDeckModal')">
+                <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+            </button>
+        </div>
+        <div class="win11-modal-body" style="padding: 24px; background: #ffffff;">
+            <label class="win11-label">Tên bộ bài mới:</label>
+            <input type="text" id="renameDeckInput" class="win11-input" style="font-size: 16px; font-weight: bold; margin-bottom: 0;">
+            
+            <!-- Lưu ngầm ID cũ để xử lý -->
+            <input type="hidden" id="renameOldDeckId">
+            
+            <div style="display: flex; gap: 12px; margin-top: 24px;">
+                <button onclick="closeModal('renameDeckModal')" class="win11-btn-secondary" style="flex: 1; justify-content: center;">Hủy</button>
+                <button onclick="confirmRenameDeck()" class="win11-btn-primary" style="flex: 1; justify-content: center; display: flex; align-items: center; gap: 6px;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">save</span> Lưu tên mới
+                </button>
+            </div>
         </div>
     </div>
 </div>
