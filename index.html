@@ -6595,12 +6595,15 @@ body.pdf-mode #pdfReadState {
         </div>
         <div class="modal-body" style="padding: 20px; overflow-y: auto; flex-grow: 1;">
             
-            <!-- Thanh tìm kiếm bên trong Modal (để tra tiếp từ khác) -->
-            <div class="dict-search-box" style="margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+            <!-- Thanh tìm kiếm bên trong Modal -->
+            <div class="dict-search-box" style="margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
                 <span class="material-symbols-outlined dict-search-icon" style="font-size: 24px;">search</span>
                 <input type="text" id="quickDictSearchInput" class="dict-search-input" placeholder="Gõ từ cần tra..." onkeypress="if(event.key === 'Enter') searchQuickDictionary()">
                 <button class="dict-search-btn" style="padding: 10px 20px;" onclick="searchQuickDictionary()">Tìm</button>
             </div>
+            
+            <!-- VÙNG CHỨA ACTION PILL TÌM KIẾM NỘI BỘ (MỚI THÊM) -->
+            <div id="quickDictLocalActionZone" style="text-align: center; margin-bottom: 20px; min-height: 40px;"></div>
             
             <!-- Nơi hiển thị kết quả -->
             <div id="quickDictResults" class="dict-results-grid"></div>
@@ -7101,6 +7104,8 @@ let deckToMoveId = null; // Lưu ID bộ bài đang cần di chuyển
 let deckToStudyId = null;
 let pendingModalReturn = null; // Cờ nhớ thông tin Modal để quay lại
 let isInlineListLoaded = false; // Cờ kiểm tra danh sách đã load chưa
+let isVirtualSession = false;
+let tempVirtualCards = []; // Cache RAM để nạp thẻ vào phiên học ảo
 /* ================= 3. UTILITIES ================= */
 function sanitizeTagName(tag) {
     if (!tag) return "untitled";
@@ -8293,7 +8298,19 @@ async function showKanjiXRay(event, kanji) {
         if (error || !data) {
             return showToast("Thư viện hiện chưa có phân tích cơ bản cho chữ này.");
         }
-        
+        // --- LOGIC MỚI: QUÉT KHO THẺ TÌM KANJI ĐỂ HỌC ẢO ---
+        let localCardsCount = 0;
+        if (currentUser) {
+            const { data: cardsData, error: cErr } = await sb.from('cards')
+                .select('*, decks!inner(owner_id)')
+                .eq('decks.owner_id', currentUser.id)
+                .like('front', `%${kanji}%`);
+            
+            if (!cErr && cardsData) {
+                tempVirtualCards = cardsData; // Gán RAM
+                localCardsCount = cardsData.length;
+            }
+        }
         const content = `
             <div style="font-size: 80px; font-weight: 900; color: #005fb8; line-height: 1.1; font-family: 'Noto Sans JP', sans-serif;">${data.kanji}</div>
             <div style="font-size: 18px; font-weight: 700; color: #c50f1f; margin: 4px 0 12px 0; letter-spacing: 1px;">[ ${data.hv} ]</div>
@@ -8317,6 +8334,20 @@ async function showKanjiXRay(event, kanji) {
                 <button id="btnAskAIKanji" class="win11-btn-secondary" onclick="expandKanjiWithAI('${data.kanji}')" style="width: 100%; justify-content: center; padding: 12px; font-size: 14px;">
                     <span class="material-symbols-outlined" style="font-size: 18px; color: #9333ea;">auto_awesome</span> PHÂN TÍCH CHUYÊN SÂU BẰNG AI
                 </button>
+            </div>
+            <!-- VÙNG HỌC ẢO (WIN 11) -->
+            ${localCardsCount > 0 ? `
+            <div style="background: #fbfbfb; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; text-align: left; animation: fadeInChat 0.3s ease;">
+                <div style="font-size: 13px; color: #1a1a1a; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+                    <span class="material-symbols-outlined" style="font-size: 18px; color: #0067c0;">style</span> Bạn có <b style="color: #0067c0; font-size: 16px;">${localCardsCount}</b> thẻ chứa chữ này
+                </div>
+                <button onclick="startVirtualSession(tempVirtualCards)" class="win11-btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">rocket_launch</span> Luyện tập ngay (Không tính điểm SRS)
+                </button>
+            </div>
+            ` : `
+            <div style="background: #fbfbfb; border: 1px dashed #e5e5e5; border-radius: 8px; padding: 12px; font-size: 13px; color: #8c8c8c; text-align: center;">
+                Bạn chưa có thẻ nào chứa chữ này trong kho bài.
             </div>
         `;
         
@@ -9892,6 +9923,7 @@ function shuffleQuiz() {
     showToast("Đã xáo trộn câu hỏi! 🔀");
 }
 async function answerCurrent(q) {
+    if (isVirtualSession) return; // CHỐT CHẶN
     const c = sessionCards[currentIndex];
 
     // ==========================================
@@ -11999,6 +12031,15 @@ async function searchQuickDictionary() {
     const input = document.getElementById('quickDictSearchInput').value.trim();
     const resDiv = document.getElementById('quickDictResults');
     if (!input) return;
+    // Reset và nạp Nút tìm kiếm nội bộ
+    const localZone = document.getElementById('quickDictLocalActionZone');
+    if (localZone) {
+        localZone.innerHTML = `
+            <button onclick="searchLocalCards('${escapeHTML(input)}')" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e0; padding: 6px 16px; border-radius: 50px; font-size: 13px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: 0.2s;">
+                <span class="material-symbols-outlined" style="font-size: 16px;">search</span> Tìm "${escapeHTML(input)}" trong kho thẻ của tôi
+            </button>
+        `;
+    }
 
     // Hiệu ứng Loading
     resDiv.innerHTML = '<div style="text-align:center; padding:30px; color:#718096;"><div class="spinner" style="margin: 0 auto 15px auto; width:30px; height:30px; border-top-color:#8b5cf6;"></div>Đang tra cứu...</div>';
@@ -12218,7 +12259,39 @@ async function searchDictionary() {
         hideLoading();
     }
 }
+window.searchLocalCards = async function(keyword) {
+    if (!currentUser) return customAlert("Vui lòng đăng nhập!", "⚠️");
+    const localZone = document.getElementById('quickDictLocalActionZone');
+    localZone.innerHTML = '<div class="spinner" style="width: 20px; height: 20px; border-top-color: #3b82f6; margin: 0 auto;"></div>';
+    
+    try {
+        const escapedQuery = keyword.replace(/"/g, '""');
+        const searchPattern = `%${escapedQuery}%`;
+        const orConditions = `front.ilike."${searchPattern}",back.ilike."${searchPattern}",info.ilike."${searchPattern}"`;
 
+        const { data: cards, error } = await sb.from('cards')
+            .select('*, decks!inner(owner_id)')
+            .eq('decks.owner_id', currentUser.id)
+            .or(orConditions);
+
+        if (error) throw error;
+
+        if (cards && cards.length > 0) {
+            tempVirtualCards = cards; // Gán RAM
+            // Apple Glassmorphism Button
+            localZone.innerHTML = `
+                <button onclick="startVirtualSession(tempVirtualCards)" style="background: rgba(255, 255, 255, 0.85); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border: 1px solid rgba(0, 0, 0, 0.1); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); color: #1d1d1f; padding: 12px 24px; border-radius: 50px; font-size: 15px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);" onmouseover="this.style.transform='scale(1.05)'; this.style.background='#1d1d1f'; this.style.color='#fff';" onmouseout="this.style.transform='none'; this.style.background='rgba(255, 255, 255, 0.85)'; this.style.color='#1d1d1f';">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">sports_esports</span> LUYỆN TẬP ${cards.length} THẺ NÀY NGAY
+                </button>
+            `;
+        } else {
+            localZone.innerHTML = `<div style="font-size: 13px; color: #e53e3e; font-weight: 600; padding: 6px;">Không tìm thấy thẻ nào chứa "${escapeHTML(keyword)}" trong kho của bạn.</div>`;
+        }
+    } catch (err) {
+        console.error(err);
+        localZone.innerHTML = `<div style="font-size: 13px; color: #e53e3e;">Lỗi truy vấn dữ liệu từ kho thẻ.</div>`;
+    }
+};
 // HÀM MỞ MODAL VÀ ĐIỀN DỮ LIỆU
 async function openSaveDictWordModal(encWord, encReading, encMeaning, encKanji, encExample) {
     if (!currentUser) return customAlert("Vui lòng đăng nhập để lưu từ vựng!");
@@ -16438,6 +16511,7 @@ window.incrementPenalty = function() {
 
 // TÍNH ĐIỂM SRS & ĐẨY LÊN DATABASE (BẢN UPDATE LỌC BIẾN RIÊNG)
 async function processAssessmentResult(card) {
+    if (isVirtualSession) return; // CHỐT CHẶN: Phiên học ảo tuyệt đối không ghi DB
     if (card.isProcessed) return; 
     card.isProcessed = true;
 
@@ -16829,18 +16903,60 @@ async function toggleInlineDeckList() {
 }
 // Thêm hàm này vào JS
 function exitStudySession() {
-    if (currentDeckName === 'GLOBAL_REVIEW') {
+    isVirtualSession = false; // Reset trạng thái phiên học ảo
+    tempVirtualCards = [];
+
+    if (currentDeckName === 'GLOBAL_REVIEW' || currentDeckName === 'VIRTUAL_SESSION') {
         showDashboard();
     } else {
         showHome();
     }
     
-    // NẾU HỌC TỪ MODAL BỘ BÀI -> MỞ LẠI MODAL ĐÓ (Tạo cảm giác quay lại)
-    if (pendingModalReturn && currentDeckName !== 'GLOBAL_REVIEW') {
+    if (pendingModalReturn && currentDeckName !== 'GLOBAL_REVIEW' && currentDeckName !== 'VIRTUAL_SESSION') {
         setTimeout(() => {
             openStudyOptionsModal(pendingModalReturn.id, pendingModalReturn.name, pendingModalReturn.type);
-        }, 150); // Chờ hiệu ứng chuyển trang DOM chạy xong
+        }, 150);
     }
+}
+// ================= HÀM KHỞI TẠO PHIÊN HỌC ẢO =================
+function startVirtualSession(cardsArray) {
+    if (!cardsArray || cardsArray.length === 0) return;
+
+    closeModal('quickDictModal');
+    closeModal('xrayModal');
+    
+    isVirtualSession = true;
+    mode = 'boost';
+    currentDeckName = 'VIRTUAL_SESSION';
+    
+    // Nạp thẻ và xáo trộn
+    sessionCards = cardsArray;
+    sessionCards.sort(() => Math.random() - 0.5);
+    currentIndex = 0;
+    
+    // Giả lập trạng thái Boost Mode Endless (Vô tận)
+    boostState = { 
+        mode: 'endless', 
+        maxRounds: 9999, 
+        selectedGame: 'random', 
+        currentRound: 1, 
+        correct: 0, 
+        wrong: 0, 
+        history: [] 
+    };
+    
+    updateBreadcrumb([
+        { label: 'Tổng quan', action: 'showDashboard()' },
+        { label: 'Phiên học ảo: ' + cardsArray.length + ' Thẻ' }
+    ]);
+    updateHeaderTitle("VIRTUAL SESSION");
+    
+    showPage('reviewPage');
+    document.getElementById('studyArea').classList.add('hidden');
+    document.getElementById('testArea').classList.add('hidden');
+    document.getElementById('boostArea').classList.remove('hidden');
+    
+    showCard();
 }
 // Xác nhận thoát game và hiện tổng kết
 async function confirmExitBoost() {
