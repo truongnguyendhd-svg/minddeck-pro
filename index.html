@@ -9948,14 +9948,17 @@ async function answerCurrent(q) {
     const due = new Date(); 
     due.setDate(due.getDate() + interval);
     
-    await sb.from('progress').upsert({ 
+    const payload = { 
         user_id: currentUser.id, 
         card_id: c.id, 
         ef, 
         interval, 
         interval_count, 
         due: due.toISOString() 
-    });
+    };
+    if (p && p.id) payload.id = p.id; // Vá lỗi sinh rác Database
+
+    await sb.from('progress').upsert(payload);
     
     nextCard();
 }
@@ -16402,12 +16405,20 @@ function nextAssessmentCard() {
                 endAssessmentSession();
             }
         } else {
-            // NẾU ĐÃ KẾT THÚC CHẶNG 3 -> Sát hạch hoàn tất
-            // Cập nhật Database cho những thẻ qua môn an toàn
-            sessionCards.forEach(c => {
-                if (!c.isProcessed) processAssessmentResult(c);
-            });
-            endAssessmentSession();
+            // 🟢 FIX LỖI KẸT THẺ: ĐỢI TẤT CẢ DB UPDATE XONG MỚI SHOW TỔNG KẾT
+            showLoading("Đang đồng bộ kết quả lên Cloud...");
+            
+            (async () => {
+                const updatePromises = sessionCards.map(c => {
+                    if (!c.isProcessed) return processAssessmentResult(c);
+                    return Promise.resolve();
+                });
+
+                await Promise.all(updatePromises);
+                
+                hideLoading();
+                endAssessmentSession();
+            })();
         }
     }
 }
@@ -16427,7 +16438,7 @@ window.incrementPenalty = function() {
 
 // TÍNH ĐIỂM SRS & ĐẨY LÊN DATABASE (BẢN UPDATE LỌC BIẾN RIÊNG)
 async function processAssessmentResult(card) {
-    if (card.isProcessed) return; // Tránh cập nhật đúp
+    if (card.isProcessed) return; 
     card.isProcessed = true;
 
     const penalty = card.penaltyPoints;
@@ -16467,17 +16478,19 @@ async function processAssessmentResult(card) {
         boostState.passedCards.push(card);
     }
 
-    // 4. Update Database chạy ngầm
-    sb.from('progress').upsert({ 
+    // 4. Update Database (🟢 FIX: BỔ SUNG ID ĐỂ UPDATE CHÍNH XÁC DÒNG CŨ)
+    const payload = { 
         user_id: currentUser.id, 
         card_id: card.id, 
         ef: ef, 
         interval: interval, 
         interval_count: interval_count, 
         due: due.toISOString() 
-    }).then(({error}) => {
-        if (error) console.error("Lỗi đồng bộ SRS thẻ:", error);
-    });
+    };
+    if (p && p.id) payload.id = p.id; // RẤT QUAN TRỌNG
+
+    const { error } = await sb.from('progress').upsert(payload);
+    if (error) console.error("Lỗi đồng bộ SRS thẻ:", error);
 }
 /* ================= HÀM XỬ LÝ TIẾN ĐỘ JLPT TRÊN DASHBOARD ================= */
 async function renderJLPTProgress() {
