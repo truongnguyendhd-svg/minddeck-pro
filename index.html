@@ -17011,11 +17011,16 @@ async function generateDailyStoryWithAI() {
         }
         cardsZone.innerHTML = cardsHTML;
 
-        // Khóa lại trạng thái UI trước khi chơi
+// Khóa lại trạng thái UI trước khi chơi
         document.getElementById('dokkaiUnlockZone').classList.remove('unlocked');
         const btnSave = document.getElementById('btnSaveStory');
         btnSave.disabled = true;
         btnSave.style.opacity = '0.5';
+
+        // 🟢 CẤU HÌNH TÊN BỘ BÀI MẶC ĐỊNH THEO NGÀY THÁNG
+        const now = new Date();
+        const dateStr = `${now.getDate()}/${now.getMonth() + 1}`;
+        document.getElementById('storyDeckNameInput').value = `Bài đọc Dokkai (${dateStr})`;
 
         hideLoading();
         document.getElementById('aiStoryModal').style.display = 'flex';
@@ -17094,8 +17099,16 @@ async function saveStoryAndStudy() {
             });
         }
 
-        // 2. Map sang định dạng Database (Tạo sẵn ID nhưng CHƯA lưu vội)
-        const tempDeckId = `${currentUser.id}:Dokkai_${Date.now()}`;
+// 2. Map sang định dạng Database (Tạo sẵn ID nhưng CHƯA lưu vội)
+        
+        // 🟢 Lấy tên bộ bài từ Input (Nếu rỗng thì cho fallback mặc định)
+        let rawDeckName = document.getElementById('storyDeckNameInput').value.trim();
+        if (!rawDeckName) rawDeckName = `Bài đọc AI ${Date.now()}`;
+        
+        // Chạy qua thuật toán tự động thêm (1), (2) nếu tên đã tồn tại
+        const uniqueDeckName = await generateUniqueDeckName(rawDeckName, 'flashcard');
+        const tempDeckId = `${currentUser.id}:${sanitizeTagName(uniqueDeckName)}:${Date.now()}`;
+        
         const cardsToProcess = combinedCards.map(c => {
             const backPacked = `${c.reading || ''}\n${c.meaning || ''}`.trim();
             let infoArr = [];
@@ -17345,15 +17358,20 @@ async function saveStoryAndStudy() {
                         </div>
                     </div>
 
-                    <!-- 5. Nút Hành động Cuối cùng -->
-                    <div style="margin-top: 30px; display: flex; gap: 12px; border-top: 1px solid #f0f0f0; padding-top: 20px;">
-                        <button onclick="generateDailyStoryWithAI()" class="win11-btn-secondary" style="flex: 1; justify-content: center; padding: 14px;">
-                            ĐỔI BÀI KHÁC
-                        </button>
-                        <!-- Nút này mặc định bị disabled, chỉ khi trả lời xong mới bấm được -->
-                        <button id="btnSaveStory" onclick="saveStoryAndStudy()" class="win11-btn-primary" disabled style="flex: 2; justify-content: center; padding: 14px; font-size: 15px; display: flex; align-items: center; gap: 8px; opacity: 0.5;">
-                            <span class="material-symbols-outlined">style</span> LƯU BỘ BÀI VÀ HỌC NGAY ❯
-                        </button>
+                    <!-- 5. Nút Hành động Cuối cùng (Đã thêm Ô nhập tên bộ bài) -->
+                    <div style="margin-top: 25px; border-top: 1px solid #f0f0f0; padding-top: 20px;">
+                        <label class="win11-label" style="color: #0067c0;">TÊN BỘ BÀI SẼ LƯU:</label>
+                        <input type="text" id="storyDeckNameInput" class="win11-input" style="margin-bottom: 15px;" placeholder="Nhập tên bộ bài bạn muốn lưu...">
+                        
+                        <div style="display: flex; gap: 12px;">
+                            <button onclick="generateDailyStoryWithAI()" class="win11-btn-secondary" style="flex: 1; justify-content: center; padding: 14px;">
+                                ĐỔI BÀI KHÁC
+                            </button>
+                            <!-- Nút này mặc định bị disabled, chỉ khi trả lời xong mới bấm được -->
+                            <button id="btnSaveStory" onclick="saveStoryAndStudy()" class="win11-btn-primary" disabled style="flex: 2; justify-content: center; padding: 14px; font-size: 15px; display: flex; align-items: center; gap: 8px; opacity: 0.5;">
+                                <span class="material-symbols-outlined">style</span> LƯU BỘ BÀI VÀ HỌC NGAY ❯
+                            </button>
+                        </div>
                     </div>
 
                 </div>
