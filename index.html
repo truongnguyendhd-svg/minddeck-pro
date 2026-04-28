@@ -8583,7 +8583,7 @@ async function renderQuiz() {
         editBtn.id = 'quizEditBtn';
         editBtn.className = 'btn-edit-inside';
         editBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:22px;">edit</span>';
-        editBtn.onclick = (e) => openQuickEdit(e);
+        editBtn.onclick = (e) => (e);
         document.getElementById('testCardDisplay').appendChild(editBtn);
     }
     // 3. Xử lý danh sách đáp án từ cột Info
@@ -11541,39 +11541,77 @@ function handleInfoClick(event) {
 }
 // ================= CÁC HÀM SỬA/XÓA THẺ NHANH KHI ĐANG HỌC =================
 
-function openQuickEdit(event) {
-    if (event) event.stopPropagation(); // Ngăn sự kiện lật thẻ
-    const c = sessionCards[currentIndex];
-    if (!c) return;
+let isQuickAddMode = false; // Biến cờ phân biệt Sửa hay Thêm
 
-    const isQuiz = (mode === 'test' || mode === 'quiz');
+// 1. Hàm mở Modal ở chế độ THÊM MỚI
+function openQuickAddCardModal() {
+    isQuickAddMode = true;
+    const isQuiz = (pendingModalReturn.type === 'quiz' || pendingModalReturn.type === 'test');
 
-    // 1. Hiển thị đúng Form theo chế độ
+    // Đổi Tiêu đề và Nút bấm
+    document.querySelector('#quickEditModal .win11-modal-header h3').innerText = 'Thêm thẻ mới';
+    document.querySelector('#quickEditModal .win11-btn-primary').innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">add_circle</span> TẠO THẺ NÀY';
+    // Ẩn nút Xóa
+    const btnDel = document.querySelector('#quickEditModal .win11-btn-secondary');
+    if(btnDel) btnDel.style.display = 'none';
+
     document.getElementById('qeFlashcardFields').style.display = isQuiz ? 'none' : 'flex';
     document.getElementById('qeQuizFields').style.display = isQuiz ? 'flex' : 'none';
 
-    // 2. Điền dữ liệu vào Form
+    // Reset Form về Trống
     if (isQuiz) {
-        // Mode Trắc nghiệm
+        document.getElementById('qeQFront').value = '';
+        document.getElementById('qeQCorrect').value = '';
+        document.getElementById('qeQWrong1').value = '';
+        document.getElementById('qeQWrong2').value = '';
+        document.getElementById('qeQWrong3').value = '';
+    } else {
+        document.getElementById('qeFFront').value = '';
+        document.getElementById('qeFReading').value = '';
+        document.getElementById('qeFMeaning').value = '';
+        document.getElementById('qeFHv').value = '';
+        document.getElementById('qeFEx1Jp').value = '';
+        document.getElementById('qeFEx1Vn').value = '';
+        document.getElementById('qeFEx2Jp').value = '';
+        document.getElementById('qeFEx2Vn').value = '';
+        
+        if (typeof wanakana !== 'undefined') wanakana.bind(document.getElementById('qeFReading'));
+    }
+
+    document.getElementById('quickEditModal').style.display = 'flex';
+}
+
+// 2. Hàm mở Modal ở chế độ SỬA THẺ
+function openQuickEdit(event) {
+    if (event) event.stopPropagation(); 
+    const c = sessionCards[currentIndex];
+    if (!c) return;
+
+    isQuickAddMode = false;
+    const isQuiz = (mode === 'test' || mode === 'quiz');
+
+    // Phục hồi Tiêu đề và Nút bấm về trạng thái Sửa
+    document.querySelector('#quickEditModal .win11-modal-header h3').innerText = 'Sửa thẻ trực tiếp';
+    document.querySelector('#quickEditModal .win11-btn-primary').innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">save</span> LƯU THAY ĐỔI';
+    const btnDel = document.querySelector('#quickEditModal .win11-btn-secondary');
+    if(btnDel) btnDel.style.display = 'flex';
+
+    document.getElementById('qeFlashcardFields').style.display = isQuiz ? 'none' : 'flex';
+    document.getElementById('qeQuizFields').style.display = isQuiz ? 'flex' : 'none';
+
+    if (isQuiz) {
         document.getElementById('qeQFront').value = c.front || '';
         document.getElementById('qeQCorrect').value = c.back || '';
-        
-        // Tách đáp án nhiễu từ cột info
         let w1 = '', w2 = '', w3 = '';
         if (c.info) {
             let opts = c.info.split('\n').map(o => o.trim()).filter(o => o && o !== c.back);
-            w1 = opts[0] || '';
-            w2 = opts[1] || '';
-            w3 = opts[2] || '';
+            w1 = opts[0] || ''; w2 = opts[1] || ''; w3 = opts[2] || '';
         }
         document.getElementById('qeQWrong1').value = w1;
         document.getElementById('qeQWrong2').value = w2;
         document.getElementById('qeQWrong3').value = w3;
-
     } else {
-        // Mode Flashcard (Tái sử dụng siêu Parser đã viết ở Boost Mode)
         const parsed = parseCardData(c);
-        
         document.getElementById('qeFFront').value = parsed.front;
         document.getElementById('qeFReading').value = parsed.reading;
         document.getElementById('qeFMeaning').value = parsed.meaning;
@@ -11583,21 +11621,17 @@ function openQuickEdit(event) {
         document.getElementById('qeFEx2Jp').value = parsed.ex2jp || '';
         document.getElementById('qeFEx2Vn').value = parsed.ex2vn || '';
 
-        // Kích hoạt WanaKana cho ô gõ Cách đọc
-        if (typeof wanakana !== 'undefined') {
-            wanakana.bind(document.getElementById('qeFReading'));
-        }
+        if (typeof wanakana !== 'undefined') wanakana.bind(document.getElementById('qeFReading'));
     }
 
     document.getElementById('quickEditModal').style.display = 'flex';
 }
 
 async function saveQuickEdit() {
-    const c = sessionCards[currentIndex];
     let newFront = "", newBack = "", newInfo = "";
     const isQuiz = (mode === 'test' || mode === 'quiz');
 
-    // --- ĐÓNG GÓI DỮ LIỆU TỪ FORM ---
+    // --- 1. ĐÓNG GÓI DỮ LIỆU TỪ FORM ---
     if (isQuiz) {
         newFront = document.getElementById('qeQFront').value.trim();
         newBack = document.getElementById('qeQCorrect').value.trim();
@@ -11605,16 +11639,13 @@ async function saveQuickEdit() {
         const w2 = document.getElementById('qeQWrong2').value.trim();
         const w3 = document.getElementById('qeQWrong3').value.trim();
 
-        if (!newFront || !newBack) {
-            return customAlert("Câu hỏi và đáp án đúng không được để trống!", "⚠️");
-        }
+        if (!newFront || !newBack) return customAlert("Câu hỏi và đáp án đúng không được để trống!", "⚠️");
 
-        // Đóng gói đáp án nhiễu
         let options = [newBack];
         if (w1) options.push(w1);
         if (w2) options.push(w2);
         if (w3) options.push(w3);
-        options.sort(() => Math.random() - 0.5); // Trộn ngẫu nhiên
+        options.sort(() => Math.random() - 0.5); 
         newInfo = options.join('\n');
 
     } else {
@@ -11622,14 +11653,10 @@ async function saveQuickEdit() {
         const reading = document.getElementById('qeFReading').value.trim();
         const meaning = document.getElementById('qeFMeaning').value.trim();
         
-        if (!newFront || (!reading && !meaning)) {
-            return customAlert("Từ vựng và ít nhất 'Cách đọc' hoặc 'Ý nghĩa' không được để trống!", "⚠️");
-        }
+        if (!newFront || (!reading && !meaning)) return customAlert("Từ vựng và 'Cách đọc' hoặc 'Ý nghĩa' không được để trống!", "⚠️");
 
-        // Đóng gói 2 mặt cơ bản
         newBack = `${reading}\n${meaning}`.trim();
 
-        // Đóng gói thông tin mở rộng (Mã hóa theo format có thẻ [])
         const hv = document.getElementById('qeFHv').value.trim();
         const ex1jp = document.getElementById('qeFEx1Jp').value.trim();
         const ex1vn = document.getElementById('qeFEx1Vn').value.trim();
@@ -11645,38 +11672,50 @@ async function saveQuickEdit() {
         newInfo = infoArr.join('\n');
     }
 
-    // --- LƯU LÊN SUPABASE ---
-    showLoading("Đang lưu thay đổi...");
+    // --- 2. GỬI LÊN SUPABASE ---
+    showLoading(isQuickAddMode ? "Đang tạo thẻ mới..." : "Đang lưu thay đổi...");
     try {
-        const { error } = await sb.from('cards')
-            .update({ front: newFront, back: newBack, info: newInfo })
-            .eq('id', c.id);
+        if (isQuickAddMode) {
+            // 🟢 CHẾ ĐỘ THÊM MỚI
+            // Kiểm tra trùng lặp nhẹ
+            const dupeCheck = await checkDuplicateCards([{ front: newFront }]);
+            if (dupeCheck.hasDuplicate) {
+                hideLoading();
+                return showDuplicateAlert(dupeCheck);
+            }
 
-        if (error) throw error;
-
-        // Cập nhật bộ nhớ RAM để hiển thị ngay
-        c.front = newFront;
-        c.back = newBack;
-        c.info = newInfo;
+            const { error } = await sb.from('cards').insert([{
+                deck_id: deckToStudyId, // Lấy ID bộ bài đang mở trong Danh sách
+                front: newFront, back: newBack, info: newInfo
+            }]);
+            if (error) throw error;
+            showToast("Đã thêm thẻ mới thành công! ✨");
+        } else {
+            // 🟠 CHẾ ĐỘ SỬA THẺ
+            const c = sessionCards[currentIndex];
+            const { error } = await sb.from('cards').update({ front: newFront, back: newBack, info: newInfo }).eq('id', c.id);
+            if (error) throw error;
+            
+            // Cập nhật thẻ hiện tại trên RAM
+            c.front = newFront; c.back = newBack; c.info = newInfo;
+            showToast("Đã cập nhật thẻ thành công! ✨");
+            
+            // Render lại mặt thẻ nếu đang học SRS
+            if (!document.getElementById('reviewPage').classList.contains('hidden')) showCard(); 
+        }
 
         closeModal('quickEditModal');
-        showToast("Đã cập nhật thẻ thành công! ✨");
         
-        // NẾU ĐANG Ở TRONG MÀN HỌC SRS -> RENDER LẠI THẺ TRÊN MÀN HÌNH
-        if (!document.getElementById('reviewPage').classList.contains('hidden')) {
-            showCard(); 
-        }
-        
-        // NẾU MODAL DANH SÁCH ĐANG MỞ -> TỰ ĐỘNG LOAD LẠI DANH SÁCH ĐỂ THẤY CHỮ MỚI
+        // 🟢 NẾU MODAL DANH SÁCH ĐANG MỞ -> TỰ ĐỘNG LOAD LẠI ĐỂ THẤY THẺ MỚI/THAY ĐỔI
         if (document.getElementById('studyOptionsModal').style.display === 'flex') {
-            isInlineListLoaded = false; // Xóa cache
-            document.getElementById('inlineDeckListContainer').style.display = 'none'; // Thu gọn
-            toggleInlineDeckList(); // Mở ra và tải lại từ DB
+            isInlineListLoaded = false;
+            document.getElementById('inlineDeckListContainer').style.display = 'none';
+            toggleInlineDeckList();
         }
         
     } catch (err) {
-        console.error("Lỗi sửa thẻ nhanh:", err);
-        customAlert("Không thể lưu. Có thể bộ bài này không phải của bạn nên bạn không có quyền sửa.", "❌");
+        console.error("Lỗi:", err);
+        customAlert("Không thể thao tác. Kiểm tra lại quyền hoặc kết nối.", "❌");
     } finally {
         hideLoading();
     }
@@ -16666,6 +16705,14 @@ async function toggleInlineDeckList() {
         mode = pendingModalReturn.type === 'quiz' ? 'quiz' : 'flashcard';
 
         let html = '';
+        
+        // 🟢 TẠO NÚT THÊM THẺ NHANH ĐẦU DANH SÁCH
+        html += `
+            <button onclick="openQuickAddCardModal()" class="win11-btn-secondary" style="width: 100%; justify-content: center; padding: 12px; margin-bottom: 12px; border: 2px dashed #0067c0; color: #0067c0; background: #f3f8fd; font-weight: 800;">
+                <span class="material-symbols-outlined" style="font-size: 20px;">add_circle</span> THÊM THẺ MỚI VÀO ĐÂY
+            </button>
+        `;
+
         cards.forEach((c, index) => {
             const isQuiz = pendingModalReturn.type === 'quiz';
             
