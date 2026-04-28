@@ -4714,14 +4714,21 @@ body.pdf-mode #pdfReadState {
     display: flex;
     align-items: flex-start;
     gap: 12px;
-    transition: 0.2s;
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    cursor: pointer; /* Đổi con trỏ thành bàn tay */
+    position: relative; /* Để neo mũi tên */
 }
 
 .checklist-item:hover {
     border-color: #0067c0;
-    box-shadow: 0 4px 12px rgba(0, 103, 192, 0.08);
+    box-shadow: 0 6px 15px rgba(0, 103, 192, 0.1);
+    transform: translateY(-2px);
 }
-
+/* Hiệu ứng Mũi tên nhảy sang phải khi Hover */
+.checklist-item:hover .checklist-action-icon {
+    color: #0067c0 !important;
+    transform: translateY(-50%) translateX(4px) !important;
+}
 .check-icon-box {
     width: 24px; height: 24px;
     border-radius: 6px;
@@ -4740,6 +4747,7 @@ body.pdf-mode #pdfReadState {
 
 .checklist-text {
     flex: 1;
+    padding-right: 20px; /* Nhường chỗ cho mũi tên */
 }
 
 .checklist-text h4 {
@@ -17144,19 +17152,21 @@ async function renderRoadmapWidget() {
         const doneGrammarToday = Math.max(0, (grammarCount || 0) - dailySnapshot.grammar);
         const doneKanjiToday = Math.max(0, (kanjiCount || 0) - dailySnapshot.kanji);
 
-        // --- VẼ UI CHECKLIST ---
-        const buildChecklistItem = (label, targetToday, doneToday, currentTotal, quotaTotal) => {
+        // --- VẼ UI CHECKLIST (BẢN UPDATE CLICKABLE) ---
+        const buildChecklistItem = (label, targetToday, doneToday, currentTotal, quotaTotal, type, targetLevel) => {
             // Điều kiện hoàn thành: Làm đủ target hôm nay, HOẶC đã học max tổng quota
             const isDone = (targetToday > 0 && doneToday >= targetToday) || (currentTotal >= quotaTotal);
             
             return `
-                <div class="checklist-item ${isDone ? 'done' : ''}">
+                <div class="checklist-item ${isDone ? 'done' : ''}" onclick="navigateFromRoadmap('${type}', '${targetLevel}')">
                     <div class="check-icon-box"><span class="material-symbols-outlined" style="font-size: 16px;">check</span></div>
                     <div class="checklist-text">
                         <h4>${isDone ? `Hoàn thành mục tiêu ${label}` : `Cần học mới ${targetToday} ${label}`}</h4>
                         <p style="font-size: 12px; margin-bottom: 2px;">Hôm nay đã nạp: <b style="color: ${isDone ? '#10b981' : '#d97706'};">${doneToday} / ${targetToday}</b></p>
                         <p style="font-size: 11px; opacity: 0.7;">Tổng kết: ${currentTotal || 0} / ${quotaTotal}</p>
                     </div>
+                    <!-- Mũi tên điều hướng -->
+                    <span class="material-symbols-outlined checklist-action-icon" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: #cbd5e0; transition: 0.2s; font-size: 24px;">chevron_right</span>
                 </div>
             `;
         };
@@ -17180,10 +17190,11 @@ async function renderRoadmapWidget() {
                 
                 <div style="font-size: 14px; color: #4a4a4a; margin-bottom: 15px; font-weight: 500;">Nhiệm vụ hôm nay của bạn:</div>
                 
+                <!-- TRUYỀN THÊM LOẠI TASK (type) VÀ LEVEL JLPT VÀO HÀM RENDER -->
                 <div class="checklist-grid">
-                    ${buildChecklistItem('Từ vựng', targetVocabToday, doneVocabToday, vocabStudiedCount, quota.vocab)}
-                    ${buildChecklistItem('Ngữ pháp', targetGrammarToday, doneGrammarToday, grammarCount, quota.grammar)}
-                    ${buildChecklistItem('Chữ Kanji', targetKanjiToday, doneKanjiToday, kanjiCount, quota.kanji)}
+                    ${buildChecklistItem('Từ vựng', targetVocabToday, doneVocabToday, vocabStudiedCount, quota.vocab, 'vocab', goal.level)}
+                    ${buildChecklistItem('Ngữ pháp', targetGrammarToday, doneGrammarToday, grammarCount, quota.grammar, 'grammar', goal.level)}
+                    ${buildChecklistItem('Chữ Kanji', targetKanjiToday, doneKanjiToday, kanjiCount, quota.kanji, 'kanji', goal.level)}
                 </div>
                 
                 ${(targetVocabToday > 0 || targetGrammarToday > 0 || targetKanjiToday > 0) ? `
@@ -17536,6 +17547,34 @@ async function saveStoryAndStudy() {
     }
 }
 /* Hết ================= HỆ THỐNG AI DAILY STORY (DOKKAI MODE) ================= */
+/* ================= HÀM ĐIỀU HƯỚNG NHIỆM VỤ JLPT (DEEP LINKS) ================= */
+window.navigateFromRoadmap = function(type, level) {
+    if (type === 'vocab') {
+        // Mở Modal tạo Auto JLPT Deck và tự động gán đúng Level
+        openAutoJLPTModal();
+        setTimeout(() => {
+            const select = document.getElementById('autoJlptLevel');
+            if(select) select.value = level;
+        }, 100);
+    } 
+    else if (type === 'grammar') {
+        // Chuyển sang Kho Ngữ Pháp và tự động click bộ lọc Level
+        showGrammarVault();
+        setTimeout(() => {
+            const btns = document.querySelectorAll('#grammarFilterBar .grammar-pill');
+            btns.forEach(b => { if(b.innerText === level) b.click(); });
+        }, 400); // Chờ UI render xong
+    } 
+    else if (type === 'kanji') {
+        // Chuyển sang Pokedex Kanji và tự động click bộ lọc Level
+        showKanjiCollection();
+        setTimeout(() => {
+            const btns = document.querySelectorAll('#kanjiFilterBar .grammar-pill');
+            btns.forEach(b => { if(b.innerText === level) b.click(); });
+        }, 600); // Data Kanji lớn nên chờ lâu hơn 1 chút
+    }
+};
+/*Hết ================= HÀM ĐIỀU HƯỚNG NHIỆM VỤ JLPT (DEEP LINKS) ================= */
 
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
