@@ -7373,7 +7373,7 @@ function customAlert(msg, title = "Thông báo", type = "info") {
 function showConfirm(title, message, okText = "OK", cancelText = "Hủy") {
     return new Promise((resolve) => {
         const modal = document.getElementById('confirmModal'), okBtn = document.getElementById('confirmOkBtn'), cancelBtn = document.getElementById('confirmCancelBtn');
-        document.getElementById('confirmTitle').innerText = title; document.getElementById('confirmMsg').innerText = message;
+        document.getElementById('confirmTitle').innerText = title; document.getElementById('confirmMsg').innerHTML = message;
         okBtn.innerText = okText; cancelBtn.innerText = cancelText;
         okBtn.style.background = okText === "Xóa" ? "linear-gradient(135deg, #f56565, #e53e3e)" : "linear-gradient(135deg, #48bb78, #38a169)";
         modal.style.display = 'flex';
@@ -17154,24 +17154,35 @@ async function saveStoryAndStudy() {
         hideLoading();
 
         // 5. THÔNG BÁO TỔNG KẾT VÀ CHUYỂN VÀO HỌC
+        // ÉP CHẶT: Xóa mọi độ lệch cuộn trang do modal cũ để lại
+        window.scrollTo({ top: 0, behavior: 'instant' });
+        
+        let proceedToStudy = true;
+
         if (filterResult.duplicateWords.length > 0) {
-            // Nếu có lọc bỏ thẻ trùng, hiện bảng thông báo để user biết tại sao số thẻ bị giảm
             const skippedWords = filterResult.duplicateWords.slice(0, 3).join(', ');
             const moreStr = filterResult.duplicateWords.length > 3 ? `... và ${filterResult.duplicateWords.length - 3} thẻ khác` : '';
             
-            customAlert(`
-                🎉 <b>Đã đưa vào bộ bài:</b> ${filterResult.validCards.length} thẻ mới.<br><br>
-                ⏭️ <b>Bỏ qua:</b> ${filterResult.duplicateWords.length} thẻ đã có sẵn trong kho:<br>
-                <span style="color:#d97706; font-size:13px; line-height:1.6; display:inline-block; margin-top:5px;">${skippedWords} ${moreStr}</span><br><br>
-                <i>Bấm 'Đã hiểu' để bắt đầu học ngay!</i>
-            `, "✨ Hoàn tất", "success");
+            // Dùng showConfirm để chặn luồng chờ người dùng quyết định
+            proceedToStudy = await showConfirm(
+                "✨ Hoàn tất", 
+                `🎉 <b>Đã đưa vào bộ bài:</b> ${filterResult.validCards.length} thẻ mới.<br><br>` +
+                `⏭️ <b>Tự động bỏ qua:</b> ${filterResult.duplicateWords.length} thẻ đã có sẵn trong kho:<br>` +
+                `<span style="color:#d97706; font-size:13px; line-height:1.6; display:inline-block; margin-top:5px; margin-bottom:15px;">${skippedWords} ${moreStr}</span><br>` +
+                `Bạn có muốn vào học bộ bài này ngay bây giờ không?`,
+                "Học ngay", "Về trang chủ"
+            );
         } else {
             showToast(`✨ Đã tạo xong bài học. Bắt đầu ngay thôi!`);
         }
 
-        // BAY THẲNG VÀO CHẾ ĐỘ HỌC SRS
-        mode = 'review';
-        await loadCards(tempDeckId); 
+        if (proceedToStudy) {
+            // BAY THẲNG VÀO CHẾ ĐỘ HỌC SRS
+            mode = 'review';
+            await loadCards(tempDeckId); 
+        } else {
+            showHome();
+        } 
 
     } catch (err) {
         hideLoading();
