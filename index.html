@@ -10225,7 +10225,7 @@ async function renderManageDeckList() {
                         <button class="win11-crop-btn" onclick="openRenameDeckModal(event, '${d.id}', '${cleanName.replace(/'/g, "\\'")}')">
                             <span class="material-symbols-outlined" style="color: #0067c0;">edit_square</span> Đổi tên nhanh
                         </button>
-                        <button class="win11-crop-btn" onclick="openEditDeck(event, decodeURIComponent('${safeId}'))">
+                        <button class="win11-crop-btn" onclick="openStudyOptionsModal('${d.id}', '${cleanName.replace(/'/g, "\\'")}', '${d.type}')">
                             <span class="material-symbols-outlined" style="color: #10b981;">list_alt</span> Sửa thẻ bên trong
                         </button>
                         <button class="win11-crop-btn" onclick="openMoveDeckModal(event, decodeURIComponent('${safeId}'))">
@@ -11639,8 +11639,18 @@ async function saveQuickEdit() {
         closeModal('quickEditModal');
         showToast("Đã cập nhật thẻ thành công! ✨");
         
-        // Render lại mặt thẻ đang học
-        showCard(); 
+        // NẾU ĐANG Ở TRONG MÀN HỌC SRS -> RENDER LẠI THẺ TRÊN MÀN HÌNH
+        if (!document.getElementById('reviewPage').classList.contains('hidden')) {
+            showCard(); 
+        }
+        
+        // NẾU MODAL DANH SÁCH ĐANG MỞ -> TỰ ĐỘNG LOAD LẠI DANH SÁCH ĐỂ THẤY CHỮ MỚI
+        if (document.getElementById('studyOptionsModal').style.display === 'flex') {
+            isInlineListLoaded = false; // Xóa cache
+            document.getElementById('inlineDeckListContainer').style.display = 'none'; // Thu gọn
+            toggleInlineDeckList(); // Mở ra và tải lại từ DB
+        }
+        
     } catch (err) {
         console.error("Lỗi sửa thẻ nhanh:", err);
         customAlert("Không thể lưu. Có thể bộ bài này không phải của bạn nên bạn không có quyền sửa.", "❌");
@@ -11663,19 +11673,27 @@ async function deleteQuickCard() {
         closeModal('quickEditModal');
         showToast("Đã xóa thẻ khỏi bộ bài! 🗑️");
 
-        // Xóa khỏi mảng đang học
+        // Xóa khỏi mảng đang học tạm thời
         sessionCards.splice(currentIndex, 1);
 
-        // Xử lý chuyển thẻ
-        if (sessionCards.length === 0) {
-            customAlert("Bạn đã xóa thẻ cuối cùng của bộ bài này.", "ℹ️");
-            showHome();
-        } else {
-            // Nếu xóa thẻ cuối cùng, lùi index lại 1 bước
-            if (currentIndex >= sessionCards.length) {
-                currentIndex = sessionCards.length - 1;
+        // 🟢 NẾU MODAL DANH SÁCH ĐANG MỞ -> LOAD LẠI DANH SÁCH
+        if (document.getElementById('studyOptionsModal').style.display === 'flex') {
+            isInlineListLoaded = false;
+            document.getElementById('inlineDeckListContainer').style.display = 'none';
+            toggleInlineDeckList();
+        }
+
+        // 🟢 XỬ LÝ CHUYỂN THẺ (CHỈ KHI ĐANG MỞ MÀN HÌNH HỌC SRS)
+        if (!document.getElementById('reviewPage').classList.contains('hidden')) {
+            if (sessionCards.length === 0) {
+                customAlert("Bạn đã xóa thẻ cuối cùng của bộ bài này.", "ℹ️");
+                showHome();
+            } else {
+                if (currentIndex >= sessionCards.length) {
+                    currentIndex = sessionCards.length - 1;
+                }
+                showCard();
             }
-            showCard();
         }
     } catch (err) {
         console.error("Lỗi xóa thẻ nhanh:", err);
@@ -16620,10 +16638,23 @@ async function toggleInlineDeckList() {
             return;
         }
 
+        // 🟢 QUAN TRỌNG: Gắn thẻ vào biến toàn cục để Modal Quick Edit có thể đọc được
+        sessionCards = cards;
+        mode = pendingModalReturn.type === 'quiz' ? 'quiz' : 'flashcard';
+
         let html = '';
         cards.forEach((c, index) => {
             const isQuiz = pendingModalReturn.type === 'quiz';
             
+            // 🟢 TẠO NÚT SỬA THẺ
+            const editBtnHtml = `
+                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e5e5e5; display: flex; justify-content: flex-start;">
+                    <button onclick="currentIndex = ${index}; openQuickEdit(event);" class="win11-btn-secondary" style="padding: 6px 12px; font-size: 13px; color: #0067c0; border-color: #bee3f8; background: #ebf8ff;">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">edit</span> Sửa thẻ này
+                    </button>
+                </div>
+            `;
+
             if (isQuiz) {
                 // UI CHO TRẮC NGHIỆM
                 let w1='', w2='', w3='';
@@ -16642,10 +16673,11 @@ async function toggleInlineDeckList() {
                         ${w1 ? `<div style="color: #c50f1f;">✗ ${escapeHTML(w1)}</div>` : ''}
                         ${w2 ? `<div style="color: #c50f1f;">✗ ${escapeHTML(w2)}</div>` : ''}
                         ${w3 ? `<div style="color: #c50f1f;">✗ ${escapeHTML(w3)}</div>` : ''}
+                        ${editBtnHtml}
                     </div>
                 </div>`;
             } else {
-                // UI CHO FLASHCARD (Dùng siêu Parser bóc tách dữ liệu)
+                // UI CHO FLASHCARD
                 const parsed = parseCardData(c);
                 const safeFront = escapeHTML(parsed.front);
                 const safeMeaning = escapeHTML(parsed.meaning);
@@ -16670,6 +16702,7 @@ async function toggleInlineDeckList() {
                                 <div style="font-size: 13px; color: #666666;">${escapeHTML(parsed.exampleVN)}</div>
                             </div>
                         ` : ''}
+                        ${editBtnHtml}
                     </div>
                 </div>`;
             }
