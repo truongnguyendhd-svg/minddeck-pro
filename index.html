@@ -8316,6 +8316,41 @@ async function showKanjiXRay(event, kanji) {
                 localCardsCount = cardsData.length;
             }
         }
+        // --- KIỂM TRA QUYỀN ADMIN CHO MẸO NHỚ ---
+        const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
+        let mnemonicHtml = "";
+
+        // Nếu có mẹo nhớ HOẶC là Admin (để admin có chỗ nhập mới)
+        if (data.mnemonics || isAdmin) {
+            const rawText = data.mnemonics || "";
+            const displayText = rawText ? rawText : "<i style='color:#a0aec0; font-size:13px;'>Chưa có mẹo nhớ...</i>";
+            
+            const editBtnHtml = isAdmin ? `
+                <button onclick="toggleMnemonicEdit(true)" style="background:transparent; border:none; cursor:pointer; color:#dd6b20; margin-left:auto; display:flex; padding:4px; border-radius:4px; transition:0.2s;" onmouseover="this.style.background='#ffedd6'" onmouseout="this.style.background='transparent'">
+                    <span class="material-symbols-outlined" style="font-size:16px;">edit</span>
+                </button>
+            ` : "";
+
+            const editorHtml = isAdmin ? `
+                <div id="mnemonicEditorZone" style="display:none; margin-top: 10px;">
+                    <textarea id="mnemonicEditInput" class="win11-input" rows="3" style="width:100%; margin-bottom:8px; font-size:14px;">${rawText}</textarea>
+                    <div style="display:flex; justify-content:flex-end; gap:8px;">
+                        <button onclick="toggleMnemonicEdit(false)" class="win11-btn-secondary" style="padding: 6px 12px; font-size:12px;">Hủy</button>
+                        <button onclick="saveKanjiMnemonic(event, '${data.kanji}')" class="win11-btn-primary" style="padding: 6px 12px; font-size:12px; background:#c05600;">Lưu mẹo</button>
+                    </div>
+                </div>
+            ` : "";
+
+            mnemonicHtml = `
+            <div style="background: #fff8f0; padding: 16px; border-radius: 8px; border: 1px solid #fce8cd; border-left: 4px solid #f29b2b; text-align: left; font-size: 14px; color: #1a1a1a; line-height: 1.6; margin-bottom: 24px;">
+                <div style="display: flex; align-items: center; gap: 6px; font-weight: 600; color: #9e5b00; margin-bottom: 6px;">
+                    <span class="material-symbols-outlined" style="font-size:18px;">lightbulb</span> Mẹo nhớ:
+                    ${editBtnHtml}
+                </div>
+                <div id="mnemonicDisplayZone">${displayText}</div>
+                ${editorHtml}
+            </div>`;
+        }
         const content = `
             <div style="font-size: 80px; font-weight: 900; color: #005fb8; line-height: 1.1; font-family: 'Noto Sans JP', sans-serif;">${data.kanji}</div>
             <div style="font-size: 18px; font-weight: 700; color: #c50f1f; margin: 4px 0 12px 0; letter-spacing: 1px;">[ ${data.hv} ]</div>
@@ -8326,13 +8361,7 @@ async function showKanjiXRay(event, kanji) {
                 <b style="font-size: 18px; color: #1a1a1a; letter-spacing: 2px;">${data.components.join(' <span style="color:#cccccc; font-weight:400;">+</span> ')}</b>
             </div>
             
-            ${data.mnemonics ? `
-            <div style="background: #fff8f0; padding: 16px; border-radius: 8px; border: 1px solid #fce8cd; border-left: 4px solid #f29b2b; text-align: left; font-size: 14px; color: #1a1a1a; line-height: 1.6; margin-bottom: 24px;">
-                <div style="display: flex; align-items: center; gap: 6px; font-weight: 600; color: #9e5b00; margin-bottom: 6px;">
-                    <span class="material-symbols-outlined" style="font-size:18px;">lightbulb</span> Mẹo nhớ:
-                </div>
-                ${data.mnemonics}
-            </div>` : ''}
+            ${mnemonicHtml}
 
             
             <!-- VÙNG HỌC ẢO (WIN 11) -->
@@ -17795,6 +17824,57 @@ window.navigateFromRoadmap = function(type, level) {
     }
 };
 /*Hết ================= HÀM ĐIỀU HƯỚNG NHIỆM VỤ JLPT (DEEP LINKS) ================= */
+/* ================= HÀM XỬ LÝ SỬA MẸO NHỚ KANJI (DÀNH CHO ADMIN) ================= */
+window.toggleMnemonicEdit = function(show) {
+    const displayZone = document.getElementById('mnemonicDisplayZone');
+    const editorZone = document.getElementById('mnemonicEditorZone');
+    
+    if (show) {
+        displayZone.style.display = 'none';
+        editorZone.style.display = 'block';
+        setTimeout(() => document.getElementById('mnemonicEditInput').focus(), 50);
+    } else {
+        displayZone.style.display = 'block';
+        editorZone.style.display = 'none';
+    }
+};
+
+window.saveKanjiMnemonic = async function(event, kanji) {
+    const btn = event.currentTarget;
+    const newMnemonic = document.getElementById('mnemonicEditInput').value.trim();
+    
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-top-color:#fff;margin:0"></div>';
+    btn.disabled = true;
+
+    try {
+        // Cập nhật lên Supabase
+        const { error } = await sb.from('kanji_builder')
+            .update({ mnemonics: newMnemonic })
+            .eq('kanji', kanji);
+            
+        if (error) throw error;
+        
+        showToast("✅ Đã cập nhật mẹo nhớ Kanji!");
+        
+        // Cập nhật lại cache RAM (để không bị mất khi thoát modal tra lại)
+        const kanjiIndex = allKanjiData.findIndex(k => k.kanji === kanji);
+        if (kanjiIndex !== -1) {
+            allKanjiData[kanjiIndex].mnemonics = newMnemonic;
+            localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
+        }
+
+        // Tải lại Modal X-Ray để hiển thị UI mới
+        showKanjiXRay(new Event('click'), kanji);
+
+    } catch (err) {
+        console.error("Lỗi cập nhật mẹo nhớ:", err);
+        customAlert("Không thể lưu: " + err.message, "❌");
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+};
+/* Hết================= HÀM XỬ LÝ SỬA MẸO NHỚ KANJI (DÀNH CHO ADMIN) ================= */
 
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
