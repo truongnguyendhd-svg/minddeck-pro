@@ -4901,6 +4901,25 @@ body.pdf-mode #pdfReadState {
     font-weight: 800;
 }
 /* Hết================= CSS MỚI CHO DECK MENU DROPDOWN ================= */
+/* ================= CSS CHO 3 TÍNH NĂNG MỚI (VOICE, SHODO, RPG) ================= */
+/* Nút Micro Shadowing Dojo */
+.btn-mic-inside {
+    position: absolute; top: 60px; right: 15px;
+    background: #fdf3f4; color: #c50f1f; border: 1px solid #f8d7da;
+    cursor: pointer; padding: 8px; border-radius: 50%;
+    transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; z-index: 10;
+}
+.btn-mic-inside:hover { background: #c50f1f; color: white; transform: scale(1.1); }
+.btn-mic-inside.recording { animation: pulse-red 1s infinite; background: #c50f1f; color: white; }
+
+/* Canvas vẽ Kanji (Shodo) */
+.shodo-canvas-wrapper {
+    background: #fff; border: 2px dashed #cbd5e0; border-radius: 16px;
+    margin: 0 auto 15px auto; overflow: hidden; position: relative;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.02);
+}
+#shodoCanvas { cursor: crosshair; touch-action: none; display: block; }
+/* Hết================= CSS CHO 3 TÍNH NĂNG MỚI (VOICE, SHODO, RPG) ================= */
 
 </style>
 </head>
@@ -6246,6 +6265,12 @@ body.pdf-mode #pdfReadState {
                     </div>
                     <span class="material-symbols-outlined play-icon">play_circle</span>
                 </button>
+                <button class="boost-game-btn" onclick="startBoostSession('12')">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="font-size: 18px;">✍️</span><span style="font-size: 14px; font-weight: 600; color: #1a1a1a;">Thư Pháp Quán (Vẽ Kanji)</span>
+                    </div>
+                    <span class="material-symbols-outlined play-icon">play_circle</span>
+                </button>
             </div>
 
         </div>
@@ -6855,6 +6880,9 @@ body.pdf-mode #pdfReadState {
                         </div>
                         <div class="ai-mode-item" onclick="selectAiMode('chat', 'Trò chuyện', 'chat', this)">
                             <span class="material-symbols-outlined" style="color: #4a5568;">chat</span> Luyện giao tiếp / Sửa lỗi
+                        </div>
+                        <div class="ai-mode-item" onclick="selectAiMode('rpg', 'Nihongo RPG', 'sports_esports', this)">
+                            <span class="material-symbols-outlined" style="color: #ea580c;">sports_esports</span> Nihongo RPG (Sinh tồn)
                         </div>
                     </div>
                 </div>
@@ -8252,6 +8280,12 @@ function renderStudy() {
     
     // ĐỔI ICON THÔNG TIN PHỤ THÀNH BÓNG ĐÈN (Đã xóa nút Smart Hint cũ)
     const infoBtnHTML = `<button onclick="handleInfoClick(event)" class="btn-info-inside" title="Thông tin phụ"><span class="material-symbols-outlined" style="font-size:24px;">lightbulb</span></button>`;
+    // THÊM ĐOẠN NÀY DÀNH CHO SHADOWING DOJO
+    const parsedCard = parseCardData(c);
+    // Ưu tiên đọc câu ví dụ, nếu không có thì đọc từ vựng
+    const targetTextToSpeak = parsedCard.exampleJP ? parsedCard.exampleJP : parsedCard.front;
+    const safeTargetText = targetTextToSpeak.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+    const micBtnHTML = `<button onclick="startShadowing(event, '${safeTargetText}')" class="btn-mic-inside" title="Luyện phát âm"><span class="material-symbols-outlined" style="font-size:22px;">mic</span></button>`;
 
     // TẠO NỘI DUNG TIẾN ĐỘ ĐỂ NHÚNG VÀO GÓC THẺ
     let progressStr = `${currentIndex + 1}/${sessionCards.length}`;
@@ -8264,8 +8298,8 @@ function renderStudy() {
         const questionText = isRev ? c.back : c.front;
         const dynamicSize = getDynamicFontSize(questionText);
         
-        // Cộng thêm progressHTML, editBtn, infoBtn vào thẻ
-        cardArea.innerHTML = progressHTML + editBtnHTML + `<b style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(questionText))}</b>` + infoBtnHTML;
+        // Cộng thêm progressHTML, editBtn, infoBtn, micBtnHTML vào thẻ
+        cardArea.innerHTML = progressHTML + editBtnHTML + micBtnHTML + `<b style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(questionText))}</b>` + infoBtnHTML;
         
         // Ẩn cụm nút nếu đang ở chế độ Khắc phục lỗi (Remedial)
         // LƯU Ý: ĐÃ XÓA LỆNH KHÓA NÚT (disabled = true) ĐỂ ĐÚNG/SAI LUÔN BẤM ĐƯỢC
@@ -8275,8 +8309,8 @@ function renderStudy() {
         const answerText = isRev ? c.front : c.back;
         const dynamicSize = getDynamicFontSize(answerText);
         
-        // Cộng thêm progressHTML, editBtn, infoBtn vào thẻ
-        cardArea.innerHTML = progressHTML + editBtnHTML + `<i style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoBtnHTML;
+        // Cộng thêm progressHTML, editBtn, infoBtn, micBtnHTML vào thẻ
+        cardArea.innerHTML = progressHTML + editBtnHTML + micBtnHTML + `<i style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoBtnHTML;
         
         // NẾU LÀ REMEDIAL: HIỆN NÚT "TIẾP THEO" BỰ
         if (mode === 'remedial') {
@@ -8952,8 +8986,15 @@ function renderBoostCard() {
     };
     if (mode !== 'assessment') {
 // 2. CHỌN GAME PHÙ HỢP VỚI ĐIỀU KIỆN
-        let availableGames = [1, 4, 9, 10, 11]; // Word Match và True/False luôn chơi được
+        let availableGames = [1, 4, 9, 10]; // Bỏ game 11 ra khỏi mặc định
         
+        // KIỂM TRA KANJI CHO GAME 11 VÀ 12
+        const hasKanjiFront = /[\u4e00-\u9faf]/.test(c.front);
+        if (hasKanjiFront) {
+            availableGames.push(11); // 🏗️ Xây chữ
+            availableGames.push(12); // ✍️ Thư pháp quán
+        }
+
         // Nếu có reading dài >= 1 ký tự, chơi Typing & Scramble được
         if (c.reading.length >= 1 && wanakana.isJapanese(c.reading)) {
             availableGames.push(2); 
@@ -9782,6 +9823,102 @@ function renderBoostCard() {
                 renderKanjiStep();
 
             })(); // Thực thi IIFE
+            break;
+        case 12: // ✍️ SHODO MODE (THƯ PHÁP QUÁN)
+            const kanjisToDraw = c.front.match(/[\u4e00-\u9faf]/g) || [];
+            const targetK = kanjisToDraw[0] || c.front[0]; // Lấy chữ Kanji đầu tiên để vẽ
+
+            prompt.innerText = "✍️ Thư Pháp Quán";
+            question.innerHTML = `<span style="font-size:20px; color:#4a5568;">Hãy vẽ chữ: </span> <b style="color:#0067c0;">${targetK}</b> <br><span style="font-size:14px; font-weight:500;">(${c.meaning})</span>`;
+            
+            zone.innerHTML = `
+                <div class="shodo-canvas-wrapper" style="width: 280px; height: 280px;">
+                    <canvas id="shodoCanvas" width="280" height="280"></canvas>
+                </div>
+                <div style="display: flex; gap: 10px; width: 280px; margin: 0 auto;">
+                    <button id="btnClearShodo" class="win11-btn-secondary" style="flex:1; justify-content:center;">Xóa nháp</button>
+                    <button id="btnSubmitShodo" class="win11-btn-primary" style="flex:2; justify-content:center; display:flex; align-items:center; gap:6px;">
+                        <span class="material-symbols-outlined" style="font-size:18px;">auto_awesome</span> Chấm điểm
+                    </button>
+                </div>
+            `;
+
+            // Logic vẽ lên Canvas
+            const sCanvas = document.getElementById('shodoCanvas');
+            const sCtx = sCanvas.getContext('2d');
+            sCtx.fillStyle = "#ffffff";
+            sCtx.fillRect(0, 0, 280, 280); // Nền trắng
+            
+            let isShodoDrawing = false;
+            
+            const getShodoPos = (e) => {
+                const rect = sCanvas.getBoundingClientRect();
+                return {
+                    x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left,
+                    y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top
+                };
+            };
+
+            const startShodo = (e) => {
+                isShodoDrawing = true;
+                const pos = getShodoPos(e);
+                sCtx.beginPath();
+                sCtx.moveTo(pos.x, pos.y);
+                sCtx.strokeStyle = "#1a1a1a"; // Mực đen
+                sCtx.lineWidth = 6;
+                sCtx.lineCap = "round";
+            };
+            const drawShodo = (e) => {
+                if (!isShodoDrawing) return;
+                e.preventDefault(); // Chống cuộn màn hình
+                const pos = getShodoPos(e);
+                sCtx.lineTo(pos.x, pos.y);
+                sCtx.stroke();
+            };
+            const stopShodo = () => { isShodoDrawing = false; };
+
+            sCanvas.addEventListener('mousedown', startShodo);
+            sCanvas.addEventListener('mousemove', drawShodo);
+            window.addEventListener('mouseup', stopShodo);
+            sCanvas.addEventListener('touchstart', startShodo, {passive:false});
+            sCanvas.addEventListener('touchmove', drawShodo, {passive:false});
+            window.addEventListener('touchend', stopShodo);
+
+            document.getElementById('btnClearShodo').onclick = () => {
+                sCtx.fillRect(0, 0, 280, 280);
+            };
+
+            document.getElementById('btnSubmitShodo').onclick = async function() {
+                const btn = this;
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;margin-right:5px;"></div> Đang chấm...';
+                btn.disabled = true;
+
+                const base64Img = sCanvas.toDataURL('image/jpeg', 0.8);
+                const aiPrompt = `Đóng vai trò là một thư pháp gia tiếng Nhật khó tính.
+                Người dùng đã vẽ chữ Kanji: "${targetK}".
+                Hãy nhìn vào bức ảnh nét vẽ của người dùng và chấm điểm (thang điểm 10/10).
+                Nhận xét ngắn gọn 1-2 câu về nét vẽ (có đúng nét, đúng tỷ lệ không?). Nếu vẽ bậy, hãy cho 0 điểm.
+                BẮT BUỘC TRẢ VỀ CHUỖI CÓ CHỨA CỤM TỪ "[PASS]" nếu chữ vẽ có thể đọc được là chữ đó, hoặc "[FAIL]" nếu vẽ sai hoàn toàn/vẽ bậy.`;
+
+                try {
+                    const feedback = await callGeminiAI(aiPrompt, [base64Img]);
+                    
+                    // Kiểm tra xem AI đánh giá PASS hay FAIL
+                    const isPass = feedback.includes("[PASS]");
+                    const cleanFeedback = feedback.replace(/\[PASS\]/g, '').replace(/\[FAIL\]/g, '').trim();
+
+                    customAlert(`<div style="text-align:left;">${cleanFeedback.replace(/\n/g,'<br>')}</div>`, isPass ? "🎉 Bút pháp tuyệt vời!" : "❌ Cần luyện thêm");
+
+                    // Chuyển thẻ nếu xử lý xong
+                    handleBoostAnswer(null, isPass);
+                    
+                } catch(e) {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                    showToast("Lỗi chấm điểm: " + e.message);
+                }
+            };
             break;
     }
 }
@@ -14148,6 +14285,20 @@ async function handleSendChatMessage() {
             }
             \`\`\``;
         }
+        else if (aiMode === 'rpg') {
+            // Lấy ngẫu nhiên 3 thẻ từ kho của người dùng (Đã được load sẵn ngầm)
+            const forceWords = window.rpgRandomWords || ["こんにちは", "ありがとう", "すみません"]; // Fallback nếu lỗi
+            
+            systemPrompt = `Chúng ta đang chơi trò chơi Nhập vai Sinh tồn (Nihongo RPG).
+            Bối cảnh: Bạn là một nhân vật ngẫu nhiên ở Nhật Bản (Cảnh sát, Nhân viên cửa hàng tiện lợi, Yakuza, v.v...). 
+            Người dùng gửi tin nhắn: "${text}"
+            
+            Luật chơi BẮT BUỘC:
+            1. Người chơi bị ÉP phải sử dụng 3 từ vựng sau trong câu thoại của họ: [ ${forceWords.join(', ')} ].
+            2. Hãy kiểm tra xem trong tin nhắn của người dùng có chứa đủ các từ này chưa. 
+            3. Nếu chưa đủ, hãy đóng vai nhân vật, trả lời lại bằng tiếng Nhật (kèm dịch tiếng Việt) và NHẮC NHỞ người chơi phải dùng các từ đó để qua ải.
+            4. Nếu người chơi dùng đủ và đúng ngữ cảnh, hãy chúc mừng họ, kết thúc tình huống và TỰ ĐỘNG TẠO MỘT BỐI CẢNH MỚI và chọn 3 từ vựng ngẫu nhiên mới để họ tiếp tục chơi.`;
+        }
         // Gọi API: Truyền Prompt (đã có text) và MẢNG ẢNH
         const aiResponse = await callGeminiAI(systemPrompt, imagesToSend);
 
@@ -17875,7 +18026,90 @@ window.saveKanjiMnemonic = async function(event, kanji) {
     }
 };
 /* Hết================= HÀM XỬ LÝ SỬA MẸO NHỚ KANJI (DÀNH CHO ADMIN) ================= */
+// HÀM XỬ LÝ SHADOWING DOJO (VOICE)
+window.startShadowing = function(event, targetText) {
+    event.stopPropagation();
+    const btn = event.currentTarget;
+    
+    // Kiểm tra API
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return customAlert("Trình duyệt không hỗ trợ thu âm. Vui lòng dùng Google Chrome/Safari.", "⚠️");
 
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'ja-JP';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+        btn.classList.add('recording');
+        showToast("🎙️ Đang nghe... Hãy đọc to lên nhé!");
+    };
+
+    recognition.onresult = async (e) => {
+        const userSaid = e.results[0][0].transcript;
+        btn.classList.remove('recording');
+        
+        showLoading("AI đang chấm điểm phát âm...");
+        const prompt = `Đóng vai trò giáo viên phát âm tiếng Nhật.
+        Câu mẫu học viên cần đọc là: "${targetText}".
+        Hệ thống thu âm được học viên đọc là: "${userSaid}".
+        
+        Hãy đánh giá xem học viên đọc có đúng không (Chấm thang điểm 100).
+        Chỉ ra lỗi sai (nếu có, ví dụ sai âm đục, trường âm). Trả lời ngắn gọn, thân thiện bằng tiếng Việt, dùng HTML cơ bản (<b>, <br>).`;
+        
+        try {
+            const aiFeedback = await callGeminiAI(prompt);
+            hideLoading();
+            document.getElementById('voiceResultContent').innerHTML = `
+                <div style="background:#f3f8fd; padding:12px; border-radius:8px; margin-bottom:15px; border-left:3px solid #0067c0;">
+                    <b>🗣️ Bạn đã đọc:</b><br><span style="font-size:16px; color:#0067c0;">${userSaid}</span>
+                </div>
+                ${aiFeedback}
+            `;
+            document.getElementById('voiceResultModal').style.display = 'flex';
+        } catch (err) {
+            hideLoading();
+            customAlert("Lỗi AI chấm điểm: " + err.message, "❌");
+        }
+    };
+
+    recognition.onerror = (e) => {
+        btn.classList.remove('recording');
+        showToast("Không nghe rõ, vui lòng thử lại!");
+    };
+
+    recognition.start();
+};
+// Hết HÀM XỬ LÝ SHADOWING DOJO (VOICE)
+// HỆ THỐNG KÉO THẺ CHO NIHONGO RPG
+window.rpgRandomWords = [];
+async function fetchWordsForRPG() {
+    if (!currentUser) return;
+    try {
+        // Lấy 3 thẻ trễ hạn (cần ôn tập) từ DB
+        const now = new Date().toISOString();
+        const { data } = await sb.from('progress')
+            .select('cards!inner(front)')
+            .eq('user_id', currentUser.id)
+            .lte('due', now)
+            .limit(10);
+            
+        if (data && data.length > 0) {
+            // Random trộn và lấy 3 từ
+            const shuffled = data.sort(() => 0.5 - Math.random()).slice(0, 3);
+            window.rpgRandomWords = shuffled.map(d => d.cards.front);
+        } else {
+            window.rpgRandomWords = ["旅行", "美味しい", "食べる"]; // Fallback cơ bản
+        }
+    } catch(e) {}
+}
+
+// Lắng nghe sự kiện chuyển sang trang Playground thì tự động fetch từ vựng
+const originalShowPlayground = showPlayground;
+showPlayground = function(skipHash = false) {
+    originalShowPlayground(skipHash);
+    fetchWordsForRPG(); // Lấy từ vựng chuẩn bị cho RPG
+};
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
@@ -18121,6 +18355,23 @@ window.saveKanjiMnemonic = async function(event, kanji) {
                     <span class="material-symbols-outlined" style="font-size: 18px;">save</span> Lưu tên mới
                 </button>
             </div>
+        </div>
+    </div>
+</div>
+<!-- MODAL CHẤM ĐIỂM PHÁT ÂM (WIN 11 STYLE) -->
+<div id="voiceResultModal" class="modal" style="z-index: 15000;">
+    <div class="modal-content win11-modal" style="max-width: 450px;">
+        <div class="win11-modal-header" style="background: #fbfbfb; border-bottom: 1px solid #f0f0f0;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: #c50f1f; font-size: 20px;">mic</span>
+                <h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #1a1a1a; text-transform: uppercase;">Kết quả phát âm</h3>
+            </div>
+            <button class="win11-close-btn" onclick="closeModal('voiceResultModal')">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div class="win11-modal-body" id="voiceResultContent" style="padding: 20px; font-size: 14px; color: #1a1a1a; line-height: 1.6;">
+            <!-- JS sẽ bơm kết quả AI vào đây -->
         </div>
     </div>
 </div>
