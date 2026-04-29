@@ -9828,8 +9828,24 @@ function renderBoostCard() {
             const kanjisToDraw = c.front.match(/[\u4e00-\u9faf]/g) || [];
             const targetK = kanjisToDraw[0] || c.front[0]; // Lấy chữ Kanji đầu tiên để vẽ
 
+            // 🟢 TẠO HIỆU ỨNG ĐỤC LỖ (MASKING)
+            // Giấu chữ Kanji cần vẽ đi, thay bằng dấu [?]
+            const maskedFront = c.front.replace(targetK, '<span style="color:#cbd5e0; border-bottom: 2px dashed #cbd5e0; padding: 0 5px;"> ? </span>');
+
             prompt.innerText = "✍️ Thư Pháp Quán";
-            question.innerHTML = `<span style="font-size:20px; color:#4a5568;">Hãy vẽ chữ: </span> <b style="color:#0067c0;">${targetK}</b> <br><span style="font-size:14px; font-weight:500;">(${c.meaning})</span>`;
+            
+            // 🟢 HIỂN THỊ CÂU HỎI ĐÃ BỊ GIẤU ĐÁP ÁN
+            question.innerHTML = `
+                <div style="font-size: 14px; color: #718096; font-weight: 600; margin-bottom: 5px;">Hãy nhớ và vẽ chữ Kanji còn thiếu:</div>
+                <div style="font-size: 32px; font-weight: 900; color: #1d1d1f; letter-spacing: 2px;">${maskedFront}</div>
+                <div style="font-size: 16px; font-weight: 700; color: #c50f1f; margin-top: 5px;">${c.meaning}</div>
+                
+                <!-- Khu vực hiện đáp án sau khi chấm (Mặc định ẩn) -->
+                <div id="shodoRevealZone" style="display: none; margin-top: 15px; animation: popIn 0.3s ease;">
+                    <span style="font-size: 13px; color: #4a5568;">Chữ đúng là: </span>
+                    <b style="color: #0067c0; font-size: 28px;">${targetK}</b>
+                </div>
+            `;
             
             zone.innerHTML = `
                 <div class="shodo-canvas-wrapper" style="width: 280px; height: 280px;">
@@ -9896,7 +9912,7 @@ function renderBoostCard() {
 
                 const base64Img = sCanvas.toDataURL('image/jpeg', 0.8);
                 const aiPrompt = `Đóng vai trò là một thư pháp gia tiếng Nhật khó tính.
-                Người dùng đã vẽ chữ Kanji: "${targetK}".
+                Người dùng được yêu cầu vẽ chữ Kanji: "${targetK}".
                 Hãy nhìn vào bức ảnh nét vẽ của người dùng và chấm điểm (thang điểm 10/10).
                 Nhận xét ngắn gọn 1-2 câu về nét vẽ (có đúng nét, đúng tỷ lệ không?). Nếu vẽ bậy, hãy cho 0 điểm.
                 BẮT BUỘC TRẢ VỀ CHUỖI CÓ CHỨA CỤM TỪ "[PASS]" nếu chữ vẽ có thể đọc được là chữ đó, hoặc "[FAIL]" nếu vẽ sai hoàn toàn/vẽ bậy.`;
@@ -9904,13 +9920,14 @@ function renderBoostCard() {
                 try {
                     const feedback = await callGeminiAI(aiPrompt, [base64Img]);
                     
-                    // Kiểm tra xem AI đánh giá PASS hay FAIL
                     const isPass = feedback.includes("[PASS]");
                     const cleanFeedback = feedback.replace(/\[PASS\]/g, '').replace(/\[FAIL\]/g, '').trim();
 
+                    // 🟢 MỞ KHÓA HIỂN THỊ ĐÁP ÁN ĐÚNG SAU KHI CHẤM XONG
+                    document.getElementById('shodoRevealZone').style.display = 'block';
+
                     customAlert(`<div style="text-align:left;">${cleanFeedback.replace(/\n/g,'<br>')}</div>`, isPass ? "🎉 Bút pháp tuyệt vời!" : "❌ Cần luyện thêm");
 
-                    // Chuyển thẻ nếu xử lý xong
                     handleBoostAnswer(null, isPass);
                     
                 } catch(e) {
