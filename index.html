@@ -15520,28 +15520,42 @@ async function executeAutoGrammarGen() {
             ? `\nTUYỆT ĐỐI KHÔNG TẠO LẠI CÁC CẤU TRÚC SAU: [${existingPoints.join(', ')}]` 
             : "";
 
-        // Prompt ép chuẩn JSON
+        // Prompt ép chuẩn JSON và ÉP NGẮN GỌN
         const prompt = `Bạn là chuyên gia biên soạn giáo trình JLPT.
         Hãy tạo ra ${amount} cấu trúc ngữ pháp thuộc cấp độ ${level}. ${avoidStr}
         
+        LƯU Ý CỰC KỲ QUAN TRỌNG:
+        1. Giải thích "meaning", "structure", "nuance" phải NGẮN GỌN, SÚC TÍCH (dưới 15 chữ).
+        2. Các câu ví dụ "ex" phải là những câu ngắn, đơn giản, vào thẳng vấn đề.
+        3. Tuyệt đối KHÔNG sử dụng dấu nháy kép (") bên trong nội dung các câu văn để tránh lỗi JSON.
+        
         BẮT BUỘC TRẢ VỀ DUY NHẤT 1 MẢNG JSON (Không bọc trong markdown \`\`\`json).
-        Định dạng BẮT BUỘC:
+        Định dạng BẮT BUỘC, KHÔNG ĐƯỢC DỪNG GIỮA CHỪNG:
         [
             {
                 "point": "Cấu trúc ngữ pháp (Ghi rõ dấu ～ nếu có)",
-                "meaning": "Nghĩa tiếng Việt",
-                "structure": "Cách ghép (VD: Vru + わけだ)",
-                "nuance": "Sắc thái & Lưu ý",
-                "ex1_jp": "Câu VD 1 tiếng Nhật",
-                "ex1_vn": "Nghĩa VD 1",
-                "ex2_jp": "Câu VD 2 tiếng Nhật",
-                "ex2_vn": "Nghĩa VD 2"
+                "meaning": "Nghĩa VN",
+                "structure": "Cách ghép",
+                "nuance": "Sắc thái",
+                "ex1_jp": "Ví dụ 1 JP",
+                "ex1_vn": "Nghĩa 1 VN",
+                "ex2_jp": "Ví dụ 2 JP",
+                "ex2_vn": "Nghĩa 2 VN"
             }
         ]`;
 
         let aiResponse = await callGeminiAI(prompt);
+        // Làm sạch rác Markdown (nếu có)
         aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-        const generatedData = JSON.parse(aiResponse);
+        
+        let generatedData;
+        try {
+            generatedData = JSON.parse(aiResponse);
+        } catch (jsonError) {
+            hideLoading();
+            console.error("Raw AI Response:", aiResponse);
+            return customAlert(`Lỗi: AI tạo dữ liệu quá dài nên bị cắt cụt giữa chừng.<br>Hãy thử giảm số lượng xuống 10 cấu trúc/lần.`, "⚠️ AI bị ngắt quãng");
+        }
 
         if (!Array.isArray(generatedData) || generatedData.length === 0) {
             throw new Error("AI trả về sai format mảng.");
