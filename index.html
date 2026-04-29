@@ -9567,20 +9567,24 @@ function renderBoostCard() {
                     if (data) validKanjiData.push(data);
                 }
 
-                // Nếu không có chữ nào tồn tại trong Database -> Chuyển sang True/False
+                // Nếu không có chữ nào tồn tại trong Database -> Chuyển sang Match (Game 1)
                 if (validKanjiData.length === 0) {
-                    prompt.innerText = "⚡ Thẻ này không xếp chữ được. Chơi Đúng/Sai nhé!";
-                    const isTrue = Math.random() > 0.5;
-                    const fakeMeaning = isTrue ? c.meaning : (getDistractors('meaning')[0] || "Đáp án giả mạo");
-
-                    question.innerHTML = `<div style="font-size:32px; color:#2d3748">${c.front}</div><div style="color:#e53e3e; margin-top:10px; font-size:20px;">Nghĩa là: "${fakeMeaning}"</div>`;
-
-                    zone.innerHTML = `
-                        <div class="tf-grid">
-                            <button class="tf-btn tf-true" onclick="handleBoostAnswer(this, ${isTrue === true})">ĐÚNG</button>
-                            <button class="tf-btn tf-false" onclick="handleBoostAnswer(this, ${isTrue === false})">SAI</button>
-                        </div>
-                    `;
+                    prompt.innerText = "⚡ Thẻ này không xếp chữ được. Chọn đáp án đúng nhé!";
+                    question.innerText = c.meaning;
+                    
+                    let optsMatch = getDistractors('front');
+                    optsMatch.push(c.front);
+                    optsMatch.sort(() => 0.5 - Math.random());
+                    
+                    zone.innerHTML = `<div class="tf-grid" id="boostMatchGrid"></div>`;
+                    const mGrid = document.getElementById('boostMatchGrid');
+                    optsMatch.forEach(opt => {
+                        let btn = document.createElement('button');
+                        btn.className = 'test-option';
+                        btn.innerText = opt;
+                        btn.onclick = () => handleBoostAnswer(btn, opt === c.front);
+                        mGrid.appendChild(btn);
+                    });
                     return;
                 }
 
@@ -16268,7 +16272,12 @@ window.startGlobalReview = async function(skipHash = false) {
     if (!skipHash) history.pushState(null, null, '#study/GLOBAL_REVIEW/assessment');
     
     showLoading("Đang chuẩn bị Sát hạch...");
-
+        // 🟢 MỞ KHÓA AUDIO CHO iOS/SAFARI NGAY KHI BẤM NÚT
+        if ('speechSynthesis' in window) {
+            let unlockAudio = new SpeechSynthesisUtterance('');
+            unlockAudio.volume = 0;
+            window.speechSynthesis.speak(unlockAudio);
+        }
     try {
         const now = new Date().toISOString();
 
@@ -16342,43 +16351,38 @@ window.startGlobalReview = async function(skipHash = false) {
     }
 };
 
-// TẠO MA TRẬN 3 CHẶNG CHO TỪNG THẺ (DỰA VÀO DỮ LIỆU CỦA THẺ ĐÓ)
+// TẠO MA TRẬN 3 CHẶNG CHO TỪNG THẺ (HARDCORE MODE)
 function generateAspectMatrixForCard(cardObj) {
     const parsed = parseCardData(cardObj);
     let matrix = [];
 
-    // CHẶNG 1: Nghĩa & Âm thanh [1, 4, 9] (Word Match, T/F, Audio)
-    const stage1 = [1, 4];
-    matrix.push(stage1[Math.floor(Math.random() * stage1.length)]);
+    const cleanReading = parsed.reading.replace(/\s/g, '');
+    const hasGoodReading = cleanReading.length >= 1 && wanakana.isJapanese(cleanReading);
 
-    // CHẶNG 2: Cấu trúc Kanji [11, 7]
+    // CHẶNG 1: Active Recall (Ép nhớ chủ động cách đọc / Âm thanh)
+    let stage1Pool = [];
+    if (hasGoodReading) {
+        stage1Pool.push(2); // Gõ Romaji
+        stage1Pool.push(5); // Xếp mảnh
+        if (cleanReading.length >= 2 && cleanReading.length <= 6) stage1Pool.push(8); // Kana search
+    }
+    stage1Pool.push(9); // Audio (Fallback)
+    matrix.push(stage1Pool[Math.floor(Math.random() * stage1Pool.length)]);
+
+    // CHẶNG 2: Cấu trúc Kanji (Nhận diện sâu)
     const hasKanji = /[\u4e00-\u9faf]/.test(cardObj.front);
     if (hasKanji) {
         const exampleHasKanji = parsed.exampleJP && /[\u4e00-\u9faf]/.test(parsed.exampleJP);
-        if (exampleHasKanji) {
-            matrix.push(Math.random() > 0.5 ? 11 : 7);
-        } else {
-            matrix.push(11);
-        }
+        if (exampleHasKanji) matrix.push(Math.random() > 0.5 ? 11 : 7);
+        else matrix.push(11);
     } else {
-        // Nếu không có Kanji -> Fallback cho mượn tạm Game Audio hoặc Scramble
-        matrix.push(Math.random() > 0.5 ? 9 : 5);
+        // Không có Kanji -> Test lại cách đọc bằng phương pháp khác (Game 5 hoặc 9)
+        matrix.push(hasGoodReading ? 5 : 9);
     }
 
-    // CHẶNG 3: Đọc hiểu & Ngữ cảnh [2, 5, 8, 6]
-    let stage3Pool = [];
-    if (parsed.exampleJP && parsed.exampleVN) stage3Pool.push(6);
-    
-    const cleanReading = parsed.reading.replace(/\s/g, '');
-    if (cleanReading.length >= 1 && wanakana.isJapanese(cleanReading)) {
-        stage3Pool.push(2); 
-        stage3Pool.push(5); 
-        if (cleanReading.length >= 2 && cleanReading.length <= 6) {
-            stage3Pool.push(8);
-        }
-    }
-    if (stage3Pool.length === 0) stage3Pool.push(1);
-
+    // CHẶNG 3: Ý nghĩa / Ngữ cảnh (Chốt hạ) - BỎ GAME TRUE/FALSE
+    let stage3Pool = [1]; // Luôn có Game 1 (Chọn đáp án đúng 4 lựa chọn)
+    if (parsed.exampleJP && parsed.exampleVN) stage3Pool.push(6); // Xếp câu ví dụ
     matrix.push(stage3Pool[Math.floor(Math.random() * stage3Pool.length)]);
 
     return matrix;
@@ -16390,41 +16394,50 @@ function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = fal
     const c = sessionCards[currentIndex];
 
     // =====================================
-    // LOGIC SÁT HẠCH MỚI (ROUND-ROBIN)
+    // LOGIC SÁT HẠCH MỚI (STRICT ROUND-ROBIN)
     // =====================================
     if (mode === 'assessment') {
         if (!isCorrect) {
             c.penaltyPoints++;
-            
-            // Bắt cờ Rớt Nghĩa nếu sai ở game T/F hoặc Match
-            if ([1, 4].includes(currentBoostGame)) {
-                c.isMeaningFailed = true;
-            }
+            if ([1, 4].includes(currentBoostGame)) c.isMeaningFailed = true;
 
             // NẾU BẤM CHỊU THUA HOẶC ĐỂ HẾT GIỜ -> TỬ VONG NHANH (RỚT THẺ)
             if (isGiveUp || isTimeout) {
                 c.isFailed = true;
                 c.isMeaningFailed = true; // Ép về 0 điểm
-                
+                if (element) {
+                    element.style.background = '#fed7d7';
+                    element.style.borderColor = '#e53e3e';
+                    element.style.color = '#822727';
+                }
                 setTimeout(() => {
                     document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto';
-                    processAssessmentResult(c); // Đẩy kết quả lên DB luôn
-                    nextAssessmentCard(); // Nhảy sang thẻ khác trong hàng đợi
+                    boostState.activeQueue.shift(); // Vứt thẻ này đi vì đã chết
+                    nextAssessmentCard(); 
                 }, 400); 
                 return;
             }
 
-            // Nếu chỉ là chọn sai bình thường -> Cho phép làm lại (không đổi thẻ)
+            // SAI BÌNH THƯỜNG -> RUNG LẮC, ĐẨY XUỐNG CUỐI HÀNG ĐỢI
             if (element) {
                 element.classList.add('shake-error');
                 setTimeout(() => element.classList.remove('shake-error'), 400);
             }
             incrementPenalty(); 
-            setTimeout(() => { document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto'; }, 500);
+            
+            setTimeout(() => { 
+                document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto'; 
+                // 🟢 STRICT ROUND ROBIN: Đẩy thẻ hiện tại xuống cuối hàng đợi
+                const currentIdx = boostState.activeQueue.shift();
+                boostState.activeQueue.push(currentIdx);
+                
+                showToast("Chưa đúng! Thẻ bị đẩy xuống chờ duyệt lại.");
+                showCard(); // Chuyển sang thẻ tiếp theo trong Queue ngay
+            }, 800);
             return; 
         }
 
-        // TRẢ LỜI ĐÚNG -> QUA BÀI TRONG CHẶNG NÀY
+        // TRẢ LỜI ĐÚNG -> Pass thẻ này trong chặng hiện tại
         if (element) {
             element.style.background = '#c6f6d5';
             element.style.borderColor = '#38a169';
@@ -16433,7 +16446,8 @@ function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = fal
 
         setTimeout(() => {
             document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto';
-            nextAssessmentCard(); // Gọi thẻ tiếp theo trong hàng đợi
+            boostState.activeQueue.shift(); // Rút thẻ khỏi hàng vì đã qua màn
+            nextAssessmentCard(); 
         }, 600);
         return;
     }
@@ -16465,19 +16479,17 @@ function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = fal
     }, 800);
 }
 
-// BỘ ĐIỀU CHUYỂN HÀNG ĐỢI SÁT HẠCH (ROUND-ROBIN MANAGER)
+// BỘ ĐIỀU CHUYỂN HÀNG ĐỢI SÁT HẠCH
 function nextAssessmentCard() {
-    // 1. Rút thẻ vừa làm xong khỏi hàng đợi hiện tại
-    boostState.activeQueue.shift();
     boostState.processedInRound = (boostState.processedInRound || 0) + 1;
 
     if (boostState.activeQueue.length > 0) {
-        // NẾU HÀNG ĐỢI VẪN CÒN -> Chuyển sang thẻ tiếp theo cùng Chặng
+        // HÀNG ĐỢI VẪN CÒN -> Chuyển sang thẻ tiếp theo cùng Chặng
         showCard();
     } else {
         // HẾT HÀNG ĐỢI CỦA CHẶNG HIỆN TẠI
         if (boostState.currentRound < 3) {
-            // NẾU CHƯA TỚI CHẶNG CUỐI (Tăng vòng lặp)
+            // TĂNG CHẶNG
             boostState.currentRound++;
             boostState.processedInRound = 0;
             boostState.activeQueue = [];
@@ -16494,24 +16506,13 @@ function nextAssessmentCard() {
                 boostState.activeQueue.sort(() => Math.random() - 0.5);
                 showCard();
             } else {
-                // Toàn bộ thẻ đều rớt ở các chặng trước -> Kết thúc sớm
+                // Toàn bộ thẻ đều rớt -> Kết thúc sớm
                 endAssessmentSession();
             }
         } else {
-            // 🟢 FIX LỖI KẸT THẺ: ĐỢI TẤT CẢ DB UPDATE XONG MỚI SHOW TỔNG KẾT
+            // 🟢 KẾT THÚC SÁT HẠCH: GỌI HÀM LƯU DATABASE HÀNG LOẠT
             showLoading("Đang đồng bộ kết quả lên Cloud...");
-            
-            (async () => {
-                const updatePromises = sessionCards.map(c => {
-                    if (!c.isProcessed) return processAssessmentResult(c);
-                    return Promise.resolve();
-                });
-
-                await Promise.all(updatePromises);
-                
-                hideLoading();
-                endAssessmentSession();
-            })();
+            processBatchAssessmentResults();
         }
     }
 }
@@ -16529,62 +16530,75 @@ window.incrementPenalty = function() {
     }
 };
 
-// TÍNH ĐIỂM SRS & ĐẨY LÊN DATABASE (BẢN UPDATE LỌC BIẾN RIÊNG)
-async function processAssessmentResult(card) {
-    if (isVirtualSession) return; // CHỐT CHẶN: Phiên học ảo tuyệt đối không ghi DB
-    if (card.isProcessed) return; 
-    card.isProcessed = true;
-
-    const penalty = card.penaltyPoints;
-    const meaningFailed = card.isMeaningFailed;
-    
-    // 1. Tính hệ số Quality (q)
-    let q = 0;
-    if (card.isFailed || meaningFailed || penalty > 5) q = 0; // FAIL
-    else if (penalty >= 3) q = 2;                             // HARD
-    else if (penalty >= 1) q = 4;                             // GOOD
-    else q = 5;                                               // EASY
-
-    // 2. Thuật toán SRS
-    let p = card.progress && card.progress.length > 0 ? card.progress[0] : null;
-    let ef = p ? p.ef : 2.5;
-    let interval = p ? p.interval : 1;
-    let interval_count = p ? p.interval_count : 0;
-    
-    if (q >= 2) { 
-        if (q == 2) ef = Math.max(1.3, ef - 0.15); 
-        else if (q == 5) ef += 0.1; 
-        interval_count++; 
-        interval = interval_count == 1 ? 1 : interval_count == 2 ? 6 : Math.round(interval * ef); 
-    } else { 
-        ef = Math.max(1.3, ef - 0.2); 
-        interval_count = 0; 
-        interval = 1; 
-    }
-    
-    const due = new Date(); 
-    due.setDate(due.getDate() + interval);
-    
-    // 3. Phân loại thẻ vào mảng kết quả
-    if (q < 4) {
-        boostState.remedialCards.push(card);
-    } else {
-        boostState.passedCards.push(card);
+// TÍNH ĐIỂM SRS & ĐẨY LÊN DATABASE (BẢN BATCH UPDATE - 1 REQUEST DUY NHẤT)
+async function processBatchAssessmentResults() {
+    if (isVirtualSession) {
+        hideLoading();
+        return endAssessmentSession(); // Phiên ảo không lưu DB
     }
 
-    // 4. Update Database (🟢 FIX: BỔ SUNG ID ĐỂ UPDATE CHÍNH XÁC DÒNG CŨ)
-    const payload = { 
-        user_id: currentUser.id, 
-        card_id: card.id, 
-        ef: ef, 
-        interval: interval, 
-        interval_count: interval_count, 
-        due: due.toISOString() 
-    };
-    if (p && p.id) payload.id = p.id; // RẤT QUAN TRỌNG
+    let payloads = [];
 
-    const { error } = await sb.from('progress').upsert(payload);
-    if (error) console.error("Lỗi đồng bộ SRS thẻ:", error);
+    sessionCards.forEach(card => {
+        if (card.isProcessed) return; 
+        card.isProcessed = true;
+
+        const penalty = card.penaltyPoints;
+        const meaningFailed = card.isMeaningFailed;
+        
+        // 1. Tính hệ số Quality (q)
+        let q = 0;
+        if (card.isFailed || meaningFailed || penalty > 5) q = 0; 
+        else if (penalty >= 3) q = 2;                             
+        else if (penalty >= 1) q = 4;                             
+        else q = 5;                                               
+
+        // 2. Thuật toán SRS
+        let p = card.progress && card.progress.length > 0 ? card.progress[0] : null;
+        let ef = p ? p.ef : 2.5;
+        let interval = p ? p.interval : 1;
+        let interval_count = p ? p.interval_count : 0;
+        
+        if (q >= 2) { 
+            if (q == 2) ef = Math.max(1.3, ef - 0.15); 
+            else if (q == 5) ef += 0.1; 
+            interval_count++; 
+            interval = interval_count == 1 ? 1 : interval_count == 2 ? 6 : Math.round(interval * ef); 
+        } else { 
+            ef = Math.max(1.3, ef - 0.2); 
+            interval_count = 0; 
+            interval = 1; 
+        }
+        
+        const due = new Date(); 
+        due.setDate(due.getDate() + interval);
+        
+        // 3. Phân loại thẻ
+        if (q < 4) boostState.remedialCards.push(card);
+        else boostState.passedCards.push(card);
+
+        // 4. Đóng gói Payload
+        let payload = { 
+            user_id: currentUser.id, 
+            card_id: card.id, 
+            ef: ef, 
+            interval: interval, 
+            interval_count: interval_count, 
+            due: due.toISOString() 
+        };
+        if (p && p.id) payload.id = p.id; 
+        
+        payloads.push(payload);
+    });
+
+    // 5. Gửi lên Supabase bằng 1 lệnh duy nhất
+    if (payloads.length > 0) {
+        const { error } = await sb.from('progress').upsert(payloads);
+        if (error) console.error("Lỗi đồng bộ SRS hàng loạt:", error);
+    }
+
+    hideLoading();
+    endAssessmentSession();
 }
 /* ================= HÀM XỬ LÝ TIẾN ĐỘ JLPT TRÊN DASHBOARD ================= */
 async function renderJLPTProgress() {
