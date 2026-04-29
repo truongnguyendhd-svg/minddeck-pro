@@ -6762,7 +6762,88 @@ body.pdf-mode #pdfReadState {
         </div>
     </div>
 </div>
+<!-- ================= MODAL ADMIN: THÊM KANJI BUILDER (WIN 11 STYLE) ================= -->
+<div id="adminKanjiBuilderModal" class="modal" style="z-index: 14500;">
+    <div class="modal-content win11-modal" style="max-width: 550px;">
+        
+        <!-- Header Win 11 -->
+        <div class="win11-modal-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: #0067c0; font-size: 20px;">construction</span>
+                <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: #1a1a1a;">Bổ sung Kanji (Admin)</h3>
+            </div>
+            <button class="win11-close-btn" onclick="closeModal('adminKanjiBuilderModal')">
+                <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+            </button>
+        </div>
 
+        <!-- Body Win 11 -->
+        <div class="win11-modal-body" style="padding: 20px 24px; max-height: 80vh; overflow-y: auto;">
+            
+            <div class="grid-2-col" style="gap: 16px; margin-bottom: 12px;">
+                <div>
+                    <label class="win11-label">Chữ Kanji *</label>
+                    <input type="text" id="akbKanji" class="win11-input" style="font-size: 24px; font-weight: 900; color: #0067c0;" readonly disabled>
+                </div>
+                <div>
+                    <label class="win11-label">Hán Việt *</label>
+                    <input type="text" id="akbHv" class="win11-input" placeholder="VD: VŨ TRỤ">
+                </div>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+                <label class="win11-label">Ý nghĩa *</label>
+                <input type="text" id="akbMeaning" class="win11-input" placeholder="VD: Vũ trụ, không gian...">
+            </div>
+
+            <div class="grid-2-col" style="gap: 16px; margin-bottom: 12px;">
+                <div>
+                    <label class="win11-label">Cấp độ JLPT</label>
+                    <select id="akbLevel" class="win11-input">
+                        <option value="N5">N5</option>
+                        <option value="N4">N4</option>
+                        <option value="N3" selected>N3</option>
+                        <option value="N2">N2</option>
+                        <option value="N1">N1</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="win11-label">Bố cục chữ (Structure)</label>
+                    <select id="akbStructure" class="win11-input">
+                        <option value="left-right">Trái - Phải</option>
+                        <option value="top-bottom">Trên - Dưới</option>
+                        <option value="enclose">Bao bọc (Enclose)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+                <label class="win11-label" style="display: flex; align-items: center; gap: 4px;">
+                    Cấu tạo / Bộ thủ <span style="font-size: 11px; color: #8c8c8c; font-weight: normal;">(Cách nhau bằng dấu phẩy)</span>
+                </label>
+                <input type="text" id="akbComponents" class="win11-input" placeholder="VD: 宀, 由">
+            </div>
+
+            <div style="margin-bottom: 10px;">
+                <label class="win11-label">Mẹo nhớ (Mnemonics)</label>
+                <textarea id="akbMnemonics" class="win11-input" rows="3" placeholder="Cách nhớ chữ Kanji này..."></textarea>
+            </div>
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px; padding-top: 16px; border-top: 1px solid #f0f0f0;">
+                <!-- NÚT AI AUTO FILL -->
+                <button id="btnAiAutoKanji" class="win11-btn-secondary" onclick="autoFillKanjiAdminWithAI()">
+                    <span class="material-symbols-outlined" style="font-size: 16px; color: #9333ea;">auto_awesome</span> 
+                    <span id="aiKanjiBtnText">Điền tự động</span>
+                </button>
+
+                <!-- NÚT LƯU -->
+                <button class="win11-btn-primary" onclick="saveAdminKanjiBuilder()">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">cloud_upload</span> LƯU KANJI NÀY
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 <!-- MODAL TẠO BỘ JLPT TỰ ĐỘNG -->
 <div id="autoJLPTModal" class="modal">
     <div class="modal-content" style="max-width: 450px; padding: 30px; position: relative;">
@@ -8450,7 +8531,14 @@ async function showKanjiXRay(event, kanji) {
         hideLoading();
         
         if (error || !data) {
-            return showToast("Thư viện hiện chưa có phân tích cơ bản cho chữ này.");
+            // KIỂM TRA QUYỀN ADMIN KHI KHÔNG TÌM THẤY KANJI
+            const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
+            if (isAdmin) {
+                openAdminKanjiBuilderModal(kanji);
+                return showToast("Chữ này mới, mời sếp bổ sung! 👑");
+            } else {
+                return showToast("Thư viện hiện chưa có phân tích cơ bản cho chữ này.");
+            }
         }
         // --- LOGIC MỚI: QUÉT KHO THẺ TÌM KANJI ĐỂ HỌC ẢO ---
         let localCardsCount = 0;
@@ -18381,6 +18469,127 @@ async function handleImageUpload(event) {
         document.getElementById('chatTextarea').focus();
     }
 }
+/* ================= HỆ THỐNG ADMIN: QUẢN LÝ KANJI BUILDER ================= */
+
+// 1. Mở Modal
+function openAdminKanjiBuilderModal(kanji) {
+    // Reset Form
+    document.getElementById('akbKanji').value = kanji;
+    document.getElementById('akbHv').value = '';
+    document.getElementById('akbMeaning').value = '';
+    document.getElementById('akbComponents').value = '';
+    document.getElementById('akbLevel').value = 'N3';
+    document.getElementById('akbStructure').value = 'left-right';
+    document.getElementById('akbMnemonics').value = '';
+
+    document.getElementById('adminKanjiBuilderModal').style.display = 'flex';
+}
+
+// 2. Tích hợp AI điền tự động
+async function autoFillKanjiAdminWithAI() {
+    const kanjiInput = document.getElementById('akbKanji').value.trim();
+    
+    const aiBtn = document.getElementById('btnAiAutoKanji');
+    const aiBtnText = document.getElementById('aiKanjiBtnText');
+    const originalText = aiBtnText ? aiBtnText.innerText : "Điền tự động";
+    
+    if (aiBtn) { aiBtn.disabled = true; aiBtn.style.cursor = "wait"; }
+    if (aiBtnText) aiBtnText.innerHTML = "Đang phân tích...";
+
+    const prompt = `Bạn là chuyên gia Hán tự tiếng Nhật. Phân tích chi tiết chữ Kanji: "${kanjiInput}".
+    Trả về CHỈ MỘT KHỐI JSON DUY NHẤT (không giải thích thêm). Định dạng:
+    {
+        "hv": "Nghĩa Hán Việt (VIẾT HOA TOÀN BỘ)",
+        "meaning": "Ý nghĩa tiếng Việt ngắn gọn",
+        "level": "N5, N4, N3, N2, hoặc N1",
+        "structure": "left-right (nếu trái-phải), top-bottom (nếu trên-dưới), enclose (nếu bao bọc bên ngoài)",
+        "components": ["Bộ thủ 1", "Bộ thủ 2", "Thành phần 3..."], 
+        "mnemonics": "Mẹo nhớ chi tiết, dễ hiểu (Dùng html <b> in đậm nếu cần)"
+    }`;
+
+    try {
+        let aiResponse = await callGeminiAI(prompt);
+        
+        const startIndex = aiResponse.indexOf('{');
+        const endIndex = aiResponse.lastIndexOf('}');
+        if (startIndex === -1 || endIndex === -1) throw new Error("AI không trả về JSON chuẩn.");
+        
+        const data = JSON.parse(aiResponse.substring(startIndex, endIndex + 1));
+
+        if (data.hv) document.getElementById('akbHv').value = data.hv;
+        if (data.meaning) document.getElementById('akbMeaning').value = data.meaning;
+        if (data.level) document.getElementById('akbLevel').value = data.level;
+        if (data.structure) document.getElementById('akbStructure').value = data.structure;
+        if (data.components) document.getElementById('akbComponents').value = data.components.join(', ');
+        if (data.mnemonics) document.getElementById('akbMnemonics').value = data.mnemonics;
+
+        showToast("✨ AI đã phân tích xong chữ Kanji!");
+
+    } catch (err) {
+        console.error("Lỗi AI Auto Kanji:", err);
+        customAlert("Lỗi phân tích AI: " + err.message, "❌");
+    } finally {
+        if (aiBtn) { aiBtn.disabled = false; aiBtn.style.cursor = "pointer"; }
+        if (aiBtnText) aiBtnText.innerText = originalText;
+    }
+}
+
+// 3. Admin Lưu chữ Kanji lên Supabase
+async function saveAdminKanjiBuilder() {
+    const kanji = document.getElementById('akbKanji').value.trim();
+    const hv = document.getElementById('akbHv').value.trim();
+    const meaning = document.getElementById('akbMeaning').value.trim();
+    const level = document.getElementById('akbLevel').value;
+    const structure = document.getElementById('akbStructure').value;
+    const componentsStr = document.getElementById('akbComponents').value;
+    const mnemonics = document.getElementById('akbMnemonics').value.trim();
+
+    if (!kanji || !hv || !meaning || !componentsStr) {
+        return customAlert("Vui lòng điền đủ Hán Việt, Ý nghĩa và Cấu tạo!", "⚠️");
+    }
+
+    // Biến chuỗi phẩy thành Mảng (Array)
+    const componentsArray = componentsStr.split(',').map(s => s.trim()).filter(Boolean);
+
+    showLoading("Đang nạp Kanji vào Database...");
+    try {
+        const payload = {
+            kanji: kanji,
+            hv: hv,
+            meaning: meaning,
+            level: level,
+            structure_type: structure,
+            components: componentsArray,
+            mnemonics: mnemonics
+        };
+
+        const { error } = await sb.from('kanji_builder').upsert(payload);
+        if (error) throw error;
+
+        // Cập nhật lại Cache RAM để UI Pokedex không bị lỗi
+        const existingIndex = allKanjiData.findIndex(k => k.kanji === kanji);
+        if (existingIndex !== -1) {
+            allKanjiData[existingIndex] = payload;
+        } else {
+            allKanjiData.push(payload);
+        }
+        localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
+
+        closeModal('adminKanjiBuilderModal');
+        hideLoading();
+        showToast("✅ Đã đưa Kanji vào hệ thống thành công!");
+
+        // 🔥 MA THUẬT: Tự động bật Modal X-Ray lên ngay lập tức để khoe thành quả
+        showKanjiXRay(new Event('click'), kanji);
+
+    } catch (e) {
+        hideLoading();
+        console.error("Lỗi cập nhật Kanji:", e);
+        customAlert("Không thể lưu: " + e.message, "❌");
+    }
+}
+/*Hết ================= HỆ THỐNG ADMIN: QUẢN LÝ KANJI BUILDER ================= */
+
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
