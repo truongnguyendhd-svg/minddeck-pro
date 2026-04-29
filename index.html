@@ -6842,6 +6842,11 @@ body.pdf-mode #pdfReadState {
         
                     <!-- BẢNG POPUP MENU LỰA CHỌN CHẾ ĐỘ -->
                     <div id="aiModeDropdown" class="ai-mode-dropdown hidden">
+                        <!-- Nút mới thêm: Trợ lý đa năng -->
+                        <div class="ai-mode-item" onclick="selectAiMode('custom', 'Trợ lý đa năng', 'smart_toy', this)">
+                            <span class="material-symbols-outlined" style="color: #10b981;">smart_toy</span> Trợ lý đa năng (Tự do)
+                        </div>
+                        
                         <div class="ai-mode-item active" onclick="selectAiMode('analyze', 'Bóc tách thẻ', 'auto_awesome', this)">
                             <span class="material-symbols-outlined" style="color: #3b82f6;">auto_awesome</span> Phân tích & Bóc tách thẻ
                         </div>
@@ -14085,18 +14090,45 @@ async function handleSendChatMessage() {
             3. 💡 **Góc sửa lỗi:** Nếu câu tiếng Nhật của học viên có lỗi sai (ngữ pháp, từ vựng, tự nhiên), hãy nhẹ nhàng chỉ ra và sửa lại cho đúng. Nếu học viên nói đúng hoàn toàn, hãy khen ngợi họ!
             (Không cần tạo khối JSON trong chế độ này).`;
         }
-
+        else if (aiMode === 'custom') {
+            systemPrompt = `Đóng vai trò là một trợ lý AI thông minh, đa năng. Hãy thực hiện chính xác yêu cầu sau của người dùng: "${text}"
+            
+            Nhiệm vụ của bạn:
+            1. Trả lời tự nhiên, trực tiếp vào vấn đề (dịch thuật, tóm tắt, giải đáp...) tùy theo yêu cầu của người dùng. Trình bày đẹp mắt, dùng dấu ** để in đậm từ quan trọng.
+            2. 🔴 LƯU Ý ĐẶC BIỆT: NẾU người dùng CÓ YÊU CẦU tạo thẻ từ vựng, ngữ pháp hoặc trắc nghiệm, bạn BẮT BUỘC phải đính kèm một khối JSON ở CUỐI CÙNG của câu trả lời (nằm trong \`\`\`json và \`\`\`). Nếu người dùng KHÔNG yêu cầu tạo thẻ, TUYỆT ĐỐI KHÔNG xuất ra JSON.
+            
+            Định dạng khối JSON (Chỉ tạo khi được yêu cầu):
+            \`\`\`json
+            {
+              "vocab": [ {"front": "Từ", "reading": "Hiragana", "meaning": "Nghĩa", "hv": "HÁN VIỆT", "ex_jp": "Câu VD 1 JP", "ex_vn": "Nghĩa VD 1"} ],
+              "grammar": [ 
+                {
+                  "point": "Cấu trúc ngữ pháp", 
+                  "level": "Cấp độ (VD: N3, N2...)", 
+                  "meaning": "Nghĩa tiếng Việt", 
+                  "structure": "Cách ghép / Cấu trúc (VD: N + に応じて)", 
+                  "nuance": "Sắc thái & Lưu ý", 
+                  "ex1_jp": "Câu VD 1 tiếng Nhật", 
+                  "ex1_vn": "Nghĩa VD 1",
+                  "ex2_jp": "Câu VD 2 tiếng Nhật", 
+                  "ex2_vn": "Nghĩa VD 2"
+                } 
+              ],
+              "quiz": [ {"question": "Câu hỏi", "correct": "Đúng", "wrong1": "Sai 1", "wrong2": "Sai 2", "wrong3": "Sai 3"} ]
+            }
+            \`\`\``;
+        }
         // Gọi API: Truyền Prompt (đã có text) và MẢNG ẢNH
         const aiResponse = await callGeminiAI(systemPrompt, imagesToSend);
 
         const loader = document.getElementById('aiLoadingBubble');
         if (loader) loader.remove();
 
-        // --- BÓC TÁCH JSON (CHỈ KHI Ở CHẾ ĐỘ ANALYZE MỚI LÀM) ---
+        // --- BÓC TÁCH JSON (HỖ TRỢ ANALYZE VÀ CUSTOM MODE) ---
         let mainText = aiResponse;
         let extractedData = null;
         
-        if (aiMode === 'analyze') {
+        if (aiMode === 'analyze' || aiMode === 'custom') {
             const jsonMatch = aiResponse.match(/```json\s*([\s\S]*?)\s*```/);
             if (jsonMatch && jsonMatch[1]) {
                 try {
