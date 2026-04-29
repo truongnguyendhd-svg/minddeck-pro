@@ -5919,7 +5919,12 @@ body.pdf-mode #pdfReadState {
                     <button onclick="refreshGrammarCollection()" title="Tải lại dữ liệu mới nhất" style="background: #eff6ff; border: 1px solid #bfdbfe; color: #3b82f6; cursor: pointer; display: flex; align-items: center; padding: 4px; border-radius: 50%; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);" onmouseover="this.style.background='#3b82f6'; this.style.color='#fff'; this.style.transform='rotate(180deg) scale(1.1)';" onmouseout="this.style.background='#eff6ff'; this.style.color='#3b82f6'; this.style.transform='none';">
                         <span class="material-symbols-outlined" style="font-size: 16px;">sync</span>
                     </button>
+                    <!-- NÚT AUTO GEN NGỮ PHÁP (CHỈ ADMIN THẤY) -->
+                    <button id="btnAdminAutoGenGrammar" onclick="openAdminAutoGrammarModal()" title="AI Tạo Ngữ Pháp (Admin)" style="display: none; background: #faf5ff; border: 1px solid #e9d5ff; color: #9333ea; cursor: pointer; align-items: center; gap: 4px; padding: 4px 12px; border-radius: 50px; transition: all 0.2s ease; font-weight: 800; font-size: 12px;" onmouseover="this.style.background='#f3e8ff'; this.style.transform='translateY(-2px)';" onmouseout="this.style.background='#faf5ff'; this.style.transform='none';">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">auto_awesome</span> AUTO GEN
+                    </button>
                 </div>
+            </div>
                 <div style="font-size: 14px; font-weight: 800; color: #3b82f6;">
                     <span id="grammarCollectedCount" style="font-size: 20px; font-weight: 900;">0</span> / <span id="grammarTotalCount">0</span> cấu trúc
                 </div>
@@ -7201,6 +7206,53 @@ body.pdf-mode #pdfReadState {
                 </button>
             </div>
 
+        </div>
+    </div>
+</div>
+<!-- MODAL ADMIN: AUTO GENERATE NGỮ PHÁP (WIN 11 STYLE) -->
+<div id="adminAutoGrammarModal" class="modal" style="z-index: 14500;">
+    <div class="modal-content win11-modal" style="max-width: 450px;">
+        <!-- Header -->
+        <div class="win11-modal-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: #9333ea; font-size: 20px;">auto_awesome</span>
+                <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: #1a1a1a;">Bơm Ngữ Pháp (Admin)</h3>
+            </div>
+            <button class="win11-close-btn" onclick="closeModal('adminAutoGrammarModal')">
+                <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+            </button>
+        </div>
+
+        <!-- Body -->
+        <div class="win11-modal-body" style="padding: 24px;">
+            <p style="font-size: 14px; color: #4a4a4a; margin-top: 0; margin-bottom: 20px; line-height: 1.5;">
+                AI sẽ quét các cấu trúc hiện có trong kho để tạo ra các cấu trúc hoàn toàn mới, sau đó tự động lưu vào Database.
+            </p>
+            
+            <div class="grid-2-col" style="gap: 16px; margin-bottom: 24px;">
+                <div>
+                    <label class="win11-label">Cấp độ JLPT</label>
+                    <select id="autoGrammarLevel" class="win11-input">
+                        <option value="N5">N5</option>
+                        <option value="N4">N4</option>
+                        <option value="N3" selected>N3</option>
+                        <option value="N2">N2</option>
+                        <option value="N1">N1</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="win11-label">Số lượng</label>
+                    <select id="autoGrammarAmount" class="win11-input">
+                        <option value="10">10 Cấu trúc</option>
+                        <option value="15" selected>15 Cấu trúc</option>
+                        <option value="20">20 Cấu trúc</option>
+                    </select>
+                </div>
+            </div>
+            
+            <button onclick="executeAutoGrammarGen()" class="win11-btn-primary" style="width: 100%; justify-content: center; display: flex; align-items: center; gap: 8px; padding: 14px; font-size: 15px; background: linear-gradient(135deg, #9333ea, #7e22ce); border: none;">
+                <span class="material-symbols-outlined" style="font-size: 20px;">rocket_launch</span> BẮT ĐẦU GENERATE
+            </button>
         </div>
     </div>
 </div>
@@ -13334,6 +13386,11 @@ async function showGrammarVault(skipHash = false) {
     
     document.getElementById('grammarSearchInput').value = '';
     
+    // Check quyền Admin để hiện nút Auto Gen
+    const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
+    const autoGenBtn = document.getElementById('btnAdminAutoGenGrammar');
+    if (autoGenBtn) autoGenBtn.style.display = isAdmin ? 'flex' : 'none';
+
     // 1. Quét tiến trình người dùng trước để lấy "Heatmap"
     await calculateGrammarMastery();
 
@@ -15437,6 +15494,118 @@ async function saveAdminGrammar() {
         hideLoading();
     }
 }
+/* ================= AUTO GENERATE NGỮ PHÁP VỚI AI (CHỐT CHẶN KÉP) ================= */
+
+function openAdminAutoGrammarModal() {
+    document.getElementById('adminAutoGrammarModal').style.display = 'flex';
+}
+
+async function executeAutoGrammarGen() {
+    const level = document.getElementById('autoGrammarLevel').value;
+    const amount = document.getElementById('autoGrammarAmount').value;
+    
+    closeModal('adminAutoGrammarModal');
+    showLoading(`AI đang tạo ${amount} ngữ pháp ${level}... Vui lòng đợi!`);
+
+    try {
+        // --- CHỐT CHẶN 1 (SOFT FILTER): Lấy danh sách đang có để cấm AI tạo lại ---
+        const existingPoints = globalGrammarData
+            .filter(g => g.level === level)
+            .map(g => g.grammar_point.replace(/～/g, '')); // Xóa dấu ~ để AI dễ hiểu
+            
+        const avoidStr = existingPoints.length > 0 
+            ? `\nTUYỆT ĐỐI KHÔNG TẠO LẠI CÁC CẤU TRÚC SAU: [${existingPoints.join(', ')}]` 
+            : "";
+
+        // Prompt ép chuẩn JSON
+        const prompt = `Bạn là chuyên gia biên soạn giáo trình JLPT.
+        Hãy tạo ra ${amount} cấu trúc ngữ pháp thuộc cấp độ ${level}. ${avoidStr}
+        
+        BẮT BUỘC TRẢ VỀ DUY NHẤT 1 MẢNG JSON (Không bọc trong markdown \`\`\`json).
+        Định dạng BẮT BUỘC:
+        [
+            {
+                "point": "Cấu trúc ngữ pháp (Ghi rõ dấu ～ nếu có)",
+                "meaning": "Nghĩa tiếng Việt",
+                "structure": "Cách ghép (VD: Vru + わけだ)",
+                "nuance": "Sắc thái & Lưu ý",
+                "ex1_jp": "Câu VD 1 tiếng Nhật",
+                "ex1_vn": "Nghĩa VD 1",
+                "ex2_jp": "Câu VD 2 tiếng Nhật",
+                "ex2_vn": "Nghĩa VD 2"
+            }
+        ]`;
+
+        let aiResponse = await callGeminiAI(prompt);
+        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        const generatedData = JSON.parse(aiResponse);
+
+        if (!Array.isArray(generatedData) || generatedData.length === 0) {
+            throw new Error("AI trả về sai format mảng.");
+        }
+
+        // --- CHỐT CHẶN 2 (HARD FILTER): Lọc cứng bằng JS trước khi lên Database ---
+        document.getElementById('loadingText').innerText = "Đang kiểm tra trùng lặp và lưu Database...";
+        
+        // Mảng chứa các ngữ pháp đã tồn tại trong toàn bộ DB (tránh rủi ro)
+        const allExistingPoints = globalGrammarData.map(g => g.grammar_point.replace(/～/g, '').trim());
+        
+        const validGrammars = [];
+        const duplicatePoints = [];
+
+        generatedData.forEach(item => {
+            const cleanPoint = item.point.replace(/～/g, '').trim();
+            if (allExistingPoints.includes(cleanPoint)) {
+                duplicatePoints.push(item.point); // Bị trùng
+            } else {
+                validGrammars.push({
+                    grammar_point: item.point,
+                    level: level,
+                    meaning: item.meaning,
+                    structure: item.structure || "",
+                    nuance: item.nuance || "",
+                    ex1_jp: item.ex1_jp || "",
+                    ex1_vn: item.ex1_vn || "",
+                    ex2_jp: item.ex2_jp || "",
+                    ex2_vn: item.ex2_vn || ""
+                });
+            }
+        });
+
+        // Nếu tất cả đều trùng
+        if (validGrammars.length === 0) {
+            hideLoading();
+            return customAlert(`Toàn bộ ${duplicatePoints.length} cấu trúc AI tạo ra đều ĐÃ CÓ trong hệ thống. Vui lòng thử lại!`, "⚠️ Trùng lặp hoàn toàn");
+        }
+
+        // Insert vào Supabase
+        const { error: insertErr } = await sb.from('grammar_dict').insert(validGrammars);
+        if (insertErr) throw insertErr;
+
+        hideLoading();
+
+        // Hiện thông báo chi tiết
+        if (duplicatePoints.length > 0) {
+            customAlert(`
+                🎉 <b>Đã tạo và lưu thành công:</b> ${validGrammars.length} cấu trúc mới.<br><br>
+                ⏭️ <b>Bỏ qua do trùng lặp:</b> ${duplicatePoints.length} cấu trúc:<br>
+                <span style="color:#d97706; font-size:13px;">${duplicatePoints.join(', ')}</span>
+            `, "✨ Hoàn tất Auto Gen", "success");
+        } else {
+            showToast(`🎉 Thành công! Đã bơm ${validGrammars.length} ngữ pháp mới vào Database.`);
+        }
+
+        // Refresh lại giao diện kho ngữ pháp
+        await refreshGrammarCollection();
+
+    } catch (err) {
+        hideLoading();
+        console.error("Lỗi Auto Gen Ngữ Pháp:", err);
+        customAlert("Có lỗi xảy ra: " + err.message, "❌");
+    }
+}
+/* Hết================= AUTO GENERATE NGỮ PHÁP VỚI AI (CHỐT CHẶN KÉP) ================= */
+
 /* ================= SMART PDF READER (LOGIC CORE & OFFLINE STORAGE) ================= */
 let pdfDoc = null;
 let pageNum = 1;
