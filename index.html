@@ -8991,25 +8991,44 @@ function renderBoostCard() {
             prompt.innerText = "⌨️ Nhập cách đọc (Gõ Romaji)";
             question.innerText = c.front;
             zone.innerHTML = `
-                <input type="text" id="boostTypingInput" placeholder="Ví dụ gõ 'taberu' -> たべる" autocomplete="off" style="font-size:24px; font-weight:bold; text-align:center; padding:15px; border-radius:12px; border:2px solid #3498db;">
-                <button onclick="handleBoostTyping()" style="width:100%; padding:15px; border-radius:12px; border:none; background:#3498db; color:white; font-weight:800; font-size:18px; cursor:pointer; margin-top:15px;">KIỂM TRA</button>
+                <input type="text" id="boostTypingInput" placeholder="Ví dụ gõ 'taberu' -> たべる" autocomplete="off" style="font-size:24px; font-weight:bold; text-align:center; padding:15px; border-radius:12px; border:2px solid #3498db; transition: 0.2s ease;">
+                <button id="boostTypingBtn" onclick="handleBoostTyping(this)" style="width:100%; padding:15px; border-radius:12px; border:none; background:#3498db; color:white; font-weight:800; font-size:18px; cursor:pointer; margin-top:15px; transition: 0.2s ease;">KIỂM TRA</button>
             `;
             
             const inputEl = document.getElementById('boostTypingInput');
-            // Kích hoạt WanaKana thần thánh
-            wanakana.bind(inputEl);
+            if (typeof wanakana !== 'undefined') wanakana.bind(inputEl);
             setTimeout(() => inputEl.focus(), 100);
 
-            // Ghi đè hàm kiểm tra nội bộ cho Typing
-            window.handleBoostTyping = function() {
-                const val = inputEl.value.trim().replace(/\s/g, ''); // Xóa dấu cách thừa
+            window.handleBoostTyping = function(btnElement) {
+                // 🟢 CHỐT CHẶN: Nếu thẻ đã đúng và đang chờ lật thì CẤM NHẬN LỆNH THÊM
+                if (inputEl.disabled) return;
+
+                const val = inputEl.value.trim().replace(/\s/g, ''); 
                 const correctVal = c.reading.replace(/\s/g, '');
-                handleBoostAnswer(inputEl, val === correctVal);
+                const isCorrect = (val === correctVal);
+                const targetBtn = btnElement || document.getElementById('boostTypingBtn');
+
+                if (isCorrect) {
+                    // 🟢 ĐÚNG: Đổi màu và KHÓA CỨNG Ô NHẬP LIỆU ngay lập tức để chống Spam Enter
+                    inputEl.style.background = '#c6f6d5';
+                    inputEl.style.borderColor = '#38a169';
+                    inputEl.style.color = '#22543d';
+                    inputEl.disabled = true; 
+                    if (targetBtn) {
+                        targetBtn.disabled = true;
+                        targetBtn.style.opacity = '0.8';
+                    }
+                } else {
+                    // SAI: Rung lắc cảnh báo
+                    inputEl.classList.add('shake-error');
+                    setTimeout(() => inputEl.classList.remove('shake-error'), 400);
+                }
+
+                handleBoostAnswer(targetBtn, isCorrect);
             };
             
-            // Cho phép nhấn Enter để nộp
             inputEl.addEventListener("keypress", function(event) {
-                if (event.key === "Enter") handleBoostTyping();
+                if (event.key === "Enter") handleBoostTyping(document.getElementById('boostTypingBtn'));
             });
             break;
 
@@ -16715,7 +16734,10 @@ async function refreshDiscovery() {
 // MÀN HÌNH TỔNG KẾT PHASE 2
 function endAssessmentSession() {
     document.body.classList.remove('game-fullscreen-mode');
-    document.getElementById('boostArea').classList.add('hidden');
+    const boostArea = document.getElementById('boostArea');
+    boostArea.classList.add('hidden');
+    boostArea.style.display = 'none'; // 🟢 THÊM DÒNG NÀY: Ép ẩn tuyệt đối thẻ game cũ
+
     const summaryPage = document.getElementById('boostSummaryPage');
     summaryPage.classList.remove('hidden');
     
