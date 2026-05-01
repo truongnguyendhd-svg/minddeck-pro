@@ -4960,8 +4960,7 @@ body.pdf-mode #pdfReadState {
 </style>
 </head>
 <body>
-<!-- THÊM DÒNG NÀY: Loa ẩn dùng chung cho toàn bộ App -->
-<audio id="globalAudioPlayer" style="display:none;"></audio>
+
 <div class="app-header">
     <div class="header-container">
         <!-- KHỐI 1: LOGO (Chỉ hiện ở Landing Page & Login Page) -->
@@ -9174,14 +9173,6 @@ function chunkJapaneseSentence(sentence) {
 }
 // Đã cập nhật: Nhận trực tiếp ID của game và ép cứng chế độ Endless
 function startBoostSession(gameId) {
-    // 🟢 MỞ KHÓA AUDIO CHO iOS/SAFARI NGAY KHI BẤM NÚT VÀO GAME
-    if ('speechSynthesis' in window) {
-        // Đưa dấu cách thay vì chuỗi rỗng, không để volume bằng 0 tuyệt đối
-        let unlockAudio = new SpeechSynthesisUtterance(' ');
-        unlockAudio.volume = 0.01; 
-        window.speechSynthesis.speak(unlockAudio);
-    }
-
     boostState = { 
         mode: 'endless',       // Cố định là vô tận (endless)
         maxRounds: 9999,       // Số vòng cực lớn
@@ -9799,7 +9790,7 @@ function renderBoostCard() {
             }
             break;
         case 9: // 🎧 GAME: BLIND AUDIO (NGHE VÀ CHỌN ĐÁP ÁN)
-            prompt.innerText = "🎧 Bấm vào loa để nghe và chọn nghĩa Tiếng Việt"; // Đổi text hướng dẫn
+            prompt.innerText = "🎧 Lắng nghe và chọn nghĩa Tiếng Việt";
             question.innerHTML = ""; // Giấu sạch chữ Tiếng Nhật đi
             
             // Lấy 3 đáp án nhiễu (Meaning) + 1 Đáp án đúng
@@ -9807,17 +9798,17 @@ function renderBoostCard() {
             audioOpts.push(c.meaning);
             audioOpts.sort(() => 0.5 - Math.random());
             
-            // Hàm phát âm thanh bằng Google TTS API (Dùng loa cố định)
+            // Hàm phát âm thanh bằng Web Speech API (Miễn phí 100% của Browser)
             window.playCardAudio = function() {
-                const safeText = encodeURIComponent(c.front);
-                const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${safeText}`;
-                
-                const player = document.getElementById('globalAudioPlayer');
-                player.src = url;
-                player.play().catch(e => {
-                    console.error("Lỗi:", e);
-                    showToast("Vui lòng chạm vào màn hình 1 lần nữa để phát âm thanh.");
-                });
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel(); // Tắt các âm thanh cũ
+                    let utterance = new SpeechSynthesisUtterance(c.front);
+                    utterance.lang = 'ja-JP'; // Đặt giọng Nhật chuẩn
+                    utterance.rate = 0.85; // Đọc chậm lại một chút cho dễ nghe
+                    window.speechSynthesis.speak(utterance);
+                } else {
+                    showToast("Trình duyệt của bạn không hỗ trợ âm thanh.");
+                }
             };
             
             // Render Nút Play Khổng Lồ và Lưới đáp án
@@ -9838,7 +9829,8 @@ function renderBoostCard() {
                 aGrid.appendChild(btn);
             });
             
-            // ❌ ĐÃ XÓA dòng tự động gọi playCardAudio() ở đây
+            // Tự động phát âm thanh khi thẻ vừa load xong (Delay 300ms cho mượt)
+            setTimeout(() => playCardAudio(), 300);
             break;
 
         case 10: // ☄️ GAME: FALLING WORDS (MƯA TỪ VỰNG - ARCADE)
@@ -14097,28 +14089,28 @@ showAIModal(processedAIResponse, "Phân tích chuyên sâu");
     }
 }
 
-// Action 3: Phát âm bằng Google TTS (Dùng loa cố định)
+// Action 3: Phát âm (Web Speech API)
 function popoverActionSpeak(e) {
     e.preventDefault(); e.stopPropagation();
+    // Chú ý: Không đóng Popover để user nghe lại nếu muốn
     
-    const btn = document.getElementById('popoverSpeakBtn');
-    const safeText = encodeURIComponent(globalSelectedText);
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${safeText}`;
-    
-    const player = document.getElementById('globalAudioPlayer');
-    player.src = url;
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel(); // Tắt luồng âm cũ
+        let utterance = new SpeechSynthesisUtterance(globalSelectedText);
+        utterance.lang = 'ja-JP';
+        utterance.rate = 0.85; // Đọc hơi chậm lại cho dễ nghe
+        
+        const btn = document.getElementById('popoverSpeakBtn');
+        
+        // Hiệu ứng nhấp nháy UI
+        utterance.onstart = () => btn.classList.add('speaking');
+        utterance.onend = () => btn.classList.remove('speaking');
+        utterance.onerror = () => btn.classList.remove('speaking');
 
-    // Hiệu ứng nhấp nháy UI
-    player.onplay = () => btn.classList.add('speaking');
-    player.onended = () => btn.classList.remove('speaking');
-    player.onerror = () => {
-        btn.classList.remove('speaking');
-        showToast("Lỗi tải âm thanh.");
-    };
-
-    player.play().catch(e => {
-        btn.classList.remove('speaking');
-    });
+        window.speechSynthesis.speak(utterance);
+    } else {
+        showToast("Trình duyệt không hỗ trợ phát âm.");
+    }
 }
 
 // Action 4: Quick Add (Lưu vào thẻ Inbox)
@@ -18565,36 +18557,41 @@ window.startShadowing = function(event, targetText, btnElement) {
     }
 
     // ---------------------------------------------------------
-    // TRƯỜNG HỢP 2: BẮT ĐẦU QUY TRÌNH MỚI (MÁY ĐỌC MẪU BẰNG GOOGLE TTS)
+    // TRƯỜNG HỢP 2: BẮT ĐẦU QUY TRÌNH MỚI (MÁY ĐỌC TRƯỚC)
     // ---------------------------------------------------------
     const originalBtnHTML = `<span class="material-symbols-outlined" style="font-size:18px;">mic</span> Luyện phát âm`;
     
-    // Khóa nút và đổi UI
-    btn.disabled = true;
-    btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">volume_up</span> Máy đang đọc...';
+    if ('speechSynthesis' in window) {
+        // FIX LỖI iOS: Phải có delay nhỏ giữa cancel và speak để Safari không bị nghẹn
+        window.speechSynthesis.cancel(); 
+        
+        setTimeout(() => {
+            let utterance = new SpeechSynthesisUtterance(targetText);
+            utterance.lang = 'ja-JP';
+            utterance.rate = 0.85;
 
-    const safeUrlText = encodeURIComponent(targetText);
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${safeUrlText}`;
-    
-    const player = document.getElementById('globalAudioPlayer');
-    player.src = url;
+            // Khóa nút trong lúc máy đọc
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">volume_up</span> Máy đang đọc...';
 
-    // Khi máy đọc xong -> Mở mic cho User
-    player.onended = () => {
-        btn.disabled = false; 
+            utterance.onend = () => {
+                btn.disabled = false; 
+                startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
+            };
+
+            // Fallback: Nếu iOS lỗi không phát được âm, vẫn mở mic cho user
+            utterance.onerror = (e) => {
+                console.error("Lỗi đọc mẫu iOS:", e);
+                btn.disabled = false;
+                startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }, 50);
+
+    } else {
         startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
-    };
-
-    // Nếu mạng lỗi -> Vẫn cho User mở mic
-    player.onerror = () => {
-        btn.disabled = false;
-        startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
-    };
-
-    player.play().catch(e => {
-        btn.disabled = false;
-        startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
-    });
+    }
 };
 
 // HÀM PHỤ TRỢ: MỞ MICRO CỦA NGƯỜI DÙNG (CÓ CHỐNG NGẮT GIỮA CHỪNG)
@@ -19177,7 +19174,6 @@ async function refreshGrammarCollection() {
 </div>
 </body>
 </html>
-
 
 
 
