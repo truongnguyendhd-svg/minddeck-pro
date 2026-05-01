@@ -17153,7 +17153,9 @@ function generateAspectMatrixForCard(cardObj) {
         stage1Pool.push(5); // Xếp mảnh
         if (cleanReading.length >= 2 && cleanReading.length <= 6) stage1Pool.push(8); // Kana search
     }
-    stage1Pool.push(9); // Audio (Fallback)
+    
+    // ĐÃ SỬA: Bỏ Game 9. Nếu không có reading, dùng Game 1 (Match) làm phao cứu sinh
+    if (stage1Pool.length === 0) stage1Pool.push(1); 
     matrix.push(stage1Pool[Math.floor(Math.random() * stage1Pool.length)]);
 
     // CHẶNG 2: Cấu trúc Kanji (Nhận diện sâu)
@@ -17163,12 +17165,12 @@ function generateAspectMatrixForCard(cardObj) {
         if (exampleHasKanji) matrix.push(Math.random() > 0.5 ? 11 : 7);
         else matrix.push(11);
     } else {
-        // Không có Kanji -> Test lại cách đọc bằng phương pháp khác (Game 5 hoặc 9)
-        matrix.push(hasGoodReading ? 5 : 9);
+        // ĐÃ SỬA: Không có Kanji -> Random giữa Gõ phím (2) và Xếp chữ (5), Fallback về Game 1
+        matrix.push(hasGoodReading ? (Math.random() > 0.5 ? 2 : 5) : 1);
     }
 
-    // CHẶNG 3: Ý nghĩa / Ngữ cảnh (Chốt hạ) - BỎ GAME TRUE/FALSE
-    let stage3Pool = [1]; // Luôn có Game 1 (Chọn đáp án đúng 4 lựa chọn)
+    // CHẶNG 3: Ý nghĩa / Ngữ cảnh (Chốt hạ)
+    let stage3Pool = [1]; // Luôn có Game 1 (Chọn đáp án đúng)
     if (parsed.exampleJP && parsed.exampleVN) stage3Pool.push(6); // Xếp câu ví dụ
     matrix.push(stage3Pool[Math.floor(Math.random() * stage3Pool.length)]);
 
@@ -17317,7 +17319,7 @@ window.incrementPenalty = function() {
     }
 };
 
-// TÍNH ĐIỂM SRS & ĐẨY LÊN DATABASE (BẢN BATCH UPDATE - 1 REQUEST DUY NHẤT)
+// TÍNH ĐIỂM SRS & ĐẨY LÊN DATABASE (BẢN BATCH UPDATE - ĐÃ CHUẨN HÓA LOGIC PHẠT)
 async function processBatchAssessmentResults() {
     if (isVirtualSession) {
         hideLoading();
@@ -17333,12 +17335,20 @@ async function processBatchAssessmentResults() {
         const penalty = card.penaltyPoints;
         const meaningFailed = card.isMeaningFailed;
         
-        // 1. Tính hệ số Quality (q)
+        // 1. Tính hệ số Quality (q) - LOGIC MỚI KHẮT KHE HƠN
         let q = 0;
-        if (card.isFailed || meaningFailed || penalty > 5) q = 0; 
-        else if (penalty >= 3) q = 2;                             
-        else if (penalty >= 1) q = 4;                             
-        else q = 5;                                               
+        // Rớt thẳng nếu: Chịu thua, Sai nghĩa, hoặc sai từ 2 lỗi trở lên
+        if (card.isFailed || meaningFailed || penalty >= 2) {
+            q = 0; 
+        } 
+        // Sai 1 lỗi duy nhất (Gõ nhầm, trượt tay)
+        else if (penalty === 1) {
+            q = 3;                             
+        } 
+        // Hoàn hảo 100%
+        else {
+            q = 5;                                               
+        }
 
         // 2. Thuật toán SRS
         let p = card.progress && card.progress.length > 0 ? card.progress[0] : null;
@@ -17346,12 +17356,15 @@ async function processBatchAssessmentResults() {
         let interval = p ? p.interval : 1;
         let interval_count = p ? p.interval_count : 0;
         
-        if (q >= 2) { 
-            if (q == 2) ef = Math.max(1.3, ef - 0.15); 
-            else if (q == 5) ef += 0.1; 
+        // CHỈ TĂNG INTERVAL NẾU THI ĐẬU (q = 3 hoặc q = 5)
+        if (q >= 3) { 
+            if (q === 3) ef = Math.max(1.3, ef - 0.15); // Đậu nhưng sai 1 lỗi: Trừ nhẹ EF
+            else if (q === 5) ef += 0.1; // Hoàn hảo: Tăng EF
+            
             interval_count++; 
-            interval = interval_count == 1 ? 1 : interval_count == 2 ? 6 : Math.round(interval * ef); 
+            interval = interval_count === 1 ? 1 : (interval_count === 2 ? 6 : Math.round(interval * ef)); 
         } else { 
+            // RỚT (q = 0): Reset Interval về 1 ngày, phạt nặng EF
             ef = Math.max(1.3, ef - 0.2); 
             interval_count = 0; 
             interval = 1; 
@@ -17360,8 +17373,8 @@ async function processBatchAssessmentResults() {
         const due = new Date(); 
         due.setDate(due.getDate() + interval);
         
-        // 3. Phân loại thẻ
-        if (q < 4) boostState.remedialCards.push(card);
+        // 3. Phân loại thẻ hiển thị ở màn hình Tổng kết
+        if (q < 3) boostState.remedialCards.push(card);
         else boostState.passedCards.push(card);
 
         // 4. Đóng gói Payload
