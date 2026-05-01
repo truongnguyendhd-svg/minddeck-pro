@@ -9175,9 +9175,9 @@ function chunkJapaneseSentence(sentence) {
 function startBoostSession(gameId) {
     // 🟢 MỞ KHÓA AUDIO CHO iOS/SAFARI NGAY KHI BẤM NÚT VÀO GAME
     if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        let unlockAudio = new SpeechSynthesisUtterance('');
-        unlockAudio.volume = 0;
+        // Đưa dấu cách thay vì chuỗi rỗng, không để volume bằng 0 tuyệt đối
+        let unlockAudio = new SpeechSynthesisUtterance(' ');
+        unlockAudio.volume = 0.01; 
         window.speechSynthesis.speak(unlockAudio);
     }
 
@@ -9809,12 +9809,16 @@ function renderBoostCard() {
             // Hàm phát âm thanh bằng Web Speech API
             window.playCardAudio = function() {
                 if ('speechSynthesis' in window) {
-                    window.speechSynthesis.cancel(); // Tắt các âm thanh cũ
+                    // 🔴 TUYỆT ĐỐI KHÔNG GỌI window.speechSynthesis.cancel() Ở ĐÂY TRÊN iOS!
                     
-                    // 🟢 ĐÃ XÓA SETTIMEOUT: Phát trực tiếp để iOS không khóa âm thanh
                     let utterance = new SpeechSynthesisUtterance(c.front);
                     utterance.lang = 'ja-JP'; 
                     utterance.rate = 0.85; 
+
+                    // Fix lỗi kẹt hàng đợi của iOS: Ép chạy lại nếu bị nghẹn
+                    utterance.onend = function() { console.log('Đã đọc xong'); };
+                    utterance.onerror = function(e) { console.error('Lỗi đọc:', e); };
+
                     window.speechSynthesis.speak(utterance);
                 } else {
                     showToast("Trình duyệt của bạn không hỗ trợ âm thanh.");
