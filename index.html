@@ -7357,34 +7357,34 @@ let isInlineListLoaded = false; // Cờ kiểm tra danh sách đã load chưa
 let isVirtualSession = false;
 let tempVirtualCards = []; // Cache RAM để nạp thẻ vào phiên học ảo
 /* ================= 3. UTILITIES ================= */
-// ================= CORE AUDIO ENGINE (GOOGLE TTS) =================
+// ================= CORE AUDIO ENGINE (GOOGLE TTS - ĐÃ FIX CORS) =================
 window.playAudioTTS = function(text, onEndCallback, onErrorCallback) {
     if (!text) return;
     
-    // Làm sạch text (Xóa HTML tags và ký tự đặc biệt có thể làm gãy URL)
+    // Làm sạch text (Xóa HTML tags)
     const cleanText = text.replace(/<[^>]*>?/gm, '').trim();
     
-    // Gọi API ngầm của Google Translate TTS
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${encodeURIComponent(cleanText)}`;
+    // Dùng API googleapis với client=gtx (Bypass token và CORS rất tốt)
+    const url = `https://translate.googleapis.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=ja&client=gtx`;
     
-    // Tạo đối tượng HTML5 Audio
     const audio = new Audio(url);
-    audio.crossOrigin = "anonymous"; // Xử lý CORS
+    // KHÔNG dùng audio.crossOrigin = "anonymous" ở đây để trình duyệt coi đây là thẻ media bình thường
 
-    // Bắt sự kiện kết thúc
     audio.onended = () => { if (onEndCallback) onEndCallback(); };
     
-    // Bắt sự kiện lỗi (Mất mạng, v.v...)
     audio.onerror = (e) => {
         console.error("Audio TTS Error:", e);
         if (onErrorCallback) onErrorCallback(e);
     };
 
-    // Phát âm thanh (Có catch lỗi để không văng app trên iOS)
-    audio.play().catch(err => {
-        console.warn("Trình duyệt chặn Autoplay hoặc lỗi mạng:", err);
-        if (onErrorCallback) onErrorCallback(err);
-    });
+    // Ép phát âm thanh
+    let playPromise = audio.play();
+    if (playPromise !== undefined) {
+        playPromise.catch(err => {
+            console.warn("Autoplay bị chặn:", err);
+            if (onErrorCallback) onErrorCallback(err);
+        });
+    }
 };
 function sanitizeTagName(tag) {
     if (!tag) return "untitled";
