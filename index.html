@@ -8095,17 +8095,82 @@ function executeStudyMode() {
     startStudyFromManage(selectedStudyModeModal);
 }
 
-// HÀM MỞ KHÓA AUDIO CHO iOS/SAFARI
+// 1. Biến toàn cục giúp Safari KHÔNG THỂ XÓA luồng âm thanh
+window.globalUtterance = null;
+
+// 2. HÀM MỞ KHÓA AUDIO CHO iOS/SAFARI (Đã sửa lỗi chuỗi rỗng)
 window.unlockIOSAudio = function() {
     if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        let unlockAudio = new SpeechSynthesisUtterance('');
-        unlockAudio.volume = 0;
-        unlockAudio.rate = 2.0; // Đọc cực nhanh cho mau kết thúc
-        window.speechSynthesis.speak(unlockAudio);
+        window.speechSynthesis.resume(); // Đánh thức engine
+        window.speechSynthesis.cancel(); // Xóa hàng đợi cũ
+        // Phải phát một chữ có thật (あ) thay vì chuỗi rỗng thì iOS mới nhận diện
+        window.globalUtterance = new SpeechSynthesisUtterance('あ'); 
+        window.globalUtterance.volume = 0; // Mute tiếng
+        window.speechSynthesis.speak(window.globalUtterance);
     }
 };
 
+// 3. HÀM PHÁT ÂM THANH BẤT TỬ (CHỐNG LỖI SAFARI)
+window.safePlayAudio = function(text, rate = 0.85, onStartCb = null, onEndCb = null) {
+    if (!('speechSynthesis' in window)) {
+        showToast("Trình duyệt không hỗ trợ âm thanh.");
+        if (onEndCb) onEndCb();
+        return;
+    }
+
+    // Đánh thức engine trước khi phát
+    window.speechSynthesis.resume();
+    window.speechSynthesis.cancel(); 
+
+    // Gán vào biến toàn cục
+    window.globalUtterance = new SpeechSynthesisUtterance(text);
+    window.globalUtterance.lang = 'ja-JP';
+    window.globalUtterance.rate = rate;
+
+    if (onStartCb) window.globalUtterance.onstart = onStartCb;
+    
+    window.globalUtterance.onend = () => { if (onEndCb) onEndCb(); };
+    window.globalUtterance.onerror = (e) => { 
+        console.error("Lỗi phát âm thanh:", e); 
+        if (onEndCb) onEndCb(); 
+    };
+
+    // Delay siêu nhỏ 50ms giúp iOS Safari kịp dọn dẹp hàng đợi trước khi phát
+    setTimeout(() => {
+        window.speechSynthesis.speak(window.globalUtterance);
+    }, 50);
+};
+// ========================================================
+// TRÌNH MỞ KHÓA ÂM THANH TOÀN CỤC (UNIVERSAL IOS UNLOCKER)
+// ========================================================
+let iosAudioUnlocked = false;
+
+function setupUniversalAudioUnlock() {
+    const unlockFunc = () => {
+        if (iosAudioUnlocked) return;
+        
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.resume();
+            let unlockAudio = new SpeechSynthesisUtterance('あ');
+            unlockAudio.volume = 0; // Phát âm thanh rỗng để lừa iOS mở khóa loa
+            window.speechSynthesis.speak(unlockAudio);
+        }
+        
+        iosAudioUnlocked = true;
+        console.log("MindDeck: Audio Engine Unlocked!");
+        
+        // Mở khóa xong thì gỡ bỏ sự kiện để không làm nặng máy
+        document.removeEventListener('touchstart', unlockFunc);
+        document.removeEventListener('click', unlockFunc);
+    };
+
+    // Bắt sự kiện ở lần chạm/click ĐẦU TIÊN BẤT KỲ ĐÂU trên màn hình
+    document.addEventListener('touchstart', unlockFunc, { once: true, passive: true });
+    document.addEventListener('click', unlockFunc, { once: true });
+}
+
+// Kích hoạt trình mở khóa ngay khi trang web tải xong
+document.addEventListener('DOMContentLoaded', setupUniversalAudioUnlock);
 // Lắng nghe click ra ngoài để tự động đóng Drop-up
 document.addEventListener('click', (e) => {
     const dropdown = document.getElementById('studyModeDropdown');
@@ -9811,17 +9876,9 @@ function renderBoostCard() {
             audioOpts.push(c.meaning);
             audioOpts.sort(() => 0.5 - Math.random());
             
-            // Hàm phát âm thanh bằng Web Speech API (Miễn phí 100% của Browser)
+            // Dùng hàm phát âm thanh bất tử chống lỗi iOS
             window.playCardAudio = function() {
-                if ('speechSynthesis' in window) {
-                    window.speechSynthesis.cancel(); // Tắt các âm thanh cũ
-                    let utterance = new SpeechSynthesisUtterance(c.front);
-                    utterance.lang = 'ja-JP'; // Đặt giọng Nhật chuẩn
-                    utterance.rate = 0.85; // Đọc chậm lại một chút cho dễ nghe
-                    window.speechSynthesis.speak(utterance);
-                } else {
-                    showToast("Trình duyệt của bạn không hỗ trợ âm thanh.");
-                }
+                window.safePlayAudio(c.front, 0.85);
             };
             
             // Render Nút Play Khổng Lồ và Lưới đáp án
@@ -14103,25 +14160,16 @@ showAIModal(processedAIResponse, "Phân tích chuyên sâu");
 // Action 3: Phát âm (Web Speech API)
 function popoverActionSpeak(e) {
     e.preventDefault(); e.stopPropagation();
-    // Chú ý: Không đóng Popover để user nghe lại nếu muốn
     
-    if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel(); // Tắt luồng âm cũ
-        let utterance = new SpeechSynthesisUtterance(globalSelectedText);
-        utterance.lang = 'ja-JP';
-        utterance.rate = 0.85; // Đọc hơi chậm lại cho dễ nghe
-        
-        const btn = document.getElementById('popoverSpeakBtn');
-        
-        // Hiệu ứng nhấp nháy UI
-        utterance.onstart = () => btn.classList.add('speaking');
-        utterance.onend = () => btn.classList.remove('speaking');
-        utterance.onerror = () => btn.classList.remove('speaking');
-
-        window.speechSynthesis.speak(utterance);
-    } else {
-        showToast("Trình duyệt không hỗ trợ phát âm.");
-    }
+    const btn = document.getElementById('popoverSpeakBtn');
+    
+    // Gọi hàm phát âm thanh chống lỗi
+    window.safePlayAudio(
+        globalSelectedText, 
+        0.85, 
+        () => btn.classList.add('speaking'),   // onStart
+        () => btn.classList.remove('speaking') // onEnd
+    );
 }
 
 // Action 4: Quick Add (Lưu vào thẻ Inbox)
@@ -18572,36 +18620,21 @@ window.startShadowing = function(event, targetText, btnElement) {
     // ---------------------------------------------------------
     const originalBtnHTML = `<span class="material-symbols-outlined" style="font-size:18px;">mic</span> Luyện phát âm`;
     
-    if ('speechSynthesis' in window) {
-        // Trên iOS, cancel() và speak() phải chạy đồng bộ trong cùng Call Stack của User Click
-        window.speechSynthesis.cancel(); 
-        
-        let utterance = new SpeechSynthesisUtterance(targetText);
-        utterance.lang = 'ja-JP';
-        utterance.rate = 0.85;
-
-        // Khóa nút trong lúc máy đọc
-        btn.disabled = true;
-        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">volume_up</span> Máy đang đọc...';
-
-            utterance.onend = () => {
-                btn.disabled = false; 
-                startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
-            };
-
-            // Fallback: Nếu iOS lỗi không phát được âm, vẫn mở mic cho user
-            utterance.onerror = (e) => {
-                console.error("Lỗi đọc mẫu iOS:", e);
-                btn.disabled = false;
-                startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
-            };
-
-            window.speechSynthesis.speak(utterance);
-        
-
-    } else {
-        startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
-    }
+    // Dùng hàm phát âm thanh bất tử chống lỗi iOS
+    window.safePlayAudio(
+        targetText, 
+        0.85,
+        // onStart
+        () => {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">volume_up</span> Máy đang đọc...';
+        },
+        // onEnd / onError
+        () => {
+            btn.disabled = false; 
+            startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
+        }
+    );
 };
 
 // HÀM PHỤ TRỢ: MỞ MICRO CỦA NGƯỜI DÙNG (CÓ CHỐNG NGẮT GIỮA CHỪNG)
