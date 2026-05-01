@@ -8110,7 +8110,7 @@ window.unlockIOSAudio = function() {
     }
 };
 
-// 3. HÀM PHÁT ÂM THANH BẤT TỬ (CHỐNG LỖI SAFARI)
+// 3. HÀM PHÁT ÂM THANH BẤT TỬ (PHIÊN BẢN ĐÃ FIX LỖI TIẾNG NHẬT TRÊN IOS)
 window.safePlayAudio = function(text, rate = 0.85, onStartCb = null, onEndCb = null) {
     if (!('speechSynthesis' in window)) {
         showToast("Trình duyệt không hỗ trợ âm thanh.");
@@ -8118,24 +8118,30 @@ window.safePlayAudio = function(text, rate = 0.85, onStartCb = null, onEndCb = n
         return;
     }
 
-    // Đánh thức engine trước khi phát
     window.speechSynthesis.resume();
     window.speechSynthesis.cancel(); 
 
-    // Gán vào biến toàn cục
     window.globalUtterance = new SpeechSynthesisUtterance(text);
     window.globalUtterance.lang = 'ja-JP';
     window.globalUtterance.rate = rate;
 
-    if (onStartCb) window.globalUtterance.onstart = onStartCb;
+    // --- THUẬT TOÁN TÌM GIỌNG ĐỌC NHẬT BẢN CHO IOS ---
+    let voices = window.speechSynthesis.getVoices();
+    // Tìm giọng nào có chứa mã "ja" hoặc "JP"
+    let japaneseVoice = voices.find(v => v.lang.includes('ja') || v.lang.includes('JA'));
     
-    window.globalUtterance.onend = () => { if (onEndCb) onEndCb(); };
-    window.globalUtterance.onerror = (e) => { 
-        console.error("Lỗi phát âm thanh:", e); 
-        if (onEndCb) onEndCb(); 
-    };
+    if (japaneseVoice) {
+        window.globalUtterance.voice = japaneseVoice;
+        console.log("MindDeck: Đã tìm thấy giọng Nhật:", japaneseVoice.name);
+    } else {
+        console.warn("MindDeck: Không tìm thấy giọng Nhật cụ thể, dùng mặc định của máy.");
+    }
+    // -----------------------------------------------
 
-    // Delay siêu nhỏ 50ms giúp iOS Safari kịp dọn dẹp hàng đợi trước khi phát
+    if (onStartCb) window.globalUtterance.onstart = onStartCb;
+    window.globalUtterance.onend = () => { if (onEndCb) onEndCb(); };
+    window.globalUtterance.onerror = (e) => { if (onEndCb) onEndCb(); };
+
     setTimeout(() => {
         window.speechSynthesis.speak(window.globalUtterance);
     }, 50);
@@ -8148,7 +8154,7 @@ let iosAudioUnlocked = false;
 function setupUniversalAudioUnlock() {
     const unlockFunc = () => {
         if (iosAudioUnlocked) return;
-        
+        window.speechSynthesis.getVoices(); // Ép hệ thống nạp danh sách giọng đọc
         if ('speechSynthesis' in window) {
             window.speechSynthesis.resume();
             let unlockAudio = new SpeechSynthesisUtterance('あ');
