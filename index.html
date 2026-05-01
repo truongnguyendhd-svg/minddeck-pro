@@ -18535,79 +18535,119 @@ window.saveKanjiMnemonic = async function(event, kanji) {
     }
 };
 /* Hết================= HÀM XỬ LÝ SỬA MẸO NHỚ KANJI (DÀNH CHO ADMIN) ================= */
-// HÀM XỬ LÝ SHADOWING DOJO (VOICE) - BẢN CHUẨN ĐỌC MẪU
+// ================= HÀM XỬ LÝ SHADOWING DOJO (VOICE) =================
+let currentSpeechRecognition = null;
+let isVoiceRecording = false;
+
 window.startShadowing = function(event, targetText, btnElement) {
     event.stopPropagation();
     const btn = btnElement || event.currentTarget;
-    const originalBtnHTML = btn.innerHTML; // Lưu lại giao diện gốc của nút
-    
-    // Kiểm tra API
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return customAlert("Trình duyệt không hỗ trợ thu âm. Vui lòng dùng Google Chrome/Safari.", "⚠️");
 
-    // BƯỚC 1: HỆ THỐNG ĐỌC MẪU TRƯỚC
+    if (!SpeechRecognition) return customAlert("Trình duyệt không hỗ trợ thu âm.", "⚠️");
+
+    // ---------------------------------------------------------
+    // TRƯỜNG HỢP 1: ĐANG THU ÂM -> BẤM ĐỂ NỘP BÀI (NGẮT MICRO)
+    // ---------------------------------------------------------
+    if (isVoiceRecording && currentSpeechRecognition) {
+        currentSpeechRecognition.stop(); // Lệnh này sẽ kích hoạt onend ở dưới
+        btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px;"></div> Đang chấm...';
+        btn.disabled = true;
+        return;
+    }
+
+    // ---------------------------------------------------------
+    // TRƯỜNG HỢP 2: BẮT ĐẦU QUY TRÌNH MỚI (MÁY ĐỌC TRƯỚC)
+    // ---------------------------------------------------------
+    const originalBtnHTML = `<span class="material-symbols-outlined" style="font-size:18px;">mic</span> Luyện phát âm`;
+    
     if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel(); // Tắt các âm thanh cũ
-        let utterance = new SpeechSynthesisUtterance(targetText);
-        utterance.lang = 'ja-JP';
-        utterance.rate = 0.85; // Đọc chậm lại một chút cho dễ nghe
+        // FIX LỖI iOS: Phải có delay nhỏ giữa cancel và speak để Safari không bị nghẹn
+        window.speechSynthesis.cancel(); 
+        
+        setTimeout(() => {
+            let utterance = new SpeechSynthesisUtterance(targetText);
+            utterance.lang = 'ja-JP';
+            utterance.rate = 0.85;
 
-        // Đổi giao diện nút thành đang đọc
-        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">volume_up</span> Máy đang đọc...';
-        btn.classList.add('recording'); // Thêm hiệu ứng nhấp nháy
+            // Khóa nút trong lúc máy đọc
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">volume_up</span> Máy đang đọc...';
 
-        // KHI MÁY ĐỌC XONG -> KÍCH HOẠT MICRO CHO NGƯỜI DÙNG
-        utterance.onend = () => {
-            activateMicrophone(targetText, btn, originalBtnHTML, SpeechRecognition);
-        };
+            utterance.onend = () => {
+                btn.disabled = false; 
+                startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
+            };
 
-        // Nếu lỗi âm thanh (do trình duyệt chặn) -> Vẫn cho bật Mic
-        utterance.onerror = () => {
-            activateMicrophone(targetText, btn, originalBtnHTML, SpeechRecognition);
-        };
+            // Fallback: Nếu iOS lỗi không phát được âm, vẫn mở mic cho user
+            utterance.onerror = (e) => {
+                console.error("Lỗi đọc mẫu iOS:", e);
+                btn.disabled = false;
+                startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
+            };
 
-        window.speechSynthesis.speak(utterance);
+            window.speechSynthesis.speak(utterance);
+        }, 50);
+
     } else {
-        // Nếu không có bộ đọc, bật mic luôn
-        activateMicrophone(targetText, btn, originalBtnHTML, SpeechRecognition);
+        startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
     }
 };
 
-// HÀM PHỤ TRỢ: BẬT MICRO (Được gọi sau khi máy đọc xong)
-function activateMicrophone(targetText, btn, originalBtnHTML, SpeechRecognition) {
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'ja-JP';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+// HÀM PHỤ TRỢ: MỞ MICRO CỦA NGƯỜI DÙNG (CÓ CHỐNG NGẮT GIỮA CHỪNG)
+function startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition) {
+    currentSpeechRecognition = new SpeechRecognition();
+    currentSpeechRecognition.lang = 'ja-JP';
+    // FIX LỖI TỰ NGẮT: Chuyển continuous thành true để máy nghe liên tục cho đến khi user tự bấm tắt
+    currentSpeechRecognition.continuous = true; 
+    currentSpeechRecognition.interimResults = false;
 
-    recognition.onstart = () => {
-        // Đổi giao diện nhắc người dùng đọc
-        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">mic</span> Tới lượt bạn!';
-        showToast("🎙️ Máy đọc xong rồi. Hãy đọc to lên nhé!");
+    let finalTranscript = "";
+
+    currentSpeechRecognition.onstart = () => {
+        isVoiceRecording = true;
+        btn.classList.add('recording');
+        
+        // Đổi giao diện nhắc user BẤM ĐỂ DỪNG
+        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">stop_circle</span> Đọc xong bấm nộp bài';
+        showToast("🎙️ Hãy thong thả đọc. Đọc xong nhớ bấm nút để nộp bài nhé!");
     };
 
-    recognition.onresult = async (e) => {
-        const userSaid = e.results[0][0].transcript;
-        
-        // Trả lại giao diện nút như ban đầu
+    // Gom nhặt kết quả khi user nói (Vì là continuous nên nó trả về nhiều đoạn)
+    currentSpeechRecognition.onresult = (e) => {
+        for (let i = e.resultIndex; i < e.results.length; ++i) {
+            if (e.results[i].isFinal) {
+                finalTranscript += e.results[i][0].transcript;
+            }
+        }
+    };
+
+    // Khi User tự bấm nút Dừng (Gọi lệnh stop() ở trên)
+    currentSpeechRecognition.onend = async () => {
+        isVoiceRecording = false;
         btn.classList.remove('recording');
-        btn.innerHTML = originalBtnHTML; 
         
+        if (!finalTranscript.trim()) {
+            btn.disabled = false;
+            btn.innerHTML = originalBtnHTML;
+            return showToast("Không nghe thấy gì. Vui lòng thử lại!");
+        }
+
+        // Gọi AI chấm điểm
         showLoading("AI đang chấm điểm phát âm...");
-        const prompt = `Đóng vai trò giáo viên tiếng Nhật chấm điểm phương pháp Shadowing.
-        Câu mẫu học viên CẦN đọc là: "${targetText}".
-        Hệ thống thu âm nhận diện học viên ĐÃ đọc là: "${userSaid}".
+        const prompt = `Đóng vai trò giáo viên tiếng Nhật JLPT.
+        Từ/câu CẦN đọc: "${targetText}".
+        Học viên ĐÃ đọc: "${finalTranscript.trim()}".
         
-        Nhiệm vụ của bạn:
-        1. So sánh phần học viên đọc với câu mẫu. (Chấm thang điểm 100).
-        2. Chỉ ra lỗi sai (trường âm, âm đục, thiếu chữ...) nếu có.
+        Nhiệm vụ:
+        1. So sánh chính xác những gì học viên đã đọc với câu mẫu. (Chấm thang điểm 100).
+        2. Chỉ ra lỗi sai (trường âm, âm đục, thiếu chữ...) nếu có. Không bắt bẻ linh tinh nếu câu đọc đã đúng ý nghĩa và phát âm.
         Trả lời ngắn gọn, thân thiện bằng tiếng Việt, dùng HTML cơ bản (<b>, <br>).`;
         
         try {
             const aiFeedback = await callGeminiAI(prompt);
             hideLoading();
             
-            // Giao diện hiển thị kết quả trực quan: Câu mẫu vs Câu bạn đọc
             document.getElementById('voiceResultContent').innerHTML = `
                 <div style="background:#f3f8fd; padding:12px; border-radius:8px; margin-bottom:10px; border-left:3px solid #0067c0;">
                     <div style="font-size: 12px; color: #666; margin-bottom: 4px;">🎯 Câu mẫu:</div>
@@ -18615,7 +18655,7 @@ function activateMicrophone(targetText, btn, originalBtnHTML, SpeechRecognition)
                 </div>
                 <div style="background:#fdf3f4; padding:12px; border-radius:8px; margin-bottom:15px; border-left:3px solid #c50f1f;">
                     <div style="font-size: 12px; color: #666; margin-bottom: 4px;">🗣️ Bạn đã đọc:</div>
-                    <b style="font-size: 15px; color: #c50f1f;">${userSaid}</b>
+                    <b style="font-size: 15px; color: #c50f1f;">${finalTranscript.trim()}</b>
                 </div>
                 ${aiFeedback}
             `;
@@ -18623,16 +18663,26 @@ function activateMicrophone(targetText, btn, originalBtnHTML, SpeechRecognition)
         } catch (err) {
             hideLoading();
             customAlert("Lỗi AI chấm điểm: " + err.message, "❌");
+        } finally {
+            // Trả lại nút như cũ
+            btn.disabled = false;
+            btn.innerHTML = originalBtnHTML;
         }
     };
 
-    recognition.onerror = (e) => {
+    currentSpeechRecognition.onerror = (e) => {
+        isVoiceRecording = false;
         btn.classList.remove('recording');
+        btn.disabled = false;
         btn.innerHTML = originalBtnHTML;
-        showToast("Không nghe rõ, vui lòng thử lại!");
+        if (e.error !== 'aborted') {
+            showToast("Micro lỗi hoặc chưa cấp quyền!");
+        }
     };
 
-    recognition.start();
+    try {
+        currentSpeechRecognition.start();
+    } catch(e) { console.error(e); }
 };
 // Hết HÀM XỬ LÝ SHADOWING DOJO (VOICE)
 // HỆ THỐNG KÉO THẺ CHO NIHONGO RPG
