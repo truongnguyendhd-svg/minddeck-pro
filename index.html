@@ -9806,23 +9806,18 @@ function renderBoostCard() {
             audioOpts.push(c.meaning);
             audioOpts.sort(() => 0.5 - Math.random());
             
-            // Hàm phát âm thanh bằng Web Speech API
+            // Hàm phát âm thanh bằng Google TTS API
             window.playCardAudio = function() {
-                if ('speechSynthesis' in window) {
-                    // 🔴 TUYỆT ĐỐI KHÔNG GỌI window.speechSynthesis.cancel() Ở ĐÂY TRÊN iOS!
-                    
-                    let utterance = new SpeechSynthesisUtterance(c.front);
-                    utterance.lang = 'ja-JP'; 
-                    utterance.rate = 0.85; 
-
-                    // Fix lỗi kẹt hàng đợi của iOS: Ép chạy lại nếu bị nghẹn
-                    utterance.onend = function() { console.log('Đã đọc xong'); };
-                    utterance.onerror = function(e) { console.error('Lỗi đọc:', e); };
-
-                    window.speechSynthesis.speak(utterance);
-                } else {
-                    showToast("Trình duyệt của bạn không hỗ trợ âm thanh.");
-                }
+                // Mã hóa text an toàn cho URL
+                const safeText = encodeURIComponent(c.front);
+                // Dùng endpoint của Google Translate (client=tw-ob để bypass lỗi 403)
+                const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${safeText}`;
+                
+                const audio = new Audio(url);
+                audio.play().catch(e => {
+                    console.error("Lỗi phát âm thanh:", e);
+                    showToast("Trình duyệt chặn phát âm thanh. Vui lòng thử lại!");
+                });
             };
             
             // Render Nút Play Khổng Lồ và Lưới đáp án
@@ -14102,28 +14097,29 @@ showAIModal(processedAIResponse, "Phân tích chuyên sâu");
     }
 }
 
-// Action 3: Phát âm (Web Speech API)
+// Action 3: Phát âm bằng Google TTS
 function popoverActionSpeak(e) {
     e.preventDefault(); e.stopPropagation();
-    // Chú ý: Không đóng Popover để user nghe lại nếu muốn
+    // Không đóng Popover để user nghe lại nếu muốn
     
-    if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel(); // Tắt luồng âm cũ
-        let utterance = new SpeechSynthesisUtterance(globalSelectedText);
-        utterance.lang = 'ja-JP';
-        utterance.rate = 0.85; // Đọc hơi chậm lại cho dễ nghe
-        
-        const btn = document.getElementById('popoverSpeakBtn');
-        
-        // Hiệu ứng nhấp nháy UI
-        utterance.onstart = () => btn.classList.add('speaking');
-        utterance.onend = () => btn.classList.remove('speaking');
-        utterance.onerror = () => btn.classList.remove('speaking');
+    const btn = document.getElementById('popoverSpeakBtn');
+    const safeText = encodeURIComponent(globalSelectedText);
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${safeText}`;
+    
+    const audio = new Audio(url);
 
-        window.speechSynthesis.speak(utterance);
-    } else {
-        showToast("Trình duyệt không hỗ trợ phát âm.");
-    }
+    // Hiệu ứng nhấp nháy UI
+    audio.onplay = () => btn.classList.add('speaking');
+    audio.onended = () => btn.classList.remove('speaking');
+    audio.onerror = () => {
+        btn.classList.remove('speaking');
+        showToast("Lỗi mạng, không tải được âm thanh.");
+    };
+
+    audio.play().catch(e => {
+        btn.classList.remove('speaking');
+        showToast("Trình duyệt chặn phát âm thanh.");
+    });
 }
 
 // Action 4: Quick Add (Lưu vào thẻ Inbox)
@@ -18570,41 +18566,36 @@ window.startShadowing = function(event, targetText, btnElement) {
     }
 
     // ---------------------------------------------------------
-    // TRƯỜNG HỢP 2: BẮT ĐẦU QUY TRÌNH MỚI (MÁY ĐỌC TRƯỚC)
+    // TRƯỜNG HỢP 2: BẮT ĐẦU QUY TRÌNH MỚI (MÁY ĐỌC MẪU BẰNG GOOGLE TTS)
     // ---------------------------------------------------------
     const originalBtnHTML = `<span class="material-symbols-outlined" style="font-size:18px;">mic</span> Luyện phát âm`;
     
-    if ('speechSynthesis' in window) {
-        // FIX LỖI iOS: Phải có delay nhỏ giữa cancel và speak để Safari không bị nghẹn
-        window.speechSynthesis.cancel(); 
-        
-        setTimeout(() => {
-            let utterance = new SpeechSynthesisUtterance(targetText);
-            utterance.lang = 'ja-JP';
-            utterance.rate = 0.85;
+    // Khóa nút và đổi UI
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">volume_up</span> Máy đang đọc...';
 
-            // Khóa nút trong lúc máy đọc
-            btn.disabled = true;
-            btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">volume_up</span> Máy đang đọc...';
+    const safeUrlText = encodeURIComponent(targetText);
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${safeUrlText}`;
+    const audio = new Audio(url);
 
-            utterance.onend = () => {
-                btn.disabled = false; 
-                startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
-            };
-
-            // Fallback: Nếu iOS lỗi không phát được âm, vẫn mở mic cho user
-            utterance.onerror = (e) => {
-                console.error("Lỗi đọc mẫu iOS:", e);
-                btn.disabled = false;
-                startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
-            };
-
-            window.speechSynthesis.speak(utterance);
-        }, 50);
-
-    } else {
+    // Khi máy đọc xong -> Mở mic cho User
+    audio.onended = () => {
+        btn.disabled = false; 
         startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
-    }
+    };
+
+    // Nếu mạng lỗi không tải được file âm thanh -> Vẫn cho User mở mic
+    audio.onerror = () => {
+        btn.disabled = false;
+        startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
+    };
+
+    // Phát âm thanh
+    audio.play().catch(e => {
+        console.error("Bị trình duyệt chặn:", e);
+        btn.disabled = false;
+        startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
+    });
 };
 
 // HÀM PHỤ TRỢ: MỞ MICRO CỦA NGƯỜI DÙNG (CÓ CHỐNG NGẮT GIỮA CHỪNG)
