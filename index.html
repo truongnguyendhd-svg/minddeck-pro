@@ -4960,7 +4960,8 @@ body.pdf-mode #pdfReadState {
 </style>
 </head>
 <body>
-
+<!-- THÊM DÒNG NÀY: Loa ẩn dùng chung cho toàn bộ App -->
+<audio id="globalAudioPlayer" style="display:none;"></audio>
 <div class="app-header">
     <div class="header-container">
         <!-- KHỐI 1: LOGO (Chỉ hiện ở Landing Page & Login Page) -->
@@ -9806,17 +9807,16 @@ function renderBoostCard() {
             audioOpts.push(c.meaning);
             audioOpts.sort(() => 0.5 - Math.random());
             
-            // Hàm phát âm thanh bằng Google TTS API
+            // Hàm phát âm thanh bằng Google TTS API (Dùng loa cố định)
             window.playCardAudio = function() {
-                // Mã hóa text an toàn cho URL
                 const safeText = encodeURIComponent(c.front);
-                // Dùng endpoint của Google Translate (client=tw-ob để bypass lỗi 403)
                 const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${safeText}`;
                 
-                const audio = new Audio(url);
-                audio.play().catch(e => {
-                    console.error("Lỗi phát âm thanh:", e);
-                    showToast("Trình duyệt chặn phát âm thanh. Vui lòng thử lại!");
+                const player = document.getElementById('globalAudioPlayer');
+                player.src = url;
+                player.play().catch(e => {
+                    console.error("Lỗi:", e);
+                    showToast("Vui lòng chạm vào màn hình 1 lần nữa để phát âm thanh.");
                 });
             };
             
@@ -14097,28 +14097,27 @@ showAIModal(processedAIResponse, "Phân tích chuyên sâu");
     }
 }
 
-// Action 3: Phát âm bằng Google TTS
+// Action 3: Phát âm bằng Google TTS (Dùng loa cố định)
 function popoverActionSpeak(e) {
     e.preventDefault(); e.stopPropagation();
-    // Không đóng Popover để user nghe lại nếu muốn
     
     const btn = document.getElementById('popoverSpeakBtn');
     const safeText = encodeURIComponent(globalSelectedText);
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${safeText}`;
     
-    const audio = new Audio(url);
+    const player = document.getElementById('globalAudioPlayer');
+    player.src = url;
 
     // Hiệu ứng nhấp nháy UI
-    audio.onplay = () => btn.classList.add('speaking');
-    audio.onended = () => btn.classList.remove('speaking');
-    audio.onerror = () => {
+    player.onplay = () => btn.classList.add('speaking');
+    player.onended = () => btn.classList.remove('speaking');
+    player.onerror = () => {
         btn.classList.remove('speaking');
-        showToast("Lỗi mạng, không tải được âm thanh.");
+        showToast("Lỗi tải âm thanh.");
     };
 
-    audio.play().catch(e => {
+    player.play().catch(e => {
         btn.classList.remove('speaking');
-        showToast("Trình duyệt chặn phát âm thanh.");
     });
 }
 
@@ -18576,23 +18575,23 @@ window.startShadowing = function(event, targetText, btnElement) {
 
     const safeUrlText = encodeURIComponent(targetText);
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${safeUrlText}`;
-    const audio = new Audio(url);
+    
+    const player = document.getElementById('globalAudioPlayer');
+    player.src = url;
 
     // Khi máy đọc xong -> Mở mic cho User
-    audio.onended = () => {
+    player.onended = () => {
         btn.disabled = false; 
         startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
     };
 
-    // Nếu mạng lỗi không tải được file âm thanh -> Vẫn cho User mở mic
-    audio.onerror = () => {
+    // Nếu mạng lỗi -> Vẫn cho User mở mic
+    player.onerror = () => {
         btn.disabled = false;
         startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
     };
 
-    // Phát âm thanh
-    audio.play().catch(e => {
-        console.error("Bị trình duyệt chặn:", e);
+    player.play().catch(e => {
         btn.disabled = false;
         startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition);
     });
