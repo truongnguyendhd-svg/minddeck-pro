@@ -8758,42 +8758,39 @@ async function showKanjiXRay(event, kanji) {
                 localCardsCount = cardsData.length;
             }
         }
-        // --- KIỂM TRA QUYỀN ADMIN CHO MẸO NHỚ ---
+        // --- KIỂM TRA QUYỀN ADMIN ĐỂ HIỆN NÚT SỬA/XÓA TOÀN BỘ KANJI ---
         const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
-        let mnemonicHtml = "";
-
-        // Nếu có mẹo nhớ HOẶC là Admin (để admin có chỗ nhập mới)
-        if (data.mnemonics || isAdmin) {
-            const rawText = data.mnemonics || "";
-            const displayText = rawText ? rawText : "<i style='color:#a0aec0; font-size:13px;'>Chưa có mẹo nhớ...</i>";
+        
+        let adminActionsHtml = "";
+        if (isAdmin) {
+            // Đóng gói toàn bộ data của Kanji này truyền sang Form Edit
+            const safeKanjiData = encodeURIComponent(JSON.stringify(data)).replace(/'/g, "%27");
             
-            const editBtnHtml = isAdmin ? `
-                <button onclick="toggleMnemonicEdit(true)" style="background:transparent; border:none; cursor:pointer; color:#dd6b20; margin-left:auto; display:flex; padding:4px; border-radius:4px; transition:0.2s;" onmouseover="this.style.background='#ffedd6'" onmouseout="this.style.background='transparent'">
-                    <span class="material-symbols-outlined" style="font-size:16px;">edit</span>
-                </button>
-            ` : "";
-
-            const editorHtml = isAdmin ? `
-                <div id="mnemonicEditorZone" style="display:none; margin-top: 10px;">
-                    <textarea id="mnemonicEditInput" class="win11-input" rows="3" style="width:100%; margin-bottom:8px; font-size:14px;">${rawText}</textarea>
-                    <div style="display:flex; justify-content:flex-end; gap:8px;">
-                        <button onclick="toggleMnemonicEdit(false)" class="win11-btn-secondary" style="padding: 6px 12px; font-size:12px;">Hủy</button>
-                        <button onclick="saveKanjiMnemonic(event, '${data.kanji}')" class="win11-btn-primary" style="padding: 6px 12px; font-size:12px; background:#c05600;">Lưu mẹo</button>
-                    </div>
+            adminActionsHtml = `
+                <div style="display: flex; justify-content: flex-end; gap: 8px; margin-bottom: -20px; position: relative; z-index: 10;">
+                    <button onclick="editAdminKanji('${safeKanjiData}')" class="win11-btn-secondary" style="padding: 6px 12px; font-size: 12px; color: #0067c0; border-color: #bee3f8; background: #ebf8ff;" title="Sửa toàn bộ thông tin">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">edit_square</span> Sửa chữ này
+                    </button>
+                    <button onclick="deleteAdminKanji('${data.kanji}')" class="win11-btn-secondary" style="padding: 6px 12px; font-size: 12px; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4;" title="Xóa chữ này khỏi DB">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">delete</span> Xóa
+                    </button>
                 </div>
-            ` : "";
+            `;
+        }
 
+        let mnemonicHtml = "";
+        // Nếu có Mẹo nhớ thì mới hiển thị khối Vàng (Không còn nút Edit rườm rà ở đây nữa)
+        if (data.mnemonics) {
             mnemonicHtml = `
             <div style="background: #fff8f0; padding: 16px; border-radius: 8px; border: 1px solid #fce8cd; border-left: 4px solid #f29b2b; text-align: left; font-size: 14px; color: #1a1a1a; line-height: 1.6; margin-bottom: 24px;">
                 <div style="display: flex; align-items: center; gap: 6px; font-weight: 600; color: #9e5b00; margin-bottom: 6px;">
                     <span class="material-symbols-outlined" style="font-size:18px;">lightbulb</span> Mẹo nhớ:
-                    ${editBtnHtml}
                 </div>
-                <div id="mnemonicDisplayZone">${displayText}</div>
-                ${editorHtml}
+                <div>${data.mnemonics}</div>
             </div>`;
         }
         const content = `
+            ${adminActionsHtml}
             <div style="font-size: 80px; font-weight: 900; color: #005fb8; line-height: 1.1; font-family: 'Noto Sans JP', sans-serif;">${data.kanji}</div>
             <div style="font-size: 18px; font-weight: 700; color: #c50f1f; margin: 4px 0 12px 0; letter-spacing: 1px;">[ ${data.hv} ]</div>
             <div style="font-size: 15px; color: #1a1a1a; margin-bottom: 24px; font-weight: 500;">Nghĩa: <b style="color: #0067c0;">${data.meaning}</b></div>
@@ -18621,56 +18618,65 @@ window.navigateFromRoadmap = function(type, level) {
     }
 };
 /*Hết ================= HÀM ĐIỀU HƯỚNG NHIỆM VỤ JLPT (DEEP LINKS) ================= */
-/* ================= HÀM XỬ LÝ SỬA MẸO NHỚ KANJI (DÀNH CHO ADMIN) ================= */
-window.toggleMnemonicEdit = function(show) {
-    const displayZone = document.getElementById('mnemonicDisplayZone');
-    const editorZone = document.getElementById('mnemonicEditorZone');
+/* ================= HÀM XỬ LÝ SỬA/XÓA TOÀN BỘ KANJI (DÀNH CHO ADMIN) ================= */
+
+// 1. HÀM MỞ FORM SỬA KANJI
+window.editAdminKanji = function(encodedData) {
+    const data = JSON.parse(decodeURIComponent(encodedData));
     
-    if (show) {
-        displayZone.style.display = 'none';
-        editorZone.style.display = 'block';
-        setTimeout(() => document.getElementById('mnemonicEditInput').focus(), 50);
-    } else {
-        displayZone.style.display = 'block';
-        editorZone.style.display = 'none';
-    }
+    // Đóng bảng X-Ray hiện tại
+    closeModal('xrayModal');
+
+    // Nạp dữ liệu vào Form Kanji Builder (Đã có sẵn của bạn)
+    document.getElementById('akbKanji').value = data.kanji || '';
+    document.getElementById('akbHv').value = data.hv || '';
+    document.getElementById('akbMeaning').value = data.meaning || '';
+    
+    // Xử lý bộ thủ (Mảng -> Chuỗi phẩy)
+    document.getElementById('akbComponents').value = data.components ? data.components.join(', ') : '';
+    
+    document.getElementById('akbLevel').value = data.level || 'N3';
+    document.getElementById('akbStructure').value = data.structure_type || 'left-right';
+    document.getElementById('akbMnemonics').value = data.mnemonics || '';
+
+    // Mở Form
+    document.getElementById('adminKanjiBuilderModal').style.display = 'flex';
 };
 
-window.saveKanjiMnemonic = async function(event, kanji) {
-    const btn = event.currentTarget;
-    const newMnemonic = document.getElementById('mnemonicEditInput').value.trim();
-    
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-top-color:#fff;margin:0"></div>';
-    btn.disabled = true;
+// 2. HÀM XÓA KANJI KHỎI DATABASE
+window.deleteAdminKanji = async function(kanji) {
+    const ok = await showConfirm(
+        "Xóa chữ này?", 
+        `Bạn có chắc chắn muốn xóa toàn bộ dữ liệu phân tích của chữ <b>"${kanji}"</b> khỏi Hệ thống toàn cầu?`, 
+        "Xóa vĩnh viễn"
+    );
+    if (!ok) return;
 
+    showLoading("Đang xóa Kanji...");
     try {
-        // Cập nhật lên Supabase
-        const { error } = await sb.from('kanji_builder')
-            .update({ mnemonics: newMnemonic })
-            .eq('kanji', kanji);
-            
+        const { error } = await sb.from('kanji_builder').delete().eq('kanji', kanji);
         if (error) throw error;
-        
-        showToast("✅ Đã cập nhật mẹo nhớ Kanji!");
-        
-        // Cập nhật lại cache RAM (để không bị mất khi thoát modal tra lại)
-        const kanjiIndex = allKanjiData.findIndex(k => k.kanji === kanji);
-        if (kanjiIndex !== -1) {
-            allKanjiData[kanjiIndex].mnemonics = newMnemonic;
+
+        // Xóa khỏi Cache RAM
+        allKanjiData = allKanjiData.filter(k => k.kanji !== kanji);
+
+        closeModal('xrayModal');
+        showToast("🗑️ Đã xóa Kanji khỏi hệ thống!");
+
+        // Nếu người dùng đang mở trang Pokedex, render lại lưới để chữ đó biến mất/về màu xám
+        if (!document.getElementById('kanjiPage').classList.contains('hidden')) {
+            renderKanjiCollectionGrid(currentKanjiFilter);
         }
 
-        // Tải lại Modal X-Ray để hiển thị UI mới
-        showKanjiXRay(new Event('click'), kanji);
-
     } catch (err) {
-        console.error("Lỗi cập nhật mẹo nhớ:", err);
-        customAlert("Không thể lưu: " + err.message, "❌");
-        btn.innerHTML = originalText;
-        btn.disabled = false;
+        console.error("Lỗi khi xóa Kanji:", err);
+        customAlert("Không thể xóa: " + err.message, "❌");
+    } finally {
+        hideLoading();
     }
 };
-/* Hết================= HÀM XỬ LÝ SỬA MẸO NHỚ KANJI (DÀNH CHO ADMIN) ================= */
+/* Hết================= HÀM XỬ LÝ SỬA/XÓA TOÀN BỘ KANJI (DÀNH CHO ADMIN) ================= */
+
 // ================= HÀM XỬ LÝ SHADOWING DOJO (VOICE) =================
 let currentSpeechRecognition = null;
 let isVoiceRecording = false;
