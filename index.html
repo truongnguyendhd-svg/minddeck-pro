@@ -9379,40 +9379,29 @@ function renderBoostCard() {
     };
     if (mode !== 'assessment') {
 // 2. CHỌN GAME PHÙ HỢP VỚI ĐIỀU KIỆN
-        let availableGames = [1, 4, 9, 10]; // Bỏ game 11 ra khỏi mặc định
+        let availableGames = [1, 4, 9, 10]; 
         
-        // KIỂM TRA KANJI CHO GAME 11 VÀ 12
         const hasKanjiFront = /[\u4e00-\u9faf]/.test(c.front);
+        const cleanReading = c.reading.replace(/\s/g, ''); 
+
         if (hasKanjiFront) {
-            availableGames.push(11); // 🏗️ Xây chữ
-            availableGames.push(12); // ✍️ Thư pháp quán
+            availableGames.push(11, 12); // Game xây chữ và vẽ chữ
         }
 
-        // Xóa khoảng trắng để so sánh chuẩn xác
-        const cleanReading = c.reading.replace(/\s/g, ''); 
-        const cleanFront = c.front.replace(/\s/g, '');
-        const isReadingDifferent = cleanFront !== cleanReading; // CHỐNG LỖI THẺ THUẦN KANA
+        if (cleanReading.length >= 1 && wanakana.isJapanese(cleanReading)) {
+            // Game 5 luôn được phép vì hỏi bằng Nghĩa
+            availableGames.push(5); 
 
-        // CHỈ CHO PHÉP VÀO GAME GÕ/XẾP CHỮ KHI MẶT CHỮ VÀ CÁCH ĐỌC KHÁC NHAU
-        if (cleanReading.length >= 1 && wanakana.isJapanese(cleanReading) && isReadingDifferent) {
-            availableGames.push(2); // Gõ phím
-            availableGames.push(5); // Xếp mảnh
-            
-            // ĐIỀU KIỆN GỌI GAME 8 KANA SEARCH
-            if (cleanReading.length >= 2 && cleanReading.length <= 6) {
-                availableGames.push(8);
+            // Game 2 và 8 chỉ hiện nếu có Kanji (để giấu đáp án Nhật)
+            if (hasKanjiFront) {
+                availableGames.push(2);
+                if (cleanReading.length >= 2 && cleanReading.length <= 6) availableGames.push(8);
             }
         }
         
-        // Nếu có Ví dụ JP và VN
         if (c.exampleJP && c.exampleVN) {
-            availableGames.push(6); // Sentence Builder
-            
-            // KIỂM TRA CHO GAME KANJI FILLER
-            const hasKanji = /[\u4e00-\u9faf]/.test(c.exampleJP);
-            if (hasKanji) {
-                availableGames.push(7);
-            }
+            availableGames.push(6);
+            if (/[\u4e00-\u9faf]/.test(c.exampleJP)) availableGames.push(7);
         }
         // --- LOGIC MỚI: XỬ LÝ GAME THEO Ý NGƯỜI DÙNG CHỌN ---
         if (boostState.selectedGame === 'random') {
@@ -17189,36 +17178,41 @@ function generateAspectMatrixForCard(cardObj) {
     let matrix = [];
 
     const cleanReading = parsed.reading.replace(/\s/g, '');
-    const cleanFront = parsed.front.replace(/\s/g, ''); // THÊM LỌC KANA
     const hasGoodReading = cleanReading.length >= 1 && wanakana.isJapanese(cleanReading);
-    const isReadingDifferent = cleanFront !== cleanReading; // PHẢI KHÁC NHAU MỚI CHO CHƠI GAME CÁCH ĐỌC
+    const hasKanjiFront = /[\u4e00-\u9faf]/.test(parsed.front);
 
-    // CHẶNG 1: Active Recall (Ép nhớ chủ động cách đọc / Âm thanh)
+    // CHẶNG 1: Active Recall (Thử thách trí nhớ)
     let stage1Pool = [];
-    if (hasGoodReading && isReadingDifferent) {
-        stage1Pool.push(2); // Gõ Romaji
-        stage1Pool.push(5); // Xếp mảnh
-        if (cleanReading.length >= 2 && cleanReading.length <= 6) stage1Pool.push(8); // Kana search
+    
+    if (hasGoodReading) {
+        // Game 5 (Xếp chữ) luôn an toàn vì nó hỏi bằng Nghĩa Tiếng Việt
+        stage1Pool.push(5); 
+
+        // Game 2 (Gõ) và Game 8 (Tìm chữ) chỉ cho phép nếu mặt trước có Kanji (để không bị lộ đáp án)
+        if (hasKanjiFront) {
+            stage1Pool.push(2); 
+            if (cleanReading.length >= 2 && cleanReading.length <= 6) stage1Pool.push(8);
+        }
     }
     
-    // NẾU LÀ THUẦN KANA HOẶC KHÔNG CÓ READING -> 100% ÉP VÀO GAME 1 (Chọn đáp án đúng)
+    // Nếu là từ siêu ngắn hoặc không có Reading -> 100% vào Game 1
     if (stage1Pool.length === 0) stage1Pool.push(1); 
     matrix.push(stage1Pool[Math.floor(Math.random() * stage1Pool.length)]);
 
-    // CHẶNG 2: Cấu trúc Kanji (Nhận diện sâu)
-    const hasKanji = /[\u4e00-\u9faf]/.test(cardObj.front);
-    if (hasKanji) {
+    // CHẶNG 2: Nhận diện mặt chữ
+    if (hasKanjiFront) {
+        // Có Kanji thì cho xây chữ hoặc điền từ
         const exampleHasKanji = parsed.exampleJP && /[\u4e00-\u9faf]/.test(parsed.exampleJP);
         if (exampleHasKanji) matrix.push(Math.random() > 0.5 ? 11 : 7);
         else matrix.push(11);
     } else {
-        // ĐÃ SỬA: Không có Kanji -> Random giữa Gõ phím (2) và Xếp chữ (5), Fallback về Game 1
-        matrix.push(hasGoodReading ? (Math.random() > 0.5 ? 2 : 5) : 1);
+        // Không có Kanji thì quay lại test Game 5 hoặc Game 1
+        matrix.push(Math.random() > 0.5 ? 5 : 1);
     }
 
-    // CHẶNG 3: Ý nghĩa / Ngữ cảnh (Chốt hạ)
-    let stage3Pool = [1]; // Luôn có Game 1 (Chọn đáp án đúng)
-    if (parsed.exampleJP && parsed.exampleVN) stage3Pool.push(6); // Xếp câu ví dụ
+    // CHẶNG 3: Ý nghĩa (Chốt hạ)
+    let stage3Pool = [1];
+    if (parsed.exampleJP && parsed.exampleVN) stage3Pool.push(6);
     matrix.push(stage3Pool[Math.floor(Math.random() * stage3Pool.length)]);
 
     return matrix;
