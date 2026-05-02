@@ -9345,10 +9345,20 @@ function renderBoostCard() {
             availableGames.push(12); // ✍️ Thư pháp quán
         }
 
-        // Nếu có reading dài >= 1 ký tự, chơi Typing & Scramble được
-        if (c.reading.length >= 1 && wanakana.isJapanese(c.reading)) {
-            availableGames.push(2); 
-            availableGames.push(5);
+        // Xóa khoảng trắng để so sánh chuẩn xác
+        const cleanReading = c.reading.replace(/\s/g, ''); 
+        const cleanFront = c.front.replace(/\s/g, '');
+        const isReadingDifferent = cleanFront !== cleanReading; // CHỐNG LỖI THẺ THUẦN KANA
+
+        // CHỈ CHO PHÉP VÀO GAME GÕ/XẾP CHỮ KHI MẶT CHỮ VÀ CÁCH ĐỌC KHÁC NHAU
+        if (cleanReading.length >= 1 && wanakana.isJapanese(cleanReading) && isReadingDifferent) {
+            availableGames.push(2); // Gõ phím
+            availableGames.push(5); // Xếp mảnh
+            
+            // ĐIỀU KIỆN GỌI GAME 8 KANA SEARCH
+            if (cleanReading.length >= 2 && cleanReading.length <= 6) {
+                availableGames.push(8);
+            }
         }
         
         // Nếu có Ví dụ JP và VN
@@ -9360,14 +9370,6 @@ function renderBoostCard() {
             if (hasKanji) {
                 availableGames.push(7);
             }
-        }
-    // Xóa khoảng trắng để tính độ dài cho chuẩn
-        const cleanReading = c.reading.replace(/\s/g, ''); 
-        
-        // ĐIỀU KIỆN GỌI GAME 8 KANA SEARCH: 
-        // Độ dài từ 2 đến 6 ký tự và phải là tiếng Nhật
-        if (cleanReading.length >= 2 && cleanReading.length <= 6 && wanakana.isJapanese(cleanReading)) {
-            availableGames.push(8);
         }
         // --- LOGIC MỚI: XỬ LÝ GAME THEO Ý NGƯỜI DÙNG CHỌN ---
         if (boostState.selectedGame === 'random') {
@@ -17144,17 +17146,19 @@ function generateAspectMatrixForCard(cardObj) {
     let matrix = [];
 
     const cleanReading = parsed.reading.replace(/\s/g, '');
+    const cleanFront = parsed.front.replace(/\s/g, ''); // THÊM LỌC KANA
     const hasGoodReading = cleanReading.length >= 1 && wanakana.isJapanese(cleanReading);
+    const isReadingDifferent = cleanFront !== cleanReading; // PHẢI KHÁC NHAU MỚI CHO CHƠI GAME CÁCH ĐỌC
 
     // CHẶNG 1: Active Recall (Ép nhớ chủ động cách đọc / Âm thanh)
     let stage1Pool = [];
-    if (hasGoodReading) {
+    if (hasGoodReading && isReadingDifferent) {
         stage1Pool.push(2); // Gõ Romaji
         stage1Pool.push(5); // Xếp mảnh
         if (cleanReading.length >= 2 && cleanReading.length <= 6) stage1Pool.push(8); // Kana search
     }
     
-    // ĐÃ SỬA: Bỏ Game 9. Nếu không có reading, dùng Game 1 (Match) làm phao cứu sinh
+    // NẾU LÀ THUẦN KANA HOẶC KHÔNG CÓ READING -> 100% ÉP VÀO GAME 1 (Chọn đáp án đúng)
     if (stage1Pool.length === 0) stage1Pool.push(1); 
     matrix.push(stage1Pool[Math.floor(Math.random() * stage1Pool.length)]);
 
