@@ -2058,18 +2058,24 @@ body.game-fullscreen-mode #boostCardDisplay {
 }
 /* ================= CSS ICON PHÂN BIỆT FLASHCARD & TRẮC NGHIỆM ================= */
 .deck-type-icon {
-    /* Đẩy lùi xuống 15px để hoàn toàn né được các nút (Sửa/Copy) đang lơ lửng ở góc trên */
-    margin-top: 15px; 
-    margin-bottom: 5px; 
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    margin: 0 !important;
     display: inline-flex;
     align-items: center;
 }
 
 .deck-type-icon span.material-symbols-outlined {
-    font-size: 34px !important; /* Cho kích thước to ra theo yêu cầu */
-    font-variation-settings: 'wght' 300 !important; /* Nét thanh mảnh, hiện đại */
+    font-size: 26px !important; /* Thu nhỏ lại một chút cho vừa vặn góc dưới */
+    font-variation-settings: 'wght' 300 !important;
 }
 
+/* Màu xanh dương đặc trưng cho Flashcard */
+.icon-flashcard { color: #3b82f6; }
+
+/* Màu đỏ/cam nổi bật cho Trắc nghiệm */
+.icon-quiz { color: #f56565; }
 /* Màu xanh dương đặc trưng cho Flashcard */
 .icon-flashcard {
     color: #3b82f6; 
@@ -5721,9 +5727,16 @@ body.pdf-mode #pdfReadState {
     <div id="pdfUploadState" style="padding: 20px;">
         <div class="home-welcome-banner" style="margin-top: 0; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);">
             <div class="welcome-text">
-                <h2 style="color: #0071e3;">Smart PDF Reader</h2>
-                <p>Mở file PDF sách giáo khoa hoặc đề thi (JLPT). AI sẽ quét trang hiện tại, bóc tách cấu trúc câu, dịch thuật và tự động đóng gói thành Flashcard/Trắc nghiệm.</p>
-                <i style="font-size: 12px; color: #718096; display: block; margin-top: 5px;">* File được xử lý ngay trên thiết bị của bạn, bảo mật tuyệt đối và không tốn dung lượng mạng.</i>
+                <h2>Kho Dữ Liệu Của Bạn</h2>
+                <p>Đây là nơi bạn quản lý toàn bộ bài học. Hãy chọn một thư mục để xem chi tiết, hoặc mở Menu bên trái để tạo Flashcard, Trắc nghiệm mới.</p>
+                
+                <!-- 🟢 THÊM CHÚ THÍCH MÀU SẮC Ở ĐÂY -->
+                <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 15px; font-size: 12px; font-weight: 700; background: rgba(255,255,255,0.6); padding: 8px 14px; border-radius: 8px; border: 1px solid #e2e8f0; width: fit-content;">
+                    <div style="display: flex; align-items: center; gap: 6px; color: #ef4444;"><div style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444;"></div> Cần ôn</div>
+                    <div style="display: flex; align-items: center; gap: 6px; color: #3b82f6;"><div style="width: 10px; height: 10px; border-radius: 50%; background: #3b82f6;"></div> Đang học</div>
+                    <div style="display: flex; align-items: center; gap: 6px; color: #10b981;"><div style="width: 10px; height: 10px; border-radius: 50%; background: #10b981;"></div> Đã xong</div>
+                    <div style="display: flex; align-items: center; gap: 6px; color: #94a3b8;"><div style="width: 10px; height: 10px; border-radius: 50%; background: #94a3b8;"></div> Chưa học</div>
+                </div>
             </div>
             <div class="welcome-icon" style="background: linear-gradient(135deg, #0071e3, #3b82f6);">
                 <span class="material-symbols-outlined">picture_as_pdf</span>
@@ -10893,29 +10906,21 @@ async function renderManageDeckList() {
             card.onclick = () => { openStudyOptionsModal(d.id, getCleanName(d.id), d.type); };
             
             // ===============================================================
-            // 🟢 THUẬT TOÁN ĐỊNH DANH TRẠNG THÁI MỚI (4 TRẠNG THÁI)
+            // 🟢 THUẬT TOÁN ĐỊNH DANH TRẠNG THÁI
             // ===============================================================
             const totalCards = d.cards ? d.cards.length : 0;
             const stats = deckStats[d.id] || { studiedCount: 0, hasDue: false };
             
-            let borderColor = '#94a3b8'; 
-            let statusText = '<span style="color:#94a3b8; font-size:11px; font-weight:700;"><span style="color:#cbd5e0;">●</span> Chưa học</span>';
+            let borderColor = '#94a3b8'; // Xám mặc định
 
             if (totalCards === 0) {
                 borderColor = '#cbd5e0';
-                statusText = '<span style="color:#a0aec0; font-size:11px; font-weight:700;">⚪ Trống</span>';
             } else if (stats.hasDue) {
-                // Ưu tiên 1: Có thẻ trễ hạn -> ĐỎ
-                borderColor = '#ef4444';
-                statusText = '<span style="color:#ef4444; font-size:11px; font-weight:800;">🔴 Cần ôn</span>';
+                borderColor = '#ef4444'; // Đỏ
             } else if (stats.studiedCount > 0 && stats.studiedCount < totalCards) {
-                // Ưu tiên 2: Đã học một ít, nhưng vẫn còn thẻ mới tinh -> XANH DƯƠNG
-                borderColor = '#3b82f6';
-                statusText = '<span style="color:#3b82f6; font-size:11px; font-weight:800;">🔵 Đang học</span>';
+                borderColor = '#3b82f6'; // Xanh dương
             } else if (stats.studiedCount >= totalCards) {
-                // Ưu tiên 3: Đã học hết mọi thẻ, và không có thẻ trễ hạn -> XANH LÁ
-                borderColor = '#10b981';
-                statusText = '<span style="color:#10b981; font-size:11px; font-weight:800;">🟢 Đã xong</span>';
+                borderColor = '#10b981'; // Xanh lá
             }
 
             card.style.setProperty('border-top', `4px solid ${borderColor}`, 'important');
@@ -10983,20 +10988,18 @@ async function renderManageDeckList() {
                 `;
             }
 
+            // 🟢 ĐÃ SỬA HTML CỦA THẺ: Bỏ text Cần ôn, đẩy icon xuống cuối
             card.innerHTML = `
                 ${topElementsHTML}
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <div class="deck-type-icon ${typeClass}" data-tooltip="${typeLabel}" style="margin: 0;">
-                        <span class="material-symbols-outlined">${typeIcon}</span>
-                    </div>
-                    <div style="background: #f8fafc; padding: 2px 8px; border-radius: 50px; border: 1px solid #edf2f7; display: flex; align-items: center;">
-                        ${statusText}
-                    </div>
-                </div>
-                <div class="deck-title" style="margin-top: 10px;">${cleanName}</div>
+                <div class="deck-title" style="margin-top: 5px;">${cleanName}</div>
+                
                 <div class="deck-creator">
                     <img src="${authorAvatar}" class="creator-avatar-mini" onerror="this.src='https://emojicdn.elk.sh/👤?size=40'">
                     <span class="creator-name">${isOwner ? 'Tôi' : authorName}</span>
+                </div>
+                
+                <div class="deck-type-icon ${typeClass}" data-tooltip="${typeLabel}">
+                    <span class="material-symbols-outlined">${typeIcon}</span>
                 </div>
             `;
             list.appendChild(card);
