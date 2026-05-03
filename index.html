@@ -5017,6 +5017,38 @@ body.pdf-mode #pdfReadState {
 }
 #shodoCanvas { cursor: crosshair; touch-action: none; display: block; }
 /* Hết================= CSS CHO 3 TÍNH NĂNG MỚI (VOICE, SHODO, RPG) ================= */
+/* ================= NÚT YÊU THÍCH (STAR) ================= */
+.btn-star-inside {
+    position: absolute;
+    top: 15px;
+    right: 55px; /* Đặt cạnh nút Sửa thẻ */
+    background: transparent;
+    border: none;
+    color: #cbd5e0;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+.btn-star-inside:hover {
+    color: #f59e0b; /* Vàng cam */
+    background: #fffbeb;
+    transform: scale(1.1);
+}
+.btn-star-inside.favorited {
+    color: #f59e0b;
+}
+.btn-star-inside.favorited .material-symbols-outlined {
+    font-variation-settings: 'FILL' 1 !important; /* Đổ đặc ngôi sao */
+}
+.dark-card-mode .btn-star-inside { color: #64748b; }
+.dark-card-mode .btn-star-inside:hover { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+.dark-card-mode .btn-star-inside.favorited { color: #fbbf24; }
+/* Hết================= NÚT YÊU THÍCH (STAR) ================= */
 
 </style>
 </head>
@@ -8043,6 +8075,15 @@ async function openDeckSelection(m, skipHash = false) {
 
         list.innerHTML = foldersHTML; // Nhét thư mục vào trước (nếu có)
 
+        // 🟢 SẮP XẾP: Ghim thẻ Yêu Thích lên đầu
+        if (decks) {
+            decks.sort((a, b) => {
+                if (a.id.endsWith(':Favorites')) return -1;
+                if (b.id.endsWith(':Favorites')) return 1;
+                return 0;
+            });
+        }
+
         if (!decks || decks.length === 0) {
             if (!foldersHTML) list.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#718096; margin-top: 50px;">Chưa có dữ liệu ở mục này.</p>';
             return;
@@ -8051,21 +8092,29 @@ async function openDeckSelection(m, skipHash = false) {
         // HÀM RENDER THẺ BỘ BÀI (Chỉ dùng để Học, không hiển thị chức năng quản lý)
         const renderCard = (d, targetContainer, index, totalLength) => {
             const isOwner = d.owner_id === currentUser.id;
+            const isFavoriteDeck = d.id.endsWith(':Favorites');
+            const cleanName = isFavoriteDeck ? "Thẻ Yêu Thích ⭐" : escapeHTML(getCleanName(d.id));
+
             const card = document.createElement('div'); 
             card.className = 'deck-card';
             card.onclick = () => loadCards(d.id);
 
+            // 🟢 TÔ MÀU VÀNG CHO THẺ YÊU THÍCH
+            if (isFavoriteDeck) {
+                card.style.background = '#fffbeb';
+                card.style.borderColor = '#f59e0b';
+                card.style.borderTop = '4px solid #f59e0b'; // Thêm vạch viền trên cho đồng bộ
+            }
+
             const authorName = d.profiles?.full_name || 'Ẩn danh';
             const authorAvatar = d.profiles?.avatar_url || 'https://emojicdn.elk.sh/👤?size=40';
-
-            // ĐÃ XÓA: Biến editBtn, copyBtn, và folderBtns ở đây
 
             card.innerHTML = `
                 <div class="deck-status-badge ${d.is_public ? 'badge-public' : 'badge-private'}" data-tooltip="${d.is_public ? 'Công khai' : 'Riêng tư'}">
                      <span class="material-symbols-outlined">${d.is_public ? 'public' : 'lock'}</span>
                 </div>
-                <!-- ĐÃ XÓA: div.deck-actions chứa các nút thao tác -->
-                <div class="deck-title">${getCleanName(d.id)}</div>
+                <!-- ĐÃ SỬA: Dùng cleanName thay cho getCleanName -->
+                <div class="deck-title">${cleanName}</div>
                 <div class="deck-creator">
                     <img src="${authorAvatar}" class="creator-avatar-mini" onerror="this.src='https://emojicdn.elk.sh/👤?size=40'">
                     <span class="creator-name">${isOwner ? 'Tôi' : authorName}</span>
@@ -8115,19 +8164,30 @@ function openStudyOptionsModal(deckId, deckName, type) {
         // Mặc định chọn luôn cái đầu tiên
         selectStudyModeModal('test', 'Luyện đề thi', 'quiz', '#c50f1f', dropdown.firstElementChild, true);
     } else {
-        dropdown.innerHTML = `
+        // 🟢 NẾU LÀ BỘ BÀI YÊU THÍCH -> ẨN SRS
+        const isFavorite = deckId.endsWith(':Favorites');
+        
+        let srsOption = `
             <div class="ai-mode-item active" onclick="selectStudyModeModal('review', 'Ôn tập SRS', 'psychology', '#0f6f2e', this)">
                 <span class="material-symbols-outlined" style="color: #0f6f2e;">psychology</span> Ôn tập SRS (Dài hạn)
             </div>
-            <div class="ai-mode-item" onclick="selectStudyModeModal('cram', 'Học nhồi nhét', 'rocket_launch', '#c50f1f', this)">
+        `;
+        
+        dropdown.innerHTML = `
+            ${isFavorite ? '' : srsOption}
+            <div class="ai-mode-item ${isFavorite ? 'active' : ''}" onclick="selectStudyModeModal('cram', 'Học nhồi nhét', 'rocket_launch', '#c50f1f', this)">
                 <span class="material-symbols-outlined" style="color: #c50f1f;">rocket_launch</span> Học nhồi nhét (Trước thi)
             </div>
             <div class="ai-mode-item" onclick="selectStudyModeModal('boost', 'Boost Mode', 'bolt', '#9e5b00', this)">
                 <span class="material-symbols-outlined" style="color: #9e5b00;">bolt</span> Boost Mode (11 Trò chơi)
             </div>
         `;
-        // Mặc định chọn luôn "Ôn tập SRS"
-        selectStudyModeModal('review', 'Ôn tập SRS', 'psychology', '#0f6f2e', dropdown.firstElementChild, true);
+
+        if (isFavorite) {
+            selectStudyModeModal('cram', 'Học nhồi nhét', 'rocket_launch', '#c50f1f', dropdown.firstElementChild, true);
+        } else {
+            selectStudyModeModal('review', 'Ôn tập SRS', 'psychology', '#0f6f2e', dropdown.firstElementChild, true);
+        }
     }
     
     document.getElementById('studyOptionsModal').style.display = 'flex';
@@ -8688,6 +8748,11 @@ function renderStudy() {
     
     // ĐỔI ICON THÔNG TIN PHỤ THÀNH BÓNG ĐÈN (Đã xóa nút Smart Hint cũ)
     const infoBtnHTML = `<button onclick="handleInfoClick(event)" class="btn-info-inside" title="Thông tin phụ"><span class="material-symbols-outlined" style="font-size:24px;">lightbulb</span></button>`;
+    // 🟢 THÊM NÚT YÊU THÍCH VÀO GÓC TRÊN THẺ (Chỉ hiện khi ở chế độ Remedial)
+    let starBtnHTML = "";
+    if (mode === 'remedial') {
+        starBtnHTML = `<button onclick="addToFavorites(event, this)" class="btn-star-inside" title="Ghim vào thẻ Yêu thích"><span class="material-symbols-outlined" style="font-size:22px;">star</span></button>`;
+    }
     // THÊM ĐOẠN NÀY DÀNH CHO SHADOWING DOJO
     const parsedCard = parseCardData(c);
     // Ưu tiên đọc câu ví dụ, nếu không có thì đọc từ vựng
@@ -8710,7 +8775,7 @@ function renderStudy() {
         const dynamicSize = getDynamicFontSize(questionText);
         
         // Cộng thêm progressHTML, editBtn, infoBtn, micBtnHTML vào thẻ
-        cardArea.innerHTML = progressHTML + editBtnHTML + micBtnHTML + `<b style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(questionText))}</b>` + infoBtnHTML;
+        cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + micBtnHTML + `<b style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(questionText))}</b>` + infoBtnHTML;
         
         // Ẩn cụm nút nếu đang ở chế độ Khắc phục lỗi (Remedial)
         // LƯU Ý: ĐÃ XÓA LỆNH KHÓA NÚT (disabled = true) ĐỂ ĐÚNG/SAI LUÔN BẤM ĐƯỢC
@@ -8721,7 +8786,7 @@ function renderStudy() {
         const dynamicSize = getDynamicFontSize(answerText);
         
         // Cộng thêm progressHTML, editBtn, infoBtn, micBtnHTML vào thẻ
-        cardArea.innerHTML = progressHTML + editBtnHTML + micBtnHTML + `<i style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoBtnHTML;
+        cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + micBtnHTML + `<i style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoBtnHTML;
         
         // NẾU LÀ REMEDIAL: HIỆN NÚT "TIẾP THEO" BỰ
         if (mode === 'remedial') {
@@ -10893,7 +10958,14 @@ async function renderManageDeckList() {
         if (deckError) throw deckError;
 
         list.innerHTML = foldersHTML;
-
+        // 🟢 SẮP XẾP: Ép bộ "Favorites" lên vị trí ĐẦU TIÊN
+        if (decks) {
+            decks.sort((a, b) => {
+                if (a.id.endsWith(':Favorites')) return -1;
+                if (b.id.endsWith(':Favorites')) return 1;
+                return 0; // Giữ nguyên thứ tự hiện tại của Database
+            });
+        }
         if (!decks || decks.length === 0) {
             if (!foldersHTML) list.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#718096; margin-top: 20px;">Bạn chưa có dữ liệu nào ở đây.</p>';
             return;
@@ -10929,13 +11001,24 @@ async function renderManageDeckList() {
             // ===============================================================
 
             const safeId = encodeURIComponent(d.id).replace(/'/g, "\\'");
-            const cleanName = escapeHTML(getCleanName(d.id));
+            const isFavoriteDeck = d.id.endsWith(':Favorites');
+            const cleanName = isFavoriteDeck ? "Thẻ Yêu Thích ⭐" : escapeHTML(getCleanName(d.id));
             const authorName = d.profiles?.full_name || 'Ẩn danh';
             const authorAvatar = d.profiles?.avatar_url || 'https://emojicdn.elk.sh/👤?size=40';
 
-            const typeIcon = d.type === 'quiz' ? 'quiz' : 'style';
-            const typeClass = d.type === 'quiz' ? 'icon-quiz' : 'icon-flashcard';
-            const typeLabel = d.type === 'quiz' ? 'Bộ Trắc Nghiệm' : 'Bộ Flashcard';
+            let typeIcon = d.type === 'quiz' ? 'quiz' : 'style';
+            let typeClass = d.type === 'quiz' ? 'icon-quiz' : 'icon-flashcard';
+            let typeLabel = d.type === 'quiz' ? 'Bộ Trắc Nghiệm' : 'Bộ Flashcard';
+
+            // Giao diện riêng cho bộ bài Yêu Thích
+            if (isFavoriteDeck) {
+                typeIcon = 'star';
+                typeClass = ''; 
+                typeLabel = 'Bộ Yêu Thích';
+                borderColor = '#f59e0b'; // Ghi đè màu viền
+                card.style.background = '#fffbeb'; // Đổ nền vàng nhạt
+                card.style.setProperty('border-top', `4px solid ${borderColor}`, 'important');
+            }
 
             let topElementsHTML = "";
 
@@ -10943,11 +11026,19 @@ async function renderManageDeckList() {
                 const checkPublic = d.is_public ? '<span class="material-symbols-outlined menu-check-icon">check</span>' : '<span class="menu-check-icon"></span>';
                 const checkPrivate = !d.is_public ? '<span class="material-symbols-outlined menu-check-icon">check</span>' : '<span class="menu-check-icon"></span>';
 
-                topElementsHTML = `
-                    <button class="deck-more-btn" onclick="toggleDeckMenu(event, '${d.id}', this)">
-                        <span class="material-symbols-outlined">more_horiz</span>
-                    </button>
-                    <div class="deck-dropdown-menu" id="deck-menu-${d.id}">
+                let menuOptions = '';
+
+                // NẾU LÀ BỘ BÀI YÊU THÍCH -> CHỈ ĐƯỢC XEM/SỬA THẺ
+                if (isFavoriteDeck) {
+                    menuOptions = `
+                        <button class="win11-crop-btn" onclick="openStudyOptionsModal('${d.id}', '${cleanName.replace(/'/g, "\\'")}', '${d.type}')">
+                            <span class="material-symbols-outlined" style="color: #10b981;">list_alt</span> Sửa / Xem thẻ
+                        </button>
+                    `;
+                } 
+                // NẾU LÀ BỘ BÀI BÌNH THƯỜNG -> FULL QUYỀN
+                else {
+                    menuOptions = `
                         <button class="win11-crop-btn" onclick="openRenameDeckModal(event, '${d.id}', '${cleanName.replace(/'/g, "\\'")}')">
                             <span class="material-symbols-outlined" style="color: #0067c0;">edit_square</span> Đổi tên nhanh
                         </button>
@@ -10974,10 +11065,19 @@ async function renderManageDeckList() {
                         <button class="win11-crop-btn cancel" onclick="deleteDeckFromDashboard(event, '${d.id}', '${cleanName.replace(/'/g, "\\'")}')">
                             <span class="material-symbols-outlined">delete</span> Xóa bộ bài
                         </button>
+                    `;
+                }
+
+                topElementsHTML = `
+                    <button class="deck-more-btn" onclick="toggleDeckMenu(event, '${d.id}', this)">
+                        <span class="material-symbols-outlined">more_horiz</span>
+                    </button>
+                    <div class="deck-dropdown-menu" id="deck-menu-${d.id}">
+                        ${menuOptions}
                     </div>
                 `;
                 
-                if (d.is_public) {
+                if (d.is_public && !isFavoriteDeck) {
                     topElementsHTML += `<div class="deck-status-badge badge-public" data-tooltip="Công khai"><span class="material-symbols-outlined">public</span></div>`;
                 }
 
@@ -17689,17 +17789,18 @@ function endAssessmentSession() {
     document.body.classList.remove('game-fullscreen-mode');
     const boostArea = document.getElementById('boostArea');
     boostArea.classList.add('hidden');
-    boostArea.style.display = 'none'; // 🟢 THÊM DÒNG NÀY: Ép ẩn tuyệt đối thẻ game cũ
+    boostArea.style.display = 'none';
 
     const summaryPage = document.getElementById('boostSummaryPage');
     summaryPage.classList.remove('hidden');
     
     const passed = boostState.passedCards.length;
     const remedial = boostState.remedialCards.length;
+    const total = sessionCards.length;
 
     let html = `
         <div class="summary-title" style="color: #0067c0;">KẾT QUẢ SÁT HẠCH</div>
-        <p style="color: #4a5568; font-weight: 600;">Bạn đã hoàn thành phiên đánh giá ${sessionCards.length} thẻ.</p>
+        <p style="color: #4a5568; font-weight: 600;">Bạn đã hoàn thành phiên đánh giá ${total} thẻ.</p>
         
         <div style="display: flex; justify-content: center; gap: 20px; margin-top: 20px; margin-bottom: 30px;">
             <div style="background: white; padding: 15px 30px; border-radius: 15px; border: 1px solid #c6f6d5; box-shadow: 0 4px 10px rgba(0,0,0,0.02);">
@@ -17713,9 +17814,9 @@ function endAssessmentSession() {
         </div>
     `;
 
-    // Render danh sách lỗi
+    // Luôn render danh sách lỗi nếu có
     if (remedial > 0) {
-        html += `<div style="text-align:left; font-size:14px; font-weight:800; color:#c50f1f; margin-bottom:10px; text-transform:uppercase;">Danh sách cần khắc phục:</div>`;
+        html += `<div style="text-align:left; font-size:14px; font-weight:800; color:#c50f1f; margin-bottom:10px; text-transform:uppercase;">Danh sách cần lưu ý:</div>`;
         html += `<ul class="summary-list" style="margin-top:0;">`;
         boostState.remedialCards.forEach(c => {
             html += `
@@ -17727,41 +17828,33 @@ function endAssessmentSession() {
             </li>`;
         });
         html += `</ul>`;
-        
-        // Nút khắc phục lỗi sai
-        html += `
-            <button onclick="startRemedialReview()" class="win11-btn-primary" style="margin-top: 20px; width: 100%; padding: 18px; font-size: 16px; border-radius: 50px;">
-                KHẮC PHỤC LỖI SAI (${remedial})
-            </button>
-            <button onclick="showDashboard()" style="margin-top: 10px; width: 100%; padding: 14px; background: transparent; border: none; color: #718096; font-weight: 700; cursor: pointer;">
-                Thoát về trang chủ
-            </button>
-        `;
-    } else {
-        // Full điểm 100%
-        html += `
-            <button onclick="showDashboard()" style="margin-top: 30px; width: 100%; padding: 18px; background: #22543d; color: white; border: none; border-radius: 50px; font-size: 18px; font-weight: 800; cursor: pointer;">
-                HOÀN THÀNH XUẤT SẮC 🎉
-            </button>
-        `;
     }
+
+    // Luôn luôn hiện nút XEM LẠI TẤT CẢ (Thay vì chỉ hiện khi có lỗi)
+    html += `
+        <button onclick="startRemedialReview()" class="win11-btn-primary" style="margin-top: 20px; width: 100%; padding: 18px; font-size: 16px; border-radius: 50px; background: #0067c0;">
+            <span class="material-symbols-outlined" style="vertical-align: middle; margin-right: 5px;">preview</span> XEM LẠI TOÀN BỘ (${total})
+        </button>
+        <button onclick="showDashboard()" style="margin-top: 10px; width: 100%; padding: 14px; background: transparent; border: none; color: #718096; font-weight: 700; cursor: pointer;">
+            Thoát về trang chủ
+        </button>
+    `;
 
     summaryPage.innerHTML = html;
 }
 
-// BẮT ĐẦU PHASE 3: REMEDIAL (KHẮC PHỤC)
+// BẮT ĐẦU PHASE 3: REMEDIAL (KHẮC PHỤC) - Hiển thị toàn bộ thẻ
 window.startRemedialReview = function() {
     mode = 'remedial';
-    sessionCards = boostState.remedialCards;
+    // Gộp cả thẻ Rớt và Đậu (Thẻ rớt đưa lên trước để ôn trước)
+    sessionCards = [...boostState.remedialCards, ...boostState.passedCards];
     currentIndex = 0;
 
     document.getElementById('boostSummaryPage').classList.add('hidden');
     document.getElementById('boostArea').classList.add('hidden');
     document.getElementById('studyArea').classList.remove('hidden');
     
-    // Bật lại thanh header chuẩn
     document.querySelector('.study-header-row').style.display = 'flex';
-    
     showCard();
 }
 async function toggleInlineDeckList() {
@@ -19116,6 +19209,63 @@ async function refreshGrammarCollection() {
     hideLoading();
     showToast("✅ Đã cập nhật Bộ sưu tập Ngữ pháp!");
 }
+// ================= HÀM LƯU THẺ YÊU THÍCH (BỎ QUA LỌC TRÙNG LẶP) =================
+window.addToFavorites = async function(event, btnElement) {
+    event.stopPropagation();
+    if (!currentUser) return;
+
+    const c = sessionCards[currentIndex];
+    if (!c) return;
+
+    // ID đặc biệt chỉ dành cho bộ Yêu thích
+    const favDeckId = `${currentUser.id}:Favorites`;
+    
+    // Đổi UI ngôi sao ngay lập tức để tạo phản hồi nhanh
+    btnElement.classList.add('favorited');
+
+    try {
+        // 1. Kiểm tra xem bộ Yêu thích đã tồn tại chưa, chưa thì tạo
+        const { data: deckCheck } = await sb.from('decks').select('id').eq('id', favDeckId).single();
+        if (!deckCheck) {
+            await sb.from('decks').insert([{
+                id: favDeckId,
+                owner_id: currentUser.id,
+                type: 'flashcard',
+                is_public: false,
+                sort_order: -9999 // Ép sort order thấp nhất để luôn đứng đầu nếu DB sort
+            }]);
+        }
+
+        // 2. Kiểm tra chống spam (Xem thẻ này ĐÃ CÓ trong bộ Yêu thích chưa)
+        const { data: existingFav } = await sb.from('cards')
+            .select('id')
+            .eq('deck_id', favDeckId)
+            .eq('front', c.front)
+            .single();
+
+        if (existingFav) {
+            return showToast("⭐ Thẻ này đã có trong mục Yêu thích rồi!");
+        }
+
+        // 3. Đẩy thẳng vào Database (KHÔNG GỌI HÀM checkDuplicateCards)
+        const { error } = await sb.from('cards').insert([{
+            deck_id: favDeckId,
+            front: c.front,
+            back: c.back,
+            info: c.info
+        }]);
+
+        if (error) throw error;
+        showToast("⭐ Đã ghim thẻ vào Bộ Yêu Thích!");
+
+    } catch (err) {
+        btnElement.classList.remove('favorited'); // Trả lại nếu lỗi
+        console.error("Lỗi thêm Yêu thích:", err);
+        showToast("Lỗi khi thêm thẻ: " + err.message);
+    }
+};
+// Hết================= HÀM LƯU THẺ YÊU THÍCH (BỎ QUA LỌC TRÙNG LẶP) =================
+
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
