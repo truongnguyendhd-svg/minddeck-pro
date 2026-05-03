@@ -5400,7 +5400,7 @@ body.pdf-mode #pdfReadState {
                 <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #1e3a8a; display: flex; align-items: center; gap: 8px;">
                     <span class="material-symbols-outlined">moving</span> Tiến độ JLPT
                 </h3>
-                <span style="font-size: 12px; color: #718096; font-weight: 600;">(Tính theo Kanji Mastered)</span>
+                <span style="font-size: 12px; color: #718096; font-weight: 600;">(Dựa trên tiến độ ghi nhớ)</span>
             </div>
             <div id="jlptProgressContainer">
                 <div style="text-align:center; padding: 20px; color:#a0aec0;"><div class="spinner" style="margin:0 auto 10px auto; width: 24px; height: 24px;"></div>Đang tính toán...</div>
@@ -17668,41 +17668,78 @@ async function renderJLPTProgress() {
         const { data: profile } = await sb.from('profiles').select('kanji_mastery').eq('id', currentUser.id).single();
         const masteryMap = profile?.kanji_mastery || {};
 
-        // 3. Phân loại theo N5 -> N1
+        // 3. Phân loại theo N5 -> N1 (Chia thành 4 trạng thái SRS)
         const levels = {
-            'N5': { total: 0, mastered: 0, colorClass: 'fill-n5', colorCode: '#10b981' },
-            'N4': { total: 0, mastered: 0, colorClass: 'fill-n4', colorCode: '#f59e0b' },
-            'N3': { total: 0, mastered: 0, colorClass: 'fill-n3', colorCode: '#ea580c' },
-            'N2': { total: 0, mastered: 0, colorClass: 'fill-n2', colorCode: '#3b82f6' },
-            'N1': { total: 0, mastered: 0, colorClass: 'fill-n1', colorCode: '#ef4444' }
+            'N5': { total: 0, new: 0, learning: 0, familiar: 0, mastered: 0, colorCode: '#10b981' },
+            'N4': { total: 0, new: 0, learning: 0, familiar: 0, mastered: 0, colorCode: '#f59e0b' },
+            'N3': { total: 0, new: 0, learning: 0, familiar: 0, mastered: 0, colorCode: '#ea580c' },
+            'N2': { total: 0, new: 0, learning: 0, familiar: 0, mastered: 0, colorCode: '#3b82f6' },
+            'N1': { total: 0, new: 0, learning: 0, familiar: 0, mastered: 0, colorCode: '#ef4444' }
         };
 
         allKanjiData.forEach(k => {
             const lvl = k.level;
             if (levels[lvl]) {
                 levels[lvl].total++;
-                // Tính là "Mastered" nếu khoảng cách nhớ >= 21 ngày (Trí nhớ dài hạn)
-                if (masteryMap[k.kanji] && masteryMap[k.kanji] >= 21) {
-                    levels[lvl].mastered++;
+                
+                const maxInterval = masteryMap[k.kanji] || 0;
+                // Phân loại đếm số lượng giống y hệt quy chuẩn Pokedex
+                if (maxInterval > 0) {
+                    if (maxInterval <= 6) levels[lvl].new++;
+                    else if (maxInterval <= 20) levels[lvl].learning++;
+                    else if (maxInterval <= 45) levels[lvl].familiar++;
+                    else levels[lvl].mastered++;
                 }
             }
         });
 
-        // 4. Render HTML các thanh Progress Bar
-        let html = '';
+        // 4. Render HTML các thanh Stacked Progress Bar
+        
+        // Thêm Legend (Chú thích màu) ở trên cùng
+        let html = `
+            <div style="display: flex; gap: 10px; justify-content: center; margin-bottom: 20px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #64748b;">
+                    <div style="width: 10px; height: 10px; border-radius: 3px; background: #ef4444;"></div> Mới học
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #64748b;">
+                    <div style="width: 10px; height: 10px; border-radius: 3px; background: #f59e0b;"></div> Đang nhớ
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #64748b;">
+                    <div style="width: 10px; height: 10px; border-radius: 3px; background: #3b82f6;"></div> Khá thuộc
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #64748b;">
+                    <div style="width: 10px; height: 10px; border-radius: 3px; background: #10b981;"></div> Thuộc lòng
+                </div>
+            </div>
+        `;
+
+        // Render từng thanh tiến độ
         ['N5', 'N4', 'N3', 'N2', 'N1'].forEach(lvl => {
             const lData = levels[lvl];
             if (lData.total === 0) return;
-            const percent = Math.round((lData.mastered / lData.total) * 100);
+            
+            // Tính toán % cho từng đoạn màu
+            const pctMastered = (lData.mastered / lData.total) * 100;
+            const pctFamiliar = (lData.familiar / lData.total) * 100;
+            const pctLearning = (lData.learning / lData.total) * 100;
+            const pctNew = (lData.new / lData.total) * 100;
+            
+            const totalLearned = lData.new + lData.learning + lData.familiar + lData.mastered;
+            const totalPct = Math.round((totalLearned / lData.total) * 100);
             
             html += `
                 <div class="jlpt-progress-item">
                     <div class="jlpt-progress-header">
                         <span style="color: ${lData.colorCode};">${lvl}</span>
-                        <span style="color: #64748b;">${lData.mastered} / ${lData.total} <span style="font-size: 11px;">(${percent}%)</span></span>
+                        <span style="color: #64748b;">${totalLearned} / ${lData.total} <span style="font-size: 11px;">(${totalPct}%)</span></span>
                     </div>
-                    <div class="jlpt-track">
-                        <div class="jlpt-fill ${lData.colorClass}" style="width: ${percent}%"></div>
+                    
+                    <!-- Dùng CSS Flexbox để ghép các khối màu nằm ngang nối tiếp nhau -->
+                    <div style="width: 100%; height: 10px; background: #f1f5f9; border-radius: 10px; overflow: hidden; display: flex;">
+                        <div style="height: 100%; width: ${pctMastered}%; background: #10b981; transition: width 1s ease;" title="Thuộc lòng: ${lData.mastered} chữ"></div>
+                        <div style="height: 100%; width: ${pctFamiliar}%; background: #3b82f6; transition: width 1s ease;" title="Khá thuộc: ${lData.familiar} chữ"></div>
+                        <div style="height: 100%; width: ${pctLearning}%; background: #f59e0b; transition: width 1s ease;" title="Đang nhớ: ${lData.learning} chữ"></div>
+                        <div style="height: 100%; width: ${pctNew}%; background: #ef4444; transition: width 1s ease;" title="Mới học: ${lData.new} chữ"></div>
                     </div>
                 </div>
             `;
