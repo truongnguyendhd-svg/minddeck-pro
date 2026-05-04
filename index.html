@@ -12100,7 +12100,7 @@ function renderCardsToForm(cards, isEditMode = true) {
     }
 }
 async function cancelEdit() { const ok = await showConfirm("Hủy bỏ?", "Mọi thay đổi chưa lưu sẽ bị mất."); if (ok) showHome(); }
-// ================= HÀM XỬ LÝ FURIGANA TẠI CLIENT (0 TOKEN) =================
+// ================= HÀM XỬ LÝ FURIGANA TẠI CLIENT (0 TOKEN - ĐÃ FIX LỖI TỪ ĐIỂN) =================
 let globalKuroshiro = null;
 
 async function toggleFuriganaLocal(btnElement, containerId) {
@@ -12125,23 +12125,23 @@ async function toggleFuriganaLocal(btnElement, containerId) {
     try {
         // 1. LAZY LOAD: Tải thư viện Kuroshiro nếu chưa có
         if (!globalKuroshiro) {
-            // Hàm tiện ích tải Script linh động
             const loadScript = (src) => new Promise((resolve, reject) => {
                 const s = document.createElement('script');
                 s.src = src; s.onload = resolve; s.onerror = reject;
                 document.head.appendChild(s);
             });
 
-            // Tải Core Kuroshiro và Analyzer
             if (typeof Kuroshiro === 'undefined') {
                 await loadScript('https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js');
                 await loadScript('https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js');
             }
 
-            // Khởi tạo và tải bộ từ điển Kuromoji (15MB - Browser sẽ tự cache cho lần sau)
             globalKuroshiro = new Kuroshiro();
-            await globalKuroshiro.init(new KuromojiAnalyzer({
-                dictPath: "https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict"
+            
+            // 🟢 FIX 1: Dùng đúng tên Class của bản CDN (KuroshiroAnalyzerKuromoji)
+            // 🟢 FIX 2: Dùng Unpkg CDN có dấu / ở cuối để không bị lỗi CORS chặn tải từ điển
+            await globalKuroshiro.init(new KuroshiroAnalyzerKuromoji({
+                dictPath: "https://unpkg.com/kuromoji@0.1.2/dict/"
             }));
         }
 
@@ -12149,17 +12149,14 @@ async function toggleFuriganaLocal(btnElement, containerId) {
 
         // 2. CHUYỂN ĐỔI KANJI -> FURIGANA NGAY TRÊN TRÌNH DUYỆT
         for (let el of jpElements) {
-            // Lấy text thuần (Bỏ qua các thẻ HTML như span clickable-kanji)
             let rawText = el.innerText || el.textContent;
             
-            // Dùng Kuroshiro gắn thẻ <ruby>
             let furiganaHtml = await globalKuroshiro.convert(rawText, { 
                 mode: 'furigana', 
                 to: 'hiragana' 
             });
 
-            // Gắn lại tính năng X-Ray Kanji vào bên trong thẻ <ruby>
-            // Biểu thức Regex này tìm chữ Hán nằm TRONG thẻ ruby và bọc hàm onclick vào
+            // Gắn lại tính năng X-Ray Kanji
             let finalHtml = furiganaHtml.replace(/<ruby>([\u4e00-\u9faf]+)<rt>/g, 
                 `<ruby><span class="clickable-kanji" onclick="showKanjiXRay(event, '$1')">$1</span><rt>`
             );
@@ -12168,14 +12165,14 @@ async function toggleFuriganaLocal(btnElement, containerId) {
         }
 
         // 3. Đánh dấu hoàn tất
-        container.classList.add('has-furigana');
-        container.classList.add('show-furigana');
+        container.classList.add('has-furigana', 'show-furigana');
         btnElement.classList.add('active');
         btnElement.innerHTML = '<span style="font-weight: 900; margin-right: 4px;">あ</span> Tắt Furigana';
 
     } catch (error) {
         console.error("Furigana Client Error:", error);
-        showToast("Lỗi nạp từ điển Furigana. Vui lòng kiểm tra mạng.");
+        // Hiện rõ lỗi ra Toast để dễ kiểm tra nếu còn trục trặc
+        showToast("Lỗi nạp từ điển: " + (error.message || "Vui lòng kiểm tra lại mạng."));
         btnElement.innerHTML = originalHtml;
     } finally {
         btnElement.disabled = false;
