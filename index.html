@@ -9648,41 +9648,40 @@ function renderBoostCard() {
             `;
             break;
 
-        case 5: // 🎮 SCRAMBLE (Ghép chữ thêm nhiễu - Đã Fix UX chống dồn chữ)
+        case 5: // 🎮 SCRAMBLE (Ghép chữ thêm nhiễu - Đã Fix UX chống dồn chữ và Lỗi Scope)
             prompt.innerText = "🧱 Sắp xếp cách đọc";
-            question.innerText = c.meaning; // Hỏi nghĩa Tiếng Việt, xếp Tiếng Nhật
+            question.innerText = c.meaning; 
             
             let targetPieces = c.reading.split('');
 
-            // 1. TÌM CHÍNH XÁC 2 CHỮ NHIỄU (Không trùng với đáp án)
-            let distractors = new Set();
-            let attempts = 0;
-            while (distractors.size < 2 && attempts < 50) {
-                let randomCard = sessionCards[Math.floor(Math.random() * sessionCards.length)];
-                if (randomCard.id !== rawCard.id) {
-                    let parsed = parseCardData(randomCard);
-                    let cleanKana = parsed.reading.replace(/[^ぁ-んァ-ン]/g, ''); // Chỉ lấy Kana
-                    for (let char of cleanKana) {
-                        // Không cho phép chữ nhiễu trùng với chữ đã có trong đáp án
+            // 1. TÌM CHÍNH XÁC 2 CHỮ NHIỄU (Đổi tên biến để không đụng hàng với Case 7)
+            let distractorSet5 = new Set();
+            let attempts5 = 0;
+            while (distractorSet5.size < 2 && attempts5 < 50) {
+                let randomCard5 = sessionCards[Math.floor(Math.random() * sessionCards.length)];
+                if (randomCard5.id !== rawCard.id) {
+                    let parsed5 = parseCardData(randomCard5);
+                    let cleanKana5 = parsed5.reading.replace(/[^ぁ-んァ-ン]/g, ''); 
+                    for (let char of cleanKana5) {
                         if (!targetPieces.includes(char)) {
-                            distractors.add(char);
+                            distractorSet5.add(char);
                         }
-                        if (distractors.size === 2) break;
+                        if (distractorSet5.size === 2) break;
                     }
                 }
-                attempts++;
+                attempts5++;
             }
 
             // Fallback (Trường hợp kho bài của user quá ít chữ để bốc)
-            if (distractors.size < 2) {
+            if (distractorSet5.size < 2) {
                 const fallbackKana = ['あ', 'い', 'う', 'え', 'お', 'か', 'き', 'く', 'け', 'こ'];
                 for (let char of fallbackKana) {
-                    if (!targetPieces.includes(char)) distractors.add(char);
-                    if (distractors.size === 2) break;
+                    if (!targetPieces.includes(char)) distractorSet5.add(char);
+                    if (distractorSet5.size === 2) break;
                 }
             }
 
-            let poolPieces = [...targetPieces, ...Array.from(distractors)];
+            let poolPieces = [...targetPieces, ...Array.from(distractorSet5)];
             let shuffled = poolPieces.sort(() => 0.5 - Math.random());
 
             document.getElementById('boostGiveUpZone').style.display = 'block';
@@ -9699,40 +9698,34 @@ function renderBoostCard() {
                 let btn = document.createElement('div');
                 btn.className = 'scramble-piece';
                 btn.innerText = p;
-                btn.id = `scramble-pool-${idx}`; // Cấp ID duy nhất để nối bản gốc và bản sao
+                btn.id = `scramble-pool-${idx}`;
 
                 btn.onclick = function() {
                     // Nếu đang hiển thị ở Rổ (Pool) -> Ẩn đi và tạo bản sao ném lên trên
                     if (this.style.visibility !== 'hidden') {
-                        this.style.visibility = 'hidden'; // Chỉ ẩn đi để giữ nguyên chỗ đứng (chống dồn chữ)
+                        this.style.visibility = 'hidden'; 
 
-                        // Tạo bản sao
                         let cloneBtn = document.createElement('div');
                         cloneBtn.className = 'scramble-piece';
                         cloneBtn.innerText = p;
-                        cloneBtn.dataset.originId = this.id; // Ghi nhớ ID của thằng gốc
+                        cloneBtn.dataset.originId = this.id; 
 
-                        // Sự kiện khi bấm vào bản sao ở ô đáp án (Undo)
+                        // Bấm vào bản sao ở trên để Hủy (Undo)
                         cloneBtn.onclick = function() {
-                            // Gọi thằng gốc hiện hình trở lại
                             const originBtn = document.getElementById(this.dataset.originId);
                             if (originBtn) originBtn.style.visibility = 'visible';
-                            
-                            // Xóa bản sao khỏi DOM
                             this.remove();
                         };
 
                         drop.appendChild(cloneBtn);
 
-                        // KIỂM TRA ĐÁP ÁN (Dựa trên số lượng con thực tế trong Drop Zone)
+                        // KIỂM TRA ĐÁP ÁN
                         if (drop.children.length === targetPieces.length) {
-                            // Khóa tương tác tạm thời để tránh spam click lúc đang check
                             zone.style.pointerEvents = 'none'; 
                             
                             const currentStr = Array.from(drop.children).map(el => el.innerText).join('');
                             const isCorrect = currentStr === c.reading;
                             
-                            // Nếu sai, mở khóa lại để người chơi sửa
                             if (!isCorrect) {
                                 setTimeout(() => { zone.style.pointerEvents = 'auto'; }, 400);
                             }
