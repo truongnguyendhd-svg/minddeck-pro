@@ -12100,21 +12100,19 @@ function renderCardsToForm(cards, isEditMode = true) {
     }
 }
 async function cancelEdit() { const ok = await showConfirm("Hủy bỏ?", "Mọi thay đổi chưa lưu sẽ bị mất."); if (ok) showHome(); }
-// ================= HÀM XỬ LÝ FURIGANA TẠI CLIENT (0 TOKEN - ĐÃ FIX LỖI TỪ ĐIỂN) =================
+// ================= HÀM XỬ LÝ FURIGANA TẠI CLIENT (0 TOKEN - ĐÃ FIX CONSTRUCTOR) =================
 let globalKuroshiro = null;
 
 async function toggleFuriganaLocal(btnElement, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    // TRƯỜNG HỢP 1: Đã chuyển đổi rồi -> Chỉ bật/tắt bằng CSS cho mượt
     if (container.classList.contains('has-furigana')) {
         container.classList.toggle('show-furigana');
         btnElement.classList.toggle('active');
         return;
     }
 
-    // TRƯỜNG HỢP 2: Lần đầu bấm -> Cần chuyển đổi
     const jpElements = container.querySelectorAll('.target-jp-text');
     if (jpElements.length === 0) return;
 
@@ -12123,7 +12121,6 @@ async function toggleFuriganaLocal(btnElement, containerId) {
     btnElement.disabled = true;
 
     try {
-        // 1. LAZY LOAD: Tải thư viện Kuroshiro nếu chưa có
         if (!globalKuroshiro) {
             const loadScript = (src) => new Promise((resolve, reject) => {
                 const s = document.createElement('script');
@@ -12131,23 +12128,26 @@ async function toggleFuriganaLocal(btnElement, containerId) {
                 document.head.appendChild(s);
             });
 
+            // 1. Nạp Script từ CDN
             if (typeof Kuroshiro === 'undefined') {
                 await loadScript('https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js');
                 await loadScript('https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js');
             }
 
-            globalKuroshiro = new Kuroshiro();
+            // 2. 🟢 FIX LỖI CONSTRUCTOR: Lấy đúng Class (nếu bị giấu trong .default)
+            const KuroshiroClass = (typeof Kuroshiro !== 'undefined' && Kuroshiro.default) ? Kuroshiro.default : Kuroshiro;
+            const AnalyzerClass = (typeof KuroshiroAnalyzerKuromoji !== 'undefined' && KuroshiroAnalyzerKuromoji.default) ? KuroshiroAnalyzerKuromoji.default : KuroshiroAnalyzerKuromoji;
+
+            globalKuroshiro = new KuroshiroClass();
             
-            // 🟢 FIX 1: Dùng đúng tên Class của bản CDN (KuroshiroAnalyzerKuromoji)
-            // 🟢 FIX 2: Dùng Unpkg CDN có dấu / ở cuối để không bị lỗi CORS chặn tải từ điển
-            await globalKuroshiro.init(new KuroshiroAnalyzerKuromoji({
+            // 3. Khởi tạo từ điển Kuromoji
+            await globalKuroshiro.init(new AnalyzerClass({
                 dictPath: "https://unpkg.com/kuromoji@0.1.2/dict/"
             }));
         }
 
         btnElement.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:currentColor;"></div> Đang gắn Furigana...';
 
-        // 2. CHUYỂN ĐỔI KANJI -> FURIGANA NGAY TRÊN TRÌNH DUYỆT
         for (let el of jpElements) {
             let rawText = el.innerText || el.textContent;
             
@@ -12156,7 +12156,7 @@ async function toggleFuriganaLocal(btnElement, containerId) {
                 to: 'hiragana' 
             });
 
-            // Gắn lại tính năng X-Ray Kanji
+            // Bọc lại tính năng X-Ray Kanji
             let finalHtml = furiganaHtml.replace(/<ruby>([\u4e00-\u9faf]+)<rt>/g, 
                 `<ruby><span class="clickable-kanji" onclick="showKanjiXRay(event, '$1')">$1</span><rt>`
             );
@@ -12164,14 +12164,12 @@ async function toggleFuriganaLocal(btnElement, containerId) {
             el.innerHTML = finalHtml;
         }
 
-        // 3. Đánh dấu hoàn tất
         container.classList.add('has-furigana', 'show-furigana');
         btnElement.classList.add('active');
         btnElement.innerHTML = '<span style="font-weight: 900; margin-right: 4px;">あ</span> Tắt Furigana';
 
     } catch (error) {
         console.error("Furigana Client Error:", error);
-        // Hiện rõ lỗi ra Toast để dễ kiểm tra nếu còn trục trặc
         showToast("Lỗi nạp từ điển: " + (error.message || "Vui lòng kiểm tra lại mạng."));
         btnElement.innerHTML = originalHtml;
     } finally {
