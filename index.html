@@ -5049,53 +5049,6 @@ body.pdf-mode #pdfReadState {
 .dark-card-mode .btn-star-inside:hover { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
 .dark-card-mode .btn-star-inside.favorited { color: #fbbf24; }
 /* Hết================= NÚT YÊU THÍCH (STAR) ================= */
-/* ================= TÙY CHỈNH FURIGANA (RUBY) ================= */
-.furigana-container rt {
-    font-size: 11px;
-    font-weight: 600;
-    color: #0067c0; /* Xanh Win11 để dễ phân biệt */
-    user-select: none;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-    /* Mặc định ẩn Furigana để không rối mắt, chiếm chỗ nhưng không hiện */
-    visibility: hidden; 
-}
-
-/* Khi có class show-furigana thì hiện lên */
-.furigana-container.show-furigana rt {
-    opacity: 1;
-    visibility: visible;
-}
-
-.furigana-container ruby {
-    ruby-align: center;
-}
-
-/* Nút Toggle Furigana */
-.btn-toggle-furigana {
-    background: #f3f8fd;
-    border: 1px solid #cce3f6;
-    color: #0067c0;
-    padding: 4px 12px;
-    border-radius: 50px;
-    font-size: 12px;
-    font-weight: 700;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    transition: all 0.2s ease;
-}
-.btn-toggle-furigana:hover {
-    background: #e6f2ff;
-    transform: translateY(-2px);
-}
-.btn-toggle-furigana.active {
-    background: #0067c0;
-    color: white;
-    border-color: #0067c0;
-}
-/*Hết ================= TÙY CHỈNH FURIGANA (RUBY) ================= */
 
 </style>
 </head>
@@ -12100,90 +12053,6 @@ function renderCardsToForm(cards, isEditMode = true) {
     }
 }
 async function cancelEdit() { const ok = await showConfirm("Hủy bỏ?", "Mọi thay đổi chưa lưu sẽ bị mất."); if (ok) showHome(); }
-// ================= HÀM XỬ LÝ FURIGANA TẠI CLIENT (0 TOKEN - BẢN FIX DỨT ĐIỂM) =================
-let globalKuroshiro = null;
-
-async function toggleFuriganaLocal(btnElement, containerId) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
-
-    if (container.classList.contains('has-furigana')) {
-        container.classList.toggle('show-furigana');
-        btnElement.classList.toggle('active');
-        return;
-    }
-
-    const jpElements = container.querySelectorAll('.target-jp-text');
-    if (jpElements.length === 0) return;
-
-    const originalHtml = btnElement.innerHTML;
-    btnElement.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:currentColor;"></div> Đang nạp từ điển...';
-    btnElement.disabled = true;
-
-    try {
-        if (!globalKuroshiro) {
-            const loadScript = (src) => new Promise((resolve, reject) => {
-                if (document.querySelector(`script[src="${src}"]`)) return resolve();
-                const s = document.createElement('script');
-                s.src = src; s.onload = resolve; s.onerror = reject;
-                document.head.appendChild(s);
-            });
-
-            // 1. Tải thư viện từ CDN
-            if (typeof Kuroshiro === 'undefined') {
-                await loadScript('https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js');
-                await loadScript('https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js');
-            }
-
-            // 2. 🟢 CHỐT CHẶN LỖI "NOT A CONSTRUCTOR": 
-            // Tự động tìm đúng hàm khởi tạo, dù CDN có giấu nó trong .default hay không
-            const KuroshiroClass = (typeof Kuroshiro === 'function') ? Kuroshiro : Kuroshiro.default;
-            const AnalyzerClass = (typeof KuromojiAnalyzer === 'function') ? KuromojiAnalyzer : KuromojiAnalyzer.default;
-
-            if (!KuroshiroClass || !AnalyzerClass) {
-                throw new Error("Không thể trích xuất Class từ thư viện CDN.");
-            }
-
-            globalKuroshiro = new KuroshiroClass();
-            
-            // 3. Khởi tạo từ điển (Giữ nguyên dấu / ở cuối để không bị lỗi mạng)
-            await globalKuroshiro.init(new AnalyzerClass({
-                dictPath: "https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/" 
-            }));
-        }
-
-        btnElement.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:currentColor;"></div> Đang gắn Furigana...';
-
-        // 4. Chuyển đổi
-        for (let el of jpElements) {
-            let rawText = el.innerText || el.textContent;
-            
-            let furiganaHtml = await globalKuroshiro.convert(rawText, { 
-                mode: 'furigana', 
-                to: 'hiragana' 
-            });
-
-            // Bọc lại tính năng X-Ray Kanji
-            let finalHtml = furiganaHtml.replace(/<ruby>([\u4e00-\u9faf]+)<rt>/g, 
-                `<ruby><span class="clickable-kanji" onclick="showKanjiXRay(event, '$1')">$1</span><rt>`
-            );
-
-            el.innerHTML = finalHtml;
-        }
-
-        // 5. Hoàn tất
-        container.classList.add('has-furigana', 'show-furigana');
-        btnElement.classList.add('active');
-        btnElement.innerHTML = '<span style="font-weight: 900; margin-right: 4px;">あ</span> Tắt Furigana';
-
-    } catch (error) {
-        console.error("Furigana Client Error:", error);
-        showToast("Lỗi nạp từ điển: " + (error.message || "Vui lòng kiểm tra lại mạng."));
-        btnElement.innerHTML = originalHtml;
-    } finally {
-        btnElement.disabled = false;
-    }
-}
 function showInfoModal() { 
     const c = sessionCards[currentIndex]; 
     if (!c) return;
@@ -12204,19 +12073,13 @@ function showInfoModal() {
     // Tận dụng siêu Parser để mổ xẻ dữ liệu
     const parsed = parseCardData(c);
     
-    // 🟢 THÊM NÚT FURIGANA VÀ WRAPPER furigana-container
-    let html = `
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
-            <button onclick="toggleFuriganaLocal(this, 'infoTextWrapper')" class="btn-toggle-furigana">
-                <span style="font-weight: 900; margin-right: 4px;">あ</span> Đọc Furigana
-            </button>
-        </div>
-        <div id="infoTextWrapper" class="furigana-container" style="display: flex; flex-direction: column; gap: 16px;">
-    `;
+    let html = '<div style="display: flex; flex-direction: column; gap: 16px;">';
 
-    // 1. KHỐI GHI CHÚ / HÁN VIỆT / CẤU TRÚC
+    // 1. KHỐI GHI CHÚ / HÁN VIỆT / CẤU TRÚC (Tương ứng với tag [HV])
     if (parsed.hv) {
+        // Mẹo: Nếu thẻ sinh ra từ ngữ pháp có dấu "|" (VD: Cấu trúc... | Sắc thái...), ta thay bằng xuống dòng
         const cleanHvText = escapeHTML(parsed.hv).replace(/\|/g, '<br><br>');
+        
         html += `
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #0067c0; padding: 14px 16px; border-radius: 8px;">
                 <div style="font-size: 11px; font-weight: 800; color: #0067c0; margin-bottom: 8px; display: flex; align-items: center; gap: 4px; text-transform: uppercase;">
@@ -12227,12 +12090,12 @@ function showInfoModal() {
         `;
     }
 
-    // 2. KHỐI VÍ DỤ 1 (🟢 Thêm class target-jp-text)
+    // 2. KHỐI VÍ DỤ 1
     if (parsed.exampleJP) {
         html += `
             <div style="background: #ffffff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
                 <div style="font-size: 11px; font-weight: 800; color: #8c8c8c; margin-bottom: 8px; border-bottom: 1px solid #f0f0f0; padding-bottom: 6px;">VÍ DỤ 1</div>
-                <div class="target-jp-text" style="font-size: 16px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; line-height: 1.5; font-family: 'Noto Sans JP', sans-serif;">
+                <div style="font-size: 16px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; line-height: 1.5; font-family: 'Noto Sans JP', sans-serif;">
                     ${wrapKanjiWithLink(escapeHTML(parsed.exampleJP))}
                 </div>
                 <div style="font-size: 13px; color: #666666; line-height: 1.4;">${escapeHTML(parsed.exampleVN)}</div>
@@ -12240,12 +12103,12 @@ function showInfoModal() {
         `;
     }
 
-    // 3. KHỐI VÍ DỤ 2 (Nếu có) (🟢 Thêm class target-jp-text)
+    // 3. KHỐI VÍ DỤ 2 (Nếu có)
     if (parsed.ex2jp) {
         html += `
             <div style="background: #ffffff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
                 <div style="font-size: 11px; font-weight: 800; color: #8c8c8c; margin-bottom: 8px; border-bottom: 1px solid #f0f0f0; padding-bottom: 6px;">VÍ DỤ 2</div>
-                <div class="target-jp-text" style="font-size: 16px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; line-height: 1.5; font-family: 'Noto Sans JP', sans-serif;">
+                <div style="font-size: 16px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; line-height: 1.5; font-family: 'Noto Sans JP', sans-serif;">
                     ${wrapKanjiWithLink(escapeHTML(parsed.ex2jp))}
                 </div>
                 <div style="font-size: 13px; color: #666666; line-height: 1.4;">${escapeHTML(parsed.ex2vn)}</div>
@@ -12253,7 +12116,7 @@ function showInfoModal() {
         `;
     }
 
-    // FALLBACK
+    // FALLBACK: Đề phòng Parser không trích xuất được gì (dữ liệu format quá cũ) thì in nguyên văn bản đẹp đẽ
     if (!parsed.hv && !parsed.exampleJP && !parsed.ex2jp) {
          html += `
             <div style="background: #fbfbfb; border: 1px solid #e5e5e5; padding: 16px; border-radius: 8px; font-size: 14px; color: #1a1a1a; line-height: 1.6; white-space: pre-wrap;">
@@ -12262,7 +12125,7 @@ function showInfoModal() {
         `;
     }
 
-    html += '</div>'; // Đóng thẻ furigana-container
+    html += '</div>';
     
     // Đổ vào Modal và Hiển thị
     contentDiv.innerHTML = html; 
@@ -14095,37 +13958,20 @@ function openGrammarDetail(encodedJSON) {
     exContainer.innerHTML = '';
     let hasExamples = false;
 
-    // 🟢 THÊM NÚT FURIGANA VÀ WRAPPER furigana-container
-    let exHtml = `
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;">
-            <button onclick="toggleFuriganaLocal(this, 'grammarFuriganaZone')" class="btn-toggle-furigana">
-                <span style="font-weight: 900; margin-right: 4px;">あ</span> Đọc Furigana
-            </button>
-        </div>
-        <div id="grammarFuriganaZone" class="furigana-container" style="display: flex; flex-direction: column; gap: 12px;">
-    `;
-
     for (let i = 1; i <= 15; i++) {
         const jpText = g[`ex${i}_jp`];
         const vnText = g[`ex${i}_vn`];
         if (jpText && jpText.trim() !== '') {
             hasExamples = true;
-            // 🟢 THÊM CLASS target-jp-text VÀO ĐÂY
-            exHtml += `
-                <div style="padding-left: 12px; border-left: 3px solid #0067c0;">
-                    <div class="target-jp-text" style="font-size: 16px; color: #1a1a1a; font-weight: 600; margin-bottom: 4px; line-height: 1.8;">${wrapKanjiWithLink(escapeHTML(jpText))}</div>
+            exContainer.innerHTML += `
+                <div style="margin-bottom: 12px; padding-left: 12px; border-left: 3px solid #0067c0;">
+                    <div style="font-size: 16px; color: #1a1a1a; font-weight: 600; margin-bottom: 4px;">${wrapKanjiWithLink(escapeHTML(jpText))}</div>
                     <div style="font-size: 14px; color: #666666;">${escapeHTML(vnText || '')}</div>
                 </div>
             `;
         }
     }
-    exHtml += `</div>`; // Đóng thẻ grammarFuriganaZone
-
-    if (!hasExamples) {
-        exContainer.innerHTML = '<p style="color:#86868b; font-size: 14px;">Chưa có ví dụ cho cấu trúc này.</p>';
-    } else {
-        exContainer.innerHTML = exHtml;
-    }
+    if (!hasExamples) exContainer.innerHTML = '<p style="color:#86868b; font-size: 14px;">Chưa có ví dụ cho cấu trúc này.</p>';
 
     // RESET LẠI GIAO DIỆN NẾU TRƯỚC ĐÓ CÓ MỞ AI
     document.getElementById('gdAiExpansionZone').style.display = 'none';
@@ -19794,7 +19640,6 @@ window.addToFavorites = async function(event, btnElement) {
 </div>
 </body>
 </html>
-
 
 
 
