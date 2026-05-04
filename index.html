@@ -12100,21 +12100,19 @@ function renderCardsToForm(cards, isEditMode = true) {
     }
 }
 async function cancelEdit() { const ok = await showConfirm("Hủy bỏ?", "Mọi thay đổi chưa lưu sẽ bị mất."); if (ok) showHome(); }
-// ================= HÀM XỬ LÝ FURIGANA TẠI CLIENT (0 TOKEN - BẢN FIX CUỐI CÙNG) =================
+// ================= HÀM XỬ LÝ FURIGANA TẠI CLIENT (0 TOKEN - BẢN FIX DỨT ĐIỂM) =================
 let globalKuroshiro = null;
 
 async function toggleFuriganaLocal(btnElement, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    // TRƯỜNG HỢP 1: Đã chuyển đổi rồi -> Chỉ bật/tắt bằng CSS
     if (container.classList.contains('has-furigana')) {
         container.classList.toggle('show-furigana');
         btnElement.classList.toggle('active');
         return;
     }
 
-    // TRƯỜNG HỢP 2: Lần đầu bấm
     const jpElements = container.querySelectorAll('.target-jp-text');
     if (jpElements.length === 0) return;
 
@@ -12125,30 +12123,38 @@ async function toggleFuriganaLocal(btnElement, containerId) {
     try {
         if (!globalKuroshiro) {
             const loadScript = (src) => new Promise((resolve, reject) => {
-                // Tránh load trùng lặp script
                 if (document.querySelector(`script[src="${src}"]`)) return resolve();
                 const s = document.createElement('script');
                 s.src = src; s.onload = resolve; s.onerror = reject;
                 document.head.appendChild(s);
             });
 
-            // 1. Tải thư viện
+            // 1. Tải thư viện từ CDN
             if (typeof Kuroshiro === 'undefined') {
                 await loadScript('https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js');
                 await loadScript('https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js');
             }
 
-            globalKuroshiro = new Kuroshiro();
+            // 2. 🟢 CHỐT CHẶN LỖI "NOT A CONSTRUCTOR": 
+            // Tự động tìm đúng hàm khởi tạo, dù CDN có giấu nó trong .default hay không
+            const KuroshiroClass = (typeof Kuroshiro === 'function') ? Kuroshiro : Kuroshiro.default;
+            const AnalyzerClass = (typeof KuromojiAnalyzer === 'function') ? KuromojiAnalyzer : KuromojiAnalyzer.default;
+
+            if (!KuroshiroClass || !AnalyzerClass) {
+                throw new Error("Không thể trích xuất Class từ thư viện CDN.");
+            }
+
+            globalKuroshiro = new KuroshiroClass();
             
-            // 2. 🟢 FIX QUAN TRỌNG: Tên class là KuromojiAnalyzer và link dictPath BẮT BUỘC PHẢI CÓ DẤU "/" Ở CUỐI
-            await globalKuroshiro.init(new KuromojiAnalyzer({
+            // 3. Khởi tạo từ điển (Giữ nguyên dấu / ở cuối để không bị lỗi mạng)
+            await globalKuroshiro.init(new AnalyzerClass({
                 dictPath: "https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/" 
             }));
         }
 
         btnElement.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:currentColor;"></div> Đang gắn Furigana...';
 
-        // 3. Chuyển đổi
+        // 4. Chuyển đổi
         for (let el of jpElements) {
             let rawText = el.innerText || el.textContent;
             
@@ -12165,7 +12171,7 @@ async function toggleFuriganaLocal(btnElement, containerId) {
             el.innerHTML = finalHtml;
         }
 
-        // 4. Hoàn tất
+        // 5. Hoàn tất
         container.classList.add('has-furigana', 'show-furigana');
         btnElement.classList.add('active');
         btnElement.innerHTML = '<span style="font-weight: 900; margin-right: 4px;">あ</span> Tắt Furigana';
