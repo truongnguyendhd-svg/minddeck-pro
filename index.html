@@ -8733,6 +8733,7 @@ function renderStudy() {
     const cardArea = document.getElementById('cardArea');
     const answerGroup = document.getElementById('answer-group-standard');
     
+    // Khởi tạo cụm nút
     if (answerGroup) {
         if (mode === 'cram') {
             answerGroup.innerHTML = `
@@ -8749,19 +8750,17 @@ function renderStudy() {
         }
     }
 
-    // Các Nút Phụ (Sửa, Info/Hint)
-    const editBtnHTML = `<button onclick="openQuickEdit(event)" class="btn-edit-inside" title="Sửa thẻ nhanh"><span class="material-symbols-outlined" style="font-size:22px;">edit</span></button>`;
+    const parsedCard = parseCardData(c);
     
-    // ĐỔI ICON THÔNG TIN PHỤ THÀNH BÓNG ĐÈN (Đã xóa nút Smart Hint cũ)
+    // Các thành phần phụ trên thẻ
+    const editBtnHTML = `<button onclick="openQuickEdit(event)" class="btn-edit-inside" title="Sửa thẻ nhanh"><span class="material-symbols-outlined" style="font-size:22px;">edit</span></button>`;
     const infoBtnHTML = `<button onclick="handleInfoClick(event)" class="btn-info-inside" title="Thông tin phụ"><span class="material-symbols-outlined" style="font-size:24px;">lightbulb</span></button>`;
-    // 🟢 THÊM NÚT YÊU THÍCH VÀO GÓC TRÊN THẺ (Chỉ hiện khi ở chế độ Remedial)
+    
     let starBtnHTML = "";
     if (mode === 'remedial') {
         starBtnHTML = `<button onclick="addToFavorites(event, this)" class="btn-star-inside" title="Ghim vào thẻ Yêu thích"><span class="material-symbols-outlined" style="font-size:22px;">star</span></button>`;
     }
-    // THÊM ĐOẠN NÀY DÀNH CHO SHADOWING DOJO
-    const parsedCard = parseCardData(c);
-    // Ưu tiên đọc câu ví dụ, nếu không có thì đọc từ vựng
+
     const targetTextToSpeak = parsedCard.exampleJP ? parsedCard.exampleJP : parsedCard.front;
     const safeTargetText = targetTextToSpeak.replace(/'/g, "\\'").replace(/"/g, "&quot;");
     const micBtnHTML = `<button onclick="startShadowing(event, '${safeTargetText}')" class="btn-mic-inside" title="Đánh giá phát âm">
@@ -8769,7 +8768,6 @@ function renderStudy() {
         Luyện phát âm
     </button>`;
 
-    // TẠO NỘI DUNG TIẾN ĐỘ ĐỂ NHÚNG VÀO GÓC THẺ
     let progressStr = `${currentIndex + 1}/${sessionCards.length}`;
     if (mode === 'cram') {
         progressStr += ` <span style="color:#e53e3e; font-size:13px; margin-left: 4px;">(Cấp ${c.cramLevel || 1}/${targetCramLevel})</span>`;
@@ -8777,24 +8775,35 @@ function renderStudy() {
     const progressHTML = `<div class="progress-text-inside">${progressStr}</div>`;
 
     if (!showBack) {
-        const questionText = isRev ? c.back : c.front;
-        const dynamicSize = getDynamicFontSize(questionText);
+        // MẶT TRƯỚC
+        let questionText = isRev ? c.back : c.front;
+        let displayHTML = "";
+
+        // LOGIC MỚI: Nếu là Remedial, ưu tiên hiện Ví dụ kèm Từ vựng
+        if (mode === 'remedial' && parsedCard.exampleJP) {
+            const dynamicSize = getDynamicFontSize(questionText);
+            displayHTML = `
+                <b style="font-size: ${dynamicSize}; margin-bottom: 10px;">${wrapKanjiWithLink(escapeHTML(questionText))}</b>
+                <div style="font-size: 20px; color: #718096; font-weight: 500; border-top: 1px dashed #cbd5e0; padding-top: 15px; margin-top: 15px; width: 100%; max-width: 400px; line-height: 1.6;">
+                    ${wrapKanjiWithLink(escapeHTML(parsedCard.exampleJP))}
+                </div>
+            `;
+        } else {
+            const dynamicSize = getDynamicFontSize(questionText);
+            displayHTML = `<b style="font-size: ${dynamicSize};">${wrapKanjiWithLink(escapeHTML(questionText))}</b>`;
+        }
+
+        cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + micBtnHTML + displayHTML + infoBtnHTML;
         
-        // Cộng thêm progressHTML, editBtn, infoBtn, micBtnHTML vào thẻ
-        cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + micBtnHTML + `<b style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(questionText))}</b>` + infoBtnHTML;
-        
-        // Ẩn cụm nút nếu đang ở chế độ Khắc phục lỗi (Remedial)
-        // LƯU Ý: ĐÃ XÓA LỆNH KHÓA NÚT (disabled = true) ĐỂ ĐÚNG/SAI LUÔN BẤM ĐƯỢC
         if (mode === 'remedial' && answerGroup) answerGroup.innerHTML = ''; 
         
     } else {
+        // MẶT SAU
         const answerText = isRev ? c.front : c.back;
         const dynamicSize = getDynamicFontSize(answerText);
         
-        // Cộng thêm progressHTML, editBtn, infoBtn, micBtnHTML vào thẻ
-        cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + micBtnHTML + `<i style="font-size: ${dynamicSize}; transition: font-size 0.3s ease;">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoBtnHTML;
+        cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + micBtnHTML + `<i style="font-size: ${dynamicSize};">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoBtnHTML;
         
-        // NẾU LÀ REMEDIAL: HIỆN NÚT "TIẾP THEO" BỰ
         if (mode === 'remedial') {
             if (answerGroup) {
                 answerGroup.classList.remove('hidden'); 
