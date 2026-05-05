@@ -9306,16 +9306,14 @@ function parseCardData(card) {
         exampleJP: "", exampleVN: "", ex2jp: "", ex2vn: ""
     };
 
-    // --- 1. XỬ LÝ `BACK` (READING & MEANING) ---
+    // --- 1. XỬ LÝ `BACK` (CÁCH ĐỌC & Ý NGHĨA) ---
     const backStr = card.back ? card.back.trim() : "";
     
-    // NẾU LÀ FORMAT MỚI (Ngăn cách bởi \n)
     if (backStr.includes('\n')) {
         const lines = backStr.split('\n');
         result.reading = lines[0].trim();
         result.meaning = lines.slice(1).join('\n').trim();
     } 
-    // NẾU LÀ FORMAT CŨ (Dùng ngoặc hoặc gạch ngang)
     else {
         const bracketMatch = backStr.match(/(.*?)\((.*?)\)(.*)/);
         if (bracketMatch) {
@@ -9323,36 +9321,46 @@ function parseCardData(card) {
             result.meaning = (bracketMatch[1] + bracketMatch[3]).replace(/^[-:\s]+|[-:\s]+$/g, '').trim();
         } else if (/[-:\n]/.test(backStr)) {
             const parts = backStr.split(/[-:\n]/);
-            result.reading = parts[0].trim();
-            result.meaning = parts.slice(1).join(' - ').trim(); 
+            let potentialReading = parts[0].trim();
+            
+            // CHỐT CHẶN LATIN: Nếu chứa nhiều hơn 5 ký tự Latin/Tiếng Việt, chắc chắn không phải Reading Nhật
+            const latinMatch = potentialReading.match(/[a-zA-Zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/gi);
+            if (latinMatch && latinMatch.length > 5) {
+                result.reading = ""; 
+                result.meaning = backStr;
+            } else {
+                result.reading = potentialReading;
+                result.meaning = parts.slice(1).join(' - ').trim() || potentialReading;
+            }
         } else {
-            result.reading = backStr; // Fallback
+            result.reading = backStr;
             result.meaning = backStr;
         }
+    }
+
+    // Kiểm tra lại lần cuối: Nếu Reading không chứa ký tự Nhật nào thì xóa luôn Reading
+    if (result.reading && !wanakana.isJapanese(result.reading.replace(/[～\s]/g, ''))) {
+        result.meaning = backStr;
+        result.reading = "";
     }
 
     // --- 2. XỬ LÝ `INFO` (HÁN VIỆT & VÍ DỤ) ---
     const infoStr = card.info ? card.info.trim() : "";
     
-    // NẾU LÀ FORMAT MỚI (Dùng Marker [HV], [EX1], [VN1]...)
     if (infoStr.includes('[EX1]') || infoStr.includes('[HV]')) {
         const extractVal = (marker) => {
-            // Regex lấy nội dung sau Marker cho đến khi gặp Marker khác hoặc hết chuỗi
             const regex = new RegExp(`\\[${marker}\\]\\s*([^\[]*)`);
             const match = infoStr.match(regex);
             return match ? match[1].trim() : "";
         };
-        
         result.hv = extractVal('HV');
         result.exampleJP = extractVal('EX1');
         result.exampleVN = extractVal('VN1');
         result.ex2jp = extractVal('EX2');
         result.ex2vn = extractVal('VN2');
     } 
-    // NẾU LÀ FORMAT CŨ (Không có Marker)
     else if (infoStr) {
         let cleanInfo = infoStr.replace(/ví dụ[:\s-]*|vd[:\s-]*/gi, '').replace(/\[.*?\]/g, '').trim();
-        
         const parenMatch = cleanInfo.match(/(.*?)[(（](.*?)[)）](.*)/);
         if (parenMatch) {
             result.exampleJP = parenMatch[1].trim();
@@ -9362,7 +9370,6 @@ function parseCardData(card) {
             result.exampleJP = exParts[0].trim();
             result.exampleVN = exParts.slice(1).join(' ').trim();
         } else {
-            // Dùng WanaKana đoán
             let jpPart = "", vnPart = "";
             for (let i = 0; i < cleanInfo.length; i++) {
                 if (wanakana.isJapanese(cleanInfo[i]) && cleanInfo[i] !== ' ') jpPart += cleanInfo[i];
@@ -9373,9 +9380,7 @@ function parseCardData(card) {
         }
     }
 
-    // Sửa lỗi: Nếu người dùng để trống Reading, tự gán Front vào để các game vẫn chạy được
-    if (!result.reading) result.reading = result.front;
-
+    if (!result.reading && !result.meaning) result.meaning = backStr;
     return result;
 }
 
@@ -17445,7 +17450,12 @@ function generateAspectMatrixForCard(cardObj) {
     let matrix = [];
 
     const cleanReading = parsed.reading.replace(/\s/g, '');
-    const hasGoodReading = cleanReading.length >= 1 && wanakana.isJapanese(cleanReading);
+    
+    // ĐIỀU KIỆN CHẶT CHẼ: Phải là Kana thuần (không Kanji, không dấu ngã ~) và không quá dài
+    const hasGoodReading = cleanReading.length >= 1 && 
+                           cleanReading.length <= 15 && 
+                           wanakana.isKana(cleanReading.replace(/[～\s]/g, ''));
+                           
     const hasKanjiFront = /[\u4e00-\u9faf]/.test(parsed.front);
 
     // CHẶNG 1: Active Recall (Thử thách trí nhớ)
@@ -17462,24 +17472,23 @@ function generateAspectMatrixForCard(cardObj) {
         }
     }
     
-    // Nếu là từ siêu ngắn hoặc không có Reading -> 100% vào Game 1
+    // Nếu là từ siêu ngắn, không có Reading hoặc là ngữ pháp -> 100% vào Game 1 (Chọn nghĩa)
     if (stage1Pool.length === 0) stage1Pool.push(1); 
     matrix.push(stage1Pool[Math.floor(Math.random() * stage1Pool.length)]);
 
-    // CHẶNG 2: Nhận diện mặt chữ
+    // CHẶNG 2: Nhận diện mặt chữ/cấu trúc
     if (hasKanjiFront) {
-        // Có Kanji thì cho xây chữ hoặc điền từ
         const exampleHasKanji = parsed.exampleJP && /[\u4e00-\u9faf]/.test(parsed.exampleJP);
         if (exampleHasKanji) matrix.push(Math.random() > 0.5 ? 11 : 7);
         else matrix.push(11);
     } else {
-        // Không có Kanji thì quay lại test Game 5 hoặc Game 1
-        matrix.push(Math.random() > 0.5 ? 5 : 1);
+        // Không có Kanji (Ngữ pháp thuần kana) -> Quay lại test Nghĩa hoặc Xếp chữ
+        matrix.push(hasGoodReading && Math.random() > 0.5 ? 5 : 1);
     }
 
-    // CHẶNG 3: Ý nghĩa (Chốt hạ)
-    let stage3Pool = [1];
-    if (parsed.exampleJP && parsed.exampleVN) stage3Pool.push(6);
+    // CHẶNG 3: Ý nghĩa & Ứng dụng (Chốt hạ)
+    let stage3Pool = [1]; // Luôn có Game 1
+    if (parsed.exampleJP && parsed.exampleVN) stage3Pool.push(6); // Nếu có ví dụ thì cho xếp câu
     matrix.push(stage3Pool[Math.floor(Math.random() * stage3Pool.length)]);
 
     return matrix;
