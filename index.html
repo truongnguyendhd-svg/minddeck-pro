@@ -5185,6 +5185,14 @@ body.modal-open-lock {
         font-size: 28px !important; /* Chữ gạch vuông to lên (cũ là 22px) */
     }
 }
+/* Style riêng cho nút điều hướng Remedial */
+#answer-group-standard .study-action-btn:disabled {
+    background: #f8fafc !important;
+    color: #cbd5e0 !important;
+    border-color: #e2e8f0 !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
 </style>
 </head>
 <body>
@@ -8867,14 +8875,14 @@ function renderStudy() {
     const cardArea = document.getElementById('cardArea');
     const answerGroup = document.getElementById('answer-group-standard');
     
-    // Khởi tạo cụm nút
+    // 1. KHỞI TẠO NÚT BẤM (SRS & CRAM)
     if (answerGroup) {
         if (mode === 'cram') {
             answerGroup.innerHTML = `
                 <button class="answer-btn btn-sai" onclick="answerCurrent(0)">Sai (Về Cấp 1)</button>
                 <button class="answer-btn btn-de" onclick="answerCurrent(5)">Đúng (Lên Cấp)</button>
             `;
-        } else {
+        } else if (mode === 'review') {
             answerGroup.innerHTML = `
                 <button class="answer-btn btn-sai" onclick="answerCurrent(0)">Sai (1)</button>
                 <button class="answer-btn btn-kho" onclick="answerCurrent(2)">Khó (2)</button>
@@ -8886,7 +8894,7 @@ function renderStudy() {
 
     const parsedCard = parseCardData(c);
     
-    // Các thành phần phụ trên thẻ
+    // Các nút chức năng nhỏ trên thẻ
     const editBtnHTML = `<button onclick="openQuickEdit(event)" class="btn-edit-inside" title="Sửa thẻ nhanh"><span class="material-symbols-outlined" style="font-size:22px;">edit</span></button>`;
     const infoBtnHTML = `<button onclick="handleInfoClick(event)" class="btn-info-inside" title="Thông tin phụ"><span class="material-symbols-outlined" style="font-size:24px;">lightbulb</span></button>`;
     
@@ -8908,22 +8916,16 @@ function renderStudy() {
     }
     const progressHTML = `<div class="progress-text-inside">${progressStr}</div>`;
 
+    // 2. RENDER NỘI DUNG THẺ (MẶT TRƯỚC / MẶT SAU)
     if (!showBack) {
-        // MẶT TRƯỚC
         let questionText = isRev ? c.back : c.front;
         let displayHTML = "";
 
-        // LOGIC REMEDIAL: Từ vựng (To) -> Đường kẻ mảnh -> Câu ví dụ (Căn giữa)
         if (mode === 'remedial' && parsedCard.exampleJP) {
             const dynamicSize = getDynamicFontSize(questionText);
             displayHTML = `
-                <!-- Từ vựng chính -->
                 <b style="font-size: ${dynamicSize}; margin-bottom: 5px;">${wrapKanjiWithLink(escapeHTML(questionText))}</b>
-                
-                <!-- Đường kẻ nét đứt ngắn, màu đồng bộ với text bên dưới -->
                 <div style="width: 60px; border-top: 2px dashed #718096; opacity: 0.4; margin: 25px auto;"></div>
-                
-                <!-- Câu ví dụ tiếng Nhật (Căn giữa) -->
                 <div style="font-size: 20px; color: #718096; font-weight: 500; text-align: center; width: 100%; max-width: 500px; line-height: 1.6;">
                     ${wrapKanjiWithLink(escapeHTML(parsedCard.exampleJP))}
                 </div>
@@ -8932,39 +8934,34 @@ function renderStudy() {
             const dynamicSize = getDynamicFontSize(questionText);
             displayHTML = `<b style="font-size: ${dynamicSize};">${wrapKanjiWithLink(escapeHTML(questionText))}</b>`;
         }
-
         cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + micBtnHTML + displayHTML + infoBtnHTML;
-        
-        if (mode === 'remedial' && answerGroup) answerGroup.innerHTML = ''; 
-        
     } else {
-        // MẶT SAU
         const answerText = isRev ? c.front : c.back;
         const dynamicSize = getDynamicFontSize(answerText);
-        
         cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + micBtnHTML + `<i style="font-size: ${dynamicSize};">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoBtnHTML;
-        
-        // LOGIC NÚT ĐIỀU HƯỚNG RIÊNG CHO CHẾ ĐỘ REMEDIAL (XEM LẠI LỖI)
-        if (mode === 'remedial' && answerGroup) {
-            answerGroup.classList.remove('hidden');
-            answerGroup.style.display = 'flex';
-            answerGroup.style.gap = '12px';
-    
-            answerGroup.innerHTML = `
-                <button class="win11-btn-secondary" 
-                        style="flex:1; justify-content:center; padding:16px; font-weight:800;" 
-                        onclick="prevCard()" 
-                        ${currentIndex === 0 ? 'disabled' : ''}>
-                    <span class="material-symbols-outlined">chevron_left</span> TRƯỚC
-                </button>
-                <button class="win11-btn-primary" 
-                        style="flex:2; justify-content:center; padding:16px; font-weight:800; background: #0067c0;" 
-                        onclick="nextCard()">
-                    ${currentIndex === sessionCards.length - 1 ? 'HOÀN THÀNH' : 'TIẾP THEO'} 
-                    <span class="material-symbols-outlined">chevron_right</span>
-                </button>
-            `;
-        } 
+    }
+
+    // 3. ✨ LOGIC NÚT ĐIỀU HƯỚNG RIÊNG CHO REMEDIAL (LUÔN HIỆN, THIẾT KẾ COMPACT)
+    if (mode === 'remedial' && answerGroup) {
+        answerGroup.classList.remove('hidden');
+        answerGroup.style.display = 'flex';
+        answerGroup.style.gap = '10px';
+        answerGroup.style.justifyContent = 'center';
+
+        answerGroup.innerHTML = `
+            <button class="study-action-btn" 
+                    style="flex:1; justify-content:center; height:42px; border-radius:10px; font-weight:800;" 
+                    onclick="prevCard()" 
+                    ${currentIndex === 0 ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : ''}>
+                <span class="material-symbols-outlined" style="font-size:20px;">chevron_left</span> TRƯỚC
+            </button>
+            <button class="study-action-btn" 
+                    style="flex:1; justify-content:center; height:42px; border-radius:10px; font-weight:800; border-color:#3182ce; color:#3182ce; background:#ebf8ff;" 
+                    onclick="nextCard()">
+                ${currentIndex === sessionCards.length - 1 ? 'XONG' : 'TIẾP THEO'} 
+                <span class="material-symbols-outlined" style="font-size:20px;">chevron_right</span>
+            </button>
+        `;
     }
 }
 
