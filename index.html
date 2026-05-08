@@ -17645,32 +17645,35 @@ function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = fal
     
     const c = sessionCards[currentIndex];
 
+    // ✨ BẮN PHÁO HOA NGAY LẬP TỨC NẾU ĐÚNG (Áp dụng cho mọi chế độ)
+    if (isCorrect && !isGiveUp && !isTimeout) {
+        confetti({
+            particleCount: 100,
+            spread: 70,
+            origin: { y: 0.6 },
+            zIndex: 10000
+        });
+    }
+
     // =====================================
-    // LOGIC SÁT HẠCH MỚI (STRICT ROUND-ROBIN)
+    // LOGIC SÁT HẠCH (ASSESSMENT)
     // =====================================
     if (mode === 'assessment') {
         if (!isCorrect) {
             c.penaltyPoints++;
             if ([1, 4].includes(currentBoostGame)) c.isMeaningFailed = true;
 
-            // NẾU BẤM CHỊU THUA HOẶC ĐỂ HẾT GIỜ -> TỬ VONG NHANH (RỚT THẺ)
             if (isGiveUp || isTimeout) {
                 c.isFailed = true;
-                c.isMeaningFailed = true; // Ép về 0 điểm
-                if (element) {
-                    element.style.background = '#fed7d7';
-                    element.style.borderColor = '#e53e3e';
-                    element.style.color = '#822727';
-                }
+                c.isMeaningFailed = true; 
                 setTimeout(() => {
                     document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto';
-                    boostState.activeQueue.shift(); // Vứt thẻ này đi vì đã chết
+                    boostState.activeQueue.shift(); 
                     nextAssessmentCard(); 
                 }, 400); 
                 return;
             }
 
-            // SAI BÌNH THƯỜNG -> RUNG LẮC, ĐẨY XUỐNG CUỐI HÀNG ĐỢI
             if (element) {
                 element.classList.add('shake-error');
                 setTimeout(() => element.classList.remove('shake-error'), 400);
@@ -17679,18 +17682,15 @@ function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = fal
             
             setTimeout(() => { 
                 document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto'; 
-                // 🟢 STRICT ROUND ROBIN: Đẩy thẻ hiện tại xuống cuối hàng đợi
                 const currentIdx = boostState.activeQueue.shift();
                 boostState.activeQueue.push(currentIdx);
-                
-                showToast("Chưa đúng! Thẻ bị đẩy xuống chờ duyệt lại.");
-                showCard(); // Chuyển sang thẻ tiếp theo trong Queue ngay
+                showCard(); 
             }, 800);
             return; 
         }
 
-        // TRẢ LỜI ĐÚNG -> Pass thẻ này trong chặng hiện tại
-        if (element) {
+        // ĐÚNG TRONG SÁT HẠCH
+        if (element && !element.id.includes('Zone')) {
             element.style.background = '#c6f6d5';
             element.style.borderColor = '#38a169';
             element.style.color = '#22543d';
@@ -17698,28 +17698,18 @@ function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = fal
 
         setTimeout(() => {
             document.getElementById('boostInteractiveZone').style.pointerEvents = 'auto';
-            boostState.activeQueue.shift(); // Rút thẻ khỏi hàng vì đã qua màn
+            boostState.activeQueue.shift(); 
             nextAssessmentCard(); 
         }, 600);
-        return;
+        return; // Hết nhánh Sát hạch
     }
 
     // =====================================
-    // LOGIC BOOST MODE TỰ DO CŨ (Giữ nguyên)
+    // LOGIC BOOST MODE TỰ DO
     // =====================================
     if (isCorrect) {
         boostState.correct++;
-        
-        // ✨ THÊM PHÁO HOA TẠI ĐÂY
-        confetti({
-            particleCount: 80,
-            spread: 70,
-            origin: { y: 0.6 },
-            zIndex: 10000
-        });
-
-        // Chỉ đổi màu nếu element không phải là container lớn (để tránh lóe màn hình)
-        if(element && !element.id.includes('Zone')) {
+        if (element && !element.id.includes('Zone')) {
             element.style.background = '#c6f6d5';
             element.style.borderColor = '#38a169';
             element.style.color = '#22543d';
@@ -17727,7 +17717,7 @@ function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = fal
         boostState.history.push({ front: c.front, back: c.back, status: 'correct' });
     } else {
         boostState.wrong++;
-        if(element) {
+        if (element && !element.id.includes('Zone')) {
             element.style.background = '#fed7d7';
             element.style.borderColor = '#e53e3e';
             element.style.color = '#822727';
