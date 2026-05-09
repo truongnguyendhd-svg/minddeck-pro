@@ -19608,17 +19608,21 @@ window.addToFavorites = async function(event, btnElement) {
     }
 };
 // Hết================= HÀM LƯU THẺ YÊU THÍCH (BỎ QUA LỌC TRÙNG LẶP) =================
-/* ================= HỆ THỐNG AUTOSAVE SÁT HẠCH (CHỐNG F5/RELOAD) ================= */
+/* ================= HỆ THỐNG AUTOSAVE SÁT HẠCH (BẢN FIX LỖI IOS & NETWORK) ================= */
 
 function saveAssessmentStateToLocal() {
     if (mode !== 'assessment' || !currentUser) return;
-    const saveData = {
-        sessionCards: sessionCards,
-        boostState: boostState,
-        currentIndex: currentIndex,
-        timestamp: Date.now()
-    };
-    localStorage.setItem(`minddeck_assessment_save_${currentUser.id}`, JSON.stringify(saveData));
+    try {
+        const saveData = {
+            sessionCards: sessionCards,
+            boostState: boostState,
+            currentIndex: currentIndex,
+            timestamp: Date.now()
+        };
+        localStorage.setItem(`minddeck_assessment_save_${currentUser.id}`, JSON.stringify(saveData));
+    } catch (e) {
+        console.warn("Không thể AutoSave (có thể do đầy bộ nhớ):", e);
+    }
 }
 
 function clearAssessmentStateFromLocal() {
@@ -19635,9 +19639,9 @@ window.handleGlobalReviewClick = async function() {
     if (savedJson) {
         const ok = await showConfirm(
             "Đang học dở dang ⏳", 
-            "Bạn có một phiên Sát hạch chưa hoàn thành (do thoát app hoặc tải lại trang). Bạn muốn tiếp tục học hay xóa bỏ để bắt đầu phiên mới?", 
+            "Bạn có một phiên Sát hạch chưa hoàn thành (do thoát app hoặc tải lại trang). Bạn muốn tiếp tục học hay làm bài mới?", 
             "Tiếp tục học", 
-            "Xóa & Làm mới"
+            "Làm bài mới"
         );
         
         if (ok) {
@@ -19663,11 +19667,15 @@ async function resumeAssessmentFromLocal(savedJson) {
         mode = 'assessment';
         currentDeckName = 'GLOBAL_REVIEW';
 
-        // 2. Mở khóa Audio iOS
-        if ('speechSynthesis' in window) {
-            let unlockAudio = new SpeechSynthesisUtterance('');
-            unlockAudio.volume = 0;
-            window.speechSynthesis.speak(unlockAudio);
+        // 2. Mở khóa Audio iOS (Đã bọc try-catch chống sập toàn hệ thống)
+        try {
+            if ('speechSynthesis' in window) {
+                let unlockAudio = new SpeechSynthesisUtterance('');
+                unlockAudio.volume = 0;
+                window.speechSynthesis.speak(unlockAudio);
+            }
+        } catch (audioErr) {
+            console.warn("Bỏ qua lỗi đánh thức Audio trên iOS");
         }
 
         // 3. Phục hồi UI
@@ -19683,13 +19691,16 @@ async function resumeAssessmentFromLocal(savedJson) {
 
         // 4. Kích hoạt thẻ hiện tại
         showCard();
+        hideLoading();
         showToast("Đã khôi phục tiến trình! 🚀");
+
     } catch (e) {
         console.error("Lỗi phục hồi:", e);
-        clearAssessmentStateFromLocal();
-        startGlobalReview(); // Fallback nếu dữ liệu lỗi
-    } finally {
         hideLoading();
+        // Nếu file save bị lỗi format nặng mới xóa đi
+        clearAssessmentStateFromLocal();
+        customAlert("Dữ liệu lưu tạm bị hỏng. Hệ thống sẽ bắt đầu bài mới.", "⚠️");
+        startGlobalReview();
     }
 }
 /* Hết================= HỆ THỐNG AUTOSAVE SÁT HẠCH (CHỐNG F5/RELOAD) ================= */
