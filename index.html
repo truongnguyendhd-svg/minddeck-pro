@@ -13075,6 +13075,42 @@ function showQuizResultModal(type) {
     document.getElementById('quizResultModal').style.display = 'flex';
 }
 /* ================= CHỨC NĂNG TỪ ĐIỂN ================= */
+/* ================= API TỪ ĐIỂN MỞ RỘNG (MAZII) ================= */
+async function fetchMaziiDictionary(keyword) {
+    try {
+        const response = await fetch('https://mazii.net/api/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                dict: 'javi', 
+                type: 'word', 
+                query: keyword, 
+                limit: 15 // Lấy 15 từ chuẩn nhất
+            })
+        });
+
+        const data = await response.json();
+        if (!data || !data.data || data.data.length === 0) return [];
+
+        return data.data.map(item => {
+            let exampleText = "";
+            if (item.means && item.means[0] && item.means[0].examples && item.means[0].examples[0]) {
+                const ex = item.means[0].examples[0];
+                exampleText = `${ex.content} (${ex.mean})`;
+            }
+
+            return {
+                word: item.word || item.phonetic, 
+                reading: item.phonetic || '',
+                meaning: item.means && item.means[0] ? item.means[0].mean : 'Chưa có nghĩa',
+                example: exampleText
+            };
+        });
+    } catch (err) {
+        console.error("Mazii API Error:", err);
+        return []; 
+    }
+}
 let currentDictWord = null; // Biến lưu tạm từ vựng đang chọn để chuẩn bị save
 // Hàm xử lý khi tra từ điển từ thanh tìm kiếm trên Header
 // 1. Hàm bật Modal Tra Nhanh từ Header
@@ -13104,11 +13140,24 @@ function handleHeaderDictionarySearch() {
 }
 
 // HÀM TRA TỪ NHANH (TRONG MODAL) - ĐÃ BỔ SUNG DICTIONARY 2.0 (PHÂN TÍCH KANJI)
+// HÀM TRA TỪ TRANG CHÍNH (GHI ĐÈ)
+async function searchDictionary() {
+    const input = document.getElementById('dictSearchInput').value.trim();
+    if (!input) return;
+
+    showLoading("Đang tra cứu từ vựng...");
+    const resDiv = document.getElementById('dictResults');
+    await executeHybridSearch(input, resDiv);
+    hideLoading();
+}
+
+// HÀM TRA TỪ TRONG MODAL QUICK DICT (GHI ĐÈ)
 async function searchQuickDictionary() {
     const input = document.getElementById('quickDictSearchInput').value.trim();
     const resDiv = document.getElementById('quickDictResults');
     if (!input) return;
-    // Reset và nạp Nút tìm kiếm nội bộ
+
+    // Vẫn giữ lại Nút tìm kiếm trong kho thẻ của cá nhân
     const localZone = document.getElementById('quickDictLocalActionZone');
     if (localZone) {
         localZone.innerHTML = `
@@ -13118,28 +13167,24 @@ async function searchQuickDictionary() {
         `;
     }
 
-    // Hiệu ứng Loading
-    resDiv.innerHTML = '<div style="text-align:center; padding:30px; color:#718096;"><div class="spinner" style="margin: 0 auto 15px auto; width:30px; height:30px; border-top-color:#8b5cf6;"></div>Đang tra cứu...</div>';
-    
+    resDiv.innerHTML = '<div style="text-align:center; padding:30px; color:#718096;"><div class="spinner" style="margin: 0 auto 15px auto; width:30px; height:30px; border-top-color:#8b5cf6;"></div>Đang tra cứu trên Mazii...</div>';
+    await executeHybridSearch(input, resDiv);
+}
+
+// LÕI XỬ LÝ: CHỈ QUÉT MAZII VÀ KẾT HỢP KANJI X-RAY
+async function executeHybridSearch(input, resDiv) {
     try {
-        // 1. Query Từ Vựng
-        const { data, error } = await sb.from('dictionary')
-            .select('*')
-            .or(`word.ilike.%${input}%,reading.ilike.%${input}%,meaning.ilike.%${input}%`)
-            .limit(20);
+        // 1. Chỉ gọi Mazii API (0 tốn băng thông Supabase)
+        const maziiRes = await fetchMaziiDictionary(input);
 
-        if (error) throw error;
-
-        if (!data || data.length === 0) {
+        if (maziiRes.length === 0) {
             resDiv.innerHTML = `<div style="text-align:center; color:#718096; padding: 30px; background:#fff; border-radius:12px;">Không tìm thấy kết quả nào cho "<b>${escapeHTML(input)}</b>".</div>`;
             return;
         }
 
-        // ==========================================
-        // THU THẬP TẤT CẢ KANJI ĐỂ QUERY BATCH
-        // ==========================================
+        // 2. Thu thập Kanji để gắn bộ X-Ray
         let allKanjis = [];
-        data.forEach(d => {
+        maziiRes.forEach(d => {
             const matches = d.word.match(/[\u4e00-\u9faf]/g);
             if (matches) allKanjis = allKanjis.concat(matches);
         });
@@ -13147,28 +13192,21 @@ async function searchQuickDictionary() {
 
         let kanjiDataMap = {};
         if (uniqueKanjis.length > 0) {
-            // Lấy dữ liệu phân tích Kanji từ bảng kanji_builder
+            // Việc lấy Kanji Breakdown tốn cực kỳ ít băng thông vì data nhẹ và đã đánh Index
             const { data: kData } = await sb.from('kanji_builder').select('kanji, hv, meaning').in('kanji', uniqueKanjis);
-            if (kData) {
-                kData.forEach(k => kanjiDataMap[k.kanji] = k);
-            }
+            if (kData) kData.forEach(k => kanjiDataMap[k.kanji] = k);
         }
 
-        // 2. Render kết quả
-        resDiv.innerHTML = data.map(d => {
+        // 3. Render giao diện từ Mazii
+        resDiv.innerHTML = maziiRes.map(d => {
             const safeWord = escapeHTML(d.word);
             const safeReading = escapeHTML(d.reading || '');
             const safeMeaning = escapeHTML(d.meaning);
-            const safeKanji = escapeHTML(d.kanji_meaning || '');
-            const safeLevel = escapeHTML(d.level || '');
             const safeExample = escapeHTML(d.example || '');
 
-            // ==========================================
-            // RENDER KANJI BREAKDOWN (PHÂN TÍCH KANJI)
-            // ==========================================
+            // Render Kanji Breakdown
             const wordKanjis = [...new Set(d.word.match(/[\u4e00-\u9faf]/g) || [])];
             let breakdownHTML = "";
-            
             if (wordKanjis.length > 0) {
                 let rowsHTML = wordKanjis.map(k => {
                     const info = kanjiDataMap[k];
@@ -13176,44 +13214,33 @@ async function searchQuickDictionary() {
                     return `
                         <div class="kb-mini-row">
                             <div class="kb-mini-kanji" onclick="showKanjiXRay(event, '${k}')" style="cursor:pointer;" title="Chạm để xem chi tiết">${k}</div>
-                            <div>
-                                <span class="kb-mini-hv">[${info.hv}]</span> - <span style="font-weight: 500;">${info.meaning}</span>
-                            </div>
+                            <div><span class="kb-mini-hv">[${info.hv}]</span> - <span style="font-weight: 500;">${info.meaning}</span></div>
                         </div>
                     `;
                 }).join('');
-                
-                if (rowsHTML) {
-                    breakdownHTML = `
-                        <div class="kanji-breakdown-box">
-                            <div style="font-size: 11px; font-weight: 800; color: #3182ce; letter-spacing: 0.5px;">GỐC HÁN VIỆT:</div>
-                            ${rowsHTML}
-                        </div>
-                    `;
-                }
+                if (rowsHTML) breakdownHTML = `<div class="kanji-breakdown-box"><div style="font-size: 11px; font-weight: 800; color: #3182ce; letter-spacing: 0.5px;">GỐC HÁN VIỆT:</div>${rowsHTML}</div>`;
             }
 
             // Nút Thêm vào thẻ
             const btnHTML = `<button class="btn-dict-add" data-tooltip="Thêm thẻ" 
-                onclick="openSaveDictWordModal('${encodeURIComponent(safeWord)}', '${encodeURIComponent(safeReading)}', '${encodeURIComponent(safeMeaning)}', '${encodeURIComponent(safeKanji)}', '${encodeURIComponent(safeExample)}')">
+                onclick="openSaveDictWordModal('${encodeURIComponent(safeWord)}', '${encodeURIComponent(safeReading)}', '${encodeURIComponent(safeMeaning)}', '', '${encodeURIComponent(safeExample)}')">
                 <span class="material-symbols-outlined">add</span>
             </button>`;
 
             return `
             <div class="dict-card" style="padding: 15px; border-color:#e2e8f0; box-shadow: 0 2px 5px rgba(0,0,0,0.02); display: flex; align-items: flex-start;">
                 <div style="flex: 1; padding-right: 15px;">
-                    <div class="d-reading" style="font-size:13px;">${safeReading} <span style="color:#cbd5e0; font-size:12px; margin-left:5px">${safeLevel}</span></div>
+                    <div class="d-reading" style="font-size:13px; display:flex; align-items:center;">
+                        ${safeReading}
+                    </div>
                     <div class="d-word" style="font-size: 22px; margin-bottom: 5px;">${safeWord}</div>
                     <div class="d-meaning" style="font-size: 16px;">${safeMeaning}</div>
                     
-                    ${safeKanji ? `<div class="d-kanji">${safeKanji}</div>` : ''}
-                    
-                    ${breakdownHTML} <!-- ĐÂY LÀ PHẦN PHÂN TÍCH KANJI SẼ HIỆN RA -->
+                    ${breakdownHTML}
                     
                     ${safeExample ? `
-                    <div style="margin-top: 10px; font-size: 13px; color: #4a5568; background: #fff; padding: 8px 10px; border-radius: 8px; border-left: 3px solid #8b5cf6;">
-                        <span style="color: #8b5cf6; font-weight: 800; font-size: 11px;">VÍ DỤ</span> <br>
-                        ${safeExample}
+                    <div style="margin-top: 10px; font-size: 13px; color: #4a5568; background: #fbfbfb; padding: 8px 10px; border-radius: 8px; border-left: 3px solid #8b5cf6;">
+                        <span style="color: #8b5cf6; font-weight: 800; font-size: 11px;">VÍ DỤ</span> <br>${safeExample}
                     </div>` : ''}
                 </div>
                 ${btnHTML}
@@ -13222,7 +13249,7 @@ async function searchQuickDictionary() {
 
     } catch (err) {
         console.error("Lỗi tra từ Modal:", err);
-        resDiv.innerHTML = `<div style="color:#e53e3e; text-align:center; padding: 20px; background:#fff; border-radius:12px;">Có lỗi xảy ra khi tra cứu.</div>`;
+        resDiv.innerHTML = `<div style="color:#e53e3e; text-align:center; padding: 20px; background:#fff; border-radius:12px;">Có lỗi xảy ra khi gọi từ điển mở rộng.</div>`;
     }
 }
 function showDictionary(skipHash = false) {
@@ -13233,109 +13260,7 @@ function showDictionary(skipHash = false) {
     updateHeaderTitle("TỪ ĐIỂN");
 }
 
-async function searchDictionary() {
-    const input = document.getElementById('dictSearchInput').value.trim();
-    if (!input) return;
 
-    showLoading("Đang tra cứu từ vựng...");
-    const resDiv = document.getElementById('dictResults');
-    
-    try {
-        // 1. Query Từ Vựng
-        const { data, error } = await sb.from('dictionary')
-            .select('*')
-            .or(`word.ilike.%${input}%,reading.ilike.%${input}%,meaning.ilike.%${input}%`)
-            .limit(30);
-
-        if (error) throw error;
-        if (!data || data.length === 0) {
-            resDiv.innerHTML = `<div style="text-align:center; color:#718096; padding: 30px;">Không tìm thấy kết quả nào cho "${escapeHTML(input)}".</div>`;
-            return hideLoading();
-        }
-
-        // TÍNH NĂNG 4: THU THẬP TẤT CẢ KANJI ĐỂ QUERY BATCH (Tránh N+1)
-        let allKanjis = [];
-        data.forEach(d => {
-            const matches = d.word.match(/[\u4e00-\u9faf]/g);
-            if (matches) allKanjis = allKanjis.concat(matches);
-        });
-        const uniqueKanjis = [...new Set(allKanjis)];
-
-        let kanjiDataMap = {};
-        if (uniqueKanjis.length > 0) {
-            // Query 1 lần duy nhất lấy tất cả dữ liệu Kanji liên quan
-            const { data: kData } = await sb.from('kanji_builder').select('kanji, hv, meaning').in('kanji', uniqueKanjis);
-            if (kData) {
-                kData.forEach(k => kanjiDataMap[k.kanji] = k);
-            }
-        }
-
-        // Render kết quả (Có nhúng Breakdown Kanji)
-        resDiv.innerHTML = data.map(d => {
-            const safeWord = escapeHTML(d.word);
-            const safeReading = escapeHTML(d.reading || '');
-            const safeMeaning = escapeHTML(d.meaning);
-            const safeExample = escapeHTML(d.example || '');
-
-            // Render Kanji Breakdown cho từng từ
-            const wordKanjis = [...new Set(d.word.match(/[\u4e00-\u9faf]/g) || [])];
-            let breakdownHTML = "";
-            
-            if (wordKanjis.length > 0) {
-                let rowsHTML = wordKanjis.map(k => {
-                    const info = kanjiDataMap[k];
-                    if (!info) return '';
-                    return `
-                        <div class="kb-mini-row">
-                            <div class="kb-mini-kanji" onclick="showKanjiXRay(event, '${k}')" style="cursor:pointer;" title="Chạm để xem chi tiết">${k}</div>
-                            <div>
-                                <span class="kb-mini-hv">[${info.hv}]</span> - <span style="font-weight: 500;">${info.meaning}</span>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-                
-                if (rowsHTML) {
-                    breakdownHTML = `
-                        <div class="kanji-breakdown-box">
-                            <div style="font-size: 11px; font-weight: 800; color: #3182ce; letter-spacing: 0.5px;">GỐC HÁN VIỆT:</div>
-                            ${rowsHTML}
-                        </div>
-                    `;
-                }
-            }
-
-            const btnHTML = `<button class="btn-dict-add" data-tooltip="Thêm vào bài" 
-                onclick="openSaveDictWordModal('${encodeURIComponent(safeWord)}', '${encodeURIComponent(safeReading)}', '${encodeURIComponent(safeMeaning)}', '', '${encodeURIComponent(safeExample)}')">
-                <span class="material-symbols-outlined">add</span>
-            </button>`;
-
-            return `
-            <div class="dict-card" style="align-items: flex-start;">
-                <div style="flex: 1; padding-right: 15px;">
-                    <div class="d-reading">${safeReading} <span style="color:#cbd5e0; font-size:13px; margin-left:5px">${escapeHTML(d.level || '')}</span></div>
-                    <div class="d-word" style="margin-bottom: 5px;">${safeWord}</div>
-                    <div class="d-meaning">${safeMeaning}</div>
-                    
-                    ${breakdownHTML} <!-- DÒNG MỚI: NHÚNG BẢNG PHÂN TÍCH -->
-                    
-                    ${safeExample ? `
-                    <div style="margin-top: 15px; font-size: 14px; color: #4a5568; background: #f8fafc; padding: 10px 12px; border-radius: 8px; border-left: 3px solid #8b5cf6; line-height: 1.5;">
-                        <span style="color: #8b5cf6; font-weight: 800; font-size: 12px; text-transform: uppercase; margin-right: 5px;">Ví dụ</span> <br>
-                        ${safeExample}
-                    </div>` : ''}
-                    
-                </div>
-                ${btnHTML}
-            </div>`;
-        }).join('');
-
-    } catch (err) {
-        resDiv.innerHTML = `<div style="color:#e53e3e; text-align:center;">Có lỗi xảy ra khi tra cứu.</div>`;
-    } finally {
-        hideLoading();
-    }
-}
 window.searchLocalCards = async function(keyword) {
     if (!currentUser) return customAlert("Vui lòng đăng nhập!", "⚠️");
     const localZone = document.getElementById('quickDictLocalActionZone');
