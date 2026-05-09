@@ -5504,7 +5504,7 @@ body.modal-open-lock {
             </div>
             
         </div>
-        <button id="btnGlobalReview" onclick="startGlobalReview()" style="background: white; color: #1e3a8a; border: none; padding: 14px 25px; border-radius: 50px; font-weight: 900; font-size: 15px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.1); white-space: nowrap; z-index: 2; display: flex; align-items: center; gap: 8px; transition: 0.2s; height: fit-content;">
+        <button id="btnGlobalReview" onclick="handleGlobalReviewClick()" style="background: white; color: #1e3a8a; border: none; padding: 14px 25px; border-radius: 50px; font-weight: 900; font-size: 15px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.1); white-space: nowrap; z-index: 2; display: flex; align-items: center; gap: 8px; transition: 0.2s; height: fit-content;">
             ĐANG TẢI...
         </button>
     </div>
@@ -17653,6 +17653,7 @@ window.startGlobalReview = async function(skipHash = false) {
         
         // Bắt đầu
         showCard();
+        saveAssessmentStateToLocal();
 
     } catch (err) {
         console.error("Lỗi Global Review:", err);
@@ -17810,6 +17811,7 @@ function nextAssessmentCard() {
     if (boostState.activeQueue.length > 0) {
         // HÀNG ĐỢI VẪN CÒN -> Chuyển sang thẻ tiếp theo cùng Chặng
         showCard();
+        saveAssessmentStateToLocal();
     } else {
         // HẾT HÀNG ĐỢI CỦA CHẶNG HIỆN TẠI
         if (boostState.currentRound < 3) {
@@ -17829,6 +17831,7 @@ function nextAssessmentCard() {
                 // Trộn thẻ cho khỏi nhàm chán
                 boostState.activeQueue.sort(() => Math.random() - 0.5);
                 showCard();
+                saveAssessmentStateToLocal();
             } else {
                 // Toàn bộ thẻ đều rớt -> Kết thúc sớm
                 endAssessmentSession();
@@ -17851,6 +17854,7 @@ window.incrementPenalty = function() {
         tracker.innerText = `Lỗi: ${c.penaltyPoints}`;
         tracker.classList.add('warning');
         setTimeout(() => tracker.classList.remove('warning'), 400);
+        saveAssessmentStateToLocal();
     }
 };
 
@@ -17860,6 +17864,7 @@ async function processBatchAssessmentResults() {
         hideLoading();
         return endAssessmentSession(); // Phiên ảo không lưu DB
     }
+    clearAssessmentStateFromLocal();
 
     let payloads = [];
 
@@ -18308,6 +18313,10 @@ async function toggleInlineDeckList() {
 function exitStudySession() {
     isVirtualSession = false; // Reset trạng thái phiên học ảo
     tempVirtualCards = [];
+    // NẾU THOÁT NGANG KHI ĐANG SÁT HẠCH THÌ DỌN BẢN NHÁP
+    if (currentDeckName === 'GLOBAL_REVIEW') {
+        clearAssessmentStateFromLocal(); // <-- THÊM DÒNG NÀY
+    }
 
     if (currentDeckName === 'GLOBAL_REVIEW' || currentDeckName === 'VIRTUAL_SESSION') {
         showDashboard();
@@ -19599,6 +19608,91 @@ window.addToFavorites = async function(event, btnElement) {
     }
 };
 // Hết================= HÀM LƯU THẺ YÊU THÍCH (BỎ QUA LỌC TRÙNG LẶP) =================
+/* ================= HỆ THỐNG AUTOSAVE SÁT HẠCH (CHỐNG F5/RELOAD) ================= */
+
+function saveAssessmentStateToLocal() {
+    if (mode !== 'assessment' || !currentUser) return;
+    const saveData = {
+        sessionCards: sessionCards,
+        boostState: boostState,
+        currentIndex: currentIndex,
+        timestamp: Date.now()
+    };
+    localStorage.setItem(`minddeck_assessment_save_${currentUser.id}`, JSON.stringify(saveData));
+}
+
+function clearAssessmentStateFromLocal() {
+    if (!currentUser) return;
+    localStorage.removeItem(`minddeck_assessment_save_${currentUser.id}`);
+}
+
+window.handleGlobalReviewClick = async function() {
+    if (!currentUser) return;
+    
+    // Kiểm tra xem có bản nháp nào đang lưu không
+    const savedJson = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
+    
+    if (savedJson) {
+        const ok = await showConfirm(
+            "Đang học dở dang ⏳", 
+            "Bạn có một phiên Sát hạch chưa hoàn thành (do thoát app hoặc tải lại trang). Bạn muốn tiếp tục học hay xóa bỏ để bắt đầu phiên mới?", 
+            "Tiếp tục học", 
+            "Xóa & Làm mới"
+        );
+        
+        if (ok) {
+            resumeAssessmentFromLocal(savedJson);
+        } else {
+            clearAssessmentStateFromLocal();
+            startGlobalReview();
+        }
+    } else {
+        startGlobalReview();
+    }
+};
+
+async function resumeAssessmentFromLocal(savedJson) {
+    showLoading("Đang khôi phục phiên sát hạch...");
+    try {
+        const data = JSON.parse(savedJson);
+
+        // 1. Phục hồi dữ liệu RAM
+        sessionCards = data.sessionCards;
+        boostState = data.boostState;
+        currentIndex = data.currentIndex;
+        mode = 'assessment';
+        currentDeckName = 'GLOBAL_REVIEW';
+
+        // 2. Mở khóa Audio iOS
+        if ('speechSynthesis' in window) {
+            let unlockAudio = new SpeechSynthesisUtterance('');
+            unlockAudio.volume = 0;
+            window.speechSynthesis.speak(unlockAudio);
+        }
+
+        // 3. Phục hồi UI
+        updateBreadcrumb([
+            { label: 'Tổng quan', action: 'showDashboard()' },
+            { label: 'Sát hạch: ' + sessionCards.length + ' Thẻ (Phục hồi)' }
+        ]);
+        updateHeaderTitle("SÁT HẠCH SRS");
+
+        document.getElementById('studyArea').classList.add('hidden');
+        document.getElementById('boostArea').classList.remove('hidden');
+        showPage('reviewPage');
+
+        // 4. Kích hoạt thẻ hiện tại
+        showCard();
+        showToast("Đã khôi phục tiến trình! 🚀");
+    } catch (e) {
+        console.error("Lỗi phục hồi:", e);
+        clearAssessmentStateFromLocal();
+        startGlobalReview(); // Fallback nếu dữ liệu lỗi
+    } finally {
+        hideLoading();
+    }
+}
+/* Hết================= HỆ THỐNG AUTOSAVE SÁT HẠCH (CHỐNG F5/RELOAD) ================= */
 
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
