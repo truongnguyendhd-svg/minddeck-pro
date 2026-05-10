@@ -8772,7 +8772,8 @@ async function loadCards(d, skipHash = false) {
         return; 
     }
     if (d === 'GLOBAL_REVIEW') {
-        return startGlobalReview(true); 
+        // FIX: Khi F5, ép hệ thống chạy qua bộ lọc kiểm tra File Save thay vì tải lại từ đầu
+        return handleGlobalReviewClick(); 
     }
 
     // 2. Cập nhật URL và Loading
@@ -17817,6 +17818,7 @@ function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = fal
                 const currentIdx = boostState.activeQueue.shift();
                 boostState.activeQueue.push(currentIdx);
                 showCard(); 
+                saveAssessmentStateToLocal(); // FIX: Bổ sung lệnh lưu sau khi đẩy thẻ xuống cuối hàng đợi
             }, 800);
             return; 
         }
@@ -19688,24 +19690,37 @@ function clearAssessmentStateFromLocal() {
     if (!currentUser) return;
     localStorage.removeItem(`minddeck_assessment_save_${currentUser.id}`);
 }
-
 window.handleGlobalReviewClick = async function() {
     if (!currentUser) return;
     
-    // Kiểm tra xem có bản nháp nào đang lưu không
     const savedJson = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
     
     if (savedJson) {
-        const ok = await showConfirm(
-            "Đang học dở dang ⏳", 
-            "Bạn có một phiên Sát hạch chưa hoàn thành (do thoát app hoặc tải lại trang). Bạn muốn tiếp tục học hay làm bài mới?", 
-            "Tiếp tục học", 
-            "Làm bài mới"
-        );
-        
-        if (ok) {
-            resumeAssessmentFromLocal(savedJson);
-        } else {
+        try {
+            const data = JSON.parse(savedJson);
+            // 🟢 TÍNH NĂNG MỚI: Hủy file save nếu đã quá 12 tiếng (Anti-Ghost Save)
+            const hoursPassed = (Date.now() - data.timestamp) / (1000 * 60 * 60);
+            
+            if (hoursPassed > 12) {
+                console.log("MindDeck: File save quá hạn 12h, đã tự động hủy.");
+                clearAssessmentStateFromLocal();
+                return startGlobalReview();
+            }
+
+            const ok = await showConfirm(
+                "Đang học dở dang ⏳", 
+                "Bạn có một phiên Sát hạch chưa hoàn thành. Bạn muốn tiếp tục học hay làm bài mới?", 
+                "Tiếp tục học", 
+                "Làm bài mới"
+            );
+            
+            if (ok) {
+                resumeAssessmentFromLocal(data);
+            } else {
+                clearAssessmentStateFromLocal();
+                startGlobalReview();
+            }
+        } catch (e) {
             clearAssessmentStateFromLocal();
             startGlobalReview();
         }
@@ -19714,11 +19729,9 @@ window.handleGlobalReviewClick = async function() {
     }
 };
 
-async function resumeAssessmentFromLocal(savedJson) {
+async function resumeAssessmentFromLocal(data) {
     showLoading("Đang khôi phục phiên sát hạch...");
     try {
-        const data = JSON.parse(savedJson);
-
         // 1. Phục hồi dữ liệu RAM
         sessionCards = data.sessionCards;
         boostState = data.boostState;
@@ -19726,10 +19739,10 @@ async function resumeAssessmentFromLocal(savedJson) {
         mode = 'assessment';
         currentDeckName = 'GLOBAL_REVIEW';
 
-        // 2. Mở khóa Audio iOS (Đã bọc try-catch chống sập toàn hệ thống)
+        // 2. Mở khóa Audio iOS (FIX: Thay chuỗi rỗng bằng chữ 'あ')
         try {
             if ('speechSynthesis' in window) {
-                let unlockAudio = new SpeechSynthesisUtterance('');
+                let unlockAudio = new SpeechSynthesisUtterance('あ');
                 unlockAudio.volume = 0;
                 window.speechSynthesis.speak(unlockAudio);
             }
@@ -19756,12 +19769,14 @@ async function resumeAssessmentFromLocal(savedJson) {
     } catch (e) {
         console.error("Lỗi phục hồi:", e);
         hideLoading();
-        // Nếu file save bị lỗi format nặng mới xóa đi
         clearAssessmentStateFromLocal();
         customAlert("Dữ liệu lưu tạm bị hỏng. Hệ thống sẽ bắt đầu bài mới.", "⚠️");
         startGlobalReview();
     }
 }
+
+
+
 /* Hết================= HỆ THỐNG AUTOSAVE SÁT HẠCH (CHỐNG F5/RELOAD) ================= */
 
 </script>
