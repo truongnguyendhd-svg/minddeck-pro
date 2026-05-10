@@ -12437,35 +12437,29 @@ function showInfoModal() {
     if (!c) return;
 
     const contentDiv = document.getElementById('infoText');
-
-    if (!c.info || c.info.trim() === '') {
-        contentDiv.innerHTML = `
-            <div style="text-align: center; padding: 50px 10px; color: #8c8c8c;">
-                <span class="material-symbols-outlined" style="font-size: 60px; margin-bottom: 15px; opacity: 0.3;">speaker_notes_off</span>
-                <div style="font-size: 18px; font-weight: 500;">Thẻ này không có thông tin phụ.</div>
-            </div>`;
-        document.getElementById('infoModal').style.display = 'flex';
-        return;
-    }
-
     const parsed = parseCardData(c);
-    let html = '<div style="display: flex; flex-direction: column; gap: 24px;">'; // Tăng gap lên 24px
+
+    // Xử lý trường hợp thẻ không có thông tin phụ (Vẫn render form trống để có chỗ nhét nút AI)
+    let hasInfo = false;
+    let html = '<div style="display: flex; flex-direction: column; gap: 24px;">';
 
     // 1. KHỐI GHI CHÚ / HÁN VIỆT
     if (parsed.hv) {
+        hasInfo = true;
         const cleanHvText = escapeHTML(parsed.hv).replace(/\|/g, '<br><br>');
         html += `
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-left: 5px solid #0067c0; padding: 20px 25px; border-radius: 12px;">
                 <div style="font-size: 14px; font-weight: 800; color: #0067c0; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 1px;">
                     <span class="material-symbols-outlined" style="font-size: 20px;">notes</span> GHI CHÚ / CẤU TRÚC
                 </div>
-                <div style="font-size: 18px; color: #1a1a1a; line-height: 1.8; font-weight: 500;">${cleanHvText}</div>
+                <div style="font-size: 16px; color: #1a1a1a; line-height: 1.6; font-weight: 500;">${cleanHvText}</div>
             </div>
         `;
     }
 
     // 2. KHỐI VÍ DỤ 1
     if (parsed.exampleJP) {
+        hasInfo = true;
         html += `
             <div style="background: #ffffff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.02);">
                 <div style="font-size: 13px; font-weight: 800; color: #8c8c8c; margin-bottom: 15px; border-bottom: 1px solid #f0f0f0; padding-bottom: 10px; letter-spacing: 0.5px;">VÍ DỤ 1</div>
@@ -12479,6 +12473,7 @@ function showInfoModal() {
 
     // 3. KHỐI VÍ DỤ 2
     if (parsed.ex2jp) {
+        hasInfo = true;
         html += `
             <div style="background: #ffffff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.02);">
                 <div style="font-size: 13px; font-weight: 800; color: #8c8c8c; margin-bottom: 15px; border-bottom: 1px solid #f0f0f0; padding-bottom: 10px; letter-spacing: 0.5px;">VÍ DỤ 2</div>
@@ -12490,14 +12485,37 @@ function showInfoModal() {
         `;
     }
 
-    // FALLBACK
-    if (!parsed.hv && !parsed.exampleJP && !parsed.ex2jp) {
-         html += `
-            <div style="background: #fbfbfd; border: 1px solid #e5e5e5; padding: 25px; border-radius: 12px; font-size: 18px; color: #1a1a1a; line-height: 1.8; white-space: pre-wrap;">
+    // FALLBACK CHỈ CÓ INFO THƯỜNG
+    if (!hasInfo && c.info && c.info.trim() !== '') {
+        hasInfo = true;
+        html += `
+            <div style="background: #fbfbfd; border: 1px solid #e5e5e5; padding: 25px; border-radius: 12px; font-size: 16px; color: #1a1a1a; line-height: 1.6; white-space: pre-wrap;">
                 ${escapeHTML(c.info)}
             </div>
         `;
     }
+    
+    // NẾU KHÔNG CÓ BẤT CỨ THÔNG TIN GÌ
+    if (!hasInfo) {
+        html += `
+            <div style="text-align: center; padding: 30px 10px; color: #8c8c8c; border: 1px dashed #e5e5e5; border-radius: 12px; background: #fbfbfd;">
+                <span class="material-symbols-outlined" style="font-size: 40px; margin-bottom: 10px; opacity: 0.5;">speaker_notes_off</span>
+                <div style="font-size: 15px; font-weight: 500;">Thẻ này chưa có thông tin phụ hoặc ví dụ.</div>
+            </div>
+        `;
+    }
+
+    // ==========================================
+    // KHỐI AI: TẠO MẸO NHỚ CÁCH ĐỌC
+    // ==========================================
+    html += `
+        <div style="margin-top: 10px; border-top: 1px dashed #e5e5e5; padding-top: 24px;">
+            <button id="btnAiMnemonic" onclick="generateReadingMnemonicWithAI()" class="win11-btn-secondary" style="width: 100%; justify-content: center; padding: 14px; color: #9333ea; border-color: #e9d5ff; background: #faf5ff;">
+                <span class="material-symbols-outlined" style="font-size: 20px;">auto_awesome</span> MẸO NHỚ CÁCH ĐỌC BẰNG AI
+            </button>
+            <div id="aiMnemonicResultZone" style="display: none; margin-top: 15px; animation: fadeInChat 0.3s ease;"></div>
+        </div>
+    `;
 
     html += '</div>';
     contentDiv.innerHTML = html; 
@@ -19778,6 +19796,110 @@ async function resumeAssessmentFromLocal(data) {
 
 
 /* Hết================= HỆ THỐNG AUTOSAVE SÁT HẠCH (CHỐNG F5/RELOAD) ================= */
+/* ================= HỆ THỐNG AI TẠO MẸO NHỚ CÁCH ĐỌC ================= */
+async function generateReadingMnemonicWithAI() {
+    const c = sessionCards[currentIndex];
+    if (!c) return;
+    const p = parseCardData(c);
+
+    if (!p.reading) {
+        return customAlert("Từ này chưa có cách đọc (Hiragana) để tạo mẹo âm thanh!", "⚠️");
+    }
+
+    const btn = document.getElementById('btnAiMnemonic');
+    const zone = document.getElementById('aiMnemonicResultZone');
+
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#9333ea;margin-right:8px;"></div> Gia sư AI đang vắt óc suy nghĩ...';
+
+    const prompt = `Đóng vai trò là một giáo viên tiếng Nhật vô cùng sáng tạo và hài hước. Hãy tạo một mẹo nhớ theo phương pháp âm thanh tương tự (phát âm tiếng Nhật nghe giống một từ/câu chuyện vui trong tiếng Việt) cho từ sau:
+    
+    - Từ vựng: "${p.front}"
+    - Cách đọc: "${p.reading}"
+    - Nghĩa: "${p.meaning}"
+
+    Mục đích: Giúp học viên nhớ được CÁCH ĐỌC (Âm thanh) của từ này một cách dễ dàng và buồn cười nhất.
+    Yêu cầu: Trình bày cực kỳ ngắn gọn (2-3 câu). Trả về text thuần, bôi đậm các từ khóa quan trọng bằng dấu **. (Không dùng markdown \`\`\`json).`;
+
+    try {
+        let aiResponse = await callGeminiAI(prompt);
+        
+        // Format text (In đậm, xuống dòng)
+        let formattedRes = aiResponse.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1a1a1a;">$1</b>').replace(/\n/g, '<br>');
+
+        // Mã hóa chuỗi để bỏ vào onclick an toàn
+        const safeMnemonic = encodeURIComponent(formattedRes).replace(/'/g, "%27");
+
+        zone.innerHTML = `
+            <div style="background: #fdfaff; border: 1px solid #e9d5ff; border-left: 4px solid #9333ea; border-radius: 8px; padding: 16px; font-size: 15px; color: #4a4a4a; line-height: 1.6; box-shadow: 0 4px 12px rgba(147, 51, 234, 0.05);">
+                <div style="color: #9333ea; font-size: 12px; font-weight: 800; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; letter-spacing: 0.5px;">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">lightbulb</span> MẸO NHỚ ÂM THANH:
+                </div>
+                <div>${formattedRes}</div>
+                
+                <div style="margin-top: 15px; text-align: right;">
+                    <button onclick="saveMnemonicToCard('${safeMnemonic}')" class="win11-btn-primary" style="background: #9333ea; padding: 8px 16px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; border: none;">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">save</span> Lưu vào Ghi chú thẻ
+                    </button>
+                </div>
+            </div>
+        `;
+        zone.style.display = 'block';
+        btn.style.display = 'none'; // Ẩn nút tạo sau khi thành công
+
+    } catch (err) {
+        console.error("Lỗi tạo mẹo nhớ:", err);
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">error</span> Lỗi mạng. Nhấn để thử lại';
+    }
+}
+
+async function saveMnemonicToCard(encodedMnemonic) {
+    if (!currentUser) return customAlert("Vui lòng đăng nhập để lưu!", "⚠️");
+    const c = sessionCards[currentIndex];
+    if (!c) return;
+
+    showLoading("Đang lưu vào thẻ...");
+    try {
+        const mnemonicHtml = decodeURIComponent(encodedMnemonic);
+        const p = parseCardData(c);
+
+        // Loại bỏ thẻ HTML <b> và thay <br> bằng | để lưu database gọn gàng
+        let plainTextMnemonic = mnemonicHtml.replace(/<b.*?>/g, '').replace(/<\/b>/g, '').replace(/<br>/g, ' | ');
+
+        // Chèn thêm vào chuỗi [HV] cũ
+        let newHv = p.hv ? p.hv + " | 💡 Mẹo đọc: " + plainTextMnemonic : "💡 Mẹo đọc: " + plainTextMnemonic;
+
+        // Đóng gói lại chuỗi Info để đẩy lên Supabase
+        let infoArr = [];
+        if (newHv) infoArr.push(`[HV] ${newHv}`);
+        if (p.exampleJP) infoArr.push(`[EX1] ${p.exampleJP}`);
+        if (p.exampleVN) infoArr.push(`[VN1] ${p.exampleVN}`);
+        if (p.ex2jp) infoArr.push(`[EX2] ${p.ex2jp}`);
+        if (p.ex2vn) infoArr.push(`[VN2] ${p.ex2vn}`);
+
+        const newInfo = infoArr.join('\n');
+
+        // Update Database Supabase
+        const { error } = await sb.from('cards').update({ info: newInfo }).eq('id', c.id);
+        if (error) throw error;
+
+        // Update RAM
+        c.info = newInfo;
+
+        hideLoading();
+        showToast("✨ Đã lưu mẹo nhớ vào thẻ!");
+
+        // Render lại Info Modal để hiển thị đoạn ghi chú vừa lưu lên màn hình
+        showInfoModal();
+
+    } catch (err) {
+        hideLoading();
+        console.error("Lỗi lưu mẹo nhớ:", err);
+        customAlert("Không thể lưu: " + err.message, "❌");
+    }
+}
+/*Hết ================= HỆ THỐNG AI TẠO MẸO NHỚ CÁCH ĐỌC ================= */
 
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
