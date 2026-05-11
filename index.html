@@ -11462,11 +11462,15 @@ async function renderManageDeckList() {
 
                 let menuOptions = '';
 
-                // NẾU LÀ BỘ BÀI YÊU THÍCH -> CHỈ ĐƯỢC XEM/SỬA THẺ
+                // NẾU LÀ BỘ BÀI YÊU THÍCH -> CHỈ ĐƯỢC XEM/SỬA THẺ VÀ DỌN SẠCH
                 if (isFavoriteDeck) {
                     menuOptions = `
                         <button class="win11-crop-btn" onclick="openStudyOptionsModal('${d.id}', '${cleanName.replace(/'/g, "\\'")}', '${d.type}')">
                             <span class="material-symbols-outlined" style="color: #10b981;">list_alt</span> Sửa / Xem thẻ
+                        </button>
+                        <div style="border-top: 1px solid #f0f0f0; margin: 4px 0;"></div>
+                        <button class="win11-crop-btn" onclick="clearFavoriteDeck(event, '${d.id}')" style="color: #e53e3e;">
+                            <span class="material-symbols-outlined" style="color: #e53e3e;">delete_sweep</span> Dọn sạch thẻ
                         </button>
                     `;
                 } 
@@ -20119,6 +20123,43 @@ window.saveKanjiCardsToFavorites = async function(btnElement) {
     }
 };
 // hết================= HÀM LƯU NHỮNG THẺ KANJI VỪA QUÉT ĐƯỢC VÀO BỘ YÊU THÍCH =================
+// ================= HÀM DỌN SẠCH BỘ THẺ YÊU THÍCH =================
+window.clearFavoriteDeck = async function(event, deckId) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    // 1. Đóng dropdown menu lại cho gọn màn hình
+    const menu = document.getElementById(`deck-menu-${deckId}`);
+    if (menu) menu.classList.remove('show');
+
+    // 2. Hiển thị hộp thoại xác nhận (Cảnh báo màu đỏ)
+    const ok = await showConfirm(
+        "Dọn sạch Yêu thích?", 
+        "Hành động này sẽ xóa <b>TOÀN BỘ</b> thẻ bên trong mục Yêu thích. Bộ bài sẽ trở về trạng thái trống. Bạn có chắc chắn không?", 
+        "Dọn sạch"
+    );
+
+    if (ok) {
+        showLoading("Đang dọn dẹp thẻ...");
+        try {
+            // 3. Chỉ xóa thẻ (bảng cards) có chứa deck_id này, TUYỆT ĐỐI KHÔNG xóa bộ bài (bảng decks)
+            const { error } = await sb.from('cards').delete().eq('deck_id', deckId);
+            if (error) throw error;
+
+            showToast("✨ Đã dọn sạch bộ thẻ Yêu thích!");
+            
+            // 4. Load lại giao diện (Thẻ sẽ tự động chuyển viền về màu xám vì đã trống)
+            renderManageDeckList(); 
+
+        } catch (err) {
+            console.error("Lỗi xóa thẻ Yêu thích:", err);
+            customAlert("Không thể dọn dẹp: " + err.message, "❌");
+        } finally {
+            hideLoading();
+        }
+    }
+};
+//hết ================= HÀM DỌN SẠCH BỘ THẺ YÊU THÍCH =================
 
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
