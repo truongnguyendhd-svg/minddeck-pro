@@ -14177,7 +14177,7 @@ async function calculateGrammarMastery() {
         const { data: progressData, error } = await sb.from('progress')
             .select(`interval, cards!inner ( front )`)
             .eq('user_id', currentUser.id);
-            
+            .limit(15000);
         if (error) throw error;
         if (!progressData || progressData.length === 0) return;
 
@@ -18705,7 +18705,7 @@ async function syncKanjiMastery() {
         const { data: progressData } = await sb.from('progress')
             .select('interval, interval_count, cards!inner(front)')
             .eq('user_id', currentUser.id);
-            
+            .limit(15000);
         // Lấy Kỷ lục cũ trên Cloud
         const { data: profile } = await sb.from('profiles')
             .select('kanji_mastery').eq('id', currentUser.id).single();
@@ -18816,14 +18816,22 @@ async function renderRoadmapWidget() {
         // ========================================================
         const todayStr = new Date().toLocaleDateString();
         let dailySnapshot = JSON.parse(localStorage.getItem(`minddeck_snapshot_${currentUser.id}`)) || {};
-
+        
         // Nếu qua ngày mới, hoặc chưa có sổ -> Chốt sổ lưu lại số dư đầu ngày
         if (dailySnapshot.date !== todayStr) {
+            
+            // 🟢 FIX: BẢO VỆ DỮ LIỆU. Chống lỗi rớt mạng khiến app chốt sổ đầu ngày bằng 0 
+            // (Kiến thức không bao giờ tụt lùi, số chốt sổ hôm nay không được phép nhỏ hơn hôm qua)
+            const prevVocab = dailySnapshot.vocab || 0;
+            const prevGrammar = dailySnapshot.grammar || 0;
+            const prevKanji = dailySnapshot.kanji || 0;
+        
             dailySnapshot = {
                 date: todayStr,
-                vocab: vocabStudiedCount || 0,
-                grammar: grammarCount || 0,
-                kanji: kanjiCount || 0
+                // Nếu load bị lỗi ra 0, tự động lấy lại số liệu của ngày hôm trước để bảo vệ bộ đếm
+                vocab: (vocabStudiedCount === 0 && prevVocab > 0) ? prevVocab : (vocabStudiedCount || 0),
+                grammar: (grammarCount === 0 && prevGrammar > 0) ? prevGrammar : (grammarCount || 0),
+                kanji: (kanjiCount === 0 && prevKanji > 0) ? prevKanji : (kanjiCount || 0)
             };
             localStorage.setItem(`minddeck_snapshot_${currentUser.id}`, JSON.stringify(dailySnapshot));
         }
