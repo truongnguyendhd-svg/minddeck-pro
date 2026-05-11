@@ -5647,57 +5647,11 @@ body.modal-open-lock {
         </button>
     </div>
 
-<!-- 2. KHỐI THỐNG KÊ (GRID) -->
-    <div class="dash-stat-grid">
-        <!-- Tổng thẻ đã học -->
-        <!-- 🟢 ĐÃ THÊM ONCLICK ĐỂ CHUYỂN SANG TRANG KHO HỌC PHẦN (HOME) VÀ CHỈNH MÀU VIỀN -->
-        <div class="dash-stat-box" onclick="showHome()" style="cursor: pointer; border-color: #bee3f8;">
-            <div class="dash-stat-icon" style="background: #ebf8ff; color: #3182ce;">
-                <span class="material-symbols-outlined">style</span>
-            </div>
-            <div class="dash-stat-info">
-                <h4>Đang học</h4>
-                <div class="stat-val" id="dashStudyingCount">0</div>
-            </div>
-        </div>
-
-        <!-- Thẻ đã Master (Khoảng cách ôn tập > 21 ngày) -->
-        <div class="dash-stat-box">
-            <div class="dash-stat-icon" style="background: #f0fff4; color: #38a169;">
-                <span class="material-symbols-outlined">verified</span>
-            </div>
-            <div class="dash-stat-info">
-                <h4>Đã thuộc lòng</h4>
-                <div class="stat-val" id="dashMasteredCount">0</div>
-            </div>
-        </div>
-
-        <!-- Kanji đã mở khóa (từ Kanji Collection) -->
-        <div class="dash-stat-box" onclick="showKanjiCollection()" style="cursor: pointer; border-color: #fbd38d;">
-            <div class="dash-stat-icon" style="background: #fffaf0; color: #dd6b20;">
-                <span class="material-symbols-outlined">workspace_premium</span>
-            </div>
-            <div class="dash-stat-info">
-                <h4>Kanji mở khóa</h4>
-                <div class="stat-val" id="dashKanjiCount">0</div>
-            </div>
-        </div>
-    </div>
 <!-- 2.5. KHỐI LỘ TRÌNH ĐẾM NGƯỢC JLPT -->
     <div id="jlptRoadmapZone">
         <!-- Render bằng JS -->
     </div>
     
-    <!-- 3. TIẾP TỤC HỌC (Các bộ bài gần đây) -->
-    <div style="margin-top: 40px;">
-        <h3 style="font-size: 18px; font-weight: 800; color: #4a5568; margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined" style="color: #3b82f6;">history</span> Tiếp tục học
-        </h3>
-        <!-- Tái sử dụng grid của bộ bài -->
-        <div id="dashRecentDecks" class="deck-grid">
-            <p style="color: #a0aec0; grid-column: 1/-1; font-size: 14px;">Bạn chưa học bộ bài nào gần đây.</p>
-        </div>
-    </div>
 <!-- 4. KHỐI WIDGET MỚI (JLPT & KHÁM PHÁ) -->
     <div class="dash-bottom-grid">
         
@@ -7912,36 +7866,8 @@ async function loadDashboardData() {
             .eq('cards.decks.type', 'flashcard') // <-- BỘ LỌC CHỈ LẤY FLASHCARD
             .lte('due', now);
         
-        // 2. TÍNH SỐ THẺ ĐÃ HỌC (Có tiến trình trên DB)
-        const { count: studyingCount, error: err2 } = await sb.from('progress')
-            .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
-            .eq('user_id', currentUser.id)
-            .eq('cards.decks.type', 'flashcard');
-
-        // 3. TÍNH SỐ THẺ ĐÃ THUỘC LÒNG (interval >= 21 ngày là trí nhớ dài hạn)
-        const { count: masteredCount, error: err3 } = await sb.from('progress')
-            .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
-            .eq('user_id', currentUser.id)
-            .eq('cards.decks.type', 'flashcard')
-            .gte('interval', 21);
-
-        // 4. TRUY VẤN BẢNG PROFILES (Lấy Lịch sử học gần đây & Kỷ lục Kanji)
-        const { data: profile } = await sb.from('profiles')
-            .select('recent_decks, kanji_mastery')
-            .eq('id', currentUser.id)
-            .single();
-            
-        const recentIds = (profile && profile.recent_decks) ? profile.recent_decks : [];
-        const cloudKanjiMastery = (profile && profile.kanji_mastery) ? profile.kanji_mastery : {};
-        const kanjiUnlockedCount = Object.keys(cloudKanjiMastery).length;
-
         // Gắn số liệu lên UI
         document.getElementById('dashDueCount').innerText = dueCount || 0;
-        document.getElementById('dashStudyingCount').innerText = studyingCount || 0;
-        document.getElementById('dashMasteredCount').innerText = masteredCount || 0;
-        
-        // 🟢 CẬP NHẬT MỚI: Hiển thị số lượng Kanji lấy thẳng từ Cloud Archive
-        document.getElementById('dashKanjiCount').innerText = kanjiUnlockedCount;
 
         // Xử lý trạng thái nút Ôn tập toàn cục
         const btnReview = document.getElementById('btnGlobalReview');
@@ -7959,42 +7885,9 @@ async function loadDashboardData() {
             }
         }
         
-        // 5. RENDER CÁC BỘ BÀI VỪA HỌC GẦN ĐÂY
-        const recentContainer = document.getElementById('dashRecentDecks');
-        if (recentIds.length > 0) {
-            // Truy vấn lấy thông tin các bộ bài này
-            const { data: recentDecks } = await sb.from('decks')
-                .select('*, profiles:owner_id (full_name, avatar_url)')
-                .in('id', recentIds);
-
-            if (recentDecks && recentDecks.length > 0) {
-                recentContainer.innerHTML = ''; // Xóa chữ trống
-                // Sắp xếp lại cho đúng thứ tự mảng recentIds (Mới nhất lên đầu)
-                const sortedDecks = recentIds.map(id => recentDecks.find(d => d.id === id)).filter(Boolean);
-
-                sortedDecks.forEach(d => {
-                    // Render thành các thẻ mini (Click vào học luôn)
-                    const card = document.createElement('div');
-                    card.className = 'deck-card';
-                    card.style.height = '120px'; // Thấp hơn bên Quản lý một chút
-                    card.onclick = () => { openStudyOptionsModal(d.id, getCleanName(d.id), d.type); };
-
-                    const typeIcon = d.type === 'quiz' ? 'quiz' : 'style';
-                    const typeClass = d.type === 'quiz' ? 'icon-quiz' : 'icon-flashcard';
-
-                    card.innerHTML = `
-                        <div class="deck-type-icon ${typeClass}" style="margin-top: 5px;">
-                            <span class="material-symbols-outlined">${typeIcon}</span>
-                        </div>
-                        <div class="deck-title" style="margin-top: 10px;">${getCleanName(d.id)}</div>
-                    `;
-                    recentContainer.appendChild(card);
-                });
-            }
-        }
         renderJLPTProgress();
         refreshDiscovery();
-        await renderRoadmapWidget(); // <--- Dòng mới chèn vào
+        await renderRoadmapWidget();
 
     } catch (err) {
         console.error("Lỗi Dashboard:", err);
