@@ -12440,8 +12440,9 @@ function showInfoModal() {
     const parsed = parseCardData(c);
 
     let hasInfo = false;
-    let html = '<div style="display: flex; flex-direction: column; gap: 24px;">';
+    let html = '<div style="display: flex; flex-direction: column; gap: 24px; padding-bottom: 60px; position: relative;">'; // Thêm padding-bottom để không bị che bởi nút nổi
 
+    // 1. KHỐI GHI CHÚ / HÁN VIỆT
     if (parsed.hv) {
         hasInfo = true;
         const cleanHvText = escapeHTML(parsed.hv).replace(/\|/g, '<br><br>');
@@ -12455,6 +12456,7 @@ function showInfoModal() {
         `;
     }
 
+    // 2. KHỐI VÍ DỤ 1
     if (parsed.exampleJP) {
         hasInfo = true;
         html += `
@@ -12468,6 +12470,7 @@ function showInfoModal() {
         `;
     }
 
+    // 3. KHỐI VÍ DỤ 2
     if (parsed.ex2jp) {
         hasInfo = true;
         html += `
@@ -12500,44 +12503,86 @@ function showInfoModal() {
     }
 
     // ==========================================
-    // KHỐI AI: TẠO MẸO NHỚ CÁCH ĐỌC (APPLE GLASS BLACK STYLE)
+    // KHU VỰC HIỂN THỊ KẾT QUẢ AI TẠI CHỖ
+    // ==========================================
+    html += `<div id="aiGenericResultZone" style="display: none; margin-top: 10px; animation: fadeInChat 0.3s ease;"></div>`;
+    html += '</div>';
+
+    // ==========================================
+    // NÚT TRÒN NỔI (FAB) & DROPDOWN MENU
     // ==========================================
     html += `
-        <div style="margin-top: 15px;">
-            <button id="btnAiMnemonic" onclick="generateReadingMnemonicWithAI()" 
-                style="
-                    width: 100%; 
-                    padding: 16px 20px; 
-                    background: rgba(28, 28, 30, 0.85); 
-                    backdrop-filter: blur(12px); 
-                    -webkit-backdrop-filter: blur(12px);
-                    border: 1px solid rgba(255, 255, 255, 0.15); 
-                    border-radius: 999px; 
-                    color: #ffffff; 
-                    font-size: 14px; 
-                    font-weight: 600; 
-                    letter-spacing: 0.5px;
-                    display: flex; 
-                    align-items: center; 
-                    justify-content: center; 
-                    gap: 8px;
-                    cursor: pointer;
-                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-                    transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
-                "
-                onmouseover="this.style.transform='scale(0.98)'; this.style.background='rgba(28, 28, 30, 0.95)';"
-                onmouseout="this.style.transform='scale(1)'; this.style.background='rgba(28, 28, 30, 0.85)';"
-            >
-                <span class="material-symbols-outlined" style="font-size: 20px; background: linear-gradient(135deg, #a8c0ff, #3f2b96, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> 
-                TẠO MẸO NHỚ BẰNG AI
+        <div style="position: absolute; bottom: 20px; right: 20px; z-index: 100;">
+            <!-- Dropdown Menu -->
+            <div id="aiDropdownMenu" style="
+                display: none; 
+                position: absolute; 
+                bottom: 65px; 
+                right: 0; 
+                background: rgba(28, 28, 30, 0.75); 
+                backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+                border: 1px solid rgba(255,255,255,0.15); 
+                border-radius: 16px; 
+                box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
+                padding: 6px; 
+                width: max-content; 
+                flex-direction: column; 
+                gap: 4px;
+                transform-origin: bottom right;
+                animation: popUpDropdown 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            ">
+                <button onclick="executeAiAction('mnemonic')" style="background: transparent; border: none; color: #fff; padding: 12px 16px; text-align: left; font-size: 14px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                    <span class="material-symbols-outlined" style="font-size: 18px; color: #a8c0ff;">lightbulb</span> Mẹo nhớ cách đọc
+                </button>
+                <div style="height: 1px; background: rgba(255,255,255,0.1); margin: 2px 8px;"></div>
+                <button onclick="executeAiAction('examples')" style="background: transparent; border: none; color: #fff; padding: 12px 16px; text-align: left; font-size: 14px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                    <span class="material-symbols-outlined" style="font-size: 18px; color: #ff8a00;">draw</span> Đổi câu ví dụ (Max 2)
+                </button>
+            </div>
+
+            <!-- Nút Tròn -->
+            <button id="btnAiFab" onclick="toggleAiDropdown()" style="
+                width: 50px; height: 50px; 
+                border-radius: 50%; 
+                background: rgba(28, 28, 30, 0.85); 
+                backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+                border: 1px solid rgba(255,255,255,0.2); 
+                color: white; 
+                display: flex; align-items: center; justify-content: center; 
+                cursor: pointer; 
+                box-shadow: 0 8px 24px rgba(0,0,0,0.15); 
+                transition: transform 0.2s;
+            "
+            onmouseover="this.style.transform='scale(1.05)'" 
+            onmouseout="this.style.transform='scale(1)'">
+                <span id="aiFabIcon" class="material-symbols-outlined" style="font-size: 24px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span>
             </button>
-            <div id="aiMnemonicResultZone" style="display: none; margin-top: 20px; animation: fadeInChat 0.3s ease;"></div>
         </div>
     `;
 
-    html += '</div>';
+    // Cập nhật HTML modal
     contentDiv.innerHTML = html; 
     document.getElementById('infoModal').style.display = 'flex'; 
+
+    // Đóng dropdown nếu click ra ngoài
+    setTimeout(() => {
+        const infoModalWrapper = document.getElementById('infoModal').querySelector('.win11-modal-content');
+        infoModalWrapper.onclick = function(e) {
+            const dropdown = document.getElementById('aiDropdownMenu');
+            const btn = document.getElementById('btnAiFab');
+            if (dropdown && dropdown.style.display === 'flex' && !dropdown.contains(e.target) && !btn.contains(e.target)) {
+                dropdown.style.display = 'none';
+            }
+        };
+    }, 100);
+}
+
+// Thêm keyframe cho dropdown mượt mà (chỉ chạy 1 lần)
+if (!document.getElementById('aiDropdownStyles')) {
+    const style = document.createElement('style');
+    style.id = 'aiDropdownStyles';
+    style.innerHTML = `@keyframes popUpDropdown { from { opacity: 0; transform: scale(0.9) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }`;
+    document.head.appendChild(style);
 }
 function showTodayList() { 
     // 1. Kiểm tra an toàn: Nếu danh sách trống thì không làm gì cả
@@ -19814,110 +19859,173 @@ async function resumeAssessmentFromLocal(data) {
 
 
 /* Hết================= HỆ THỐNG AUTOSAVE SÁT HẠCH (CHỐNG F5/RELOAD) ================= */
-/* ================= HỆ THỐNG AI TẠO MẸO NHỚ CÁCH ĐỌC ================= */
-async function generateReadingMnemonicWithAI() {
+/* ================= HỆ THỐNG AI CHO INFO MODAL (MNEMONIC & EXAMPLES) ================= */
+// Biến RAM toàn cục lưu trữ kết quả để tránh lỗi chuỗi khi truyền qua onclick
+window.tempAiData = null;
+
+function toggleAiDropdown() {
+    const menu = document.getElementById('aiDropdownMenu');
+    if (menu) {
+        menu.style.display = menu.style.display === 'none' ? 'flex' : 'none';
+    }
+}
+
+function setAiFabLoading(isLoading) {
+    const icon = document.getElementById('aiFabIcon');
+    const menu = document.getElementById('aiDropdownMenu');
+    if (menu) menu.style.display = 'none'; // Ẩn menu khi bắt đầu load
+    
+    if (isLoading) {
+        icon.className = 'spinner';
+        icon.style.background = 'none';
+        icon.style.borderColor = '#ffffff';
+        icon.style.borderTopColor = 'transparent';
+        icon.style.width = '24px'; icon.style.height = '24px'; icon.style.borderWidth = '2px';
+        document.getElementById('btnAiFab').disabled = true;
+    } else {
+        icon.className = 'material-symbols-outlined';
+        icon.style = 'font-size: 24px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent; width: auto; height: auto; border: none;';
+        icon.innerText = 'auto_awesome';
+        document.getElementById('btnAiFab').disabled = false;
+    }
+}
+
+async function executeAiAction(actionType) {
     const c = sessionCards[currentIndex];
     if (!c) return;
     const p = parseCardData(c);
+    const zone = document.getElementById('aiGenericResultZone');
 
-    if (!p.reading) {
-        return customAlert("Từ này chưa có cách đọc (Hiragana) để tạo mẹo âm thanh!", "⚠️");
+    if (actionType === 'mnemonic' && !p.reading) {
+        return customAlert("Từ này chưa có cách đọc (Hiragana) để tạo mẹo!", "⚠️");
     }
 
-    const btn = document.getElementById('btnAiMnemonic');
-    const zone = document.getElementById('aiMnemonicResultZone');
-
-    btn.disabled = true;
-    // Loading spinner màu trắng, chữ trắng
-    btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#ffffff;margin-right:8px;"></div> Gia sư AI đang suy nghĩ...';
-
-    const prompt = `Đóng vai trò là một giáo viên tiếng Nhật vô cùng sáng tạo và hài hước. Hãy tạo một mẹo nhớ theo phương pháp âm thanh tương tự (phát âm tiếng Nhật nghe giống một từ/câu chuyện vui trong tiếng Việt) cho từ sau:
-    
-    - Từ vựng: "${p.front}"
-    - Cách đọc: "${p.reading}"
-    - Nghĩa: "${p.meaning}"
-
-    Mục đích: Giúp học viên nhớ được CÁCH ĐỌC (Âm thanh) của từ này một cách dễ dàng và buồn cười nhất.
-    Yêu cầu: Trình bày cực kỳ ngắn gọn (2-3 câu). Trả về text thuần, bôi đậm các từ khóa quan trọng bằng dấu **. (Không dùng markdown \`\`\`json).`;
+    setAiFabLoading(true);
+    zone.style.display = 'none';
 
     try {
-        let aiResponse = await callGeminiAI(prompt);
-        let formattedRes = aiResponse.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1d1d1f; font-weight: 700;">$1</b>').replace(/\n/g, '<br>');
-        const safeMnemonic = encodeURIComponent(formattedRes).replace(/'/g, "%27");
+        if (actionType === 'mnemonic') {
+            const prompt = `Giáo viên tiếng Nhật hài hước. Tạo mẹo nhớ CÁCH ĐỌC bằng âm thanh tương tự tiếng Việt. Ngắn gọn 2-3 câu. Bôi đậm từ khóa bằng dấu **.
+            Từ: "${p.front}" | Đọc: "${p.reading}" | Nghĩa: "${p.meaning}"`;
+            
+            let res = await callGeminiAI(prompt);
+            let formatted = res.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1d1d1f; font-weight: 700;">$1</b>').replace(/\n/g, '<br>');
+            
+            window.tempAiData = formatted; // Lưu vào RAM
+            
+            zone.innerHTML = renderAiResultCard('lightbulb', 'MẸO NHỚ ÂM THANH', formatted, 'saveMnemonicToCard()', 'Lưu vào Ghi chú');
+            zone.style.display = 'block';
 
-        // UI khung kết quả: Kính mờ trắng sang trọng, bo 16px, shadow mịn
-        zone.innerHTML = `
-            <div style="background: rgba(251, 251, 253, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(0, 0, 0, 0.05); border-radius: 16px; padding: 20px; font-size: 15px; color: #333336; line-height: 1.6; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);">
-                <div style="font-size: 12px; font-weight: 800; color: #1d1d1f; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; letter-spacing: 0.5px; opacity: 0.6;">
-                    <span class="material-symbols-outlined" style="font-size: 16px;">lightbulb</span> MẸO NHỚ ÂM THANH
-                </div>
-                <div style="font-size: 16px; text-shadow: 0 1px 2px rgba(255,255,255,0.8);">${formattedRes}</div>
-                
-                <div style="margin-top: 20px; text-align: right;">
-                    <button onclick="saveMnemonicToCard('${safeMnemonic}')" 
-                        style="background: #1d1d1f; color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; border: none; cursor: pointer; transition: all 0.2s;"
-                        onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
-                        <span class="material-symbols-outlined" style="font-size: 16px;">bookmark_add</span> Lưu vào Ghi chú
-                    </button>
-                </div>
+        } else if (actionType === 'examples') {
+            const prompt = `Tạo đúng 2 câu ví dụ tiếng Nhật chứa từ "${p.front}" (${p.reading} - ${p.meaning}). 
+            Trình bày ĐÚNG format sau, không thêm text thừa:
+            [JP1] (Câu Nhật 1)
+            [VN1] (Nghĩa Việt 1)
+            [JP2] (Câu Nhật 2)
+            [VN2] (Nghĩa Việt 2)`;
+
+            let res = await callGeminiAI(prompt);
+            
+            // Bóc tách dữ liệu bằng Regex đơn giản
+            const jp1Match = res.match(/\[JP1\](.*)/);
+            const vn1Match = res.match(/\[VN1\](.*)/);
+            const jp2Match = res.match(/\[JP2\](.*)/);
+            const vn2Match = res.match(/\[VN2\](.*)/);
+
+            if (!jp1Match || !vn1Match) throw new Error("AI trả sai định dạng");
+
+            window.tempAiData = {
+                jp1: jp1Match[1].trim(), vn1: vn1Match[1].trim(),
+                jp2: jp2Match ? jp2Match[1].trim() : '', vn2: vn2Match ? vn2Match[1].trim() : ''
+            };
+
+            let htmlPreview = `<b>1.</b> ${window.tempAiData.jp1}<br><span style="color:#666">${window.tempAiData.vn1}</span>`;
+            if (window.tempAiData.jp2) {
+                htmlPreview += `<br><br><b>2.</b> ${window.tempAiData.jp2}<br><span style="color:#666">${window.tempAiData.vn2}</span>`;
+            }
+
+            zone.innerHTML = renderAiResultCard('draw', 'VÍ DỤ MỚI ĐÃ TẠO', htmlPreview, 'saveExamplesToCard()', 'Lưu đè Ví dụ cũ');
+            zone.style.display = 'block';
+        }
+    } catch (err) {
+        console.error("Lỗi AI:", err);
+        customAlert("Lỗi khi gọi AI. Vui lòng thử lại sau.", "❌");
+    } finally {
+        setAiFabLoading(false);
+        setTimeout(() => {
+            document.getElementById('infoText').scrollTop = document.getElementById('infoText').scrollHeight;
+        }, 50); // Tự động cuộn xuống dưới cùng để xem kết quả
+    }
+}
+
+// Hàm render UI khối kết quả xài chung
+function renderAiResultCard(icon, title, content, onClickFn, btnText) {
+    return `
+        <div style="background: rgba(251, 251, 253, 0.85); backdrop-filter: blur(20px); border: 1px solid rgba(0, 0, 0, 0.05); border-radius: 16px; padding: 20px; font-size: 15px; color: #333336; line-height: 1.6; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);">
+            <div style="font-size: 12px; font-weight: 800; color: #1d1d1f; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; opacity: 0.6;">
+                <span class="material-symbols-outlined" style="font-size: 16px;">${icon}</span> ${title}
             </div>
-        `;
-        zone.style.display = 'block';
-        btn.style.display = 'none';
-
-    } catch (err) {
-        console.error("Lỗi tạo mẹo nhớ:", err);
-        btn.disabled = false;
-        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">error</span> Lỗi mạng. Nhấn để thử lại';
-    }
+            <div style="font-size: 16px;">${content}</div>
+            <div style="margin-top: 20px; text-align: right;">
+                <button onclick="${onClickFn}" style="background: #1d1d1f; color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 600; border: none; cursor: pointer;">
+                    <span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">bookmark_add</span> ${btnText}
+                </button>
+            </div>
+        </div>
+    `;
 }
 
-async function saveMnemonicToCard(encodedMnemonic) {
-    if (!currentUser) return customAlert("Vui lòng đăng nhập để lưu!", "⚠️");
-    const c = sessionCards[currentIndex];
-    if (!c) return;
-
-    showLoading("Đang lưu vào thẻ...");
+// Logic Lưu dữ liệu Database
+async function saveMnemonicToCard() {
+    if (!currentUser) return customAlert("Vui lòng đăng nhập!", "⚠️");
+    if (!window.tempAiData) return;
+    showLoading("Đang lưu...");
     try {
-        const mnemonicHtml = decodeURIComponent(encodedMnemonic);
+        const c = sessionCards[currentIndex];
         const p = parseCardData(c);
-
-        // Loại bỏ thẻ HTML <b> và thay <br> bằng | để lưu database gọn gàng
-        let plainTextMnemonic = mnemonicHtml.replace(/<b.*?>/g, '').replace(/<\/b>/g, '').replace(/<br>/g, ' | ');
-
-        // Chèn thêm vào chuỗi [HV] cũ
-        let newHv = p.hv ? p.hv + " | 💡 Mẹo đọc: " + plainTextMnemonic : "💡 Mẹo đọc: " + plainTextMnemonic;
-
-        // Đóng gói lại chuỗi Info để đẩy lên Supabase
-        let infoArr = [];
-        if (newHv) infoArr.push(`[HV] ${newHv}`);
-        if (p.exampleJP) infoArr.push(`[EX1] ${p.exampleJP}`);
-        if (p.exampleVN) infoArr.push(`[VN1] ${p.exampleVN}`);
-        if (p.ex2jp) infoArr.push(`[EX2] ${p.ex2jp}`);
-        if (p.ex2vn) infoArr.push(`[VN2] ${p.ex2vn}`);
-
-        const newInfo = infoArr.join('\n');
-
-        // Update Database Supabase
-        const { error } = await sb.from('cards').update({ info: newInfo }).eq('id', c.id);
-        if (error) throw error;
-
-        // Update RAM
-        c.info = newInfo;
-
-        hideLoading();
-        showToast("✨ Đã lưu mẹo nhớ vào thẻ!");
-
-        // Render lại Info Modal để hiển thị đoạn ghi chú vừa lưu lên màn hình
-        showInfoModal();
-
-    } catch (err) {
-        hideLoading();
-        console.error("Lỗi lưu mẹo nhớ:", err);
-        customAlert("Không thể lưu: " + err.message, "❌");
-    }
+        let plainText = window.tempAiData.replace(/<b.*?>/g, '').replace(/<\/b>/g, '').replace(/<br>/g, ' | ');
+        let newHv = p.hv ? p.hv + " | 💡 Mẹo đọc: " + plainText : "💡 Mẹo đọc: " + plainText;
+        
+        let newInfo = buildInfoString(newHv, p.exampleJP, p.exampleVN, p.ex2jp, p.ex2vn);
+        await updateCardInfo(c, newInfo);
+    } catch (e) { customAlert("Lỗi lưu: " + e.message, "❌"); }
 }
-/*Hết ================= HỆ THỐNG AI TẠO MẸO NHỚ CÁCH ĐỌC ================= */
+
+async function saveExamplesToCard() {
+    if (!currentUser) return customAlert("Vui lòng đăng nhập!", "⚠️");
+    if (!window.tempAiData || !window.tempAiData.jp1) return;
+    showLoading("Đang cập nhật ví dụ...");
+    try {
+        const c = sessionCards[currentIndex];
+        const p = parseCardData(c);
+        let newInfo = buildInfoString(p.hv, window.tempAiData.jp1, window.tempAiData.vn1, window.tempAiData.jp2, window.tempAiData.vn2);
+        await updateCardInfo(c, newInfo);
+    } catch (e) { customAlert("Lỗi lưu: " + e.message, "❌"); }
+}
+
+// Hàm phụ trợ đóng gói Info
+function buildInfoString(hv, jp1, vn1, jp2, vn2) {
+    let arr = [];
+    if (hv) arr.push(`[HV] ${hv}`);
+    if (jp1) arr.push(`[EX1] ${jp1}`);
+    if (vn1) arr.push(`[VN1] ${vn1}`);
+    if (jp2) arr.push(`[EX2] ${jp2}`);
+    if (vn2) arr.push(`[VN2] ${vn2}`);
+    return arr.join('\n');
+}
+
+// Hàm phụ trợ gọi Supabase
+async function updateCardInfo(card, newInfoString) {
+    const { error } = await sb.from('cards').update({ info: newInfoString }).eq('id', card.id);
+    if (error) throw error;
+    card.info = newInfoString; // Update RAM
+    window.tempAiData = null; // Clear biến tạm
+    hideLoading();
+    showToast("✨ Đã cập nhật thẻ thành công!");
+    showInfoModal(); // Reload giao diện
+}
+/* Hết================= HỆ THỐNG AI CHO INFO MODAL (MNEMONIC & EXAMPLES) ================= */
+
 
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
