@@ -5390,6 +5390,26 @@ body.modal-open-lock {
     scrollbar-width: none;
 }
 /*hết ================= FIX LỖI KHÔNG CUỘN ĐƯỢC Ở MÀN HÌNH TẢI PDF ================= */
+/* ================= TỐI ƯU GIAO DIỆN KANJI X-RAY ================= */
+/* Ẩn hoàn toàn thanh cuộn (nhưng vẫn cho phép vuốt/lăn chuột nếu AI sinh ra text quá dài) */
+#xrayContent {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+    position: relative; /* Dùng để neo Dropdown nút Sửa/Xóa */
+}
+#xrayContent::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, iOS */
+}
+
+/* Đóng mở Dropdown mượt mà */
+.kanji-admin-dropdown {
+    opacity: 0; visibility: hidden; transform: translateY(-10px);
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.kanji-admin-dropdown.show {
+    opacity: 1; visibility: visible; transform: translateY(0);
+}
+/*Hết ================= TỐI ƯU GIAO DIỆN KANJI X-RAY ================= */
 
 </style>
 </head>
@@ -9124,66 +9144,79 @@ async function showKanjiXRay(event, kanji) {
         const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
         
         let adminActionsHtml = "";
+        
         if (isAdmin) {
-            // Đóng gói toàn bộ data của Kanji này truyền sang Form Edit
             const safeKanjiData = encodeURIComponent(JSON.stringify(data)).replace(/'/g, "%27");
             
             adminActionsHtml = `
-                <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: -10px; margin-bottom: 15px; position: relative; z-index: 10;">
-                    <button onclick="editAdminKanji('${safeKanjiData}')" class="win11-btn-secondary" style="padding: 6px 12px; font-size: 12px; color: #0067c0; border-color: #bee3f8; background: #ebf8ff;" title="Sửa toàn bộ thông tin">
-                        <span class="material-symbols-outlined" style="font-size: 16px;">edit_square</span> Sửa chữ này
+                <div style="position: absolute; top: 10px; right: 10px; z-index: 100;">
+                    <!-- Nút tròn Icon Cây bút -->
+                    <button onclick="document.getElementById('kAdminMenu').classList.toggle('show'); event.stopPropagation();" 
+                            style="width: 36px; height: 36px; border-radius: 50%; background: #f5f5f7; border: 1px solid #e5e5ea; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #0071e3; transition: 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05);"
+                            onmouseover="this.style.background='#e5e5ea'; this.style.transform='scale(1.05)';" onmouseout="this.style.background='#f5f5f7'; this.style.transform='none';">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">edit</span>
                     </button>
-                    <button onclick="deleteAdminKanji('${data.kanji}')" class="win11-btn-secondary" style="padding: 6px 12px; font-size: 12px; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4;" title="Xóa chữ này khỏi DB">
-                        <span class="material-symbols-outlined" style="font-size: 16px;">delete</span> Xóa
-                    </button>
+                    
+                    <!-- Bảng Dropdown -->
+                    <div id="kAdminMenu" class="kanji-admin-dropdown" style="position: absolute; top: 45px; right: 0; background: #ffffff; border: 1px solid #e5e5ea; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); padding: 6px; width: 150px; display: flex; flex-direction: column; gap: 4px;">
+                        <button onclick="editAdminKanji('${safeKanjiData}')" style="background: transparent; border: none; padding: 10px 12px; text-align: left; border-radius: 8px; font-size: 13px; color: #0071e3; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;" onmouseover="this.style.background='#f0f9ff'" onmouseout="this.style.background='transparent'">
+                            <span class="material-symbols-outlined" style="font-size: 16px;">edit_square</span> Sửa chữ
+                        </button>
+                        <button onclick="deleteAdminKanji('${data.kanji}')" style="background: transparent; border: none; padding: 10px 12px; text-align: left; border-radius: 8px; font-size: 13px; color: #e53e3e; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;" onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background='transparent'">
+                            <span class="material-symbols-outlined" style="font-size: 16px;">delete</span> Xóa
+                        </button>
+                    </div>
                 </div>
             `;
         }
 
+        // 2. TỐI ƯU LẠI KHỐI MẸO NHỚ (GỌN HƠN)
         let mnemonicHtml = "";
-        // Nếu có Mẹo nhớ thì mới hiển thị khối Vàng (Không còn nút Edit rườm rà ở đây nữa)
         if (data.mnemonics) {
             mnemonicHtml = `
-            <div style="background: #fff8f0; padding: 16px; border-radius: 8px; border: 1px solid #fce8cd; border-left: 4px solid #f29b2b; text-align: left; font-size: 14px; color: #1a1a1a; line-height: 1.6; margin-bottom: 24px;">
-                <div style="display: flex; align-items: center; gap: 6px; font-weight: 600; color: #9e5b00; margin-bottom: 6px;">
-                    <span class="material-symbols-outlined" style="font-size:18px;">lightbulb</span> Mẹo nhớ:
+            <div style="background: #fff8f0; padding: 14px; border-radius: 12px; border: 1px solid #fce8cd; text-align: left; font-size: 14px; color: #1a1a1a; line-height: 1.5; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; color: #9e5b00; margin-bottom: 4px;">
+                    <span class="material-symbols-outlined" style="font-size:16px;">lightbulb</span> Mẹo nhớ:
                 </div>
                 <div>${data.mnemonics}</div>
             </div>`;
         }
+
+        // 3. RENDER TOÀN BỘ MODAL MỚI
         const content = `
             ${adminActionsHtml}
-            <div style="font-size: 80px; font-weight: 900; color: #005fb8; line-height: 1.1; font-family: 'Noto Sans JP', sans-serif;">${data.kanji}</div>
-            <div style="font-size: 18px; font-weight: 700; color: #c50f1f; margin: 4px 0 12px 0; letter-spacing: 1px;">[ ${data.hv} ]</div>
-            <div style="font-size: 15px; color: #1a1a1a; margin-bottom: 24px; font-weight: 500;">Nghĩa: <b style="color: #0067c0;">${data.meaning}</b></div>
             
-            <div style="background: #fbfbfb; padding: 12px; border-radius: 8px; border: 1px solid #e5e5e5; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                <span style="font-size: 12px; font-weight: 600; color: #666666;">CẤU TẠO:</span>
-                <b style="font-size: 18px; color: #1a1a1a; letter-spacing: 2px;">${data.components.join(' <span style="color:#cccccc; font-weight:400;">+</span> ')}</b>
+            <div style="font-size: 75px; font-weight: 900; color: #0067c0; line-height: 1; font-family: 'Noto Sans JP', sans-serif; margin-top: 5px;">${data.kanji}</div>
+            <div style="font-size: 16px; font-weight: 800; color: #c50f1f; margin: 8px 0 10px 0; letter-spacing: 1px;">[ ${data.hv} ]</div>
+            <div style="font-size: 15px; color: #1a1a1a; margin-bottom: 20px; font-weight: 600;">Nghĩa: <b style="color: #0067c0;">${data.meaning}</b></div>
+            
+            <div style="background: #fbfbfb; padding: 10px; border-radius: 8px; border: 1px dashed #d2d2d7; margin-bottom: 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: auto; min-width: 80%;">
+                <span style="font-size: 11px; font-weight: 700; color: #666666;">CẤU TẠO:</span>
+                <b style="font-size: 16px; color: #1a1a1a; letter-spacing: 2px;">${data.components.join(' <span style="color:#cccccc; font-weight:400;">+</span> ')}</b>
             </div>
             
             ${mnemonicHtml}
 
-            
-            <!-- VÙNG HỌC ẢO (WIN 11) -->
+            <!-- VÙNG HỌC ẢO (ĐÃ ĐỔI TÊN NÚT) -->
             ${localCardsCount > 0 ? `
-            <div style="background: #fbfbfb; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; text-align: left; animation: fadeInChat 0.3s ease; margin-bottom: 16px;">
+            <div style="background: #fbfbfb; border: 1px solid #e5e5e5; border-radius: 12px; padding: 14px; text-align: left; animation: fadeInChat 0.3s ease; margin-bottom: 15px;">
                 <div style="font-size: 13px; color: #1a1a1a; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
-                    <span class="material-symbols-outlined" style="font-size: 18px; color: #0067c0;">style</span> Bạn có <b style="color: #0067c0; font-size: 16px;">${localCardsCount}</b> thẻ chứa chữ này
+                    <span class="material-symbols-outlined" style="font-size: 18px; color: #0067c0;">style</span> Bạn có <b style="color: #0067c0; font-size: 15px;">${localCardsCount}</b> thẻ chứa chữ này
                 </div>
-                <button onclick="startVirtualSession(tempVirtualCards)" class="win11-btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px;">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">rocket_launch</span> Luyện tập ngay (Không tính điểm SRS)
+                <button onclick="startVirtualSession(tempVirtualCards)" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; border-radius: 8px; background: #0067c0; color: white; border: none; font-size: 14px; font-weight: 700; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#005eb0'" onmouseout="this.style.background='#0067c0'">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">rocket_launch</span> Luyện tập ở chế độ cơ bản
                 </button>
             </div>
             ` : `
-            <div style="background: #fbfbfb; border: 1px dashed #e5e5e5; border-radius: 8px; padding: 12px; font-size: 13px; color: #8c8c8c; text-align: center; margin-bottom: 16px;">
+            <div style="background: #fbfbfb; border: 1px dashed #e5e5e5; border-radius: 12px; padding: 12px; font-size: 13px; color: #8c8c8c; text-align: center; margin-bottom: 15px;">
                 Bạn chưa có thẻ nào chứa chữ này trong kho bài.
             </div>
             `}
-            <!-- NÚT GỌI AI MỞ RỘNG (WIN 11 SECONDARY BUTTON) -->
-            <div id="aiKanjiExpansionZone">
-                <button id="btnAskAIKanji" class="win11-btn-secondary" onclick="expandKanjiWithAI('${data.kanji}')" style="width: 100%; justify-content: center; padding: 12px; font-size: 14px;">
-                    <span class="material-symbols-outlined" style="font-size: 18px; color: #9333ea;">auto_awesome</span> PHÂN TÍCH CHUYÊN SÂU BẰNG AI
+
+            <!-- NÚT GỌI AI: APPLE GLASSMORPHISM (ĐEN NHÁM) -->
+            <div id="aiKanjiExpansionZone" style="margin-top: 5px;">
+                <button id="btnAskAIKanji" onclick="expandKanjiWithAI('${data.kanji}')" style="width: 100%; padding: 15px; background: rgba(29, 29, 31, 0.85); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 16px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);" onmouseover="this.style.transform='scale(1.02)'; this.style.background='rgba(0,0,0,0.95)'" onmouseout="this.style.transform='none'; this.style.background='rgba(29, 29, 31, 0.85)'">
+                    <span class="material-symbols-outlined" style="font-size: 20px; color: #d8b4fe;">auto_awesome</span> PHÂN TÍCH CHUYÊN SÂU BẰNG AI
                 </button>
             </div>
         `;
@@ -19994,7 +20027,16 @@ async function updateCardInfo(card, newInfoString) {
 }
 /* Hết================= HỆ THỐNG AI CHO INFO MODAL (MNEMONIC & EXAMPLES) ================= */
 
-
+/* ================= TỰ ĐỘNG ĐÓNG DROPDOWN KANJI ADMIN KHI CLICK RA NGOÀI ================= */
+document.addEventListener('click', (e) => {
+    const kAdminMenu = document.getElementById('kAdminMenu');
+    // Nếu menu đang hiển thị và người dùng click ra ngoài khu vực của menu
+    if (kAdminMenu && kAdminMenu.classList.contains('show')) {
+        if (!kAdminMenu.contains(e.target)) {
+            kAdminMenu.classList.remove('show');
+        }
+    }
+});
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
