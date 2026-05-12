@@ -6960,8 +6960,8 @@ body.grammar-searching #headerGrammarSearch {
                 <span class="material-symbols-outlined" style="color: #9e5b00; font-size: 20px;">bolt</span>
                 <h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #1a1a1a; text-transform: uppercase; letter-spacing: 0.5px;">Boost Mode (Endless)</h3>
             </div>
-            <!-- NÚT X ĐÓNG MODAL -->
-            <button class="win11-close-btn" onclick="closeModal('boostIntroModal'); exitStudySession();">
+            <!-- NÚT X ĐÓNG MODAL (ĐÃ SỬA LẠI LOGIC) -->
+            <button class="win11-close-btn" onclick="handleBoostIntroClose()">
                 <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
             </button>
         </div>
@@ -7066,6 +7066,38 @@ body.grammar-searching #headerGrammarSearch {
                 </button>
             </div>
 
+        </div>
+    </div>
+</div>
+<!-- ================= MODAL TẠM DỪNG / ĐỔI GAME (MỚI) ================= -->
+<div id="boostExitModal" class="modal" style="z-index: 15500;">
+    <div class="modal-content win11-modal" style="max-width: 420px; text-align: center; padding: 32px 24px; overflow: hidden; position: relative;">
+        
+        <!-- Icon chìm trang trí -->
+        <span class="material-symbols-outlined" style="position: absolute; top: -20px; right: -20px; font-size: 140px; color: #f8fafc; z-index: 0; transform: rotate(15deg); pointer-events: none;">sports_esports</span>
+
+        <div style="position: relative; z-index: 1;">
+            <!-- Icon Trạng thái -->
+            <div style="width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px auto; background: #fff5f5; color: #c50f1f;">
+                <span class="material-symbols-outlined" style="font-size: 32px;">logout</span>
+            </div>
+
+            <!-- Tiêu đề & Lời nhắn -->
+            <h3 style="margin: 0 0 12px 0; font-weight: 800; color: #1a1a1a; font-size: 22px; letter-spacing: -0.5px;">Tạm dừng trò chơi?</h3>
+            <p style="color: #666666; font-size: 15px; line-height: 1.6; margin: 0 0 28px 0;">Tiến độ hiện tại vẫn sẽ được lưu lại. Bạn muốn thoát hoàn toàn hay chỉ muốn đổi sang Minigame khác?</p>
+
+            <!-- Nhóm Nút Bấm -->
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <!-- Nút Đổi Game (Nổi bật) -->
+                <button onclick="openChangeGameModal()" class="win11-btn-secondary" style="justify-content: center; padding: 14px; font-size: 15px; color: #0067c0; border-color: #bee3f8; background: #ebf8ff; font-weight: 800;">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">swap_horiz</span> ĐỔI SANG MINIGAME KHÁC
+                </button>
+                
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="closeModal('boostExitModal')" class="win11-btn-secondary" style="flex: 1; justify-content: center; padding: 14px; font-size: 15px;">Chơi tiếp</button>
+                    <button onclick="executeExitBoost()" class="win11-btn-primary" style="flex: 1; justify-content: center; padding: 14px; font-size: 15px; background: #c50f1f; border: none;">Thoát luôn</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -10062,22 +10094,45 @@ function chunkJapaneseSentence(sentence) {
     }
     return { original: cleanSentence, chunks: chunks };
 }
-// Đã cập nhật: Nhận trực tiếp ID của game và ép cứng chế độ Endless
+// --- 1. XỬ LÝ KHỞI TẠO HOẶC ĐỔI GAME BOOST ---
 function startBoostSession(gameId) {
     unlockIOSAudio();
-    boostState = { 
-        mode: 'endless',       // Cố định là vô tận (endless)
-        maxRounds: 9999,       // Số vòng cực lớn
-        selectedGame: gameId,  // Lưu game mà người dùng vừa click vào
-        currentRound: 1, 
-        correct: 0, 
-        wrong: 0, 
-        history: [] 
-    };
+
+    const boostArea = document.getElementById('boostArea');
+    const isChangingGame = boostArea && !boostArea.classList.contains('hidden');
+
+    if (isChangingGame) {
+        // 🟢 ĐANG TRONG TRẬN MÀ ĐỔI GAME: Giữ nguyên điểm số, chỉ cập nhật loại game
+        boostState.selectedGame = gameId;
+        document.getElementById('boostIntroModal').style.display = 'none';
+        showCard(); // Render lại thẻ hiện tại với game mới
+        showToast("Đã chuyển sang Minigame mới! 🎮");
+    } else {
+        // 🟠 BẮT ĐẦU MỚI TỪ ĐẦU: Reset toàn bộ điểm số
+        boostState = { 
+            mode: 'endless', 
+            maxRounds: 9999, 
+            selectedGame: gameId, 
+            currentRound: 1, 
+            correct: 0, 
+            wrong: 0, 
+            history: [] 
+        };
+        document.getElementById('boostIntroModal').style.display = 'none';
+        showCard();
+    }
+}
+
+// --- 2. XỬ LÝ KHI BẤM NÚT "X" ĐÓNG MENU CHỌN GAME ---
+function handleBoostIntroClose() {
+    closeModal('boostIntroModal');
+    const boostArea = document.getElementById('boostArea');
     
-    // Đóng Modal và hiển thị thẻ ngay lập tức
-    document.getElementById('boostIntroModal').style.display = 'none';
-    showCard();
+    // Nếu đang chọn game lúc mới bắt đầu -> Bấm X là thoát luôn ra ngoài
+    if (!boostArea || boostArea.classList.contains('hidden')) {
+        exitStudySession();
+    }
+    // Nếu đang đổi game giữa chừng -> Bấm X chỉ là hủy đổi game, trở lại bàn chơi cũ (không làm gì cả)
 }
 
 function renderBoostCard() {
@@ -18931,13 +18986,22 @@ function startVirtualSession(cardsArray) {
     
     showCard();
 }
-// Xác nhận thoát game và hiện tổng kết
-async function confirmExitBoost() {
-    const ok = await showConfirm("Thoát trò chơi?", "Bạn có chắc chắn muốn dừng lại? Tiến độ hiện tại vẫn sẽ được lưu lại.", "Thoát", "Chơi tiếp");
-    if (ok) {
-        if (mode === 'assessment') endAssessmentSession();
-        else endBoostSession();
-    }
+// Mở Modal Xác nhận thoát mới (Có nút Đổi Game)
+function confirmExitBoost() {
+    document.getElementById('boostExitModal').style.display = 'flex';
+}
+
+// Xử lý khi chọn "Đổi Minigame"
+function openChangeGameModal() {
+    closeModal('boostExitModal'); // Tắt modal hỏi thoát
+    document.getElementById('boostIntroModal').style.display = 'flex'; // Bật lại bảng chọn game
+}
+
+// Xử lý khi chọn "Thoát luôn"
+function executeExitBoost() {
+    closeModal('boostExitModal');
+    if (mode === 'assessment') endAssessmentSession();
+    else endBoostSession();
 }
 /* ================= MÁY QUÉT TRÙNG LẶP (ANTI-DUPLICATE ENGINE) ================= */
 // Hàm này nhận vào mảng các thẻ chuẩn bị lưu. Trả về true nếu có trùng lặp.
