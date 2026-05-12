@@ -5410,6 +5410,10 @@ body.modal-open-lock {
     opacity: 1; visibility: visible; transform: translateY(0);
 }
 /*Hết ================= TỐI ƯU GIAO DIỆN KANJI X-RAY ================= */
+/* Ẩn thanh cuộn của Modal Ngữ Pháp */
+#grammarDetailModal .win11-modal-body::-webkit-scrollbar { display: none !important; }
+#grammarDetailModal .win11-modal-body { -ms-overflow-style: none; scrollbar-width: none; }
+/* hết Ẩn thanh cuộn của Modal Ngữ Pháp */
 
 </style>
 </head>
@@ -14368,14 +14372,76 @@ function openGrammarDetail(encodedJSON) {
     // RESET LẠI GIAO DIỆN NẾU TRƯỚC ĐÓ CÓ MỞ AI
     document.getElementById('gdAiExpansionZone').style.display = 'none';
     document.getElementById('gdAiExpansionZone').innerHTML = '';
-    document.getElementById('gdBasicActions').style.display = 'flex';
+    document.getElementById('gdBasicActions').style.display = 'block'; // Đổi flex thành block cho nút dài
     document.querySelector('#grammarDetailModal .modal-content').style.maxWidth = '650px';
     
+    // Reset nút AI
     const aiBtn = document.getElementById('btnExpandAIGrammar');
-    aiBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 20px;">auto_awesome</span> HỌC SÂU VỚI AI';
+    aiBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 20px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> HỌC SÂU VỚI AI';
     aiBtn.disabled = false;
 
+    // Reset nút Thêm Ví Dụ
+    const btnMoreEx = document.getElementById('btnMoreExamples');
+    if (btnMoreEx) {
+        btnMoreEx.style.display = 'flex';
+        btnMoreEx.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">add</span> Thêm ví dụ';
+        btnMoreEx.disabled = false;
+    }
+
     document.getElementById('grammarDetailModal').style.display = 'flex';
+}
+// Hàm tự động tạo thêm 8 câu ví dụ bằng AI
+async function generateMoreGrammarExamples() {
+    const btn = document.getElementById('btnMoreExamples');
+    const exContainer = document.getElementById('gdExamples');
+
+    if (!currentGrammarObj) return;
+
+    // Đổi trạng thái nút thành Loading
+    btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-width:2px;border-top-color:#64748b;margin-right:4px;"></div> Đang tạo...';
+    btn.disabled = true;
+
+    const prompt = `Đóng vai trò là giáo viên tiếng Nhật. Hãy tạo thêm 8 câu ví dụ tiếng Nhật cho cấu trúc ngữ pháp: "${currentGrammarObj.grammar_point}" (Nghĩa: ${currentGrammarObj.meaning}).
+    Đảm bảo câu tự nhiên, đa dạng ngữ cảnh (công sở, đời sống, thi cử...).
+    BẮT BUỘC TRẢ VỀ DUY NHẤT 1 MẢNG JSON. Định dạng:
+    [
+      {"jp": "Câu tiếng Nhật 1", "vn": "Nghĩa tiếng Việt 1"},
+      {"jp": "Câu tiếng Nhật 2", "vn": "Nghĩa tiếng Việt 2"}
+    ]`;
+
+    try {
+        let aiResponse = await callGeminiAI(prompt);
+        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        const examples = JSON.parse(aiResponse);
+
+        let html = '';
+        examples.forEach(ex => {
+            html += `
+                <div style="margin-bottom: 12px; padding-left: 12px; border-left: 3px solid #10b981; animation: popIn 0.4s ease;">
+                    <div style="font-size: 16px; color: #1a1a1a; font-weight: 600; margin-bottom: 4px;">${wrapKanjiWithLink(escapeHTML(ex.jp))}</div>
+                    <div style="font-size: 14px; color: #666666;">${escapeHTML(ex.vn)}</div>
+                </div>
+            `;
+        });
+
+        // Thêm một đường phân cách nhỏ và đẩy ví dụ mới vào
+        exContainer.innerHTML += `<div style="text-align: center; margin: 20px 0; color: #cbd5e0; font-size: 20px;">•••</div>` + html;
+
+        // Ẩn nút sau khi tạo xong để tránh spam API
+        btn.style.display = 'none';
+
+        // Tự động cuộn xuống dưới một chút để người dùng thấy ví dụ mới
+        setTimeout(() => {
+            const modalBody = document.querySelector('#grammarDetailModal .win11-modal-body');
+            modalBody.scrollBy({ top: 300, behavior: 'smooth' });
+        }, 100);
+
+    } catch (err) {
+        console.error("Lỗi tạo ví dụ:", err);
+        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">refresh</span> Thử lại';
+        btn.disabled = false;
+        showToast("Lỗi khi tạo ví dụ. Hãy thử lại!");
+    }
 }
 // 2. HÀM GỌI AI PHÂN TÍCH SÂU NGỮ PHÁP (TƯƠNG ĐƯƠNG & TRÁI NGHĨA)
 async function expandGrammarWithAI() {
@@ -20261,18 +20327,30 @@ window.clearFavoriteDeck = async function(event, deckId) {
                 <div id="gdNuance" style="font-size: 14px; color: #4a4a4a; line-height: 1.6;"></div>
             </div>
 
-            <div style="font-size: 13px; font-weight: 700; color: #666666; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid #e5e5e5; padding-bottom: 8px;">
-                <span class="material-symbols-outlined" style="font-size: 16px;">chat</span> VÍ DỤ MINH HỌA
+            <!-- Header VÍ DỤ MINH HỌA kèm nút Thêm ví dụ -->
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e5e5; padding-bottom: 8px; margin-bottom: 12px;">
+                <div style="font-size: 13px; font-weight: 700; color: #666666; display: flex; align-items: center; gap: 6px;">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">chat</span> VÍ DỤ MINH HỌA
+                </div>
+                <!-- Nút Thêm Ví Dụ Nhỏ Gọn -->
+                <button id="btnMoreExamples" onclick="generateMoreGrammarExamples()" style="background: #f1f5f9; color: #64748b; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#1d1d1f'" onmouseout="this.style.background='#f1f5f9'; this.style.color='#64748b'">
+                    <span class="material-symbols-outlined" style="font-size: 14px;">add</span> Thêm ví dụ
+                </button>
             </div>
+            
             <div id="gdExamples" style="margin-bottom: 24px;"></div>
 
-            <!-- Nút thao tác cơ bản -->
-            <div id="gdBasicActions" style="display: flex; gap: 12px;">
-                <button id="btnExpandAIGrammar" onclick="expandGrammarWithAI()" class="win11-btn-secondary" style="flex: 1; justify-content: center; padding: 14px; color: #9333ea; border-color: #e9d5ff; background: #faf5ff;">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">auto_awesome</span> HỌC SÂU VỚI AI
-                </button>
-                <button onclick="saveGrammarToDeck()" class="win11-btn-primary" style="flex: 1; justify-content: center; padding: 14px; display: flex; align-items: center; gap: 8px;">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">style</span> LƯU 1 THẺ NÀY
+            <!-- NÚT HỌC SÂU VỚI AI (Đã sửa thành khối dài, viền nét đứt) -->
+            <div id="gdBasicActions">
+                <button id="btnExpandAIGrammar" onclick="expandGrammarWithAI()" style="
+                    width: 100%; padding: 16px; background: #fbfbfd; border: 2px dashed #cbd5e0; 
+                    border-radius: 12px; color: #64748b; font-size: 14px; font-weight: 800; letter-spacing: 0.5px;
+                    display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
+                    transition: all 0.2s ease;
+                " onmouseover="this.style.background='#f1f5f9'; this.style.borderColor='#94a3b8'; this.style.color='#1d1d1f';" 
+                   onmouseout="this.style.background='#fbfbfd'; this.style.borderColor='#cbd5e0'; this.style.color='#64748b';">
+                    <span class="material-symbols-outlined" style="font-size: 20px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> 
+                    HỌC SÂU VỚI AI
                 </button>
             </div>
 
