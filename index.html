@@ -5510,17 +5510,25 @@ body.modal-open-lock {
 }
 
 .study-settings-dropdown {
-    position: absolute; top: calc(100% + 8px); right: 0;
+    position: absolute; 
+    top: 0; /* Đặt ngang hàng với nút */
+    right: calc(100% + 12px); /* Đẩy sang bên trái của nút */
     background: #ffffff; border-radius: 8px;
     border: 1px solid #dadce0;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.08);
-    /* SỬA LẠI: Bóp nhỏ chiều ngang từ 240px xuống 190px để ôm sát chữ */
-    width: 190px; 
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    width: 220px; /* Nới rộng một chút cho chữ dễ nhìn */
     padding: 8px 0; z-index: 1100;
     display: none; flex-direction: column;
-    animation: popMenu 0.15s ease-out; text-align: left;
+    animation: popMenuSide 0.15s ease-out; text-align: left;
+    transform-origin: top right;
 }
 .study-settings-dropdown.show { display: flex; }
+
+/* Thêm Animation trượt từ trái sang phải */
+@keyframes popMenuSide {
+    from { opacity: 0; transform: translateX(10px) scale(0.95); }
+    to { opacity: 1; transform: translateX(0) scale(1); }
+}
 
 .setting-row {
     display: flex; justify-content: space-between; align-items: center;
@@ -5972,7 +5980,6 @@ body.modal-open-lock {
                     <button class="study-settings-btn" id="btnStudySettings" onclick="toggleStudySettings(event)">
                         <span class="material-symbols-outlined" style="font-size: 20px;">settings</span>
                     </button>
-        
                     <div id="studySettingsDropdown" class="study-settings-dropdown">
                         
                         <div class="setting-row">
@@ -5993,20 +6000,36 @@ body.modal-open-lock {
         
                         <div style="border-top: 1px solid #ebebeb; margin: 6px 0;"></div>
         
+                        <!-- TÍNH NĂNG MỚI: ÔN TẬP SRS -->
+                        <div class="setting-row" title="Học theo thuật toán lặp lại ngắt quãng">
+                            <span style="display: flex; align-items: center; gap: 12px;"><span class="material-symbols-outlined" style="color: #0f6f2e;">psychology</span> Ôn tập SRS</span>
+                            <label class="compact-switch">
+                                <input type="checkbox" id="toggleSrsCb" onchange="toggleSrsMode(this.checked)">
+                                <span class="compact-slider"></span>
+                            </label>
+                        </div>
+        
                         <div class="setting-row">
-                            <span style="display: flex; align-items: center; gap: 12px;"><span class="material-symbols-outlined">autorenew</span> Liên hoàn</span>
+                            <span style="display: flex; align-items: center; gap: 12px;"><span class="material-symbols-outlined">autorenew</span> Chế độ Liên hoàn</span>
                             <label class="compact-switch">
                                 <input type="checkbox" id="toggleCramCb" onchange="toggleCramMode(this.checked)">
                                 <span class="compact-slider"></span>
                             </label>
                         </div>
         
-                        <!-- Bảng chọn cấp độ Liên hoàn (Ẩn mặc định, được thụt lề vào trong) -->
                         <div id="cramLevelBox" class="cram-levels-box">
                             <button class="cram-lvl-btn" onclick="startCramLevel(2)"><span class="material-symbols-outlined">stat_1</span> Chế độ 2 Cấp</button>
                             <button class="cram-lvl-btn" onclick="startCramLevel(3)"><span class="material-symbols-outlined">stat_2</span> Chế độ 3 Cấp</button>
                             <button class="cram-lvl-btn" onclick="startCramLevel(4)"><span class="material-symbols-outlined">stat_3</span> Chế độ 4 Cấp</button>
                             <button class="cram-lvl-btn" onclick="startCramLevel(5)"><span class="material-symbols-outlined">signal_cellular_alt</span> Chế độ 5 Cấp</button>
+                        </div>
+        
+                        <div style="border-top: 1px solid #ebebeb; margin: 6px 0;"></div>
+        
+                        <!-- TÍNH NĂNG MỚI: CHƠI BOOST -->
+                        <div class="setting-row" style="cursor: pointer; color: #dd6b20;" onclick="startBoostFromSettings()">
+                            <span style="display: flex; align-items: center; gap: 12px;"><span class="material-symbols-outlined">bolt</span> Boost Mode</span>
+                            <span class="material-symbols-outlined" style="font-size: 16px;">chevron_right</span>
                         </div>
                     </div>
                 </div>
@@ -6100,7 +6123,7 @@ body.modal-open-lock {
                     <div style="background: white; padding: 15px 30px; border-radius: 15px;"><h3 style="margin:0; color:#e53e3e; font-size:24px;" id="sumWrong">0</h3><small>Sai</small></div>
                 </div>
                 <ul class="summary-list" id="boostSummaryList"></ul>
-                <button onclick="exitStudySession()" style="margin-top: 30px; width: 100%; padding: 18px; background: #22543d; color: white; border: none; border-radius: 50px; font-size: 18px; font-weight: 800; cursor: pointer;">KẾT THÚC (QUAY LẠI)</button>
+                <button id="btnEndBoostSummary" onclick="returnFromBoostToBasic()" style="margin-top: 30px; width: 100%; padding: 18px; background: #22543d; color: white; border: none; border-radius: 50px; font-size: 18px; font-weight: 800; cursor: pointer;">KẾT THÚC (QUAY LẠI CƠ BẢN)</button>
             </div>
         </div>
     </div>
@@ -6687,21 +6710,13 @@ body.modal-open-lock {
 
         <!-- Footer (Ghim đáy Modal) -->
         <div class="study-modal-footer" style="display: flex; align-items: center; padding: 20px 24px; overflow: visible; background: transparent; border-top: none;">
-            
             <div style="position: relative; width: 100%;">
-                <!-- Bảng Drop-up (Nảy lên trên, được đưa lên trước nút để đè Z-index tốt hơn) -->
-                <div id="studyModeDropdown" class="ai-mode-dropdown hidden" style="bottom: calc(100% + 15px); top: auto; left: 0; width: 100%; transform-origin: bottom center; box-shadow: 0 -10px 40px rgba(0,0,0,0.15); border-radius: 20px !important; padding: 8px !important;">
-                    <!-- JS sẽ bơm danh sách vào đây -->
-                </div>
-
-                <!-- Nút bấm Apple Glass Full Width -->
-                <button id="studyModeTriggerBtn" class="btn-apple-glass-primary" onclick="toggleStudyModeMenu(event)">
+                <!-- Nút bấm Apple Glass Full Width Bay Thẳng Vào Học Cơ Bản -->
+                <button class="btn-apple-glass-primary" onclick="startBasicStudy()">
                     <span class="material-symbols-outlined" style="font-size: 24px;">play_circle</span>
                     <span>BẮT ĐẦU HỌC</span>
-                    <span class="material-symbols-outlined" style="font-size: 20px; margin-left: auto;">expand_less</span>
                 </button>
             </div>
-
         </div>
 
     </div>
@@ -20673,6 +20688,122 @@ function startCramLevel(level) {
     );
 }
 /* hết================= HỆ THỐNG SETTINGS THẺ HỌC ================= */
+/* ================= UPDATE LOGIC DROPDOWN SETTINGS & CHUYỂN CHẾ ĐỘ HỌC ================= */
+
+// 1. Cập nhật hàm Toggle Menu Settings để đồng bộ thêm công tắc SRS
+window.toggleStudySettings = function(e) {
+    e.preventDefault(); e.stopPropagation();
+    
+    document.getElementById('toggleDarkModeCb').checked = isDarkCard;
+    document.getElementById('toggleReverseCb').checked = isReverseCardMode;
+    
+    const isCramming = (mode === 'cram' && targetCramLevel > 1);
+    document.getElementById('toggleCramCb').checked = isCramming;
+    document.getElementById('cramLevelBox').classList.toggle('show', isCramming);
+
+    // Đồng bộ công tắc SRS
+    document.getElementById('toggleSrsCb').checked = (mode === 'review');
+
+    document.getElementById('studySettingsDropdown').classList.toggle('show');
+};
+
+// 2. Hàm bật/tắt chế độ SRS
+window.toggleSrsMode = function(isOn) {
+    if (isOn) {
+        // Tắt trực quan chế độ Liên hoàn
+        document.getElementById('toggleCramCb').checked = false;
+        document.getElementById('cramLevelBox').classList.remove('show');
+        
+        mode = 'review';
+        showToast("Đã bật Ôn tập thông minh (SRS).");
+    } else {
+        mode = 'cram';
+        targetCramLevel = 1;
+        showToast("Đã tắt SRS. Chuyển về Học cơ bản.");
+    }
+    document.getElementById('studySettingsDropdown').classList.remove('show');
+    loadCards(currentDeckName);
+};
+
+// 3. Cập nhật lại hàm bật/tắt Liên Hoàn
+window.toggleCramMode = function(isOn) {
+    if (isOn) {
+        // Tắt trực quan chế độ SRS
+        document.getElementById('toggleSrsCb').checked = false;
+        document.getElementById('cramLevelBox').classList.add('show');
+    } else {
+        document.getElementById('cramLevelBox').classList.remove('show');
+        mode = 'cram';
+        targetCramLevel = 1;
+        currentIndex = 0;
+        sessionCards.sort(() => Math.random() - 0.5);
+        document.getElementById('studySettingsDropdown').classList.remove('show');
+        showToast("Đã tắt Liên hoàn. Chuyển về Học cơ bản.");
+        showCard();
+    }
+};
+
+// 4. Mở Boost từ Settings
+window.startBoostFromSettings = function() {
+    document.getElementById('studySettingsDropdown').classList.remove('show');
+    switchToBoostMode();
+};
+
+// 5. Nút Thoát Boost Mode trả về chế độ cơ bản
+window.returnFromBoostToBasic = function() {
+    document.getElementById('boostSummaryPage').classList.add('hidden');
+    document.body.classList.remove('game-fullscreen-mode');
+    
+    // Ép về lại Học Cơ Bản
+    mode = 'cram';
+    targetCramLevel = 1;
+    loadCards(currentDeckName);
+};
+
+// 6. Hàm kích hoạt vào thẳng từ Modal
+window.startBasicStudy = function() {
+    if (!deckToStudyId) return;
+    closeModal('studyOptionsModal');
+    
+    if (pendingModalReturn.type === 'quiz') {
+        mode = 'test';
+        loadCards(deckToStudyId);
+    } else {
+        // Ép về chế độ học cơ bản
+        mode = 'cram';
+        targetCramLevel = 1; 
+
+        // Tải thẻ và hiện hướng dẫn (Chỉ hiện nếu không phải là bộ Favorites - vì Favorites ko có SRS)
+        loadCards(deckToStudyId).then(() => {
+            if (!deckToStudyId.endsWith(':Favorites')) {
+                setTimeout(() => {
+                    customAlert(
+                        `<div style="text-align:center;">
+                            <span class="material-symbols-outlined" style="font-size: 40px; color: #0067c0; margin-bottom: 10px;">settings</span><br>
+                            Bạn đang ở <b>Chế độ học cơ bản</b>.<br><br>
+                            Hãy nhấn vào nút Cài đặt <span class="material-symbols-outlined" style="font-size: 14px; vertical-align: middle;">settings</span> ở góc trên bên phải để chuyển sang chế độ <b>Ôn tập SRS</b>, <b>Liên hoàn</b> hoặc chơi <b>Minigames</b> nhé!
+                        </div>`, 
+                        "💡 Mẹo học tập"
+                    );
+                }, 400); // Đợi thẻ render xong mới hiện Modal
+            }
+        });
+    }
+};
+
+// 7. Xóa phần logic dropdown cũ thừa thãi trong hàm openStudyOptionsModal
+const originalOpenStudyOptionsModal = window.openStudyOptionsModal;
+window.openStudyOptionsModal = function(deckId, deckName, type) {
+    deckToStudyId = deckId;
+    pendingModalReturn = { id: deckId, name: deckName, type: type };
+    isInlineListLoaded = false;
+    document.getElementById('inlineDeckListContainer').style.display = 'none';
+    document.getElementById('inlineDeckListContainer').innerHTML = '';
+    document.getElementById('toggleListIcon').innerText = 'expand_more';
+    document.getElementById('studyOptionsDeckName').innerText = deckName;
+    document.getElementById('studyOptionsModal').style.display = 'flex';
+};
+/* Hết================= UPDATE LOGIC DROPDOWN SETTINGS & CHUYỂN CHẾ ĐỘ HỌC ================= */
 
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
