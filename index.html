@@ -13670,47 +13670,57 @@ async function saveQuickEdit() {
 }
 
 async function deleteQuickCard() {
-    if (mode === 'boost' || mode === 'assessment' || mode === 'remedial') {
-        return customAlert("Không thể xóa thẻ khi đang ở trong phiên Sát hạch hoặc Minigame để tránh lỗi hệ thống. Hãy về chế độ học Cơ bản để xóa nhé!", "⚠️");
+    // 1. CHỈ CHẶN KHI ĐANG CHƠI GAME HOẶC ĐANG SÁT HẠCH (VÌ GAME ĐANG CHẠY)
+    // Đã gỡ bỏ 'remedial' khỏi danh sách cấm, cho phép xóa thoải mái khi đang xem lại!
+    if (mode === 'boost' || mode === 'assessment') {
+        return customAlert("Không thể xóa thẻ khi game đang chạy. Hãy đợi chơi xong màn này hoặc ra ngoài để xóa nhé!", "⚠️");
     }
+
     const c = sessionCards[currentIndex];
     const ok = await showConfirm("Xóa vĩnh viễn thẻ này?", "Hành động này sẽ xóa thẻ khỏi cơ sở dữ liệu và không thể hoàn tác.", "Xóa thẻ");
     if (!ok) return;
 
     showLoading("Đang xóa thẻ...");
     try {
-        // Xóa trên Database
+        // 2. Xóa vĩnh viễn trên Supabase
         const { error } = await sb.from('cards').delete().eq('id', c.id);
         if (error) throw error;
 
         closeModal('quickEditModal');
         showToast("Đã xóa thẻ khỏi bộ bài! 🗑️");
 
-        // Xóa khỏi mảng đang học tạm thời
+        // 3. Xóa khỏi mảng đang học tạm thời
         sessionCards.splice(currentIndex, 1);
 
-        // 🟢 NẾU MODAL DANH SÁCH ĐANG MỞ -> LOAD LẠI DANH SÁCH
+        // 🟢 FIX LỖI BÓNG MA: Xóa luôn khỏi RAM Cache nếu có để chống F5
+        if (window.rawDeckCache && window.rawDeckCache.length > 0) {
+            window.rawDeckCache = window.rawDeckCache.filter(card => card.id !== c.id);
+        }
+
+        // Nếu Modal Danh sách thẻ đang mở (inline list) -> Load lại
         if (document.getElementById('studyOptionsModal').style.display === 'flex') {
             isInlineListLoaded = false;
             document.getElementById('inlineDeckListContainer').style.display = 'none';
             toggleInlineDeckList();
         }
 
-        // 🟢 XỬ LÝ CHUYỂN THẺ (CHỈ KHI ĐANG MỞ MÀN HÌNH HỌC SRS)
+        // 4. XỬ LÝ CHUYỂN THẺ AN TOÀN TRÊN GIAO DIỆN
         if (!document.getElementById('reviewPage').classList.contains('hidden')) {
             if (sessionCards.length === 0) {
-                customAlert("Bạn đã xóa thẻ cuối cùng của bộ bài này.", "ℹ️");
-                showHome();
+                // Nếu xóa trúng cái thẻ cuối cùng trong mảng Remedial/Học cơ bản
+                customAlert("Bạn đã xóa thẻ cuối cùng của danh sách.", "ℹ️");
+                exitStudySession(); // Tự động thoát sạch sẽ về trang chủ
             } else {
+                // Nếu thẻ bị xóa nằm ở cuối danh sách, lùi index lại 1 bước để không bị lỗi màn hình trắng
                 if (currentIndex >= sessionCards.length) {
                     currentIndex = sessionCards.length - 1;
                 }
-                showCard();
+                showCard(); // Render lại thẻ tiếp theo thế chỗ vào vị trí vừa xóa
             }
         }
     } catch (err) {
         console.error("Lỗi xóa thẻ nhanh:", err);
-        customAlert("Không thể xóa. Có thể bạn không có quyền thao tác trên thẻ này.", "❌");
+        customAlert("Không thể xóa: " + err.message, "❌");
     } finally {
         hideLoading();
     }
