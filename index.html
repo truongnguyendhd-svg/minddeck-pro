@@ -5473,7 +5473,8 @@ body.modal-open-lock {
         </div>
 
         <!-- BÊN PHẢI: Thanh Tìm kiếm -->
-        <div class="header-right">
+        <div class="header-right" id="headerRightZone">
+            <!-- 1. Tìm kiếm toàn cục (Cũ) -->
             <div id="headerSearch" class="search-container-header hidden">
                 <input type="text" id="globalSearchInput" class="search-input-header" placeholder="Tra từ điển..." 
                        onkeypress="if(event.key === 'Enter') toggleMobileSearch(event, true)"
@@ -5481,6 +5482,12 @@ body.modal-open-lock {
                 <button onclick="toggleMobileSearch(event)" class="search-btn-header">
                     <span class="material-symbols-outlined">search</span>
                 </button>
+            </div>
+
+            <!-- 2. Tìm kiếm NGỮ PHÁP (Mới - Sẽ giãn full màn hình) -->
+            <div id="headerGrammarSearch" class="search-container-header hidden" style="width: 100%; max-width: 100%; background: #f5f5f7; display: flex; align-items: center; padding-left: 10px;">
+                <span class="material-symbols-outlined" style="color: #86868b; font-size: 20px;">search</span>
+                <input type="search" id="grammarSearchInput" class="search-input-header" enterkeyhint="search" placeholder="Tìm kiếm ngữ pháp..." oninput="filterGrammarLocally()" style="width: 100%; padding: 0 10px !important;">
             </div>
         </div>
     </div>
@@ -6336,15 +6343,7 @@ body.modal-open-lock {
 
     <!-- VÙNG DÍNH (STICKY ZONE) -->
     <div class="grammar-sticky-zone" style="display: flex; flex-direction: column; gap: 15px;">
-        
-        <!-- Thanh tìm kiếm -->
-        <div class="dict-search-box" style="box-shadow: 0 4px 10px rgba(0,0,0,0.03); background: #ffffff; margin-bottom: 0;">
-            <span class="material-symbols-outlined dict-search-icon">search</span>
-            <input type="search" id="grammarSearchInput" class="dict-search-input" enterkeyhint="search" placeholder="Tìm kiếm ngữ pháp..." oninput="filterGrammarLocally()" onfocus="enableGrammarSearchMode()">
-            <!-- Nút Hủy iOS Style -->
-            <button id="grammarSearchCancelBtn" onclick="disableGrammarSearchMode()" style="display: none; background: transparent; border: none; color: #0071e3; font-weight: 600; font-size: 15px; cursor: pointer; padding: 0 5px 0 10px; white-space: nowrap;">Hủy</button>
-        </div>
-    
+            
         <!-- 🟢 KHUNG BAO BỌC CÁC TÍNH NĂNG PHỤ (Dùng để ẩn/hiện mượt mà) -->
         <div id="grammarExtraControls">
             <!-- Thanh lọc cấp độ -->
@@ -6669,6 +6668,15 @@ body.modal-open-lock {
     .boost-game-btn:hover .play-icon {
         color: #0067c0;
     }
+/* Tùy chỉnh Header khi ở trang Ngữ Pháp */
+body.grammar-header-mode #headerMenuBlock { flex: 0 0 auto !important; }
+body.grammar-header-mode #breadcrumb { display: none !important; } /* Ẩn Breadcrumb đi để nhường chỗ */
+body.grammar-header-mode #headerRightZone { flex: 1; margin-left: 15px; display: flex; align-items: center; }
+body.grammar-header-mode #headerGrammarSearch { display: flex !important; }
+
+/* Ẩn các class liên quan đến animation search cũ của ngữ pháp vì không cần dùng nữa */
+.grammar-search-active #grammarBanner, .grammar-search-active #grammarExtraControls { display: block !important; max-height: none !important; opacity: 1 !important; }
+
 </style>
 
 <!-- MODAL GIỚI THIỆU BOOST MODE (WIN 11 STYLE - DIRECT PLAY) -->
@@ -7881,15 +7889,60 @@ function showPage(p) {
     const headerLogo = document.getElementById('headerLogo');
     const headerMenuBlock = document.getElementById('headerMenuBlock');
     const headerSearch = document.getElementById('headerSearch');
+    const headerGrammarSearch = document.getElementById('headerGrammarSearch');
 
     if (p === 'landingPage' || p === 'loginPage') {
         if (headerLogo) headerLogo.classList.remove('hidden');
         if (headerMenuBlock) headerMenuBlock.classList.add('hidden');
         if (headerSearch) headerSearch.classList.add('hidden');
+        if (headerGrammarSearch) headerGrammarSearch.classList.add('hidden');
+    } else if (p === 'grammarPage') {
+        // TRANG NGỮ PHÁP: Ẩn tìm kiếm chung, Hiện tìm kiếm Ngữ pháp
+        if (headerLogo) headerLogo.classList.add('hidden');
+        if (headerMenuBlock) headerMenuBlock.classList.remove('hidden');
+        if (headerSearch) headerSearch.classList.add('hidden');
+        if (headerGrammarSearch) headerGrammarSearch.classList.remove('hidden');
     } else {
+        // CÁC TRANG CÒN LẠI
         if (headerLogo) headerLogo.classList.add('hidden');
         if (headerMenuBlock) headerMenuBlock.classList.remove('hidden');
         if (headerSearch) headerSearch.classList.remove('hidden');
+        if (headerGrammarSearch) headerGrammarSearch.classList.add('hidden');
+    }
+
+    const bc = document.getElementById('breadcrumb');
+    
+    // 🟢 XÓA TẤT CẢ CÁC CLASS KHÓA MÀN HÌNH CŨ KHI CHUYỂN TRANG
+    document.body.classList.remove('study-mode');
+    document.body.classList.remove('landing-mode');
+    document.body.classList.remove('playground-mode');
+    document.body.classList.remove('pdf-mode');
+    document.body.classList.remove('game-fullscreen-mode'); 
+    document.body.classList.remove('grammar-header-mode'); // Xóa trạng thái header ngữ pháp
+
+    // 🟢 GẮN LẠI CLASS ĐẶC BIỆT TÙY THEO TRANG ĐÍCH
+    if (p === 'reviewPage') {
+        document.body.classList.add('study-mode');
+        if (bc) bc.style.marginBottom = '0';
+        setTimeout(() => {
+            const input = document.getElementById('practiceArea');
+            if (input) input.focus();
+        }, 100);
+    } else if (p === 'landingPage') {
+        document.body.classList.add('landing-mode');
+        if (bc) bc.style.marginBottom = '0';
+    } else if (p === 'playgroundPage') {
+        document.body.classList.add('playground-mode');
+        if (bc) bc.style.marginBottom = '0';
+    } else if (p === 'pdfReaderPage') {
+        document.body.classList.add('pdf-mode');
+        if (bc) bc.style.marginBottom = '0';
+    } else if (p === 'grammarPage') {
+        // Bật CSS đổi Header cho trang ngữ pháp
+        document.body.classList.add('grammar-header-mode');
+        if (bc) bc.style.marginBottom = '20px';
+    } else {
+        if (bc) bc.style.marginBottom = '20px';
     }
 
     const bc = document.getElementById('breadcrumb');
@@ -17711,36 +17764,7 @@ async function copyCroppedImageToClipboard() {
         disablePdfCropMode(); // Tắt giao diện cắt
     }, 'image/png');
 }
-/* ================= LOGIC XỬ LÝ FOCUS TÌM KIẾM NGỮ PHÁP ================= */
-function enableGrammarSearchMode() {
-    const page = document.getElementById('grammarPage');
-    page.classList.add('grammar-search-active');
-    
-    // Đợi bàn phím Mobile bung lên hoàn tất (300ms) rồi cuộn mượt lên đỉnh trang.
-    // Việc này đảm bảo thanh Search khít vừa đúng dưới chân Header mà không bị trình duyệt đẩy đi mất.
-    setTimeout(() => {
-        window.scrollTo({ 
-            top: 0, 
-            behavior: 'smooth' 
-        });
-    }, 300);
-}
 
-function disableGrammarSearchMode() {
-    const input = document.getElementById('grammarSearchInput');
-    
-    input.value = '';
-    input.blur(); // Tắt bàn phím
-    
-    document.getElementById('grammarPage').classList.remove('grammar-search-active');
-    
-    filterGrammarLocally(); 
-    
-    // Cuộn nhẹ lên trên cùng để thấy lại được Banner to
-    setTimeout(() => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, 100);
-}
 /* ================= TỰ ĐỘNG GÕ ROMAJI & NÚT CHUYỂN ĐỔI NGÔN NGỮ (あ / A) ================= */
 let isGlobalKanaMode = true; // Mặc định bật gõ tiếng Nhật
 
