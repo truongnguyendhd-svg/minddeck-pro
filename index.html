@@ -9367,9 +9367,32 @@ async function loadCards(d, skipHash = false) {
             currentIndex = firstUnfinished !== -1 ? firstUnfinished : 0;
         }
         else if (mode === 'boost') {
-                    sessionCards.sort(() => Math.random() - 0.5); // Xáo trộn ngẫu nhiên
-                    currentIndex = 0;
-                }
+            const savedJson = localStorage.getItem(`minddeck_boost_save_${currentUser.id}`);
+            let isRestored = false;
+            
+            if (savedJson) {
+                try {
+                    const data = JSON.parse(savedJson);
+                    // Chỉ phục hồi nếu cùng bộ bài và file save chưa quá 2 tiếng
+                    const hoursPassed = (Date.now() - data.timestamp) / (1000 * 60 * 60);
+                    if (hoursPassed < 2 && currentDeckName === data.deckName) {
+                        sessionCards = data.sessionCards;
+                        boostState = data.boostState;
+                        currentIndex = data.currentIndex;
+                        isRestored = true;
+                        console.log("MindDeck: Phục hồi Boost Mode thành công!");
+                    }
+                } catch(e) { console.error("Lỗi đọc file save Boost:", e); }
+            }
+            
+            // Nếu không có file save hợp lệ thì mới xáo trộn và chơi từ đầu
+            if (!isRestored) {
+                sessionCards.sort(() => Math.random() - 0.5);
+                currentIndex = 0;
+                // Đặt cờ báo hiệu chưa chọn game
+                boostState = { selectedGame: null }; 
+            }
+        }
         // 6. Kiểm tra rỗng
         if (!sessionCards || sessionCards.length === 0) {
             hideLoading();
@@ -9381,7 +9404,14 @@ async function loadCards(d, skipHash = false) {
 
         // ĐÃ FIX: Xóa ép cấp độ (targetCramLevel = 1), tôn trọng cấp độ User vừa chọn ở Settings
         if (mode === 'boost') {
-            document.getElementById('boostIntroModal').style.display = 'flex';
+            if (boostState && boostState.selectedGame) {
+                // Đã có state phục hồi -> Bỏ qua Modal chọn Game, vào thẳng bài học
+                document.getElementById('boostIntroModal').style.display = 'none';
+                showCard();
+            } else {
+                // Chơi mới -> Hiện Modal chọn Game
+                document.getElementById('boostIntroModal').style.display = 'flex';
+            }
         } else {
             showCard();
         }
@@ -11409,6 +11439,10 @@ function renderBoostCard() {
             };
             break;
     }
+    // 🟢 THÊM DÒNG NÀY VÀO CUỐI HÀM RENDERBOOSTCARD:
+    if (mode === 'boost') {
+        saveBoostStateToLocal();
+    }
 }
 
 // Kiểm tra Input Typing
@@ -11459,6 +11493,7 @@ function nextBoostCard() {
 }
 
 function endBoostSession() {
+    clearBoostStateFromLocal();
     clearTimeout(boostTimer); // Dừng mọi bộ đếm giờ nếu đang chạy
     
     // 1. Ẩn khu vực chơi, hiện màn hình Tổng kết
@@ -19095,6 +19130,7 @@ function exitStudySession() {
     if (currentDeckName === 'GLOBAL_REVIEW') {
         clearAssessmentStateFromLocal(); 
     }
+    clearBoostStateFromLocal();
 
     if (currentDeckName === 'GLOBAL_REVIEW' || currentDeckName === 'VIRTUAL_SESSION') {
         showDashboard();
@@ -19163,7 +19199,10 @@ function openChangeGameModal() {
 function executeExitBoost() {
     closeModal('boostExitModal');
     if (mode === 'assessment') endAssessmentSession();
-    else endBoostSession();
+    else {
+        clearBoostStateFromLocal(); // 🟢 THÊM DÒNG NÀY
+        endBoostSession();
+    }
 }
 /* ================= MÁY QUÉT TRÙNG LẶP (ANTI-DUPLICATE ENGINE) ================= */
 // Hàm này nhận vào mảng các thẻ chuẩn bị lưu. Trả về true nếu có trùng lặp.
@@ -20478,6 +20517,29 @@ function clearAssessmentStateFromLocal() {
     if (!currentUser) return;
     localStorage.removeItem(`minddeck_assessment_save_${currentUser.id}`);
 }
+// ================= AUTOSAVE CHO BOOST MODE (CHỐNG F5) =================
+function saveBoostStateToLocal() {
+    if (mode !== 'boost' || !currentUser) return;
+    try {
+        const saveData = {
+            deckName: currentDeckName,
+            sessionCards: sessionCards,
+            boostState: boostState,
+            currentIndex: currentIndex,
+            timestamp: Date.now()
+        };
+        localStorage.setItem(`minddeck_boost_save_${currentUser.id}`, JSON.stringify(saveData));
+    } catch (e) {
+        console.warn("Không thể AutoSave Boost:", e);
+    }
+}
+
+function clearBoostStateFromLocal() {
+    if (!currentUser) return;
+    localStorage.removeItem(`minddeck_boost_save_${currentUser.id}`);
+}
+// hết================= AUTOSAVE CHO BOOST MODE (CHỐNG F5) =================
+
 window.handleGlobalReviewClick = async function() {
     if (!currentUser) return;
     
