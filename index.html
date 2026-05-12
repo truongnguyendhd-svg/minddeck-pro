@@ -14167,23 +14167,47 @@ async function showGrammarVault(skipHash = false) {
 
 // Hàm mới: Quét kho thẻ Flashcard của User để xem họ đã học/thuộc ngữ pháp nào
 // (Đã Fix lỗi F5 mất dữ liệu)
+// Hàm mới: Quét kho thẻ Flashcard của User để xem họ đã học/thuộc ngữ pháp nào
+// (Đã nâng cấp thuật toán tải cuốn chiếu - Pagination chống nghẽn Supabase)
 async function calculateGrammarMastery() {
     if (!currentUser) return;
     
     userGrammarMasteryMap = {}; // Reset map
     
     try {
-        // 1. Lấy tất cả thẻ đang học của user và interval SRS của nó
-        const { data: progressData, error } = await sb.from('progress')
-            .select(`interval, cards!inner ( front )`)
-            .eq('user_id', currentUser.id);
-            .limit(15000);
-        if (error) throw error;
-        if (!progressData || progressData.length === 0) return;
+        // 1. TẢI CUỐN CHIẾU TẤT CẢ TIẾN ĐỘ SRS
+        let allProgressData = [];
+        let isFetching = true;
+        let fromIndex = 0;
+        const step = 999; // Tải 1000 dòng mỗi lần
+
+        while (isFetching) {
+            const { data, error } = await sb.from('progress')
+                .select(`interval, cards!inner(front)`)
+                .eq('user_id', currentUser.id)
+                .range(fromIndex, fromIndex + step);
+                
+            if (error) {
+                console.error("Lỗi tải tiến độ ngữ pháp:", error);
+                break;
+            }
+            
+            if (data && data.length > 0) {
+                allProgressData = allProgressData.concat(data);
+                fromIndex += (step + 1);
+            }
+            
+            // Nếu số lượng trả về ít hơn step, nghĩa là đã tải hết trang cuối cùng
+            if (!data || data.length <= step) {
+                isFetching = false;
+            }
+        }
+
+        if (allProgressData.length === 0) return;
 
         // Lưu tạm danh sách mặt trước của các thẻ và interval cao nhất
         let userFlashcards = {};
-        progressData.forEach(p => {
+        allProgressData.forEach(p => {
             const front = p.cards.front;
             const interval = p.interval || 0;
             if (!userFlashcards[front] || userFlashcards[front] < interval) {
@@ -14191,22 +14215,20 @@ async function calculateGrammarMastery() {
             }
         });
 
-        // 2. 🟢 FIX LỖI F5: NẾU TỪ ĐIỂN NGỮ PHÁP ĐANG TRỐNG, TỰ ĐỘNG TẢI NGẦM TỪ DATABASE
+        // 2. TẢI TỪ ĐIỂN NGỮ PHÁP (NẾU CHƯA CÓ TRONG RAM)
         if (globalGrammarData.length === 0) {
             const { data: gData, error: gErr } = await sb.from('grammar_dict').select('*');
             if (!gErr && gData) {
-                globalGrammarData = gData; // Nạp vào RAM luôn để sau này vào trang Ngữ pháp khỏi phải tải lại
+                globalGrammarData = gData; 
             }
         }
 
-        // 3. Tiến hành đối chiếu (Map)
+        // 3. TIẾN HÀNH ĐỐI CHIẾU (MAP)
         if (globalGrammarData.length > 0) {
             globalGrammarData.forEach(g => {
                 const point = g.grammar_point;
-                // Xóa dấu ngã (～) để tìm kiếm chính xác hơn trong thẻ
                 const cleanPoint = point.replace(/～/g, ''); 
 
-                // Tìm xem có thẻ flashcard nào của user CHỨA điểm ngữ pháp này không
                 let maxInterval = 0;
                 for (const [frontText, interval] of Object.entries(userFlashcards)) {
                     if (frontText.includes(cleanPoint)) {
@@ -18697,16 +18719,33 @@ async function saveJLPTGoal() {
 }
 
 // 3. Hàm tính toán và Render Lộ trình (Đọc từ SUPABASE + Chốt sổ đầu ngày)
-// HÀM MỚI: ĐỒNG BỘ KANJI NGẦM (GIẢI QUYẾT LỖI ĐÓNG BĂNG TIẾN ĐỘ)
+// HÀM ĐỒNG BỘ KANJI NGẦM (GIẢI QUYẾT LỖI ĐÓNG BĂNG TIẾN ĐỘ)
+// Đã nâng cấp vòng lặp Pagination chống nghẽn dữ liệu
 async function syncKanjiMastery() {
     if (!currentUser) return 0;
     try {
-        // Lấy tiến độ SRS thực tế
-        const { data: progressData } = await sb.from('progress')
-            .select('interval, interval_count, cards!inner(front)')
-            .eq('user_id', currentUser.id);
-            .limit(15000);
-        // Lấy Kỷ lục cũ trên Cloud
+        // 1. TẢI CUỐN CHIẾU TẤT CẢ TIẾN ĐỘ SRS
+        let allProgressData = [];
+        let isFetching = true;
+        let fromIndex = 0;
+        const step = 999;
+
+        while (isFetching) {
+            const { data } = await sb.from('progress')
+                .select('interval, interval_count, cards!inner(front)')
+                .eq('user_id', currentUser.id)
+                .range(fromIndex, fromIndex + step);
+                
+            if (data && data.length > 0) {
+                allProgressData = allProgressData.concat(data);
+                fromIndex += (step + 1);
+            }
+            if (!data || data.length <= step) {
+                isFetching = false;
+            }
+        }
+
+        // 2. Lấy Kỷ lục cũ trên Cloud
         const { data: profile } = await sb.from('profiles')
             .select('kanji_mastery').eq('id', currentUser.id).single();
             
@@ -18714,12 +18753,13 @@ async function syncKanjiMastery() {
         let liveMap = {};
         let failedMap = {};
 
-        // Quét
-        if (progressData) {
-            progressData.forEach(p => {
+        // Quét dữ liệu
+        if (allProgressData.length > 0) {
+            allProgressData.forEach(p => {
                 const intv = p.interval || 0;
                 const count = p.interval_count || 0;
                 if (intv <= 0) return;
+                
                 const kMatches = (p.cards.front || "").match(/[\u4e00-\u9faf]/g) || [];
                 kMatches.forEach(k => {
                     if (!liveMap[k] || liveMap[k] < intv) liveMap[k] = intv;
@@ -18728,7 +18768,7 @@ async function syncKanjiMastery() {
             });
         }
 
-        // Trộn và Bảo vệ kỷ lục (Giống logic trong trang Pokedex)
+        // Trộn và Bảo vệ kỷ lục
         let finalMap = {};
         let changed = false;
         const allKeys = new Set([...Object.keys(liveMap), ...Object.keys(cloudArchive)]);
@@ -18749,7 +18789,7 @@ async function syncKanjiMastery() {
             }
         }
 
-        // Nếu có sự thay đổi (học thêm từ mới, hoặc bị phạt tụt hạng) -> Update Cloud
+        // Cập nhật Cloud nếu có thay đổi
         if (changed) {
             sb.from('profiles').update({ kanji_mastery: finalMap }).eq('id', currentUser.id).then();
         }
