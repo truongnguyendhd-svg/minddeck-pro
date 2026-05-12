@@ -9402,20 +9402,17 @@ function toggleReverseMode() {
 }
 
 // Thêm biến lưu chế độ học trước đó
-let previousStudyMode = 'cram';
+let previousStudyMode = sessionStorage.getItem('minddeck_prev_mode') || 'cram';
 
 function switchToBoostMode() {
     if (!currentDeckName) return;
     
-    // Lưu lại chế độ hiện tại (review, cram, v.v.) trước khi chuyển sang Boost
+    // Lưu lại chế độ đang học vào cả RAM và SessionStorage (chống F5)
     previousStudyMode = mode; 
+    sessionStorage.setItem('minddeck_prev_mode', mode);
     
-    // Chuyển chế độ sang Boost
-    mode = 'boost';
-    sessionCards = [];
-    
-    // Gọi lại hàm loadCards để hệ thống tải lại bộ bài này dưới dạng trò chơi
-    loadCards(currentDeckName);
+    // Chỉ mở bảng chọn Game
+    document.getElementById('boostIntroModal').style.display = 'flex';
 }
 function showCard() {
     const c = sessionCards[currentIndex];
@@ -10259,7 +10256,7 @@ function chunkJapaneseSentence(sentence) {
     }
     return { original: cleanSentence, chunks: chunks };
 }
-// --- 1. XỬ LÝ KHỞI TẠO HOẶC ĐỔI GAME BOOST ---
+// --- XỬ LÝ KHỞI TẠO HOẶC ĐỔI GAME BOOST ---
 function startBoostSession(gameId) {
     unlockIOSAudio();
 
@@ -10267,13 +10264,20 @@ function startBoostSession(gameId) {
     const isChangingGame = boostArea && !boostArea.classList.contains('hidden');
 
     if (isChangingGame) {
-        // 🟢 ĐANG TRONG TRẬN MÀ ĐỔI GAME: Giữ nguyên điểm số, chỉ cập nhật loại game
+        // 🟢 ĐANG CHƠI MÀ ĐỔI GAME: Giữ nguyên điểm, chỉ đổi thể loại
         boostState.selectedGame = gameId;
         document.getElementById('boostIntroModal').style.display = 'none';
-        showCard(); // Render lại thẻ hiện tại với game mới
+        showCard();
         showToast("Đã chuyển sang Minigame mới! 🎮");
     } else {
-        // 🟠 BẮT ĐẦU MỚI TỪ ĐẦU: Reset toàn bộ điểm số
+        // 🟠 BẮT ĐẦU CHƠI TỪ MÀN HÌNH HỌC: Xáo bài trực tiếp từ RAM (0 giây)
+        mode = 'boost';
+        
+        // Copy data nguyên bản từ RAM sang mảng học, không gọi server
+        sessionCards = JSON.parse(JSON.stringify(window.rawDeckCache));
+        sessionCards.sort(() => Math.random() - 0.5); // Xáo trộn ngẫu nhiên
+        currentIndex = 0;
+
         boostState = { 
             mode: 'endless', 
             maxRounds: 9999, 
@@ -10283,20 +10287,16 @@ function startBoostSession(gameId) {
             wrong: 0, 
             history: [] 
         };
+        
         document.getElementById('boostIntroModal').style.display = 'none';
-        showCard();
+        showCard(); // Render giao diện game ngay lập tức
     }
 }
 
 // --- XỬ LÝ KHI BẤM NÚT "X" ĐÓNG MENU CHỌN GAME ---
 window.handleBoostIntroClose = function() {
     closeModal('boostIntroModal');
-    
-    // Trả chế độ học về đúng trạng thái trước khi bấm vào Boost Mode
-    mode = previousStudyMode || 'cram';
-    
-    // Nạp lại thẻ để tiếp tục học bình thường mà không bị văng ra ngoài
-    loadCards(currentDeckName);
+    // Không làm gì cả. Màn hình học ở dưới vẫn giữ nguyên câu bạn đang học dở dang.
 };
 
 function renderBoostCard() {
@@ -21016,8 +21016,14 @@ window.startBoostFromSettings = function() {
 window.returnFromBoostToBasic = function() {
     document.getElementById('boostSummaryPage').classList.add('hidden');
     document.body.classList.remove('game-fullscreen-mode');
-    mode = 'cram';
-    targetCramLevel = 1;
+    
+    // Đọc lại chế độ cũ (Kể cả khi vừa F5 xong)
+    mode = sessionStorage.getItem('minddeck_prev_mode') || 'cram';
+    
+    if (mode === 'cram') {
+        targetCramLevel = 1;
+    }
+    
     loadCards(currentDeckName);
 };
 
