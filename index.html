@@ -9055,41 +9055,52 @@ async function openCopyDeck(event, deckId) {
     updateHeaderTitle("SAO CHÉP BỘ BÀI");
 }
 
+// BIẾN LƯU BỘ BÀI VÀO RAM ĐỂ CHUYỂN CHẾ ĐỘ 0 GIÂY KHÔNG TỐN MẠNG
+window.rawDeckCache = [];
+
 async function loadCards(d, skipHash = false) {
     // --- 1. LOGIC TIẾT KIỆM BĂNG THÔNG ---
-    const isReviewPageVisible = !document.getElementById('reviewPage').classList.contains('hidden');
-    if (currentDeckName === d && sessionCards.length > 0 && isReviewPageVisible) {
-        console.log("MindDeck: Dữ liệu đã có sẵn, bỏ qua fetch.");
-        return; 
-    }
     if (d === 'GLOBAL_REVIEW') {
-        // FIX: Khi F5, ép hệ thống chạy qua bộ lọc kiểm tra File Save thay vì tải lại từ đầu
         return handleGlobalReviewClick(); 
     }
 
-    // 2. Cập nhật URL và Loading
     if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/${mode}`;
-    currentDeckName = d; 
-    showLoading("Đang nạp dữ liệu...");
-
+    
+    let cards = [];
+    let isLoadedFromRAM = false;
+    
     try {
-        // 3. Truy vấn dữ liệu từ Supabase (Cards + Progress)
-        const { data: cards, error } = await sb.from('cards')
-            .select('*, progress(*)')
-            .eq('deck_id', d)
-            .eq('progress.user_id', currentUser.id); 
-
-if (error) throw error;
-        saveRecentDeck(d); 
-
-        // [MỚI] TRUY VẤN NHANH ĐỂ TÌM THƯ MỤC CỦA BỘ BÀI (Hỗ trợ khi ấn F5 không bị mất Breadcrumb)
-        const { data: deckInfo } = await sb.from('decks').select('folder_id, folders(name)').eq('id', d).single();
-        if (deckInfo && deckInfo.folder_id) {
-            currentFolderId = deckInfo.folder_id;
-            currentFolderName = deckInfo.folders ? deckInfo.folders.name : "";
+        // LẤY TỪ RAM NẾU CÓ SẴN (Chuyển chế độ 0 giây)
+        if (currentDeckName === d && window.rawDeckCache.length > 0) {
+            cards = JSON.parse(JSON.stringify(window.rawDeckCache)); 
+            isLoadedFromRAM = true;
         } else {
-            currentFolderId = null;
-            currentFolderName = "";
+            // CHƯA CÓ THÌ TẢI TỪ DATABASE
+            currentDeckName = d; 
+            showLoading("Đang nạp dữ liệu...");
+            
+            const { data, error } = await sb.from('cards')
+                .select('*, progress(*)')
+                .eq('deck_id', d)
+                .eq('progress.user_id', currentUser.id); 
+
+            if (error) throw error;
+            
+            cards = data;
+            window.rawDeckCache = JSON.parse(JSON.stringify(data)); // Backup vào RAM
+            saveRecentDeck(d); 
+        }
+
+        // TÌM THƯ MỤC (Bỏ qua nếu load từ RAM để đỡ tốn mạng)
+        if (!isLoadedFromRAM) {
+            const { data: deckInfo } = await sb.from('decks').select('folder_id, folders(name)').eq('id', d).single();
+            if (deckInfo && deckInfo.folder_id) {
+                currentFolderId = deckInfo.folder_id;
+                currentFolderName = deckInfo.folders ? deckInfo.folders.name : "";
+            } else {
+                currentFolderId = null;
+                currentFolderName = "";
+            }
         }
 
         // 4. CẬP NHẬT BREADCRUMB ĐÚNG HỆ THỐNG THƯ MỤC
@@ -11444,9 +11455,18 @@ async function answerCurrent(q) {
         interval_count, 
         due: due.toISOString() 
     };
-    if (p && p.id) payload.id = p.id; // Vá lỗi sinh rác Database
+    if (p && p.id) payload.id = p.id; 
 
     await sb.from('progress').upsert(payload);
+    
+    // Cập nhật tiến độ vào RAM CACHE
+    if (window.rawDeckCache) {
+        let cacheCard = window.rawDeckCache.find(x => x.id === c.id);
+        if (cacheCard) {
+            if (!cacheCard.progress) cacheCard.progress = [];
+            cacheCard.progress[0] = payload; 
+        }
+    }
     
     nextCard();
 }
@@ -13348,11 +13368,27 @@ async function saveQuickEdit() {
             const { error } = await sb.from('cards').update({ front: newFront, back: newBack, info: newInfo }).eq('id', c.id);
             if (error) throw error;
             
-            // Cập nhật thẻ hiện tại trên RAM
+            // Cập nhật thẻ hiện tại trên UI
             c.front = newFront; c.back = newBack; c.info = newInfo;
-            showToast("Đã cập nhật thẻ thành công! ✨");
             
-            // Render lại mặt thẻ nếu đang học SRS
+            // Cập nhật vào RAM CACHE 
+            if (window.rawDeckCache) {
+                let cacheCard = window.rawDeckCache.find(x => x.id === c.id);
+                if (cacheCard) {
+                    cacheCard.front = newFront;
+                    cacheCard.back = newBack;
+                    cacheCard.info = newInfo;
+                }
+            }
+
+            // Đồng bộ LocalStorage nếu đang thi Sát hạch
+            if (mode === 'assessment' || currentDeckName === 'GLOBAL_REVIEW') {
+                if (typeof saveAssessmentStateToLocal === 'function') {
+                    saveAssessmentStateToLocal();
+                }
+            }
+
+            showToast("Đã cập nhật thẻ thành công! ✨");
             if (!document.getElementById('reviewPage').classList.contains('hidden')) showCard(); 
         }
 
@@ -18837,11 +18873,12 @@ async function toggleInlineDeckList() {
 }
 // Thêm hàm này vào JS
 function exitStudySession() {
-    isVirtualSession = false; // Reset trạng thái phiên học ảo
+    isVirtualSession = false; 
     tempVirtualCards = [];
-    // NẾU THOÁT NGANG KHI ĐANG SÁT HẠCH THÌ DỌN BẢN NHÁP
+    window.rawDeckCache = []; // XÓA SẠCH RAM KHI THOÁT
+
     if (currentDeckName === 'GLOBAL_REVIEW') {
-        clearAssessmentStateFromLocal(); // <-- THÊM DÒNG NÀY
+        clearAssessmentStateFromLocal(); 
     }
 
     if (currentDeckName === 'GLOBAL_REVIEW' || currentDeckName === 'VIRTUAL_SESSION') {
@@ -20689,31 +20726,21 @@ function startCramLevel(level) {
 }
 /* hết================= HỆ THỐNG SETTINGS THẺ HỌC ================= */
 /* ================= UPDATE LOGIC DROPDOWN SETTINGS & CHUYỂN CHẾ ĐỘ HỌC ================= */
-
-// 1. Cập nhật hàm Toggle Menu Settings để đồng bộ thêm công tắc SRS
 window.toggleStudySettings = function(e) {
     e.preventDefault(); e.stopPropagation();
-    
     document.getElementById('toggleDarkModeCb').checked = isDarkCard;
     document.getElementById('toggleReverseCb').checked = isReverseCardMode;
-    
     const isCramming = (mode === 'cram' && targetCramLevel > 1);
     document.getElementById('toggleCramCb').checked = isCramming;
     document.getElementById('cramLevelBox').classList.toggle('show', isCramming);
-
-    // Đồng bộ công tắc SRS
     document.getElementById('toggleSrsCb').checked = (mode === 'review');
-
     document.getElementById('studySettingsDropdown').classList.toggle('show');
 };
 
-// 2. Hàm bật/tắt chế độ SRS
 window.toggleSrsMode = function(isOn) {
     if (isOn) {
-        // Tắt trực quan chế độ Liên hoàn
         document.getElementById('toggleCramCb').checked = false;
         document.getElementById('cramLevelBox').classList.remove('show');
-        
         mode = 'review';
         showToast("Đã bật Ôn tập thông minh (SRS).");
     } else {
@@ -20722,45 +20749,54 @@ window.toggleSrsMode = function(isOn) {
         showToast("Đã tắt SRS. Chuyển về Học cơ bản.");
     }
     document.getElementById('studySettingsDropdown').classList.remove('show');
-    loadCards(currentDeckName);
+    loadCards(currentDeckName); 
 };
 
-// 3. Cập nhật lại hàm bật/tắt Liên Hoàn
 window.toggleCramMode = function(isOn) {
     if (isOn) {
-        // Tắt trực quan chế độ SRS
         document.getElementById('toggleSrsCb').checked = false;
         document.getElementById('cramLevelBox').classList.add('show');
     } else {
         document.getElementById('cramLevelBox').classList.remove('show');
         mode = 'cram';
         targetCramLevel = 1;
-        currentIndex = 0;
-        sessionCards.sort(() => Math.random() - 0.5);
         document.getElementById('studySettingsDropdown').classList.remove('show');
         showToast("Đã tắt Liên hoàn. Chuyển về Học cơ bản.");
-        showCard();
+        loadCards(currentDeckName); 
     }
 };
 
-// 4. Mở Boost từ Settings
+window.startCramLevel = function(level) {
+    mode = 'cram';
+    targetCramLevel = level;
+    document.getElementById('studySettingsDropdown').classList.remove('show');
+    loadCards(currentDeckName); 
+    setTimeout(() => {
+        customAlert(
+            `<div style="text-align:left; line-height: 1.6;">
+                <b>Luật chơi:</b><br>
+                Trả lời <b style="color: #107c10;">Đúng</b> thẻ sẽ lên 1 cấp.<br>
+                Trả lời <b style="color: #c50f1f;">Sai</b> rớt thẳng về Cấp 1.<br> 
+                Thẻ chỉ hoàn thành khi đạt Cấp độ mục tiêu <b>(${level})</b> bạn vừa chọn.
+            </div>`, 
+            "Chế độ Liên hoàn", "info"
+        );
+    }, 50); 
+};
+
 window.startBoostFromSettings = function() {
     document.getElementById('studySettingsDropdown').classList.remove('show');
     switchToBoostMode();
 };
 
-// 5. Nút Thoát Boost Mode trả về chế độ cơ bản
 window.returnFromBoostToBasic = function() {
     document.getElementById('boostSummaryPage').classList.add('hidden');
     document.body.classList.remove('game-fullscreen-mode');
-    
-    // Ép về lại Học Cơ Bản
     mode = 'cram';
     targetCramLevel = 1;
     loadCards(currentDeckName);
 };
 
-// 6. Hàm kích hoạt vào thẳng từ Modal
 window.startBasicStudy = function() {
     if (!deckToStudyId) return;
     closeModal('studyOptionsModal');
@@ -20769,11 +20805,8 @@ window.startBasicStudy = function() {
         mode = 'test';
         loadCards(deckToStudyId);
     } else {
-        // Ép về chế độ học cơ bản
         mode = 'cram';
         targetCramLevel = 1; 
-
-        // Tải thẻ và hiện hướng dẫn (Chỉ hiện nếu không phải là bộ Favorites - vì Favorites ko có SRS)
         loadCards(deckToStudyId).then(() => {
             if (!deckToStudyId.endsWith(':Favorites')) {
                 setTimeout(() => {
@@ -20785,14 +20818,12 @@ window.startBasicStudy = function() {
                         </div>`, 
                         "💡 Mẹo học tập"
                     );
-                }, 400); // Đợi thẻ render xong mới hiện Modal
+                }, 100); 
             }
         });
     }
 };
 
-// 7. Xóa phần logic dropdown cũ thừa thãi trong hàm openStudyOptionsModal
-const originalOpenStudyOptionsModal = window.openStudyOptionsModal;
 window.openStudyOptionsModal = function(deckId, deckName, type) {
     deckToStudyId = deckId;
     pendingModalReturn = { id: deckId, name: deckName, type: type };
