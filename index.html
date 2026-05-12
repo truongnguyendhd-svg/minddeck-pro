@@ -461,52 +461,76 @@ body.study-mode #reviewPage {
 #loadingOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.85); z-index: 10000; display: none; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(2px); }
 .spinner { border: 4px solid rgba(0,0,0,0.1); border-top: 4px solid #3498db; border-radius: 50%; width: 45px; height: 45px; animation: spin 1s linear infinite; }
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+/* ================= THÔNG BÁO TOAST (iOS 18 STYLE) ================= */
 #toast-container { 
     position: fixed; 
-    bottom: 40px; /* Nhích lên một chút để không vướng ngón tay */
+    top: 20px; /* Đẩy lên sát mí trên màn hình */
     left: 50%; 
     transform: translateX(-50%); 
-    z-index: 99998; 
+    z-index: 99999; /* Đảm bảo đè lên Header và mọi Modal */
     display: flex; 
-    flex-direction: column; 
-    align-items: center; /* Căn giữa các thông báo */
-    gap: 8px; 
+    flex-direction: column; /* Thông báo mới sẽ đẩy thông báo cũ xuống */
+    align-items: center; 
+    gap: 10px; 
     width: 90%;
-    pointer-events: none; /* Xuyên click để không chắn thao tác */
+    max-width: 400px; /* Giới hạn chiều ngang cho đẹp trên PC */
+    pointer-events: none; /* Xuyên click */
 }
+
+/* Khung viên thuốc (Pill) chuẩn Apple Glassmorphism */
 .toast { 
-    background: rgba(29, 29, 31, 0.85); /* Đen nhám mờ Apple */
-    backdrop-filter: saturate(180%) blur(20px);
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    background: rgba(28, 28, 30, 0.85); /* Đen nhám iOS */
+    backdrop-filter: blur(25px) saturate(200%);
+    -webkit-backdrop-filter: blur(25px) saturate(200%);
     color: #ffffff; 
-    padding: 10px 18px; /* Thu gọn đệm */
+    padding: 10px 16px 10px 12px; /* Căn chỉnh đệm bao quanh */
     border-radius: 50px; 
-    font-size: 13.5px; /* Chữ nhỏ gọn, tinh tế hơn */
+    font-size: 14px; 
     font-weight: 600; 
-    letter-spacing: 0.3px;
-    border: 1px solid rgba(255, 255, 255, 0.15); /* Viền sáng nổi bật */
-    box-shadow: 0 10px 30px rgba(0,0,0,0.15); 
+    letter-spacing: 0.2px;
+    border: 1px solid rgba(255, 255, 255, 0.15); 
+    box-shadow: 0 15px 30px rgba(0,0,0,0.2), 0 4px 10px rgba(0,0,0,0.1); 
+    
     display: flex; 
     align-items: center; 
-    justify-content: center;
-    gap: 8px;
-    animation: toastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    gap: 12px;
+    width: max-content;
     max-width: 100%;
-    text-align: center;
+    
+    /* Animation thả xuống (Drop down) */
+    animation: toastSlideDown 0.4s cubic-bezier(0.2, 0.8, 0.2, 1.2) forwards;
+    transform-origin: top center;
 }
 
-@keyframes toastFadeIn { 
-    from { transform: translateY(20px) scale(0.9); opacity: 0; } 
-    to { transform: translateY(0) scale(1); opacity: 1; } 
+/* Icon App vuông bo góc nằm trong thông báo */
+.toast-app-icon {
+    width: 28px; 
+    height: 28px; 
+    border-radius: 8px; /* Vuông bo góc chuẩn App iOS */
+    background: linear-gradient(135deg, #4a5568, #1d1d1f); 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
 }
 
-/* Tối ưu riêng trên màn hình siêu nhỏ */
-@media (max-width: 600px) {
-    .toast {
-        font-size: 12.5px; /* Chữ lùn thêm 1 tẹo trên mobile */
-        padding: 8px 16px;
-    }
+/* Hiệu ứng thả xuống */
+@keyframes toastSlideDown { 
+    0% { transform: translateY(-40px) scale(0.85); opacity: 0; } 
+    100% { transform: translateY(0) scale(1); opacity: 1; } 
 }
+
+/* Hiệu ứng thu lại biến mất */
+.toast.hide {
+    animation: toastSlideUp 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes toastSlideUp {
+    0% { transform: translateY(0) scale(1); opacity: 1; } 
+    100% { transform: translateY(-30px) scale(0.85); opacity: 0; } 
+}
+/*hết================= THÔNG BÁO TOAST (iOS 18 STYLE) ================= */
+
 .hidden { display: none !important; }
 input, textarea, select { width: 100%; padding: 14px; margin: 8px 0 15px 0; border-radius: 12px; border: 1.5px solid #e2e8f0; font-size: 16px; box-sizing: border-box;}
 .user-profile { position: relative; }
@@ -8493,7 +8517,28 @@ function handleGetStarted() {
 }
 function showLoading(t) { document.getElementById('loadingText').innerText = t; document.getElementById('loadingOverlay').style.display = 'flex'; }
 function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
-function showToast(msg) { const c = document.getElementById('toast-container'); const t = document.createElement('div'); t.className = 'toast'; t.innerText = msg; c.appendChild(t); setTimeout(() => t.remove(), 3000); }
+function showToast(msg) { 
+    const c = document.getElementById('toast-container'); 
+    const t = document.createElement('div'); 
+    t.className = 'toast'; 
+    
+    // Giao diện chuẩn iOS: [Icon App vuông] + [Nội dung text]
+    t.innerHTML = `
+        <div class="toast-app-icon">
+            <span style="font-family: 'Noto Sans JP', sans-serif; font-weight: 900; color: white; font-size: 14px;">酒</span>
+        </div>
+        <span style="flex: 1; text-align: left; line-height: 1.4;">${msg}</span>
+    `;
+    
+    // Dùng prepend() để thông báo mới nhất luôn đẩy từ trên cùng xuống
+    c.prepend(t); 
+
+    // Chờ 3 giây -> Chạy hiệu ứng trượt lên -> Đợi 300ms cho hiệu ứng kết thúc rồi mới xóa DOM
+    setTimeout(() => {
+        t.classList.add('hide');
+        setTimeout(() => t.remove(), 300);
+    }, 3000); 
+}
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
 function customAlert(msg, title = "Thông báo", type = "info") {
