@@ -2712,11 +2712,57 @@ body.playground-mode .main-content {
     box-sizing: border-box;
 }
 
-/* 4. Tối ưu ĐỘC QUYỀN CHO MOBILE (Ép 1 cột, đầy màn hình) */
+/* 4. Tối ưu ĐỘC QUYỀN CHO MOBILE (Ép 2 cột, thu nhỏ thẻ) */
 @media (max-width: 600px) {
     .grammar-grid {
-        grid-template-columns: 1fr; /* 🟢 ÉP 1 CỘT DUY NHẤT LẤP ĐẦY 100% CHIỀU NGANG */
-        gap: 12px;
+        grid-template-columns: repeat(2, 1fr) !important; /* 🟢 ÉP 2 CỘT BẰNG NHAU */
+        gap: 10px !important;
+    }
+
+    /* Thu nhỏ khoảng đệm bên trong thẻ */
+    .grammar-card {
+        padding: 12px !important; 
+        border-radius: 12px !important;
+    }
+
+    /* Thu nhỏ tag N1-N5 bên trong thẻ */
+    .g-card-level {
+        font-size: 10px !important;
+        padding: 2px 6px !important;
+        margin-bottom: 8px !important;
+    }
+
+    /* Chữ cấu trúc ngữ pháp nhỏ lại và cho phép rớt dòng nếu quá dài */
+    .g-card-point {
+        font-size: 16px !important; 
+        margin-bottom: 4px !important;
+        word-break: break-word !important; 
+    }
+
+    /* Nghĩa tiếng việt nhỏ lại, tối đa hiện 3 dòng */
+    .g-card-meaning {
+        font-size: 12px !important; 
+        line-height: 1.4 !important;
+        -webkit-line-clamp: 3 !important; 
+    }
+
+    /* Huy hiệu "Chưa thu thập/Đang học" thu nhỏ lại sát lề */
+    .g-status-badge {
+        top: 8px !important;
+        right: 8px !important;
+        font-size: 9px !important;
+        padding: 2px 5px !important;
+        gap: 2px !important;
+    }
+    .g-status-badge .material-symbols-outlined {
+        font-size: 11px !important;
+    }
+
+    /* Dấu mộc (Mastered) cũng phải bé lại */
+    .grammar-mastery-stamp {
+        font-size: 40px !important;
+        bottom: -5px !important;
+        right: -5px !important;
     }
 }
 /* Hết--- CẬP NHẬT CSS CHO TRANG NGỮ PHÁP (RESPONSIVE & ACCORDION) --- */
@@ -14531,15 +14577,29 @@ async function loadGrammarData(level, btnElement = null) {
 
 // Chức năng tìm kiếm Live (Không gọi API, lọc thẳng trên RAM)
 function filterGrammarLocally() {
-    const query = document.getElementById('grammarSearchInput').value.toLowerCase().trim();
+    let query = document.getElementById('grammarSearchInput').value.toLowerCase().trim();
+    
     if (!query) {
         renderGrammarGrid(globalGrammarData);
         return;
     }
-    const filtered = globalGrammarData.filter(g => 
-        g.grammar_point.toLowerCase().includes(query) || 
-        g.meaning.toLowerCase().includes(query)
-    );
+
+    // Tự động chuyển Romaji thành Hiragana dự phòng (phòng khi bộ gõ chưa kịp convert)
+    if (typeof wanakana !== 'undefined' && wanakana.isRomaji(query)) {
+        query = wanakana.toHiragana(query);
+    }
+
+    // Lọc bỏ dấu ~ và khoảng trắng ở từ khóa tìm kiếm
+    const cleanQuery = query.replace(/[～~\s]/g, '');
+
+    const filtered = globalGrammarData.filter(g => {
+        // Lọc bỏ dấu ~ ở Database để đối chiếu
+        const cleanPoint = g.grammar_point.replace(/[～~\s]/g, '').toLowerCase();
+        const cleanMeaning = g.meaning.toLowerCase();
+
+        return cleanPoint.includes(cleanQuery) || cleanMeaning.includes(cleanQuery);
+    });
+    
     renderGrammarGrid(filtered);
 }
 // Biến toàn cục lưu danh sách ngữ pháp mở rộng từ AI
