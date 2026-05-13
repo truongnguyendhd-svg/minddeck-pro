@@ -8560,76 +8560,6 @@ async function openDeckSelection(m, skipHash = false) {
         const titles = { 'review': 'Ôn tập hôm nay', 'cram': 'Học căn bản', 'test': 'Luyện đề thi', 'boost': 'Boost Mode' };
 updateHeaderTitle(titles[m] || "CHỌN HỌC PHẦN");
 }
-// Biến toàn cục lưu chế độ đang chọn trong Modal
-let selectedStudyModeModal = 'review'; 
-
-// 1. Hàm mở Modal
-function openStudyOptionsModal(deckId, deckName, type) {
-    deckToStudyId = deckId;
-    // Lưu lại thông tin để phục vụ tính năng "Quay về"
-    pendingModalReturn = { id: deckId, name: deckName, type: type };
-    
-    // Reset UI danh sách
-    isInlineListLoaded = false;
-    document.getElementById('inlineDeckListContainer').style.display = 'none';
-    document.getElementById('inlineDeckListContainer').innerHTML = '';
-    document.getElementById('toggleListIcon').innerText = 'expand_more';
-
-    document.getElementById('studyOptionsDeckName').innerText = deckName;
-    
-    // Ẩn dropdown menu nếu đang mở
-    document.getElementById('studyModeDropdown').classList.add('hidden');
-
-    // Đổ danh sách vào Drop-up: Sửa sự kiện onclick thành VÀO HỌC LUÔN
-    const dropdown = document.getElementById('studyModeDropdown');
-    if (type === 'quiz') {
-        dropdown.innerHTML = `
-            <div class="ai-mode-item" onclick="executeStudyModeDirectly('test')">
-                <span class="material-symbols-outlined" style="color: #c50f1f;">quiz</span> Luyện đề thi
-            </div>
-        `;
-    } else {
-        // NẾU LÀ BỘ BÀI YÊU THÍCH -> ẨN SRS
-        const isFavorite = deckId.endsWith(':Favorites');
-        
-        let srsOption = `
-            <div class="ai-mode-item" onclick="executeStudyModeDirectly('review')">
-                <span class="material-symbols-outlined" style="color: #0f6f2e;">psychology</span> Ôn tập SRS (Dài hạn)
-            </div>
-        `;
-        
-        dropdown.innerHTML = `
-            ${isFavorite ? '' : srsOption}
-            <div class="ai-mode-item" onclick="executeStudyModeDirectly('cram')">
-                <span class="material-symbols-outlined" style="color: #c50f1f;">rocket_launch</span> Học căn bản (Bước đầu)
-            </div>
-            <div class="ai-mode-item" onclick="executeStudyModeDirectly('boost')">
-                <span class="material-symbols-outlined" style="color: #9e5b00;">bolt</span> Boost Mode (Chơi mà học)
-            </div>
-        `;
-    }
-    
-    document.getElementById('studyOptionsModal').style.display = 'flex';
-}
-
-// 2. Hàm mới: Xử lý bay thẳng vào học khi User click vào một chế độ trong Drop-up
-window.executeStudyModeDirectly = function(selectedMode) {
-    // 1. Ẩn menu Drop-up
-    document.getElementById('studyModeDropdown').classList.add('hidden');
-    
-    // 2. Mở khóa Audio trên iOS (Chống lỗi mất tiếng)
-    if (typeof unlockIOSAudio === 'function') unlockIOSAudio(); 
-    
-    // 3. Khởi chạy luồng học
-    startStudyFromManage(selectedMode);
-};
-
-// 2. Các hàm Helper xử lý Drop-up chọn chế độ
-function toggleStudyModeMenu(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    document.getElementById('studyModeDropdown').classList.toggle('hidden');
-}
 
 // 1. Biến toàn cục giúp Safari KHÔNG THỂ XÓA luồng âm thanh
 window.globalUtterance = null;
@@ -12250,9 +12180,6 @@ async function deleteCurrentDeck() {
         showHome(); 
     }
 }
-
-// ================= HÀM LƯU TỪNG THẺ ĐƠN LẺ (HỖ TRỢ CẢ FLASHCARD & QUIZ) =================
-// ================= HÀM LƯU TỪNG THẺ ĐƠN LẺ (ĐÃ TỐI ƯU UX, BỎ CẢNH BÁO THỪA) =================
 // ================= HÀM LƯU TỪNG THẺ ĐƠN LẺ =================
 async function saveSingleRow(id) {
     // 1. KIỂM TRA BẢO MẬT
@@ -20513,54 +20440,6 @@ function disableGrammarSearchMode() {
     filterGrammarLocally(); 
 }
 // Hết================= ĐIỀU KHIỂN CHẾ ĐỘ TÌM KIẾM NGỮ PHÁP =================
-/* ================= HỆ THỐNG SETTINGS THẺ HỌC ================= */
-
-// Bật/Tắt công tắc Liên Hoàn
-function toggleCramMode(isOn) {
-    if (isOn) {
-        // Gạt bật -> Hiện danh sách chọn cấp độ
-        document.getElementById('cramLevelBox').classList.add('show');
-    } else {
-        // Gạt tắt -> Ẩn danh sách, Về chế độ CƠ BẢN (Chỉ xem, Tới/Lui)
-        document.getElementById('cramLevelBox').classList.remove('show');
-        
-        mode = 'cram';
-        targetCramLevel = 1; // Level 1 trong App của bạn mặc định render nút TRƯỚC/SAU
-        currentIndex = 0;
-        sessionCards.sort(() => Math.random() - 0.5);
-        
-        document.getElementById('studySettingsDropdown').classList.remove('show');
-        showToast("Đã tắt Liên hoàn. Chuyển về chế độ Học cơ bản.");
-        showCard();
-    }
-}
-
-// Bắt đầu chọn cấp độ Liên Hoàn
-function startCramLevel(level) {
-    mode = 'cram';
-    targetCramLevel = level;
-    
-    // Reset bài và vào mode nhồi nhét
-    currentIndex = 0;
-    sessionCards.forEach(c => c.cramLevel = 1);
-    sessionCards.sort(() => Math.random() - 0.5);
-    
-    document.getElementById('studySettingsDropdown').classList.remove('show');
-    showCard();
-    
-    // Hiện thông báo Luật chơi ngắn gọn
-    customAlert(
-        `<div style="text-align:left; line-height: 1.6;">
-            <b>Luật chơi:</b><br>
-            Trả lời <b style="color: #107c10;">Đúng</b> thẻ sẽ lên 1 cấp.<br>
-            Trả lời <b style="color: #c50f1f;">Sai</b> rớt thẳng về Cấp 1.<br> 
-            Thẻ chỉ hoàn thành khi đạt Cấp độ mục tiêu <b>(${level})</b> bạn vừa chọn.
-        </div>`, 
-        "Chế độ Liên hoàn", "info"
-    );
-}
-/* hết================= HỆ THỐNG SETTINGS THẺ HỌC ================= */
-/* ================= UPDATE LOGIC DROPDOWN SETTINGS & CHUYỂN CHẾ ĐỘ HỌC ================= */
 /* ================= UPDATE LOGIC DROPDOWN SETTINGS & CHUYỂN CHẾ ĐỘ HỌC ================= */
 window.toggleStudySettings = function(e) {
     e.preventDefault(); e.stopPropagation();
