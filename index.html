@@ -5542,6 +5542,53 @@ body.grammar-searching #headerGrammarSearch {
     .btn-hero-primary, .btn-hero-outline { width: 100%; }
     .hero-illustration svg { transform: scale(1.2); }
 }
+/* ================= CSS SPOTLIGHT ONBOARDING ================= */
+#spotlightHole {
+    position: absolute;
+    border-radius: 12px;
+    /* Bóng đổ khổng lồ tạo nền tối, Bóng đổ lọt lòng tạo ánh sáng hắt viền */
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.75), inset 0 0 15px rgba(255, 255, 255, 0.8);
+    pointer-events: none; /* Xuyên click */
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    animation: spotlight-breathe 2s infinite;
+}
+
+#spotlightTooltip {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    padding: 20px;
+    border-radius: 20px;
+    width: 280px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+    opacity: 0;
+    transform: translateY(20px) scale(0.9);
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    pointer-events: auto;
+}
+
+#spotlightTooltip.show {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+/* Mũi tên chỉ ngược lên nút Settings */
+#spotlightTooltip::after {
+    content: ''; position: absolute;
+    top: -10px; right: 25px; /* Căn sang phải để chĩa đúng nút */
+    border-width: 0 10px 10px 10px;
+    border-style: solid;
+    border-color: transparent transparent rgba(255, 255, 255, 0.95) transparent;
+}
+
+@keyframes spotlight-breathe {
+    0%, 100% { box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.75), inset 0 0 10px rgba(255, 255, 255, 0.5); }
+    50% { box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.85), inset 0 0 25px rgba(255, 255, 255, 1); }
+}
+/* Hết================= CSS SPOTLIGHT ONBOARDING ================= */
+
 </style>
 </head>
 <body>
@@ -20649,12 +20696,61 @@ window.returnFromBoostToBasic = function() {
     window.location.hash = `study/${encodeURIComponent(currentDeckName)}/${mode}`;
     loadCards(currentDeckName);
 };
+// --- LOGIC SPOTLIGHT ---
+function openSettingsSpotlight() {
+    const btn = document.getElementById('btnStudySettings');
+    const overlay = document.getElementById('tutorialSpotlight');
+    const hole = document.getElementById('spotlightHole');
+    const tooltip = document.getElementById('spotlightTooltip');
+    
+    if (!btn || !overlay) return;
+
+    // Lấy tọa độ thực tế của nút Settings trên màn hình
+    const rect = btn.getBoundingClientRect();
+    
+    // Khoét lỗ bọc quanh nút (padding thêm 4px mỗi bên cho đẹp)
+    const padding = 6;
+    hole.style.top = `${rect.top - padding}px`;
+    hole.style.left = `${rect.left - padding}px`;
+    hole.style.width = `${rect.width + padding * 2}px`;
+    hole.style.height = `${rect.height + padding * 2}px`;
+
+    // Hiển thị Overlay
+    overlay.style.display = 'block';
+
+    // Đặt Tooltip nằm ngay dưới nút Settings
+    tooltip.style.top = `${rect.bottom + 15}px`;
+    
+    // Tính toán để Tooltip không bị tràn mép phải màn hình mobile
+    let tooltipRight = window.innerWidth - rect.right - padding;
+    if (tooltipRight < 10) tooltipRight = 10; // Cách lề ít nhất 10px
+    tooltip.style.right = `${tooltipRight}px`;
+    tooltip.style.left = 'auto';
+
+    // Bật hiệu ứng nảy lên
+    setTimeout(() => tooltip.classList.add('show'), 50);
+}
+
+function closeSpotlight() {
+    const overlay = document.getElementById('tutorialSpotlight');
+    const tooltip = document.getElementById('spotlightTooltip');
+    
+    tooltip.classList.remove('show');
+    setTimeout(() => {
+        overlay.style.display = 'none';
+        // Mở luôn menu settings ra cho người dùng thấy sau khi họ bấm Đã hiểu
+        const event = new Event('click');
+        document.getElementById('btnStudySettings').dispatchEvent(event);
+    }, 300);
+}
+// ---HẾT LOGIC SPOTLIGHT ---
 
 window.startBasicStudy = function() {
     if (!deckToStudyId) return;
     closeModal('studyOptionsModal');
     sessionStorage.removeItem('minddeck_cram_level');
     sessionStorage.removeItem('minddeck_prev_mode');
+    
     if (pendingModalReturn.type === 'quiz') {
         mode = 'test';
         loadCards(deckToStudyId);
@@ -20663,16 +20759,16 @@ window.startBasicStudy = function() {
         targetCramLevel = 1; 
         loadCards(deckToStudyId).then(() => {
             if (!deckToStudyId.endsWith(':Favorites')) {
-                setTimeout(() => {
-                    customAlert(
-                        `<div style="text-align:center;">
-                            <span class="material-symbols-outlined" style="font-size: 40px; color: #0067c0; margin-bottom: 10px;">settings</span><br>
-                            Bạn đang ở <b>Chế độ học cơ bản</b>.<br><br>
-                            Hãy nhấn vào nút Cài đặt <span class="material-symbols-outlined" style="font-size: 14px; vertical-align: middle;">settings</span> ở góc trên bên phải để chuyển sang chế độ <b>Ôn tập SRS</b>, <b>Liên hoàn</b> hoặc chơi <b>Minigames</b> nhé!
-                        </div>`, 
-                        "💡 Mẹo học tập"
-                    );
-                }, 100); 
+                // 🟢 ĐÃ FIX: Gắn thêm ID của User vào key để phân biệt các tài khoản trên cùng 1 máy
+                const tutorialKey = `minddeck_seen_spotlight_${currentUser.id}`;
+                
+                if (!localStorage.getItem(tutorialKey)) {
+                    setTimeout(() => {
+                        openSettingsSpotlight();
+                        // Ghi nhớ cho RIÊNG user này
+                        localStorage.setItem(tutorialKey, 'true');
+                    }, 400); 
+                }
             }
         });
     }
@@ -21032,6 +21128,25 @@ document.addEventListener('click', (e) => {
         <div class="win11-modal-body" id="voiceResultContent" style="padding: 20px; font-size: 14px; color: #1a1a1a; line-height: 1.6; max-height: 70vh; overflow-y: auto;">
             <!-- JS sẽ bơm kết quả AI vào đây -->
         </div>
+    </div>
+</div>
+<!-- ================= HỆ THỐNG HƯỚNG DẪN SPOTLIGHT (ONBOARDING) ================= -->
+<div id="tutorialSpotlight" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; z-index: 16000;">
+    <!-- "Lỗ thủng" phát sáng -->
+    <div id="spotlightHole"></div>
+    
+    <!-- Hộp thoại hướng dẫn (Glassmorphism) -->
+    <div id="spotlightTooltip">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+            <span class="material-symbols-outlined" style="color: #0071e3; font-size: 24px; animation: pulse-audio 1.5s infinite;">settings_suggest</span>
+            <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #1d1d1f;">Trạm điều khiển của bạn</h3>
+        </div>
+        <p style="margin: 0 0 20px 0; font-size: 14px; color: #4a5568; line-height: 1.6;">
+            Bạn đang ở <b style="color: #1d1d1f;">Học cơ bản</b>. Nhấn vào đây để bật <b style="color: #10b981;">Ôn tập SRS</b>, <b style="color: #f59e0b;">Liên hoàn</b> hoặc chơi <b style="color: #8b5cf6;">Minigames</b> nhé!
+        </p>
+        <button onclick="closeSpotlight()" style="width: 100%; padding: 12px; background: #1d1d1f; color: #fff; border: none; border-radius: 50px; font-weight: 800; font-size: 14px; cursor: pointer; transition: 0.2s;">
+            TUYỆT VỜI, TÔI ĐÃ HIỂU!
+        </button>
     </div>
 </div>
 </body>
