@@ -15440,38 +15440,100 @@ async function callGeminiAI(promptText, imageBase64 = null) {
         throw error;
     }
 }
-// --- HÀM ĐIỀU KHIỂN MODAL AI (WINDOWS 11 STYLE - BỘ LỌC BẤT TỬ) ---
+/* ================= MINI MARKDOWN PARSER (TỐI ƯU CHO GEMINI AI) ================= */
+function parseAIMarkdown(text) {
+    if (!text) return "";
+
+    // 1. Chuẩn hóa các loại xuống dòng về 1 chuẩn duy nhất
+    let html = text.replace(/\r\n/g, '\n');
+
+    // 2. Xử lý Inline elements TRƯỚC (Bold, Italic) - Thứ tự này giúp xử lý Nesting (Lồng nhau)
+    // Đậm (Bold)
+    html = html.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1a1a1a; font-weight: 800;">$1</b>');
+    // Nghiêng (Italic) - Bắt dấu * đơn lẻ, dùng negative lookahead để né **
+    html = html.replace(/\*(?!\*)(.*?)\*(?!\*)/g, '<i style="color: #4a4a4a;">$1</i>');
+
+    // 3. Phân tách văn bản thành từng dòng để xử lý Block elements (Tiêu đề, Danh sách)
+    let lines = html.split('\n');
+    let parsedLines = [];
+    let inList = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+
+        // Bỏ qua dòng trống hoàn toàn nếu đang ở trong List
+        if (line.trim() === '') {
+            if (inList) {
+                parsedLines.push('</ul>');
+                inList = false;
+            }
+            parsedLines.push('');
+            continue;
+        }
+
+        // Xử lý Tiêu đề (Headers)
+        if (line.match(/^####\s+(.*)/)) {
+            parsedLines.push(line.replace(/^####\s+(.*)/, '<div class="ai-heading-block" style="background:#f5f5f7; border-color:#86868b; color:#1d1d1f; font-size:13px; padding:8px 12px; margin: 20px 0 10px 0;">$1</div>'));
+            continue;
+        }
+        if (line.match(/^###\s+(.*)/)) {
+            parsedLines.push(line.replace(/^###\s+(.*)/, '<div class="ai-heading-block">$1</div>'));
+            continue;
+        }
+        if (line.match(/^#{1,2}\s+(.*)/)) {
+            parsedLines.push(line.replace(/^#{1,2}\s+(.*)/, '<div class="ai-heading-block" style="background:#fdf3f4; border-color:#c50f1f; color:#c50f1f;">$1</div>'));
+            continue;
+        }
+
+        // Xử lý Đường kẻ ngang (HR)
+        if (line.match(/^\s*---\s*$/)) {
+            parsedLines.push('<hr class="ai-divider">');
+            continue;
+        }
+
+        // Xử lý Danh sách (Lists: bắt đầu bằng "-" hoặc "*")
+        let listMatch = line.match(/^(\s*)([-*])\s+(.*)/);
+        if (listMatch) {
+            if (!inList) {
+                parsedLines.push('<ul style="margin-top: 5px; margin-bottom: 12px; padding-left: 20px;">');
+                inList = true;
+            }
+            parsedLines.push(`<li style="margin-bottom: 6px;">${listMatch[3]}</li>`);
+            continue;
+        } else if (inList) {
+            // Đang trong list mà gặp dòng không phải list -> Đóng list
+            parsedLines.push('</ul>');
+            inList = false;
+        }
+
+        // Dòng text bình thường
+        parsedLines.push(line);
+    }
+
+    // Đóng list nếu đoạn văn kết thúc khi đang dở list
+    if (inList) parsedLines.push('</ul>');
+
+    // 4. Nối lại và xử lý thẻ <br>
+    html = parsedLines.join('\n');
+    
+    // Chỉ chèn <br> vào những dòng không nằm trong các thẻ Block (div, ul, li, hr)
+    html = html.replace(/\n(?!<\/?(ul|li|div|hr)>)/g, '<br>');
+    
+    // Dọn dẹp các khoảng trống rác do <br> thừa gây ra
+    html = html.replace(/(<br>){3,}/g, '<br><br>');
+    html = html.replace(/<br><div/g, '<div');
+    html = html.replace(/<\/div><br>/g, '</div>');
+    html = html.replace(/<br><ul/g, '<ul');
+    html = html.replace(/<\/ul><br>/g, '</ul>');
+
+    return html;
+}
+// --- HÀM ĐIỀU KHIỂN MODAL AI (WINDOWS 11 STYLE - ĐÃ TÍCH HỢP PARSER) ---
 function showAIModal(content, title = "Gia sư AI") {
     document.getElementById('aiModalTitle').innerText = title;
     
-    let html = content;
-
-    // 1. CHỐNG SPAM DÒNG TRỐNG
-    html = html.replace(/(?:<br>\s*){3,}/g, '<br><br>');
-
-    // 2. PARSE HEADING (Siêu chống chịu: Nhận diện cả khi bị bọc trong HTML hoặc có \n)
-    // H4 (####)
-    html = html.replace(/(^|<br>|>|\n)\s*#{4}\s*(.+?)(?=(?:<br>|<\/?div>|\n|$))/g, '$1<div class="ai-heading-block" style="background:#f5f5f7; border-color:#86868b; color:#1d1d1f; font-size:13px; padding:8px 12px; margin: 20px 0 10px 0;">$2</div>');
-    
-    // H3 (###)
-    html = html.replace(/(^|<br>|>|\n)\s*#{3}\s*(.+?)(?=(?:<br>|<\/?div>|\n|$))/g, '$1<div class="ai-heading-block">$2</div>');
-    
-    // H1 & H2 (# hoặc ##)
-    html = html.replace(/(^|<br>|>|\n)\s*#{1,2}\s*(.+?)(?=(?:<br>|<\/?div>|\n|$))/g, '$1<div class="ai-heading-block" style="background:#fdf3f4; border-color:#c50f1f; color:#c50f1f;">$2</div>');
-
-    // 3. PARSE PHÂN CÁCH (---)
-    html = html.replace(/(^|<br>|>|\n)\s*---\s*(?=(?:<br>|<\/?div>|\n|$))/g, '$1<hr class="ai-divider">');
-
-    // 4. PARSE IN ĐẬM
-    html = html.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1a1a1a; font-weight: 800;">$1</b>');
-
-    // 5. QUÉT SẠCH KHOẢNG TRỐNG RÁC (Hút sạch <br> và \n thừa quanh các block)
-    html = html.replace(/(?:<br>\s*|\n\s*)*<div class="ai-heading-block/g, '<div class="ai-heading-block');
-    html = html.replace(/<\/div>\s*(?:<br>\s*|\n\s*)*/g, '</div>');
-    html = html.replace(/(?:<br>\s*|\n\s*)*<hr class="ai-divider">\s*(?:<br>\s*|\n\s*)*/g, '<hr class="ai-divider">');
-
-    // Bơm vào Modal
-    document.getElementById('aiModalContent').innerHTML = html;
+    // Bơm content qua máy giặt Markdown Parser
+    document.getElementById('aiModalContent').innerHTML = parseAIMarkdown(content);
 
     const modal = document.getElementById('aiResponseModal');
     const modalBox = modal.querySelector('.ai-modal-box');
