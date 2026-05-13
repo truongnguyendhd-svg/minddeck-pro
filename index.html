@@ -11300,134 +11300,133 @@ function renderBoostCard() {
                     let currentAnswer = new Array(gameData.correctSequence.length).fill(null);
                 
                     // ==============================================================
-                    // LOGIC CHẠM ĐỂ XẾP CHỮ (ĐÃ FIX MEMORY LEAK)
-                    // Thay vì dùng window.handle, ta gắn trực tiếp vào DOM Element
+                    // LOGIC CHẠM ĐỂ XẾP CHỮ (DÙNG EVENT DELEGATION CHỐNG MEMORY LEAK)
+                    // Chỉ gắn 1 sự kiện duy nhất vào Rổ (poolBox)
                     // ==============================================================
-                    document.querySelectorAll('#kb-pool .kb-piece').forEach(pieceEl => {
-                        pieceEl.onclick = function() {
-                            const char = this.innerText;
-                
-                            // NẾU CLICK VÀO VIÊN GẠCH Ở DƯỚI RỔ (POOL)
-                            if (this.style.visibility === 'hidden') return; // Bỏ qua nếu viên này đã được dùng
-                
-                            const firstEmptyIndex = currentAnswer.indexOf(null);
-                            if (firstEmptyIndex === -1) return;
-                
-                            this.style.visibility = 'hidden'; // Tàng hình viên gốc ở dưới
-                
-                            const slot = document.getElementById(`kb-slot-${firstEmptyIndex}`);
+                    poolBox.onclick = function(e) {
+                        const pieceEl = e.target.closest('.kb-piece');
+                        // Nếu bấm ra ngoài viên gạch hoặc viên gạch đang tàng hình thì bỏ qua
+                        if (!pieceEl || pieceEl.style.visibility === 'hidden') return;
+
+                        const char = pieceEl.innerText;
+                        const firstEmptyIndex = currentAnswer.indexOf(null);
+                        if (firstEmptyIndex === -1) return;
+            
+                        pieceEl.style.visibility = 'hidden'; // Tàng hình viên gốc ở dưới
+            
+                        const slot = document.getElementById(`kb-slot-${firstEmptyIndex}`);
+                        
+                        // Tạo bản sao đặt lên khung
+                        let cloneBtn = document.createElement('div');
+                        cloneBtn.className = 'kb-piece';
+                        cloneBtn.innerText = char;
+                        cloneBtn.dataset.originId = pieceEl.id;
+            
+                        // Click bản sao để Hủy (Undo)
+                        cloneBtn.onclick = function() {
+                            const originBtn = document.getElementById(this.dataset.originId);
+                            if (originBtn) originBtn.style.visibility = 'visible'; // Hiện lại viên gốc
                             
-                            // Tạo bản sao đặt lên khung
-                            let cloneBtn = document.createElement('div');
-                            cloneBtn.className = 'kb-piece';
-                            cloneBtn.innerText = char;
-                            cloneBtn.dataset.originId = this.id;
-                
-                            // Click bản sao để Hủy (Undo)
-                            cloneBtn.onclick = function() {
-                                const originBtn = document.getElementById(this.dataset.originId);
-                                if (originBtn) originBtn.style.visibility = 'visible'; // Hiện lại viên gốc
-                                
-                                const slotId = this.parentElement.id;
-                                const slotIndex = parseInt(slotId.replace('kb-slot-', ''));
-                                currentAnswer[slotIndex] = null;
-                                
-                                this.remove(); // Xóa bản sao
-                            };
-                
-                            slot.appendChild(cloneBtn);
-                            currentAnswer[firstEmptyIndex] = char;
-                
-                            // KHI ĐÃ ĐIỀN ĐỦ CÁC Ô CHO CHỮ HIỆN TẠI
-                            if (!currentAnswer.includes(null)) {
-                                zone.style.pointerEvents = 'none'; // Khóa bấm
-                                const userStr = currentAnswer.join('');
-                                const correctStr = gameData.correctSequence.join('');
-                
-                                if (userStr === correctStr) {
-                                    // XẾP ĐÚNG 1 CHỮ
-                                    confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 }, zIndex: 10000 });
-                
-                                    setTimeout(() => {
-                                        targetBox.style.background = "#ffffff";
-                                        targetBox.style.borderColor = "#cbd5e0"; 
-                                        targetBox.style.borderWidth = "2px";
-                                        targetBox.style.borderStyle = "solid";
-                                        targetBox.style.boxShadow = "0 8px 25px rgba(0,0,0,0.08)";
-                                        targetBox.style.position = "relative";
-                                        
-                                        targetBox.style.setProperty('width', '100%', 'important');
-                                        targetBox.style.setProperty('height', '220px', 'important');
-                                        targetBox.style.borderRadius = "16px";
-                
-                                        let xrayBtnHtml = `
-                                            <button onclick="showKanjiXRay(event, '${gameData.kanji}')" style="position: absolute; bottom: 12px; left: 12px; background: #fffaf0; color: #dd6b20; border: 1px solid #fbd38d; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: 0.2s;" onmouseover="this.style.background='#ffedd6'" onmouseout="this.style.background='#fffaf0'">
-                                                <span class="material-symbols-outlined" style="font-size: 16px;">troubleshoot</span> Cách nhớ
+                            const slotId = this.parentElement.id;
+                            const slotIndex = parseInt(slotId.replace('kb-slot-', ''));
+                            currentAnswer[slotIndex] = null;
+                            
+                            this.remove(); // Xóa bản sao
+                        };
+            
+                        slot.appendChild(cloneBtn);
+                        currentAnswer[firstEmptyIndex] = char;
+            
+                        // KHI ĐÃ ĐIỀN ĐỦ CÁC Ô CHO CHỮ HIỆN TẠI
+                        if (!currentAnswer.includes(null)) {
+                            zone.style.pointerEvents = 'none'; // Khóa bấm
+                            const userStr = currentAnswer.join('');
+                            const correctStr = gameData.correctSequence.join('');
+            
+                            if (userStr === correctStr) {
+                                // XẾP ĐÚNG 1 CHỮ
+                                confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 }, zIndex: 10000 });
+            
+                                setTimeout(() => {
+                                    targetBox.style.background = "#ffffff";
+                                    targetBox.style.borderColor = "#cbd5e0"; 
+                                    targetBox.style.borderWidth = "2px";
+                                    targetBox.style.borderStyle = "solid";
+                                    targetBox.style.boxShadow = "0 8px 25px rgba(0,0,0,0.08)";
+                                    targetBox.style.position = "relative";
+                                    
+                                    targetBox.style.setProperty('width', '100%', 'important');
+                                    targetBox.style.setProperty('height', '220px', 'important');
+                                    targetBox.style.borderRadius = "16px";
+            
+                                    let xrayBtnHtml = `
+                                        <button onclick="showKanjiXRay(event, '${gameData.kanji}')" style="position: absolute; bottom: 12px; left: 12px; background: #fffaf0; color: #dd6b20; border: 1px solid #fbd38d; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: 0.2s;" onmouseover="this.style.background='#ffedd6'" onmouseout="this.style.background='#fffaf0'">
+                                            <span class="material-symbols-outlined" style="font-size: 16px;">troubleshoot</span> Cách nhớ
+                                        </button>
+                                    `;
+            
+                                    targetBox.innerHTML = `
+                                        <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size: clamp(80px, 25vw, 120px); font-weight:900; color:#2d3748; animation: popIn 0.4s;">${gameData.kanji}</div>
+                                        ${xrayBtnHtml}
+                                    `;
+            
+                                    poolBox.innerHTML = '';
+                                    poolBox.style.display = 'none';
+            
+                                    const giveUpZone = document.getElementById('boostGiveUpZone');
+                                    giveUpZone.style.display = 'block';
+            
+                                    if (currentStep < totalSteps - 1) {
+                                        giveUpZone.innerHTML = `
+                                            <button id="btnNextKanjiStep" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #3182ce, #2b6cb0); color: white; border: none; border-radius: 12px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(49, 130, 206, 0.3);">
+                                                TIẾP TỤC GHÉP CHỮ ❯
                                             </button>
                                         `;
-                
-                                        targetBox.innerHTML = `
-                                            <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size: clamp(80px, 25vw, 120px); font-weight:900; color:#2d3748; animation: popIn 0.4s;">${gameData.kanji}</div>
-                                            ${xrayBtnHtml}
+                                        document.getElementById('btnNextKanjiStep').onclick = () => {
+                                            currentStep++; 
+                                            giveUpZone.innerHTML = `
+                                                <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 14px; font-size: 15px; font-weight: 700;">
+                                                    <span class="material-symbols-outlined" style="font-size: 20px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
+                                                </button>
+                                            `;
+                                            renderKanjiStep(); 
+                                        };
+                                    } else {
+                                        giveUpZone.innerHTML = `
+                                            <button id="btnFinishKanjiCard" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #48bb78, #38a169); color: white; border: none; border-radius: 12px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);">
+                                                TIẾP THEO ❯
+                                            </button>
                                         `;
-                
-                                        poolBox.innerHTML = '';
-                                        poolBox.style.display = 'none';
-                
-                                        const giveUpZone = document.getElementById('boostGiveUpZone');
-                                        giveUpZone.style.display = 'block';
-                
-                                        if (currentStep < totalSteps - 1) {
-                                            giveUpZone.innerHTML = `
-                                                <button id="btnNextKanjiStep" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #3182ce, #2b6cb0); color: white; border: none; border-radius: 12px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(49, 130, 206, 0.3);">
-                                                    TIẾP TỤC GHÉP CHỮ ❯
-                                                </button>
-                                            `;
-                                            document.getElementById('btnNextKanjiStep').onclick = () => {
-                                                currentStep++; 
-                                                giveUpZone.innerHTML = `
-                                                    <button onclick="handleBoostAnswer(null, false, false, true)" class="win11-btn-secondary" style="width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 14px; font-size: 15px; font-weight: 700;">
-                                                        <span class="material-symbols-outlined" style="font-size: 20px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
-                                                    </button>
-                                                `;
-                                                renderKanjiStep(); 
-                                            };
-                                        } else {
-                                            giveUpZone.innerHTML = `
-                                                <button id="btnFinishKanjiCard" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #48bb78, #38a169); color: white; border: none; border-radius: 12px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);">
-                                                    TIẾP THEO ❯
-                                                </button>
-                                            `;
-                                            document.getElementById('btnFinishKanjiCard').onclick = () => {
-                                                handleBoostAnswer(null, true);
-                                            };
-                                        }
-                
-                                        zone.style.pointerEvents = 'auto';
-                                    }, 300);
-                
-                                } else {
-                                    // XẾP SAI CHỮ HIỆN TẠI -> Tự động rút gạch trả về Rổ
-                                    if (mode === 'assessment') incrementPenalty();
-                                    targetBox.classList.add('shake-error');
-                                    setTimeout(() => {
-                                        targetBox.classList.remove('shake-error');
-                                        
-                                        // Hoàn lại tất cả gạch về rổ
-                                        targetBox.querySelectorAll('.kb-piece').forEach(p => {
-                                            const originBtn = document.getElementById(p.dataset.originId);
-                                            if (originBtn) originBtn.style.visibility = 'visible'; // Hiện bản gốc
-                                            p.remove(); // Xóa bản sao
-                                        });
-                
-                                        currentAnswer.fill(null);
-                                        zone.style.pointerEvents = 'auto';
-                                        showToast("Sai thứ tự hoặc sai bộ, thử lại nhé! ❌");
-                                    }, 500);
-                                }
+                                        document.getElementById('btnFinishKanjiCard').onclick = () => {
+                                            handleBoostAnswer(null, true);
+                                        };
+                                    }
+            
+                                    zone.style.pointerEvents = 'auto';
+                                }, 300);
+            
+                            } else {
+                                // XẾP SAI CHỮ HIỆN TẠI -> Tự động rút gạch trả về Rổ
+                                if (mode === 'assessment') incrementPenalty();
+                                targetBox.classList.add('shake-error');
+                                setTimeout(() => {
+                                    targetBox.classList.remove('shake-error');
+                                    
+                                    // Hoàn lại tất cả gạch về rổ
+                                    targetBox.querySelectorAll('.kb-piece').forEach(p => {
+                                        const originBtn = document.getElementById(p.dataset.originId);
+                                        if (originBtn) originBtn.style.visibility = 'visible'; // Hiện bản gốc
+                                        p.remove(); // Xóa bản sao
+                                    });
+            
+                                    currentAnswer.fill(null);
+                                    zone.style.pointerEvents = 'auto';
+                                    showToast("Sai thứ tự hoặc sai bộ, thử lại nhé! ❌");
+                                }, 500);
                             }
-                        };
-                    });
+                        }
+                    };
+                });
                 } // 🟢 ĐÂY LÀ DẤU NGOẶC BỊ THIẾU CỦA HÀM renderKanjiStep()
 
                 renderKanjiStep();
@@ -17457,6 +17456,20 @@ function closePDFReader() {
     if (pdfCtx && pdfCanvas) {
         pdfCtx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height); 
     }
+
+    // --- BẮT ĐẦU FIX DỌN DẸP DRAWING PDF ---
+    const drawCanvas = document.getElementById('pdfDrawCanvas');
+    if (drawCanvas) {
+        const dCtx = drawCanvas.getContext('2d');
+        dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height); // Xóa sạch nét vẽ
+        drawCanvas.classList.remove('drawing-mode', 'tool-eraser'); // Tắt chế độ vẽ
+    }
+    
+    // Reset lại trạng thái công cụ (Pen, Highlighter...)
+    currentDrawTool = null;
+    isDrawing = false;
+    document.querySelectorAll('.draw-tool-btn').forEach(b => b.classList.remove('active'));
+    // --- KẾT THÚC FIX ---
     
     loadRecentPdfsUI(); // Tải lại danh sách gần đây
 }
