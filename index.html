@@ -8146,7 +8146,7 @@ body.grammar-searching #headerGrammarSearch {
     </div>
 </div>
 <!-- ================= MODAL ADMIN: LƯU NGỮ PHÁP TỪ AI (WIN 11 STYLE) ================= -->
-<div id="adminGrammarModal" class="modal" style="z-index: 100000;">
+<div id="adminGrammarModal" class="modal" style="z-index: 14500;">
     <div class="modal-content win11-modal" style="max-width: 600px;">
         
         <!-- Header Win 11 -->
@@ -9202,17 +9202,6 @@ function setupUniversalAudioUnlock() {
 
 // Kích hoạt trình mở khóa ngay khi trang web tải xong
 document.addEventListener('DOMContentLoaded', setupUniversalAudioUnlock);
-// Lắng nghe click ra ngoài để tự động đóng Drop-up
-document.addEventListener('click', (e) => {
-    const dropdown = document.getElementById('studyModeDropdown');
-    const triggerBtn = document.getElementById('studyModeTriggerBtn');
-    
-    if (dropdown && !dropdown.classList.contains('hidden')) {
-        if (!dropdown.contains(e.target) && !triggerBtn.contains(e.target)) {
-            dropdown.classList.add('hidden');
-        }
-    }
-});
 
 // Bắt đầu học theo chế độ đã chọn
 function startStudyFromManage(selectedMode) {
@@ -11279,7 +11268,7 @@ function renderBoostCard() {
 
                     // THÊM ID ĐỘC NHẤT CHO MỖI VIÊN GẠCH ĐỂ TÌM LẠI
                     let poolHTML = gameData.pool.map((piece, idx) =>
-                        `<div class="kb-piece" id="kb-piece-${currentStep}-${idx}" onclick="handleKanjiPieceClick(this)">${piece}</div>`
+                        `<div class="kb-piece" id="kb-piece-${currentStep}-${idx}">${piece}</div>`
                     ).join('');
                     
                     document.getElementById('boostGiveUpZone').style.display = 'block';
@@ -11302,28 +11291,31 @@ function renderBoostCard() {
                     const targetBox = document.getElementById('kb-target-box');
                     const poolBox = document.getElementById('kb-pool');
                     let currentAnswer = new Array(gameData.correctSequence.length).fill(null);
-
-                    // LOGIC CHẠM ĐỂ XẾP CHỮ
-                    window.handleKanjiPieceClick = function(pieceEl) {
-                        const char = pieceEl.innerText;
-
-                        // NẾU CLICK VÀO VIÊN GẠCH Ở DƯỚI RỔ (POOL)
-                        if (pieceEl.parentElement.id === 'kb-pool') {
-                            if (pieceEl.style.visibility === 'hidden') return; // Bỏ qua nếu viên này đã được dùng
-
+                
+                    // ==============================================================
+                    // LOGIC CHẠM ĐỂ XẾP CHỮ (ĐÃ FIX MEMORY LEAK)
+                    // Thay vì dùng window.handle, ta gắn trực tiếp vào DOM Element
+                    // ==============================================================
+                    document.querySelectorAll('#kb-pool .kb-piece').forEach(pieceEl => {
+                        pieceEl.onclick = function() {
+                            const char = this.innerText;
+                
+                            // NẾU CLICK VÀO VIÊN GẠCH Ở DƯỚI RỔ (POOL)
+                            if (this.style.visibility === 'hidden') return; // Bỏ qua nếu viên này đã được dùng
+                
                             const firstEmptyIndex = currentAnswer.indexOf(null);
                             if (firstEmptyIndex === -1) return;
-
-                            pieceEl.style.visibility = 'hidden'; // Tàng hình viên gốc ở dưới
-
+                
+                            this.style.visibility = 'hidden'; // Tàng hình viên gốc ở dưới
+                
                             const slot = document.getElementById(`kb-slot-${firstEmptyIndex}`);
                             
                             // Tạo bản sao đặt lên khung
                             let cloneBtn = document.createElement('div');
                             cloneBtn.className = 'kb-piece';
                             cloneBtn.innerText = char;
-                            cloneBtn.dataset.originId = pieceEl.id;
-
+                            cloneBtn.dataset.originId = this.id;
+                
                             // Click bản sao để Hủy (Undo)
                             cloneBtn.onclick = function() {
                                 const originBtn = document.getElementById(this.dataset.originId);
@@ -11335,20 +11327,20 @@ function renderBoostCard() {
                                 
                                 this.remove(); // Xóa bản sao
                             };
-
+                
                             slot.appendChild(cloneBtn);
                             currentAnswer[firstEmptyIndex] = char;
-
+                
                             // KHI ĐÃ ĐIỀN ĐỦ CÁC Ô CHO CHỮ HIỆN TẠI
                             if (!currentAnswer.includes(null)) {
                                 zone.style.pointerEvents = 'none'; // Khóa bấm
                                 const userStr = currentAnswer.join('');
                                 const correctStr = gameData.correctSequence.join('');
-
+                
                                 if (userStr === correctStr) {
                                     // XẾP ĐÚNG 1 CHỮ
                                     confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 }, zIndex: 10000 });
-
+                
                                     setTimeout(() => {
                                         targetBox.style.background = "#ffffff";
                                         targetBox.style.borderColor = "#cbd5e0"; 
@@ -11360,24 +11352,24 @@ function renderBoostCard() {
                                         targetBox.style.setProperty('width', '100%', 'important');
                                         targetBox.style.setProperty('height', '220px', 'important');
                                         targetBox.style.borderRadius = "16px";
-
+                
                                         let xrayBtnHtml = `
                                             <button onclick="showKanjiXRay(event, '${gameData.kanji}')" style="position: absolute; bottom: 12px; left: 12px; background: #fffaf0; color: #dd6b20; border: 1px solid #fbd38d; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: 0.2s;" onmouseover="this.style.background='#ffedd6'" onmouseout="this.style.background='#fffaf0'">
                                                 <span class="material-symbols-outlined" style="font-size: 16px;">troubleshoot</span> Cách nhớ
                                             </button>
                                         `;
-
+                
                                         targetBox.innerHTML = `
                                             <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size: clamp(80px, 25vw, 120px); font-weight:900; color:#2d3748; animation: popIn 0.4s;">${gameData.kanji}</div>
                                             ${xrayBtnHtml}
                                         `;
-
+                
                                         poolBox.innerHTML = '';
                                         poolBox.style.display = 'none';
-
+                
                                         const giveUpZone = document.getElementById('boostGiveUpZone');
                                         giveUpZone.style.display = 'block';
-
+                
                                         if (currentStep < totalSteps - 1) {
                                             giveUpZone.innerHTML = `
                                                 <button id="btnNextKanjiStep" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #3182ce, #2b6cb0); color: white; border: none; border-radius: 12px; font-weight: 800; font-size: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(49, 130, 206, 0.3);">
@@ -11403,10 +11395,10 @@ function renderBoostCard() {
                                                 handleBoostAnswer(null, true);
                                             };
                                         }
-
+                
                                         zone.style.pointerEvents = 'auto';
                                     }, 300);
-
+                
                                 } else {
                                     // XẾP SAI CHỮ HIỆN TẠI -> Tự động rút gạch trả về Rổ
                                     if (mode === 'assessment') incrementPenalty();
@@ -11420,19 +11412,16 @@ function renderBoostCard() {
                                             if (originBtn) originBtn.style.visibility = 'visible'; // Hiện bản gốc
                                             p.remove(); // Xóa bản sao
                                         });
-
+                
                                         currentAnswer.fill(null);
                                         zone.style.pointerEvents = 'auto';
                                         showToast("Sai thứ tự hoặc sai bộ, thử lại nhé! ❌");
                                     }, 500);
                                 }
                             }
-                        }
-                    };
-                }
-
-                renderKanjiStep();
-
+                        };
+                    });
+                    renderKanjiStep();
             })(); 
             break;
         case 12: // ✍️ SHODO MODE (THƯ PHÁP QUÁN)
@@ -12339,13 +12328,6 @@ async function deleteDeckFromDashboard(event, deckId, deckName) {
     }
 }
 
-// 4. Lắng nghe click ra ngoài để tự động đóng các Menu đang mở
-document.addEventListener('click', (e) => {
-    if (!e.target.closest('.deck-dropdown-menu') && !e.target.closest('.deck-more-btn')) {
-        document.querySelectorAll('.deck-dropdown-menu').forEach(menu => menu.classList.remove('show'));
-        document.querySelectorAll('.deck-card').forEach(card => card.style.zIndex = '1');
-    }
-});
 // 1. Mở cửa sổ nhập tên mới
 function openRenameDeckModal(event, deckId, currentName) {
     event.preventDefault();
@@ -14511,20 +14493,6 @@ function toggleMobileSearch(e, isEnter = false) {
     }
 }
 
-// Bắt sự kiện: Click ra ngoài khoảng trống thì tự động thu gọn thanh Search
-document.addEventListener('click', function(e) {
-    if (window.innerWidth <= 600) {
-        const container = document.getElementById('headerSearch');
-        const avatar = document.getElementById('userAvatar');
-        
-        // Nếu thanh search đang mở, và vùng bấm chuột KHÔNG nằm trong search, CŨNG KHÔNG nằm trong avatar
-        if (container && container.classList.contains('expanded')) {
-            if (!container.contains(e.target) && !avatar.contains(e.target)) {
-                container.classList.remove('expanded');
-            }
-        }
-    }
-});
 // ================= HÀM ĐIỀU KHIỂN MENU BÊN (SIDE MENU) =================
 function openSideMenu() {
     document.getElementById('manageSideMenu').classList.add('open');
@@ -16567,18 +16535,6 @@ function generateModeGreetingBubble(mode) {
     scrollToBottom();
 }
 
-// Bắt sự kiện click ra ngoài để tự động đóng popup menu
-document.addEventListener('click', (e) => {
-    const dropdown = document.getElementById('aiModeDropdown');
-    const triggerBtn = document.getElementById('aiModeTriggerBtn');
-    
-    if (dropdown && !dropdown.classList.contains('hidden')) {
-        // Nếu click không trúng menu và không trúng nút mở menu thì đóng nó lại
-        if (!dropdown.contains(e.target) && !triggerBtn.contains(e.target)) {
-            dropdown.classList.add('hidden');
-        }
-    }
-});
 /* ================= AI ĐIỀN TỰ ĐỘNG TỪ ĐIỂN ADMIN (BẢN FIX LỖI KẸT NÚT) ================= */
 async function autoFillDictAdminWithAI() {
     const wordInput = document.getElementById('dictAdminWord').value.trim();
@@ -16714,12 +16670,6 @@ function selectCustomOption(containerId, inputId, textId, value, rawName, iconNa
     }
 }
 
-// 3. Đóng Dropdown khi click ra ngoài màn hình
-document.addEventListener('click', function(e) {
-    if (!e.target.closest('.custom-select-container')) {
-        document.querySelectorAll('.custom-select-container').forEach(el => el.classList.remove('open'));
-    }
-});
 
 // 4. HÀM TẢI DỮ LIỆU ĐƯỢC LÀM LẠI CHO CUSTOM DROPDOWN (CÓ THÊM TÙY CHỌN AUTO)
 async function loadCustomDeckList(containerId, inputId, textId, optionsId, deckType) {
@@ -17560,20 +17510,6 @@ function togglePdfAiMenu(e) {
     document.getElementById('pdfAiDropdown').classList.toggle('hidden');
 }
 
-// Bắt click ra ngoài để đóng các menu của PDF
-document.addEventListener('click', (e) => {
-    // Đóng menu AI
-    const aiDropdown = document.getElementById('pdfAiDropdown');
-    if (aiDropdown && !aiDropdown.classList.contains('hidden') && !e.target.closest('.pdf-toolbar-right')) {
-        aiDropdown.classList.add('hidden');
-    }
-
-    // Đóng menu Zoom
-    const zoomDropdown = document.getElementById('pdfZoomDropdown');
-    if (zoomDropdown && !zoomDropdown.classList.contains('hidden') && !e.target.closest('.pdf-toolbar-left')) {
-        zoomDropdown.classList.add('hidden');
-    }
-});
 
 // ================= HỆ THỐNG SMART PDF AI (TUTOR, EXTRACT, TRANSLATE) =================
 
@@ -17998,20 +17934,6 @@ window.fitPdfToWidth = function() {
     });
 };
 
-// 4. Bắt sự kiện click ra ngoài để đóng menu PDF
-document.addEventListener('click', (e) => {
-    // Đóng menu AI (Kiểm tra xem vùng click có NẰM NGOÀI container nút AI nổi không)
-    const aiDropdown = document.getElementById('pdfAiDropdown');
-    if (aiDropdown && !aiDropdown.classList.contains('hidden') && !e.target.closest('.pdf-floating-ai-container')) {
-        aiDropdown.classList.add('hidden');
-    }
-
-    // Đóng menu Settings (Kiểm tra xem vùng click có NẰM NGOÀI góc trái toolbar không)
-    const settingsDropdown = document.getElementById('pdfSettingsDropdown');
-    if (settingsDropdown && !settingsDropdown.classList.contains('hidden') && !e.target.closest('.pdf-toolbar-left')) {
-        settingsDropdown.classList.add('hidden');
-    }
-});
 /* ================= HỆ THỐNG KHOANH VÙNG (CROP) PDF - WIN 11 STYLE ================= */
 
 let isCroppingMode = false;
@@ -18805,10 +18727,16 @@ async function processBatchAssessmentResults() {
         payloads.push(payload);
     });
 
-    // 5. Gửi lên Supabase bằng 1 lệnh duy nhất
+    // 5. Gửi lên Supabase bằng 1 lệnh duy nhất (CÓ BẮT LỖI MẠNG)
     if (payloads.length > 0) {
-        const { error } = await sb.from('progress').upsert(payloads);
-        if (error) console.error("Lỗi đồng bộ SRS hàng loạt:", error);
+        try {
+            const { error } = await sb.from('progress').upsert(payloads);
+            if (error) throw error;
+        } catch (err) {
+            hideLoading();
+            console.error("Lỗi đồng bộ SRS hàng loạt:", err);
+            return customAlert(`Không thể đồng bộ kết quả do lỗi kết nối mạng.<br><br>Chi tiết lỗi: ${err.message}<br><br>Hãy kiểm tra lại mạng và nhấn nộp bài lần nữa!`, "❌ Lỗi Đồng Bộ");
+        }
     }
 
     hideLoading();
@@ -20854,16 +20782,6 @@ async function updateCardInfo(card, newInfoString) {
 }
 /* Hết================= HỆ THỐNG AI CHO INFO MODAL (MNEMONIC & EXAMPLES) ================= */
 
-/* ================= TỰ ĐỘNG ĐÓNG DROPDOWN KANJI ADMIN KHI CLICK RA NGOÀI ================= */
-document.addEventListener('click', (e) => {
-    const kAdminMenu = document.getElementById('kAdminMenu');
-    // Nếu menu đang hiển thị và người dùng click ra ngoài khu vực của menu
-    if (kAdminMenu && kAdminMenu.classList.contains('show')) {
-        if (!kAdminMenu.contains(e.target)) {
-            kAdminMenu.classList.remove('show');
-        }
-    }
-});
 // ================= HÀM LƯU NHỮNG THẺ VỪA QUÉT ĐƯỢC VÀO BỘ YÊU THÍCH =================
 window.saveKanjiCardsToFavorites = async function(btnElement) {
     if (!currentUser || !tempVirtualCards || tempVirtualCards.length === 0) return;
@@ -20998,14 +20916,6 @@ function disableGrammarSearchMode() {
 }
 // Hết================= ĐIỀU KHIỂN CHẾ ĐỘ TÌM KIẾM NGỮ PHÁP =================
 /* ================= HỆ THỐNG SETTINGS THẺ HỌC ================= */
-// Lắng nghe click ra ngoài để đóng menu
-document.addEventListener('click', (e) => {
-    const dropdown = document.getElementById('studySettingsDropdown');
-    const btn = document.getElementById('btnStudySettings');
-    if (dropdown && dropdown.classList.contains('show') && !dropdown.contains(e.target) && !btn.contains(e.target)) {
-        dropdown.classList.remove('show');
-    }
-});
 
 // Bật/Tắt công tắc Liên Hoàn
 function toggleCramMode(isOn) {
@@ -21242,6 +21152,73 @@ window.openStudyOptionsModal = function(deckId, deckName, type) {
     document.getElementById('studyOptionsModal').style.display = 'flex';
 };
 /* Hết================= UPDATE LOGIC DROPDOWN SETTINGS & CHUYỂN CHẾ ĐỘ HỌC ================= */
+/* =========================================================================
+   GLOBAL MASTER CLICK HANDLER (TỐI ƯU HIỆU NĂNG - QUẢN LÝ TẤT CẢ DROPDOWN)
+========================================================================= */
+document.addEventListener('click', (e) => {
+    
+    // 1. ĐÓNG DECK MENU (Trang Quản lý bộ bài)
+    if (!e.target.closest('.deck-dropdown-menu') && !e.target.closest('.deck-more-btn')) {
+        document.querySelectorAll('.deck-dropdown-menu').forEach(menu => menu.classList.remove('show'));
+        document.querySelectorAll('.deck-card').forEach(card => card.style.zIndex = '1');
+    }
+
+    // 2. ĐÓNG MENU AI (Trang Playground)
+    const aiDropdown = document.getElementById('aiModeDropdown');
+    const aiTriggerBtn = document.getElementById('aiModeTriggerBtn');
+    if (aiDropdown && !aiDropdown.classList.contains('hidden') && !aiDropdown.contains(e.target) && (!aiTriggerBtn || !aiTriggerBtn.contains(e.target))) {
+        aiDropdown.classList.add('hidden');
+    }
+
+    // 3. ĐÓNG MENU KANJI ADMIN X-RAY
+    const kAdminMenu = document.getElementById('kAdminMenu');
+    if (kAdminMenu && kAdminMenu.classList.contains('show') && !kAdminMenu.contains(e.target)) {
+        kAdminMenu.classList.remove('show');
+    }
+
+    // 4. ĐÓNG CÁC MENU TRONG PDF READER
+    const pdfAiDropdown = document.getElementById('pdfAiDropdown');
+    if (pdfAiDropdown && !pdfAiDropdown.classList.contains('hidden') && !e.target.closest('.pdf-floating-ai-container')) {
+        pdfAiDropdown.classList.add('hidden');
+    }
+    const pdfSettingsDropdown = document.getElementById('pdfSettingsDropdown');
+    if (pdfSettingsDropdown && !pdfSettingsDropdown.classList.contains('hidden') && !e.target.closest('.pdf-toolbar-left')) {
+        pdfSettingsDropdown.classList.add('hidden');
+    }
+
+    // 5. ĐÓNG MENU CÀI ĐẶT THẺ HỌC (Study Settings)
+    const studySettingsDropdown = document.getElementById('studySettingsDropdown');
+    const btnStudySettings = document.getElementById('btnStudySettings');
+    if (studySettingsDropdown && studySettingsDropdown.classList.contains('expanded') && !studySettingsDropdown.contains(e.target) && (!btnStudySettings || !btnStudySettings.contains(e.target))) {
+        if (typeof toggleStudySettings === 'function') toggleStudySettings(e);
+    }
+
+    // 6. THU GỌN THANH TÌM KIẾM TRÊN MOBILE (Spotlight)
+    if (window.innerWidth <= 600) {
+        const headerSearchContainer = document.getElementById('headerSearch');
+        const userAvatar = document.getElementById('userAvatar');
+        if (headerSearchContainer && headerSearchContainer.classList.contains('expanded')) {
+            if (!headerSearchContainer.contains(e.target) && (!userAvatar || !userAvatar.contains(e.target))) {
+                headerSearchContainer.classList.remove('expanded');
+            }
+        }
+    }
+
+    // 7. ĐÓNG CUSTOM DROPDOWN SELECT (Modal Form Win11)
+    if (!e.target.closest('.custom-select-container')) {
+        document.querySelectorAll('.custom-select-container').forEach(el => el.classList.remove('open'));
+    }
+
+    // 8. ĐÓNG STUDY MODE DROPDOWN (Menu chọn chế độ Học trong Modal Danh sách)
+    const studyModeDropdown = document.getElementById('studyModeDropdown');
+    const studyModeTriggerBtn = document.getElementById('studyModeTriggerBtn');
+    if (studyModeDropdown && !studyModeDropdown.classList.contains('hidden')) {
+        if (!studyModeDropdown.contains(e.target) && (!studyModeTriggerBtn || !studyModeTriggerBtn.contains(e.target))) {
+            studyModeDropdown.classList.add('hidden');
+        }
+    }
+});
+/* Hết================= GLOBAL MASTER CLICK HANDLER (TỐI ƯU HIỆU NĂNG - QUẢN LÝ TẤT CẢ DROPDOWN) ================= */
 
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
