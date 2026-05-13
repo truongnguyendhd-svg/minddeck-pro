@@ -253,40 +253,7 @@ body.study-mode #reviewPage {
     text-overflow: ellipsis;
     max-width: 80px; /* Giới hạn độ dài tên */
 }
-.deck-status-badge {
-    position: absolute;
-    bottom: 12px; /* Chuyển từ top xuống bottom */
-    right: 12px;  /* Chuyển từ left sang right */
-    border: none !important;
-    background: transparent !important;
-    color: #cbd5e0 !important; 
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.deck-status-badge span {
-    font-size: 18px !important;
-    font-weight: 200 !important;
-}
 
-.deck-status-badge::after { 
-    content: attr(data-tooltip); 
-    position: absolute; 
-    bottom: 130%; 
-    right: 0; /* Đổi left: 0 thành right: 0 */
-    padding: 5px 10px; 
-    background: #2d3748; 
-    color: #fff; 
-    font-size: 10px; 
-    border-radius: 4px; 
-    white-space: nowrap; 
-    opacity: 0; 
-    visibility: hidden; 
-    transition: 0.2s; 
-    pointer-events: none; 
-    font-weight: 700; 
-}
-.deck-status-badge:hover::after { opacity: 1; visibility: visible; }
 .deck-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 5px; z-index: 10; }
 .action-btn {
     color: #cbd5e0 !important; /* Mặc định màu nhạt */
@@ -2114,16 +2081,6 @@ body.game-fullscreen-mode #boostCardDisplay {
 /* Màu đỏ/cam nổi bật cho Trắc nghiệm */
 .icon-quiz { color: #f56565; }
 
-/* Màu xanh dương đặc trưng cho Flashcard */
-.icon-flashcard {
-    color: #3b82f6; 
-}
-
-/* Màu đỏ/cam nổi bật cho Trắc nghiệm */
-.icon-quiz {
-    color: #f56565; 
-}
-
 /* ================= 5 TÍNH NĂNG NÂNG CAO ================= */
 /* ================= 1. NÂNG CẤP X-RAY KANJI (BẢN TỐI ƯU TOÀN CỤC) ================= */
 .clickable-kanji {
@@ -3154,10 +3111,6 @@ body.playground-mode .main-content {
     font-size: 18px !important; 
 }
 
-.chat-icon-btn { background: transparent; color: #86868b; }
-.chat-icon-btn:hover { background: #e5e5ea; color: #1d1d1f; }
-.chat-send-btn { background: #1d1d1f; color: white; }
-.chat-send-btn:hover { transform: scale(1.05); background: #000; }
 .chat-icon-btn { background: transparent; color: #86868b; }
 .chat-icon-btn:hover { background: #e5e5ea; color: #1d1d1f; }
 .chat-send-btn { background: #1d1d1f; color: white; }
@@ -12551,19 +12504,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// Ghi đè thêm vào hàm xóa thẻ và thêm thẻ để bật cờ báo hiệu thay đổi
-const originalDeleteSingleRow = deleteSingleRow;
-deleteSingleRow = async function(id) {
-    await originalDeleteSingleRow(id);
-    hasUnsavedChanges = true;
-};
-
-const originalAddNewRow = addNewRow;
-addNewRow = function(cardData = null) {
-    originalAddNewRow(cardData);
-    if (!cardData) hasUnsavedChanges = true; // Chỉ đánh dấu thay đổi nếu là bấm thêm thẻ mới
-};
-
 // 2. Hàm xử lý khi bấm nút Back góc dưới trái
 async function safeGoBack() {
     if (hasUnsavedChanges) {
@@ -12986,6 +12926,7 @@ async function deleteSingleRow(id) {
     );
 
     if (ok) {
+        hasUnsavedChanges = true; // Báo hiệu có thay đổi chưa lưu
         if (dbId) {
             // 1. Đưa ID vào danh sách chờ xóa (Để hàm saveFullDeck xử lý)
             if (!cardsToDelete.includes(dbId)) {
@@ -13012,6 +12953,7 @@ async function deleteSingleRow(id) {
 
 // ================= HÀM TẠO GIAO DIỆN NHẬP LIỆU (HỖ TRỢ CẢ FLASHCARD VÀ QUIZ) =================
 function addNewRow(cardData = null) {
+    if (!cardData) hasUnsavedChanges = true; // Báo hiệu có thay đổi chưa lưu
     rowCount++; 
     const container = document.getElementById('cardRowsContainer');
     const rowDiv = document.createElement('div'); 
@@ -13885,6 +13827,8 @@ function showPlayground(skipHash = false) {
     showPage('playgroundPage');
     updateBreadcrumb([{label: "Playground AI ✨"}]);
     updateHeaderTitle("PLAYGROUND");
+    
+    fetchWordsForRPG(); // Lấy từ vựng chuẩn bị cho RPG
 }
 
 function togglePlaygroundMode() {
@@ -17467,6 +17411,21 @@ async function loadPdfIntoViewer(typedarray, startPage) {
 
 function renderPage(num) {
     pageRendering = true;
+    // --- Gộp logic resize Draw Canvas vào đây ---
+    setTimeout(() => {
+        const drawCanvas = document.getElementById('pdfDrawCanvas');
+        const pC = document.getElementById('pdfCanvas');
+        if (drawCanvas && pC) {
+            drawCanvas.width = pC.width;
+            drawCanvas.height = pC.height;
+            const dCtx = drawCanvas.getContext('2d');
+            if (dCtx) {
+                dCtx.lineCap = 'round';
+                dCtx.lineJoin = 'round';
+            }
+        }
+    }, 100); 
+    // -------------------------------------------
     if (!pdfCanvas) {
         pdfCanvas = document.getElementById('pdfCanvas');
         pdfCtx = pdfCanvas.getContext('2d');
@@ -17622,10 +17581,24 @@ document.addEventListener('click', (e) => {
 
 // 1. HÀM CHỤP ẢNH TRANG PDF (CANVAS TO BASE64)
 function getPdfPageAsBase64() {
-    const canvas = document.getElementById('pdfCanvas');
-    if (!canvas) return null;
-    // Chụp với chất lượng 0.8 để tối ưu dung lượng gửi qua Vercel API (OCR vẫn nhận diện cực tốt)
-    return canvas.toDataURL('image/jpeg', 0.8);
+    const pCanvas = document.getElementById('pdfCanvas');
+    if (!pCanvas) return null;
+
+    // Tạo canvas ảo để gộp (Trộn nét vẽ PDF + Bút)
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = pCanvas.width;
+    tempCanvas.height = pCanvas.height;
+    const tCtx = tempCanvas.getContext('2d');
+    
+    // Vẽ nền trắng -> Vẽ PDF -> Vẽ nét bút
+    tCtx.fillStyle = "#ffffff";
+    tCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+    tCtx.drawImage(pCanvas, 0, 0);
+    
+    const drawCanvas = document.getElementById('pdfDrawCanvas');
+    if (drawCanvas) tCtx.drawImage(drawCanvas, 0, 0); 
+
+    return tempCanvas.toDataURL('image/jpeg', 0.8);
 }
 
 // 2. HÀM XỬ LÝ CHÍNH (TRIGGER AI)
@@ -18171,50 +18144,46 @@ function endCropDraw(e) {
 
 // --- HÀM THỰC THI CẮT ẢNH & GỌI AI ---
 function executeCropAI(actionType) {
-    const canvas = document.getElementById('pdfCanvas');
-    if (!canvas) return disablePdfCropMode();
+    const pCanvas = document.getElementById('pdfCanvas');
+    if (!pCanvas) return disablePdfCropMode();
 
-    // 1. TÍNH TOÁN TOẠ ĐỘ THỰC TẾ TRÊN CANVAS BITMAP
-    // Lấy toạ độ hiển thị của thẻ canvas trên màn hình (đã bị CSS Zoom/Scroll thay đổi)
-    const rectCanvas = canvas.getBoundingClientRect();
-
-    // Toạ độ vùng khoanh TƯƠNG ĐỐI so với góc trên bên trái của Canvas
+    // Tính toán tọa độ thực tế trên Bitmap
+    const rectCanvas = pCanvas.getBoundingClientRect();
     const relX = cropRect.x - rectCanvas.left;
     const relY = cropRect.y - rectCanvas.top;
+    const scaleX = pCanvas.width / rectCanvas.width;
+    const scaleY = pCanvas.height / rectCanvas.height;
 
-    // Tỷ lệ giữa kích thước Bitmap thực tế và kích thước CSS trên màn hình
-    const scaleX = canvas.width / rectCanvas.width;
-    const scaleY = canvas.height / rectCanvas.height;
-
-    // Toạ độ và kích thước CẮT THẬT SỰ trên Bitmap
     const sx = relX * scaleX;
     const sy = relY * scaleY;
     const sw = cropRect.w * scaleX;
     const sh = cropRect.h * scaleY;
 
-    // Kiểm tra nếu user khoanh ra ngoài viền trang giấy -> Báo lỗi
-    if (sw <= 0 || sh <= 0 || sx > canvas.width || sy > canvas.height) {
+    if (sw <= 0 || sh <= 0 || sx > pCanvas.width || sy > pCanvas.height) {
         disablePdfCropMode();
         return customAlert("Vùng khoanh không nằm trên trang giấy. Vui lòng khoanh lại!", "⚠️");
     }
 
-    // 2. CẮT ẢNH BẰNG CANVAS ẨN
+    // CẮT ẢNH BẰNG CANVAS ẨN (Trộn nét bút)
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = sw;
     tempCanvas.height = sh;
     const tCtx = tempCanvas.getContext('2d');
     
-    // Vẽ phần đã cắt sang canvas ẩn (Background màu trắng để tránh lỗi nền trong suốt)
     tCtx.fillStyle = "#ffffff";
     tCtx.fillRect(0, 0, sw, sh);
-    tCtx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+    
+    // Cắt và vẽ PDF
+    tCtx.drawImage(pCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+    
+    // Cắt và vẽ Nét bút (Nếu có)
+    const dCanvas = document.getElementById('pdfDrawCanvas');
+    if (dCanvas) tCtx.drawImage(dCanvas, sx, sy, sw, sh, 0, 0, sw, sh); 
 
-    // Lấy mã Base64 (Chất lượng 0.9 để chữ Hán sắc nét khi AI OCR)
     const croppedBase64 = tempCanvas.toDataURL('image/jpeg', 0.9);
 
-    // 3. ĐÓNG GIAO DIỆN VÀ GỬI CHO AI
     disablePdfCropMode();
-    triggerPdfAI(actionType, croppedBase64); // Gọi lại hàm AI hiện tại và truyền ảnh cắt vào
+    triggerPdfAI(actionType, croppedBase64); 
 }
 /* ================= ENGINE VẼ LÊN PDF ================= */
 let currentDrawTool = null; // null, 'pen', 'highlight', 'circle', 'rect', 'eraser'
@@ -18254,19 +18223,6 @@ document.querySelectorAll('.draw-tool-btn').forEach(btn => {
 });
 
 // 2. Đồng bộ kích thước Canvas Vẽ mỗi khi lật trang/Zoom
-// HACK: Chèn thêm dòng này vào cuối hàm renderPage(num) của PDF.js
-const originalRenderPage = renderPage;
-renderPage = function(num) {
-    originalRenderPage(num);
-    setTimeout(() => {
-        const pC = document.getElementById('pdfCanvas');
-        drawCanvas.width = pC.width;
-        drawCanvas.height = pC.height;
-        dCtx.lineCap = 'round';
-        dCtx.lineJoin = 'round';
-    }, 100); // Chờ PDF resize xong
-};
-
 // 3. Logic Lấy Tọa Độ & Cấu hình Bút
 function getDrawPos(e) {
     const rect = drawCanvas.getBoundingClientRect();
@@ -18364,69 +18320,6 @@ drawCanvas.addEventListener('touchstart', startDrawing, {passive: false});
 drawCanvas.addEventListener('touchmove', draw, {passive: false});
 drawCanvas.addEventListener('touchend', stopDrawing);
 
-/* ================= TRỘN ẢNH VÀO AI (OVERRIDE HÀM CŨ) ================= */
-
-// GHI ĐÈ hàm chụp toàn trang: Trộn PDF + Nét vẽ
-getPdfPageAsBase64 = function() {
-    const pCanvas = document.getElementById('pdfCanvas');
-    if (!pCanvas) return null;
-
-    // Tạo canvas ảo để gộp
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = pCanvas.width;
-    tempCanvas.height = pCanvas.height;
-    const tCtx = tempCanvas.getContext('2d');
-    
-    // Vẽ nền trắng -> Vẽ PDF -> Vẽ nét bút
-    tCtx.fillStyle = "#ffffff";
-    tCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-    tCtx.drawImage(pCanvas, 0, 0);
-    tCtx.drawImage(drawCanvas, 0, 0); // <--- QUAN TRỌNG: Trộn nét vẽ vào
-
-    return tempCanvas.toDataURL('image/jpeg', 0.8);
-};
-
-// GHI ĐÈ hàm Snipping Tool (Crop ảnh): Cắt luôn cả phần nét vẽ
-const originalExecuteCropAI = executeCropAI;
-executeCropAI = function(actionType) {
-    const pCanvas = document.getElementById('pdfCanvas');
-    if (!pCanvas) return disablePdfCropMode();
-
-    const rectCanvas = pCanvas.getBoundingClientRect();
-    const relX = cropRect.x - rectCanvas.left;
-    const relY = cropRect.y - rectCanvas.top;
-    const scaleX = pCanvas.width / rectCanvas.width;
-    const scaleY = pCanvas.height / rectCanvas.height;
-
-    const sx = relX * scaleX;
-    const sy = relY * scaleY;
-    const sw = cropRect.w * scaleX;
-    const sh = cropRect.h * scaleY;
-
-    if (sw <= 0 || sh <= 0 || sx > pCanvas.width || sy > pCanvas.height) {
-        disablePdfCropMode();
-        return customAlert("Vùng khoanh không nằm trên trang giấy. Vui lòng khoanh lại!", "⚠️");
-    }
-
-    // Tạo Canvas gộp
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = sw;
-    tempCanvas.height = sh;
-    const tCtx = tempCanvas.getContext('2d');
-    
-    tCtx.fillStyle = "#ffffff";
-    tCtx.fillRect(0, 0, sw, sh);
-    
-    // Cắt và vẽ PDF
-    tCtx.drawImage(pCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
-    // Cắt và vẽ Nét bút
-    tCtx.drawImage(drawCanvas, sx, sy, sw, sh, 0, 0, sw, sh); // <--- Trộn nét vẽ
-
-    const croppedBase64 = tempCanvas.toDataURL('image/jpeg', 0.9);
-
-    disablePdfCropMode();
-    triggerPdfAI(actionType, croppedBase64);
-};
 // ================= HÀM COPY ẢNH KHOANH VÙNG VÀO CLIPBOARD =================
 async function copyCroppedImageToClipboard() {
     const pCanvas = document.getElementById('pdfCanvas');
@@ -20413,12 +20306,6 @@ async function fetchWordsForRPG() {
     } catch(e) {}
 }
 
-// Lắng nghe sự kiện chuyển sang trang Playground thì tự động fetch từ vựng
-const originalShowPlayground = showPlayground;
-showPlayground = function(skipHash = false) {
-    originalShowPlayground(skipHash);
-    fetchWordsForRPG(); // Lấy từ vựng chuẩn bị cho RPG
-};
 /* =========================================================
    PLAYGROUND: XỬ LÝ NÚT UPLOAD ẢNH (CHỌN TỪ THIẾT BỊ)
 ========================================================= */
@@ -21113,22 +21000,6 @@ function disableGrammarSearchMode() {
 }
 // Hết================= ĐIỀU KHIỂN CHẾ ĐỘ TÌM KIẾM NGỮ PHÁP =================
 /* ================= HỆ THỐNG SETTINGS THẺ HỌC ================= */
-
-// Đóng mở Menu
-function toggleStudySettings(e) {
-    e.preventDefault(); e.stopPropagation();
-    
-    // Cập nhật trạng thái các công tắc trước khi mở
-    document.getElementById('toggleDarkModeCb').checked = isDarkCard;
-    document.getElementById('toggleReverseCb').checked = isReverseCardMode;
-    
-    const isCramming = (mode === 'cram' && targetCramLevel > 1);
-    document.getElementById('toggleCramCb').checked = isCramming;
-    document.getElementById('cramLevelBox').classList.toggle('show', isCramming);
-
-    document.getElementById('studySettingsDropdown').classList.toggle('show');
-}
-
 // Lắng nghe click ra ngoài để đóng menu
 document.addEventListener('click', (e) => {
     const dropdown = document.getElementById('studySettingsDropdown');
@@ -21317,10 +21188,6 @@ window.startBoostFromSettings = function() {
     document.getElementById('btnStudySettings').classList.remove('active');
     document.getElementById('studySettingsIcon').innerText = 'settings';
     
-    switchToBoostMode();
-};
-window.startBoostFromSettings = function() {
-    document.getElementById('studySettingsDropdown').classList.remove('show');
     switchToBoostMode();
 };
 
