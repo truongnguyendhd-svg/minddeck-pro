@@ -9146,6 +9146,13 @@ window.safePlayAudio = function(text, rate = 0.85, onStartCb = null, onEndCb = n
     window.speechSynthesis.resume();
     window.speechSynthesis.cancel(); 
 
+    // Dọn dẹp callback của audio cũ trước khi tạo mới để tránh kẹt UI / Memory Leak
+    if (window.globalUtterance) {
+        window.globalUtterance.onend = null;
+        window.globalUtterance.onerror = null;
+        window.globalUtterance.onstart = null;
+    }
+
     window.globalUtterance = new SpeechSynthesisUtterance(text);
     window.globalUtterance.lang = 'ja-JP';
     window.globalUtterance.rate = rate;
@@ -15152,8 +15159,8 @@ async function generateMoreGrammarExamples() {
             `;
         });
 
-        // Thêm một đường phân cách nhỏ và đẩy ví dụ mới vào
-        exContainer.innerHTML += `<div style="text-align: center; margin: 20px 0; color: #cbd5e0; font-size: 20px;">•••</div>` + html;
+        // Thêm một đường phân cách nhỏ và đẩy ví dụ mới vào (Dùng insertAdjacentHTML để chống giật lag DOM)
+        exContainer.insertAdjacentHTML('beforeend', `<div style="text-align: center; margin: 20px 0; color: #cbd5e0; font-size: 20px;">•••</div>` + html);
 
         // Ẩn nút sau khi tạo xong để tránh spam API
         btn.style.display = 'none';
@@ -18695,13 +18702,16 @@ async function processBatchAssessmentResults() {
         let interval = p ? p.interval : 1;
         let interval_count = p ? p.interval_count : 0;
         
-        // CHỈ TĂNG INTERVAL NẾU THI ĐẬU (q = 3 hoặc q = 5)
-        if (q >= 3) { 
-            if (q === 3) ef = Math.max(1.3, ef - 0.15); // Đậu nhưng sai 1 lỗi: Trừ nhẹ EF
-            else if (q === 5) ef += 0.1; // Hoàn hảo: Tăng EF
-            
+        // THUẬT TOÁN SRS ĐÃ CHUẨN HÓA (SM-2 Modified)
+        if (q === 5) { 
+            // Hoàn hảo 100%: Tăng EF và tiến lên mức interval tiếp theo
+            ef += 0.1; 
             interval_count++; 
             interval = interval_count === 1 ? 1 : (interval_count === 2 ? 6 : Math.round(interval * ef)); 
+        } else if (q === 3) {
+            // Chật vật (Sai 1 lỗi): Trừ EF. Giữ nguyên interval_count và interval để user bị ép ôn lại sớm.
+            ef = Math.max(1.3, ef - 0.15);
+            interval = Math.max(1, interval); 
         } else { 
             // RỚT (q = 0): Reset Interval về 1 ngày, phạt nặng EF
             ef = Math.max(1.3, ef - 0.2); 
@@ -19463,9 +19473,9 @@ async function syncKanjiMastery() {
             }
         }
 
-        // Cập nhật Cloud nếu có thay đổi
+        // Cập nhật Cloud nếu có thay đổi (Thêm await để ép hệ thống lưu xong 100%)
         if (changed) {
-            sb.from('profiles').update({ kanji_mastery: finalMap }).eq('id', currentUser.id).then();
+            await sb.from('profiles').update({ kanji_mastery: finalMap }).eq('id', currentUser.id);
         }
         return Object.keys(finalMap).length;
     } catch (e) {
