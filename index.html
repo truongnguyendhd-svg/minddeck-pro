@@ -13402,7 +13402,64 @@ async function saveAdminDict() {
         hideLoading();
     }
 }
-window.addEventListener('hashchange', handleRoute);
+/* ================= HỆ THỐNG ĐÁNH CHẶN NÚT BACK CỦA TRÌNH DUYỆT ================= */
+let isRevertingHash = false;
+let lastValidHash = window.location.hash;
+
+window.addEventListener('hashchange', async function(e) {
+    // 1. Nếu đây là sự kiện do code tự ép URL nảy lại (Revert) -> Bỏ qua không chạy route
+    if (isRevertingHash) {
+        isRevertingHash = false;
+        return;
+    }
+
+    // 2. NHẬN DIỆN CÁC TRẠNG THÁI "NGUY HIỂM" KHÔNG CHO PHÉP THOÁT NGANG
+    const boostArea = document.getElementById('boostArea');
+    const testArea = document.getElementById('testArea');
+    
+    const isPlayingBoost = boostArea && !boostArea.classList.contains('hidden');
+    const isDoingQuiz = testArea && !testArea.classList.contains('hidden') && mode === 'test';
+    
+    // Nếu rơi vào 1 trong 3 trường hợp: Có form chưa lưu, đang chơi Game, đang làm Quiz
+    if (hasUnsavedChanges || isPlayingBoost || isDoingQuiz) {
+        
+        // 🚨 ĐÁNH CHẶN: Ép URL quay trở lại trạng thái cũ ngay lập tức để UI không bị gãy
+        isRevertingHash = true;
+        window.location.hash = lastValidHash || '';
+
+        // 🚨 HIỂN THỊ MODAL HỎI Ý KIẾN NGƯỜI DÙNG TƯƠNG ỨNG
+        if (hasUnsavedChanges) {
+            const ok = await showConfirm(
+                "Cảnh báo mất dữ liệu", 
+                "Bạn có thay đổi chưa lưu. Nếu thoát bây giờ, các thẻ đã xóa/sửa/thêm mới sẽ bị mất. Bạn vẫn muốn thoát chứ?", 
+                "Thoát luôn", "Ở lại"
+            );
+            if (ok) {
+                hasUnsavedChanges = false;
+                history.back(); // Cho phép thoát thật sự
+            }
+        } 
+        else if (isPlayingBoost) {
+            // Gọi Modal Thoát Game Win11 đã có sẵn của app
+            confirmExitBoost();
+        }
+        else if (isDoingQuiz) {
+            const ok = await showConfirm(
+                "Thoát bài thi?", 
+                "Toàn bộ kết quả các câu hỏi bạn vừa làm sẽ không được lưu lại.", 
+                "Thoát luôn", "Làm tiếp"
+            );
+            if (ok) {
+                exitStudySession(); // Thoát an toàn dọn dẹp RAM
+            }
+        }
+        return; // Dừng việc chuyển trang
+    }
+
+    // 3. Nếu an toàn (Ví dụ: đang ở trang quản lý) -> Lưu lại Hash hiện tại và cho phép chuyển trang bình thường
+    lastValidHash = window.location.hash;
+    handleRoute();
+});
 function showQuizResultModal(type) {
     const list = type === 'correct' ? quizState.correctList : quizState.wrongList;
     const title = type === 'correct' ? '✅ Danh sách làm đúng' : '❌ Danh sách làm sai';
