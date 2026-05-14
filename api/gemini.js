@@ -23,7 +23,7 @@ export default async function handler(req, res) {
 
     if (videoId) {
         try {
-            // Cào sub từ Youtube (Lấy tiếng Nhật hoặc tiếng Anh nếu có)
+            // Nâng cấp: Cố gắng ép thư viện lấy bất kỳ phụ đề nào có sẵn (kể cả Auto-generated)
             const transcriptData = await YoutubeTranscript.fetchTranscript(videoId);
             
             // Format Subtitle thành chuỗi văn bản kèm theo Timestamp
@@ -41,7 +41,19 @@ export default async function handler(req, res) {
                 ---
             `;
         } catch (err) {
-            return res.status(400).json({ error: "Video này không có phụ đề (CC). Vui lòng chọn video khác." });
+            // 🟢 ĐÃ SỬA: Bắt chính xác lỗi từ YouTube để báo cho Frontend biết
+            console.error("Lỗi cào Youtube:", err.message);
+            
+            let errorMsg = "Video này không có phụ đề (CC).";
+            if (err.message.includes("Too many requests") || err.message.includes("429")) {
+                errorMsg = "Server Vercel đang bị YouTube chặn IP tạm thời do gọi quá nhiều. Hãy thử lại sau!";
+            } else if (err.message.includes("Could not find transcripts")) {
+                errorMsg = "Video có phụ đề nhưng YouTube không cho phép Server bên thứ 3 đọc (Thường do cài đặt bản quyền của kênh).";
+            } else {
+                errorMsg = `Lỗi từ Youtube: ${err.message}`; // In thẳng lỗi thật ra màn hình
+            }
+
+            return res.status(400).json({ error: errorMsg });
         }
     }
     // ========================================================================
