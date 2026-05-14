@@ -10566,40 +10566,41 @@ function renderBoostCard() {
             break;
 
         case 7: // 🎮 KANJI FILLER (ĐIỀN KANJI VÀO CHỖ TRỐNG)
-            prompt.innerText = "🧩 Điền Kanji vào ô trống (Lần lượt từ trái qua)";
+            prompt.innerText = "🧩 Điền Kanji vào ô trống (từ trái qua)";
             question.innerHTML = ""; 
             
-            // --- THUẬT TOÁN TÍNH TOÁN CỠ CHỮ & KÍCH THƯỚC Ô TRỐNG TỰ ĐỘNG ---
+            // --- THUẬT TOÁN TÍNH TOÁN CỠ CHỮ & KÍCH THƯỚC Ô TRỐNG (MỚI) ---
             const textLength = c.exampleJP.length;
-            let fSize = "22px";     // Cỡ chữ mặc định
-            let bSize = "40px";     // Kích thước ô vuông đục lỗ
-            let lHeight = "1.8";    // Độ giãn dòng
-            let bMargin = "0 4px";  // Khoảng cách 2 bên của ô trống
+            const blankCount = (c.exampleJP.match(/[\u4e00-\u9faf]/g) || []).length;
+            
+            // 1 ô Kanji trống chiếm diện tích khoảng gấp 2.5 lần 1 chữ Hiragana
+            const totalWeight = (textLength - blankCount) + (blankCount * 2.5);
 
-            if (textLength > 32) {
-                // Câu cực dài -> Bóp chữ rất nhỏ, ô vuông thu bé lại
-                fSize = "15px"; bSize = "28px"; lHeight = "1.5"; bMargin = "0 2px";
-            } else if (textLength > 22) {
-                // Câu dài vừa -> Chữ vừa, ô vuông vừa
-                fSize = "18px"; bSize = "34px"; lHeight = "1.6"; bMargin = "0 3px";
-            } else if (textLength > 12) {
-                // Câu trung bình
-                fSize = "20px"; bSize = "38px"; lHeight = "1.7"; bMargin = "0 4px";
+            let fSize = "22px";     // Cỡ chữ
+            let bSize = "38px";     // Kích thước ô vuông đục lỗ
+            let bMargin = "0 3px";  // Khoảng cách 2 bên của ô trống
+
+            if (totalWeight > 26) {
+                // Câu cực dài hoặc đục rất nhiều lỗ (Như ảnh của sếp) -> Ép siêu nhỏ
+                fSize = "16px"; bSize = "26px"; bMargin = "0 2px";
+            } else if (totalWeight > 18) {
+                // Câu dài vừa
+                fSize = "18px"; bSize = "30px"; bMargin = "0 3px";
             } else {
-                // Câu siêu ngắn -> Chữ to, ô bự cho dễ nhìn
-                fSize = "24px"; bSize = "44px"; lHeight = "1.8"; bMargin = "0 5px";
+                // Câu siêu ngắn
+                fSize = "22px"; bSize = "38px"; bMargin = "0 4px";
             }
             
             let sentenceHTML = "";
             let targetKanjiSequence = []; 
             
-            // 1. DUYỆT TỪNG KÝ TỰ ĐỂ ĐỤC LỖ (Bơm style động vào thẻ)
+            // 1. DUYỆT TỪNG KÝ TỰ ĐỂ ĐỤC LỖ (Thêm !important để đè CSS gốc)
             for (let char of c.exampleJP) {
                 if (/[\u4e00-\u9faf]/.test(char)) {
-                    sentenceHTML += `<span class="kanji-blank" style="background: #ffffff; width: ${bSize}; height: ${bSize}; font-size: ${fSize}; margin: ${bMargin};" id="kf-blank-${targetKanjiSequence.length}"></span>`;
+                    sentenceHTML += `<span class="kanji-blank" style="background: #ffffff; width: ${bSize} !important; height: ${bSize} !important; font-size: ${fSize} !important; margin: ${bMargin} !important;" id="kf-blank-${targetKanjiSequence.length}"></span>`;
                     targetKanjiSequence.push(char);
                 } else {
-                    sentenceHTML += `<span>${char}</span>`;
+                    sentenceHTML += `<span style="font-size: ${fSize} !important;">${char}</span>`;
                 }
             }
             
@@ -10609,7 +10610,6 @@ function renderBoostCard() {
             
             while (distractorSet.size < 6 && attempts < 30) {
                 let randomCard = sessionCards[Math.floor(Math.random() * sessionCards.length)];
-                
                 if (randomCard.id !== rawCard.id) {
                     let pCard = parseCardData(randomCard);
                     if (pCard.exampleJP) {
@@ -10633,11 +10633,14 @@ function renderBoostCard() {
             
             let poolKanji = [...targetKanjiSequence, ...distractorArr].sort(() => 0.5 - Math.random());            
             
-            // 3. RENDER GIAO DIỆN (Đã bóp chặt Padding và áp dụng Font Size động)
+            // 3. RENDER GIAO DIỆN
+            // 🟢 ÉP CĂN TRÁI VÀ GIÃN DÒNG TỰ NHIÊN
             question.innerHTML = `
-                <div style="font-size: 18px; color: #1d1d1f; margin-bottom: 12px; font-weight: 800; padding: 0 10px;">${c.exampleVN}</div>
-                <div style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 12px 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.02);">
-                    <div class="kf-sentence-container" style="margin-bottom: 0; font-size: ${fSize}; line-height: ${lHeight}; gap: 2px;">${sentenceHTML}</div>
+                <div style="font-size: 18px; color: #1d1d1f; margin-bottom: 12px; font-weight: 800; padding: 0 10px; text-align: left;">${c.exampleVN}</div>
+                <div style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 15px 12px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.02);">
+                    <div class="kf-sentence-container" style="margin-bottom: 0; justify-content: flex-start !important; text-align: left; line-height: 2.0; gap: 4px;">
+                        ${sentenceHTML}
+                    </div>
                 </div>
             `;
             
@@ -10674,8 +10677,8 @@ function renderBoostCard() {
                         blank.innerText = char;
                         blank.classList.add('filled');
                         
-                        // Dồn gạch
-                        this.style.display = 'none'; 
+                        // 🟢 FIX LỖI 3: DÙNG BIẾN BTN TRỰC TIẾP ĐỂ ẨN
+                        btn.style.display = 'none'; 
                         
                         currentFillIndex++; 
                         
@@ -10685,8 +10688,8 @@ function renderBoostCard() {
                     } else {
                         // ĐIỀN SAI
                         if (mode === 'assessment') incrementPenalty();
-                        this.classList.add('shake-error');
-                        setTimeout(() => this.classList.remove('shake-error'), 400);
+                        btn.classList.add('shake-error');
+                        setTimeout(() => btn.classList.remove('shake-error'), 400);
                         
                         showToast("Chưa đúng, hãy thử chữ khác! ❌");
                     }
