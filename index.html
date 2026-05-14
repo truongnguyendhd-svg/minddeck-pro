@@ -10566,21 +10566,39 @@ function renderBoostCard() {
             break;
 
         case 7: // 🎮 KANJI FILLER (ĐIỀN KANJI VÀO CHỖ TRỐNG)
-            prompt.innerText = "🧩 Điền Kanji vào ô trống (từ trái qua)";
-            // Xóa nội dung mặc định của question để tự build layout bên dưới
+            prompt.innerText = "🧩 Điền Kanji vào ô trống (Lần lượt từ trái qua)";
             question.innerHTML = ""; 
             
-            let sentenceHTML = "";
-            let targetKanjiSequence = []; // Lưu đúng thứ tự Kanji cần điền
+            // --- THUẬT TOÁN TÍNH TOÁN CỠ CHỮ & KÍCH THƯỚC Ô TRỐNG TỰ ĐỘNG ---
+            const textLength = c.exampleJP.length;
+            let fSize = "22px";     // Cỡ chữ mặc định
+            let bSize = "40px";     // Kích thước ô vuông đục lỗ
+            let lHeight = "1.8";    // Độ giãn dòng
+            let bMargin = "0 4px";  // Khoảng cách 2 bên của ô trống
+
+            if (textLength > 32) {
+                // Câu cực dài -> Bóp chữ rất nhỏ, ô vuông thu bé lại
+                fSize = "15px"; bSize = "28px"; lHeight = "1.5"; bMargin = "0 2px";
+            } else if (textLength > 22) {
+                // Câu dài vừa -> Chữ vừa, ô vuông vừa
+                fSize = "18px"; bSize = "34px"; lHeight = "1.6"; bMargin = "0 3px";
+            } else if (textLength > 12) {
+                // Câu trung bình
+                fSize = "20px"; bSize = "38px"; lHeight = "1.7"; bMargin = "0 4px";
+            } else {
+                // Câu siêu ngắn -> Chữ to, ô bự cho dễ nhìn
+                fSize = "24px"; bSize = "44px"; lHeight = "1.8"; bMargin = "0 5px";
+            }
             
-            // 1. DUYỆT TỪNG KÝ TỰ ĐỂ ĐỤC LỖ
+            let sentenceHTML = "";
+            let targetKanjiSequence = []; 
+            
+            // 1. DUYỆT TỪNG KÝ TỰ ĐỂ ĐỤC LỖ (Bơm style động vào thẻ)
             for (let char of c.exampleJP) {
                 if (/[\u4e00-\u9faf]/.test(char)) {
-                    // 🟢 ĐỔI MÀU: Ép cứng nền màu trắng cho ô đục lỗ
-                    sentenceHTML += `<span class="kanji-blank" style="background: #ffffff;" id="kf-blank-${targetKanjiSequence.length}"></span>`;
+                    sentenceHTML += `<span class="kanji-blank" style="background: #ffffff; width: ${bSize}; height: ${bSize}; font-size: ${fSize}; margin: ${bMargin};" id="kf-blank-${targetKanjiSequence.length}"></span>`;
                     targetKanjiSequence.push(char);
                 } else {
-                    // Nếu là Hiragana/Katakana/Dấu câu -> Giữ nguyên text
                     sentenceHTML += `<span>${char}</span>`;
                 }
             }
@@ -10615,19 +10633,18 @@ function renderBoostCard() {
             
             let poolKanji = [...targetKanjiSequence, ...distractorArr].sort(() => 0.5 - Math.random());            
             
-            // 3. RENDER GIAO DIỆN
-            // 🟢 KHUNG XÁM: Bọc câu Tiếng Nhật vào một khung nền xám nhạt viền mảnh
+            // 3. RENDER GIAO DIỆN (Đã bóp chặt Padding và áp dụng Font Size động)
             question.innerHTML = `
-                <div style="font-size: 20px; color: #1d1d1f; margin-bottom: 20px; font-weight: 800;">${c.exampleVN}</div>
-                <div style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 16px; padding: 25px 15px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.02);">
-                    <div class="kf-sentence-container" style="margin-bottom: 0;">${sentenceHTML}</div>
+                <div style="font-size: 18px; color: #1d1d1f; margin-bottom: 12px; font-weight: 800; padding: 0 10px;">${c.exampleVN}</div>
+                <div style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 12px 10px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.02);">
+                    <div class="kf-sentence-container" style="margin-bottom: 0; font-size: ${fSize}; line-height: ${lHeight}; gap: 2px;">${sentenceHTML}</div>
                 </div>
             `;
             
             // Làm trống vùng giữa màn hình để đẩy Rổ gạch xuống sát đáy
             zone.innerHTML = ``;
             
-            // Vùng đáy (Bottom Zone): Chứa rổ gạch và nút Chịu thua
+            // Vùng đáy (Bottom Zone)
             const giveUpZone = document.getElementById('boostGiveUpZone');
             giveUpZone.style.display = 'flex';
             giveUpZone.style.flexDirection = 'column';
@@ -10650,7 +10667,6 @@ function renderBoostCard() {
                 btn.innerText = char;
                 
                 btn.onclick = function() {
-                    // GIẢI QUYẾT VẤN ĐỀ TRÙNG LẶP (Cùng 1 chữ Kanji xuất hiện 2 lần trong 1 câu)
                     if (char === targetKanjiSequence[currentFillIndex]) {
                         
                         // ĐIỀN ĐÚNG
@@ -10658,17 +10674,16 @@ function renderBoostCard() {
                         blank.innerText = char;
                         blank.classList.add('filled');
                         
-                        // 🟢 TỰ ĐỘNG DỒN GẠCH: Đổi thành display: none để các ô còn lại tự dồn khít vào nhau
+                        // Dồn gạch
                         this.style.display = 'none'; 
                         
-                        currentFillIndex++; // Tiến sang ô trống tiếp theo
+                        currentFillIndex++; 
                         
-                        // Nếu đã điền hết các ô trống -> CHIẾN THẮNG
                         if (currentFillIndex === targetKanjiSequence.length) {
                             handleBoostAnswer(null, true);
                         }
                     } else {
-                        // ĐIỀN SAI -> Chỉ rung lắc cảnh báo
+                        // ĐIỀN SAI
                         if (mode === 'assessment') incrementPenalty();
                         this.classList.add('shake-error');
                         setTimeout(() => this.classList.remove('shake-error'), 400);
