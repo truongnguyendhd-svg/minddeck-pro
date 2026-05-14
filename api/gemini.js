@@ -1,11 +1,13 @@
+// Thêm duy nhất dòng import này lên trên cùng
+import { YoutubeTranscript } from 'youtube-transcript'; 
+
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    // 1. LẤY PROMPT VÀ MẢNG IMAGE(S) TỪ FRONTEND
-    // Frontend gửi key là 'images' (số nhiều)
-    const { prompt, images } = req.body;
+    // 1. LẤY PROMPT, MẢNG IMAGE(S) VÀ VIDEO ID TỪ FRONTEND
+    const { prompt, images, videoId } = req.body;
 
     const keysString = process.env.GEMINI_API_KEYS; 
     if (!keysString) {
@@ -16,8 +18,36 @@ export default async function handler(req, res) {
     let startIndex = Math.floor(Math.random() * apiKeys.length);
     let lastErrorMessage = "";
 
-    // 2. CHUẨN BỊ DỮ LIỆU GỬI LÊN GOOGLE
-    let partsArray = [{ text: prompt }];
+    // ================= TÍNH NĂNG MỚI: CÀO SUBTITLE YOUTUBE =================
+    let finalPrompt = prompt;
+
+    if (videoId) {
+        try {
+            // Cào sub từ Youtube (Lấy tiếng Nhật hoặc tiếng Anh nếu có)
+            const transcriptData = await YoutubeTranscript.fetchTranscript(videoId);
+            
+            // Format Subtitle thành chuỗi văn bản kèm theo Timestamp
+            const formattedSubtitles = transcriptData.map(t => 
+                `[${t.offset}s - ${(t.offset + t.duration).toFixed(1)}s]: ${t.text}`
+            ).join('\n');
+
+            // Nối Subtitle vừa cào được vào Prompt để Gemini dịch
+            finalPrompt = `
+                ${prompt}
+                
+                DƯỚI ĐÂY LÀ PHỤ ĐỀ GỐC CỦA VIDEO KÈM THEO THỜI GIAN (TÍNH BẰNG GIÂY):
+                ---
+                ${formattedSubtitles}
+                ---
+            `;
+        } catch (err) {
+            return res.status(400).json({ error: "Video này không có phụ đề (CC). Vui lòng chọn video khác." });
+        }
+    }
+    // ========================================================================
+
+    // 2. CHUẨN BỊ DỮ LIỆU GỬI LÊN GOOGLE (Sử dụng finalPrompt thay vì prompt)
+    let partsArray = [{ text: finalPrompt }];
 
     // NẾU CÓ ẢNH (MẢNG) -> DÙNG VÒNG LẶP ĐỂ THÊM VÀO
     if (images && Array.isArray(images) && images.length > 0) {
