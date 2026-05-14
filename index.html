@@ -10566,7 +10566,7 @@ function renderBoostCard() {
             break;
 
         case 7: // 🎮 KANJI FILLER (ĐIỀN KANJI VÀO CHỖ TRỐNG)
-            prompt.innerText = "🧩 Điền Kanji vào ô trống (Lần lượt từ trái qua)";
+            prompt.innerText = "🧩 Điền Kanji vào ô trống (từ trái qua)";
             // Xóa nội dung mặc định của question để tự build layout bên dưới
             question.innerHTML = ""; 
             
@@ -10576,8 +10576,8 @@ function renderBoostCard() {
             // 1. DUYỆT TỪNG KÝ TỰ ĐỂ ĐỤC LỖ
             for (let char of c.exampleJP) {
                 if (/[\u4e00-\u9faf]/.test(char)) {
-                    // Nếu là Kanji -> Tạo ô trống 40x40px, gắn ID theo thứ tự
-                    sentenceHTML += `<span class="kanji-blank" id="kf-blank-${targetKanjiSequence.length}"></span>`;
+                    // 🟢 ĐỔI MÀU: Ép cứng nền màu trắng cho ô đục lỗ
+                    sentenceHTML += `<span class="kanji-blank" style="background: #ffffff;" id="kf-blank-${targetKanjiSequence.length}"></span>`;
                     targetKanjiSequence.push(char);
                 } else {
                     // Nếu là Hiragana/Katakana/Dấu câu -> Giữ nguyên text
@@ -10585,7 +10585,7 @@ function renderBoostCard() {
                 }
             }
             
-            // 2. TẠO ĐÁP ÁN NHIỄU TỐI ƯU (KHÔNG DUYỆT CẢ BỘ BÀI)
+            // 2. TẠO ĐÁP ÁN NHIỄU TỐI ƯU
             let distractorSet = new Set();
             let attempts = 0; 
             
@@ -10615,11 +10615,13 @@ function renderBoostCard() {
             
             let poolKanji = [...targetKanjiSequence, ...distractorArr].sort(() => 0.5 - Math.random());            
             
-            // 3. RENDER GIAO DIỆN MỚI
-            // Đưa câu Tiếng Việt và câu Tiếng Nhật (có ô trống) lên dính liền nhau ở Top Zone
+            // 3. RENDER GIAO DIỆN
+            // 🟢 KHUNG XÁM: Bọc câu Tiếng Nhật vào một khung nền xám nhạt viền mảnh
             question.innerHTML = `
                 <div style="font-size: 20px; color: #1d1d1f; margin-bottom: 20px; font-weight: 800;">${c.exampleVN}</div>
-                <div class="kf-sentence-container" style="margin-bottom: 0;">${sentenceHTML}</div>
+                <div style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 16px; padding: 25px 15px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.02);">
+                    <div class="kf-sentence-container" style="margin-bottom: 0;">${sentenceHTML}</div>
+                </div>
             `;
             
             // Làm trống vùng giữa màn hình để đẩy Rổ gạch xuống sát đáy
@@ -10639,17 +10641,16 @@ function renderBoostCard() {
             `;
             
             const kfPool = document.getElementById('kf-pool');
-            let currentFillIndex = 0;
+            let currentFillIndex = 0; 
             
             // 4. LOGIC TƯƠNG TÁC
             poolKanji.forEach((char) => {
                 let btn = document.createElement('div');
-                btn.className = 'kb-piece'; // 🟢 SỬ DỤNG CLASS GẠCH VUÔNG CỦA GAME 11
+                btn.className = 'kb-piece'; 
                 btn.innerText = char;
                 
                 btn.onclick = function() {
-                    // GIẢI QUYẾT VẤN ĐỀ TRÙNG LẶP:
-                    // Chỉ kiểm tra giá trị của chữ được bấm CÓ BẰNG với giá trị chữ cần điền ở ô hiện tại hay không.
+                    // GIẢI QUYẾT VẤN ĐỀ TRÙNG LẶP (Cùng 1 chữ Kanji xuất hiện 2 lần trong 1 câu)
                     if (char === targetKanjiSequence[currentFillIndex]) {
                         
                         // ĐIỀN ĐÚNG
@@ -10657,7 +10658,9 @@ function renderBoostCard() {
                         blank.innerText = char;
                         blank.classList.add('filled');
                         
-                        this.style.visibility = 'hidden'; // Ẩn viên gạch đã dùng
+                        // 🟢 TỰ ĐỘNG DỒN GẠCH: Đổi thành display: none để các ô còn lại tự dồn khít vào nhau
+                        this.style.display = 'none'; 
+                        
                         currentFillIndex++; // Tiến sang ô trống tiếp theo
                         
                         // Nếu đã điền hết các ô trống -> CHIẾN THẮNG
@@ -10665,13 +10668,11 @@ function renderBoostCard() {
                             handleBoostAnswer(null, true);
                         }
                     } else {
-                        // ĐIỀN SAI -> Chỉ rung lắc cảnh báo và thông báo, KHÔNG chuyển thẻ
+                        // ĐIỀN SAI -> Chỉ rung lắc cảnh báo
                         if (mode === 'assessment') incrementPenalty();
                         this.classList.add('shake-error');
-                        // Gỡ bỏ class rung lắc sau 400ms để lần sau bấm sai nó vẫn rung tiếp
                         setTimeout(() => this.classList.remove('shake-error'), 400);
                         
-                        // Hiện thông báo nhỏ nhắc nhở (không gọi handleBoostAnswer)
                         showToast("Chưa đúng, hãy thử chữ khác! ❌");
                     }
                 };
