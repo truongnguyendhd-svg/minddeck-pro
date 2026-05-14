@@ -21523,59 +21523,84 @@ class ShadowingTheater {
         return (match && match[2].length === 11) ? match[2] : url; 
     }
 
-// 🟢 HÀM MỚI 1: TỰ CÀO SUBTITLE TRÊN FRONTEND (BẰNG IP CỦA USER)
+// 🟢 HÀM MỚI 1: TỰ CÀO SUBTITLE TRÊN FRONTEND (BẰNG PIPED API - CHỐNG LỖI FETCH)
     async extractYoutubeSubtitles(videoId) {
-        try {
-            // Dùng proxy trung gian để lách lỗi CORS của trình duyệt
-            const targetUrl = encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`);
-            const proxyUrl = `https://api.allorigins.win/get?url=${targetUrl}`;
-            
-            const response = await fetch(proxyUrl);
-            const data = await response.json();
-            const html = data.contents;
+        // Mạng lưới 3 máy chủ Piped API mạnh nhất (Nếu cái 1 sập, tự động chuyển cái 2)
+        const instances = [
+            'https://pipedapi.kavin.rocks',
+            'https://api.piped.projectsegfau.lt',
+            'https://pipedapi.in.projectsegfau.lt'
+        ];
 
-            // Bóc tách JSON nội bộ của Youtube Player
-            const playerResponseMatch = html.match(/ytInitialPlayerResponse\s*=\s*({.+?})\s*;\s*(?:var\s+meta|<\/script|\n)/);
-            if (!playerResponseMatch) throw new Error("Video bị giới hạn hoặc không tìm thấy dữ liệu.");
+        let data = null;
+        let fetchError = null;
 
-            const playerResponse = JSON.parse(playerResponseMatch[1]);
-            const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-
-            if (!tracks || tracks.length === 0) throw new Error("Video này không có phụ đề (CC).");
-
-            // Ưu tiên Sub Nhật do người dịch -> Sub Nhật tự động -> Sub Tiếng Anh -> Sub bất kỳ đầu tiên
-            let selectedTrack = 
-                tracks.find(t => t.languageCode === 'ja' && !t.kind) || 
-                tracks.find(t => t.languageCode === 'ja' && t.kind === 'asr') || 
-                tracks.find(t => t.languageCode === 'en') ||
-                tracks[0];
-
-            // Tải file XML chứa Text (Link này của Google cho phép CORS fetch trực tiếp)
-            const xmlResponse = await fetch(selectedTrack.baseUrl);
-            const xml = await xmlResponse.text();
-
-            // Bóc tách thời gian và Text
-            const textRegex = /<text start="([\d.]+)"(?: dur="([\d.]+)")?[^>]*>([\s\S]*?)<\/text>/g;
-            let result = [];
-            let m;
-            while ((m = textRegex.exec(xml)) !== null) {
-                const start = parseFloat(m[1]);
-                const dur = m[2] ? parseFloat(m[2]) : 0.0;
-                const text = m[3]
-                    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-                    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-                    .replace(/<[^>]+>/g, '') 
-                    .replace(/\n/g, ' '); 
-                
-                if (text.trim().length > 0) {
-                    result.push(`[${start}s - ${(start + dur).toFixed(1)}s]: ${text}`);
+        // Vòng lặp thử từng máy chủ
+        for (let baseUrl of instances) {
+            try {
+                const res = await fetch(`${baseUrl}/streams/${videoId}`);
+                if (res.ok) {
+                    data = await res.json();
+                    break; // Nếu lấy được data thì thoát vòng lặp ngay
                 }
+            } catch (e) { 
+                fetchError = e; 
+                continue; // Lỗi thì thử máy chủ tiếp theo
             }
-            return result.join('\n');
-
-        } catch (error) {
-            throw new Error(`Lỗi cào phụ đề: ${error.message}`);
         }
+
+        if (!data) {
+            throw new Error("Mạng bị chặn hoặc tất cả máy chủ bóc băng hình đều đang quá tải.");
+        }
+
+        if (!data.subtitles || data.subtitles.length === 0) {
+            throw new Error("Video này hoàn toàn không có phụ đề (CC).");
+        }
+
+        // Ưu tiên Sub Nhật -> Tiếng Anh -> Sub bất kỳ
+        let selectedTrack = 
+            data.subtitles.find(s => s.code === 'ja') || 
+            data.subtitles.find(s => s.code === 'en') || 
+            data.subtitles[0];
+
+        // Tải file phụ đề VTT về (Link của Piped trả về có sẵn CORS)
+        const vttResponse = await fetch(selectedTrack.url);
+        const vttText = await vttResponse.text();
+
+        // Thuật toán Regex chuyên dụng để bóc tách file định dạng WebVTT (.vtt)
+        const vttRegex = /(\d{2,}:\d{2}:\d{2}\.\d{3}|\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2,}:\d{2}:\d{2}\.\d{3}|\d{2}:\d{2}\.\d{3})[^\n]*\n([\s\S]*?)(?=\n\n|\n*$)/g;
+        let result = [];
+        let match;
+
+        // Hàm phụ trợ đổi chuỗi thời gian (00:01:23.500) thành Giây (83.5)
+        const timeToSeconds = (timeStr) => {
+            const parts = timeStr.split(':');
+            let hours = 0, mins = 0, secs = 0;
+            if (parts.length === 3) {
+                hours = parseInt(parts[0]);
+                mins = parseInt(parts[1]);
+                secs = parseFloat(parts[2]);
+            } else if (parts.length === 2) {
+                mins = parseInt(parts[0]);
+                secs = parseFloat(parts[1]);
+            }
+            return (hours * 3600) + (mins * 60) + secs;
+        };
+
+        while ((match = vttRegex.exec(vttText)) !== null) {
+            const startSec = timeToSeconds(match[1]);
+            const endSec = timeToSeconds(match[2]);
+            // Gọt sạch các thẻ HTML/VTT định dạng màu sắc ẩn bên trong text
+            const text = match[3].replace(/<[^>]+>/g, '').replace(/\n/g, ' ').trim();
+            
+            if (text) {
+                result.push(`[${startSec.toFixed(1)}s - ${endSec.toFixed(1)}s]: ${text}`);
+            }
+        }
+
+        if (result.length === 0) throw new Error("Phụ đề bị rỗng sau khi trích xuất.");
+        
+        return result.join('\n');
     }
 
     // 🟢 HÀM MỚI 2: CHUẨN BỊ PROMPT VÀ GỬI LÊN CHO AI DỊCH THUẬT
