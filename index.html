@@ -18599,15 +18599,14 @@ window.incrementPenalty = function() {
     }
 };
 
-// TÍNH ĐIỂM SRS, ĐẨY LÊN DATABASE & LƯU THẺ HỔNG KIẾN THỨC
-// TÍNH ĐIỂM SRS, ĐẨY LÊN DATABASE & CẬP NHẬT CACHE NHỎ GIỌT
 // TÍNH ĐIỂM SRS, ĐẨY LÊN DATABASE & CẬP NHẬT CACHE CHỈ KHI THÀNH CÔNG
 async function processBatchAssessmentResults() {
     if (isVirtualSession) {
         hideLoading();
         return endAssessmentSession(); 
     }
-    clearAssessmentStateFromLocal();
+    
+    // ❌ BỎ LỆNH XÓA FILE SAVE Ở ĐÂY (Xóa dòng clearAssessmentStateFromLocal() cũ đi)
 
     let payloads = [];
     let tempMasteryUpdates = []; // Mảng tạm lưu các thay đổi kiến thức
@@ -18677,7 +18676,10 @@ async function processBatchAssessmentResults() {
             const { error } = await sb.from('progress').upsert(payloads);
             if (error) throw error; // Nếu lỗi mạng, dừng ngay lập tức
 
-            // BƯỚC 2: CHỈ CẬP NHẬT RAM VÀ CACHE KHI DATABASE ĐÃ LƯU XONG
+            // 🟢 FIX LỖI: CHỈ KHI LƯU SERVER THÀNH CÔNG THÌ MỚI XÓA FILE AUTO-SAVE
+            clearAssessmentStateFromLocal();
+
+            // BƯỚC 2: CẬP NHẬT RAM VÀ CACHE
             tempMasteryUpdates.forEach(item => {
                 // Cập nhật Kanji Mastery trong RAM
                 const kMatches = item.front.match(/[\u4e00-\u9faf]/g) || [];
@@ -18719,8 +18721,13 @@ async function processBatchAssessmentResults() {
         } catch (err) {
             hideLoading();
             console.error("Lỗi đồng bộ SRS:", err);
-            // Giữ nguyên RAM cũ, báo lỗi để người dùng biết dữ liệu chưa được lưu
-            return customAlert(`Lỗi kết nối Cloud: Tiến độ chưa được lưu. Vui lòng kiểm tra mạng và thử lại!`, "❌ Thất bại");
+            
+            // 🟢 LỖI MẠNG: Dọn sạch biến đã processed để lần sau user bấm lại không bị bỏ qua
+            sessionCards.forEach(card => card.isProcessed = false);
+            boostState.passedCards = [];
+            boostState.remedialCards = [];
+            
+            return customAlert(`Lỗi kết nối Cloud: Tiến độ chưa được lưu. Vui lòng kiểm tra mạng và ấn nút NỘP BÀI lại!`, "❌ Thất bại");
         }
     }
 
