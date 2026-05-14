@@ -12138,6 +12138,7 @@ async function deleteDeckFromDashboard(event, deckId, deckName) {
 
             showToast("🗑️ Đã xóa học phần thành công!");
             renderManageDeckList(); // Tải lại danh sách
+            triggerSilentBackgroundSync();
         } catch (err) {
             customAlert("Lỗi xóa dữ liệu: " + err.message, "❌");
         } finally {
@@ -12501,7 +12502,7 @@ async function saveFullDeck() {
 
 // 8. HOÀN TẤT VÀ RESET TRẠNG THÁI
         showToast(editingDeckId ? "Đã cập nhật: " + tag : "Đã tạo thành công: " + tag);
-        
+        if (editingDeckId) triggerSilentBackgroundSync();
         cardsToDelete = [];
         activeDeckId = null;
         editingDeckId = null;
@@ -13577,6 +13578,8 @@ async function deleteQuickCard() {
 
         closeModal('quickEditModal');
         showToast("Đã xóa thẻ khỏi bộ bài! 🗑️");
+        triggerSilentBackgroundSync();
+
 
         // 3. Xóa khỏi mảng đang học tạm thời
         sessionCards.splice(currentIndex, 1);
@@ -20955,6 +20958,7 @@ window.clearFavoriteDeck = async function(event, deckId) {
             
             // 4. Load lại giao diện (Thẻ sẽ tự động chuyển viền về màu xám vì đã trống)
             renderManageDeckList(); 
+            triggerSilentBackgroundSync();
 
         } catch (err) {
             console.error("Lỗi xóa thẻ Yêu thích:", err);
@@ -21293,7 +21297,34 @@ document.addEventListener('click', (e) => {
     }
 });
 /* Hết================= GLOBAL MASTER CLICK HANDLER (TỐI ƯU HIỆU NĂNG - QUẢN LÝ TẤT CẢ DROPDOWN) ================= */
+// ================= HỆ THỐNG ĐỒNG BỘ NGẦM (SILENT BACKGROUND SYNC) =================
+// Hàm này chạy ngầm không có UI Loading, giúp dọn dẹp Ghost Data khi Xóa/Sửa thẻ
+async function triggerSilentBackgroundSync() {
+    if (!currentUser) return;
+    console.log("MindDeck: Kích hoạt đồng bộ ngầm dọn dẹp Ghost Data...");
+    
+    try {
+        // 1. Xóa cờ cache để bắt buộc 2 hàm dưới phải quét thẳng từ DB
+        sessionStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
+        sessionStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
 
+        // 2. Chạy ngầm 2 hàm quét (Không await để không block UI của người dùng)
+        Promise.all([
+            syncKanjiMastery(),
+            calculateGrammarMastery()
+        ]).then(() => {
+            console.log("MindDeck: Dọn dẹp Ghost Data thành công!");
+            // Nếu người dùng đang ở Dashboard, cập nhật lại UI cho chuẩn
+            if (!document.getElementById('dashboardPage').classList.contains('hidden')) {
+                renderJLPTProgress();
+            }
+        });
+    } catch (e) {
+        console.error("Lỗi đồng bộ ngầm:", e);
+    }
+}
+// =================Hết HỆ THỐNG ĐỒNG BỘ NGẦM (SILENT BACKGROUND SYNC) =================
+ 
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
