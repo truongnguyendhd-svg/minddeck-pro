@@ -11556,7 +11556,38 @@ async function answerCurrent(q) {
             cacheCard.progress[0] = payload; 
         }
     }
-    
+    // ========================================================
+    // 🟢 INCREMENTAL CACHE UPDATE (CHO HỌC TỪNG THẺ)
+    // ========================================================
+    const kMatches = c.front.match(/[\u4e00-\u9faf]/g) || [];
+    kMatches.forEach(k => {
+        let currentInt = userKanjiMasteryMap[k] || 0;
+        if (q < 2) { // Bấm nút SAI
+            let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
+            userKanjiMasteryMap[k] = pen;
+        } else {
+            userKanjiMasteryMap[k] = Math.max(currentInt, interval);
+        }
+    });
+
+    if (globalGrammarData && globalGrammarData.length > 0) {
+        globalGrammarData.forEach(g => {
+            const cleanPoint = g.grammar_point.replace(/～/g, '');
+            if (c.front.includes(cleanPoint)) {
+                let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
+                if (q >= 2) { 
+                    userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
+                }
+            }
+        });
+    }
+
+    // Cập nhật lại Session Storage
+    sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+    sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+    // Đặt cờ bỏ qua Full Scan nếu thoát ra ngoài
+    sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
+    // ========================================================
     nextCard();
 }
 
@@ -18555,6 +18586,7 @@ window.incrementPenalty = function() {
 };
 
 // TÍNH ĐIỂM SRS, ĐẨY LÊN DATABASE & LƯU THẺ HỔNG KIẾN THỨC
+// TÍNH ĐIỂM SRS, ĐẨY LÊN DATABASE & CẬP NHẬT CACHE NHỎ GIỌT
 async function processBatchAssessmentResults() {
     if (isVirtualSession) {
         hideLoading();
@@ -18604,6 +18636,37 @@ async function processBatchAssessmentResults() {
         if (q < 3) boostState.remedialCards.push(card);
         else boostState.passedCards.push(card);
 
+        // ========================================================
+        // 🟢 INCREMENTAL CACHE UPDATE: CẬP NHẬT TRỰC TIẾP VÀO RAM
+        // ========================================================
+        // 1. Cập nhật Kanji Cache
+        const kMatches = card.front.match(/[\u4e00-\u9faf]/g) || [];
+        kMatches.forEach(k => {
+            let currentInt = userKanjiMasteryMap[k] || 0;
+            if (q < 3) { 
+                // Áp dụng luật phạt tụt hạng
+                let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
+                userKanjiMasteryMap[k] = pen;
+            } else {
+                // Tăng hạng
+                userKanjiMasteryMap[k] = Math.max(currentInt, interval);
+            }
+        });
+
+        // 2. Cập nhật Grammar Cache
+        if (globalGrammarData && globalGrammarData.length > 0) {
+            globalGrammarData.forEach(g => {
+                const cleanPoint = g.grammar_point.replace(/～/g, '');
+                if (card.front.includes(cleanPoint)) {
+                    let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
+                    if (q >= 3) { // Chỉ tăng điểm ngữ pháp nếu trả lời đúng
+                        userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
+                    }
+                }
+            });
+        }
+        // ========================================================
+
         let payload = { 
             user_id: currentUser.id, card_id: card.id, 
             ef: ef, interval: interval, interval_count: interval_count, 
@@ -18613,18 +18676,20 @@ async function processBatchAssessmentResults() {
         payloads.push(payload);
     });
 
+    // LƯU LẠI BẢN RAM MỚI VÀO SESSION STORAGE (ĐỂ DASHBOARD ĐỌC)
+    sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+    sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+
     if (payloads.length > 0) {
         try {
-            // 1. CẬP NHẬT ĐIỂM SỐ LÊN CLOUD
             const { error } = await sb.from('progress').upsert(payloads);
             if (error) throw error;
             
-            // 2. YÊU CẦU 1: LƯU THẺ SAI VÀO BỘ BÀI "HỔNG KIẾN THỨC"
             if (boostState.remedialCards.length > 0) {
                 await saveToRemedialDeck(boostState.remedialCards);
             }
             
-            // 3. TỐI ƯU BĂNG THÔNG: Báo cho Dashboard biết là chỉ cần quét lại số lượng, KHÔNG CẦN TẢI LẠI TOÀN BỘ KANJI
+            // Báo cho Dashboard biết KHÔNG CẦN FULL SCAN vì Cache đã được bơm đầy đủ
             sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
 
         } catch (err) {
