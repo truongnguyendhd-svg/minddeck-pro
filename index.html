@@ -21491,45 +21491,76 @@ async function triggerSilentBackgroundSync() {
     }
 }
 // =================Hết HỆ THỐNG ĐỒNG BỘ NGẦM (SILENT BACKGROUND SYNC) =================
-/* ================= HỆ THỐNG SHADOWING THEATER (OOP ARCHITECTURE) ================= */
+/* ================= HỆ THỐNG SHADOWING THEATER (PHASE 2 - AI INTEGRATION) ================= */
 
 class ShadowingTheater {
     constructor() {
         this.player = null;
-        this.subtitles = []; // Mảng chứa dữ liệu sub
+        this.subtitles = []; 
         this.currentIndex = 0;
-        this.trackingId = null; // ID của requestAnimationFrame
+        this.trackingId = null; 
         this.isAPIReady = false;
         this.currentVideoId = "";
         
-        // Ngưỡng thời gian (giây) để quyết định ngắt câu
+        // Ngưỡng thời gian (giây) để quyết định ngắt câu (0.15s giúp ngắt mượt không bị lẹm âm)
         this.TIME_TOLERANCE = 0.15; 
         
         this.loadYouTubeAPI();
     }
 
-    // Tải script API của YouTube một lần duy nhất
     loadYouTubeAPI() {
-        if (window.YT) {
-            this.isAPIReady = true;
-            return;
-        }
+        if (window.YT) { this.isAPIReady = true; return; }
         const tag = document.createElement('script');
         tag.src = "https://www.youtube.com/iframe_api";
         const firstScriptTag = document.getElementsByTagName('script')[0];
         firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-        
-        // Callback bắt buộc của Google
-        window.onYouTubeIframeAPIReady = () => {
-            this.isAPIReady = true;
-        };
+        window.onYouTubeIframeAPIReady = () => { this.isAPIReady = true; };
     }
 
-    // Xử lý Link YT để lấy ID
     extractVideoID(url) {
         const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
         const match = url.match(regExp);
-        return (match && match[2].length === 11) ? match[2] : url; // Nếu nhập trực tiếp ID thì trả về luôn
+        return (match && match[2].length === 11) ? match[2] : url; 
+    }
+
+    // 🟢 HÀM MỚI: GỌI AI BÓC TÁCH & DỊCH PHỤ ĐỀ YOUTUBE
+    async fetchSubtitlesFromAI(videoId) {
+        const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+        
+        // Prompt thiết kế đặc biệt ép AI trả JSON mảng chuẩn xác, có tính năng tính giây (start/end)
+        const prompt = `Bạn là một chuyên gia ngôn ngữ tiếng Nhật. Hãy truy cập video YouTube sau: ${videoUrl}.
+        Trích xuất phụ đề (transcript) của video này, sau đó dịch từng câu sang tiếng Nhật.
+        
+        BẮT BUỘC trả về ĐÚNG định dạng JSON Array dưới đây, KHÔNG giải thích thêm, KHÔNG bọc trong markdown \`\`\`json:
+        [
+          {
+            "start": 0.0,
+            "end": 4.5,
+            "origin": "Câu phụ đề gốc",
+            "jp": "Bản dịch tiếng Nhật"
+          },
+          {
+            "start": 4.5,
+            "end": 8.0,
+            "origin": "Câu tiếp theo",
+            "jp": "Bản dịch tiếp theo"
+          }
+        ]
+        Lưu ý quan trọng: 
+        1. Tính toán thời gian "start" và "end" (tính bằng giây, số thập phân) khớp với video.
+        2. Phân chia các câu sao cho tự nhiên, độ dài vừa phải để luyện nghe (Shadowing).`;
+
+        let aiResponse = await callGeminiAI(prompt);
+        
+        // Máy giặt JSON: Chống lỗi AI bọc Markdown
+        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        const parsedData = JSON.parse(aiResponse);
+        if (!Array.isArray(parsedData) || parsedData.length === 0) {
+            throw new Error("AI trả về dữ liệu rỗng hoặc sai định dạng.");
+        }
+        
+        return parsedData;
     }
 
     // KHỞI TẠO RẠP PHIM
@@ -21540,59 +21571,59 @@ class ShadowingTheater {
         if (!videoId || videoId.length !== 11) return customAlert("Link YouTube không hợp lệ!", "⚠️");
         
         this.currentVideoId = videoId;
-        showLoading("Đang khởi tạo Rạp phim...");
+        
+        // 🟢 CẬP NHẬT UI LOADING CHO PHASE 2
+        showLoading("AI đang xem video và dịch phụ đề...\nQuá trình này mất khoảng 15-30 giây ☕");
 
-        // ĐỔI SANG PHASE 2 Ở ĐÂY SAU NÀY: 
-        // this.subtitles = await fetchVercelAI(videoId); 
-        this.subtitles = this.getMockData(); 
-        this.currentIndex = 0;
+        try {
+            // Lấy data thực tế từ AI
+            this.subtitles = await this.fetchSubtitlesFromAI(videoId);
+            this.currentIndex = 0;
 
-        // Render UI
-        document.getElementById('shadowingSetupZone').classList.add('hidden');
-        document.getElementById('shadowingTheaterZone').classList.remove('hidden');
-        document.getElementById('sdwTotalSentence').innerText = this.subtitles.length;
+            // Render UI
+            document.getElementById('shadowingSetupZone').classList.add('hidden');
+            document.getElementById('shadowingTheaterZone').classList.remove('hidden');
+            document.getElementById('sdwTotalSentence').innerText = this.subtitles.length;
 
-        // Khởi tạo iFrame Player
-        if (this.player) {
-            this.player.loadVideoById(videoId);
-        } else {
-            this.player = new YT.Player('youtubePlayerBox', {
-                height: '100%',
-                width: '100%',
-                videoId: videoId,
-                playerVars: {
-                    'playsinline': 1,
-                    'controls': 1,
-                    'disablekb': 1,
-                    'rel': 0
-                },
-                events: {
-                    'onReady': (e) => this.onPlayerReady(e),
-                    'onStateChange': (e) => this.onPlayerStateChange(e)
-                }
-            });
+            // Khởi tạo iFrame Player
+            if (this.player) {
+                this.player.loadVideoById(videoId);
+            } else {
+                this.player = new YT.Player('youtubePlayerBox', {
+                    height: '100%',
+                    width: '100%',
+                    videoId: videoId,
+                    playerVars: {
+                        'playsinline': 1,
+                        'controls': 1,
+                        'disablekb': 1,
+                        'rel': 0
+                    },
+                    events: {
+                        'onStateChange': (e) => this.onPlayerStateChange(e)
+                    }
+                });
+            }
+        } catch (error) {
+            console.error("Lỗi AI Shadowing:", error);
+            customAlert("AI không thể lấy phụ đề video này. Hãy thử video khác có sẵn CC (Closed Captions) nhé.<br><br><i>Lỗi: " + error.message + "</i>", "❌");
+        } finally {
+            hideLoading();
         }
-        hideLoading();
-    }
-
-    onPlayerReady(event) {
-        // Có thể auto play ở đây nếu muốn
     }
 
     onPlayerStateChange(event) {
         if (event.data === YT.PlayerState.PLAYING) {
-            // Khi video bắt đầu chạy, thu gọn thẻ Subtitle và bắt đầu quét thời gian
             document.getElementById('shadowingSubCard').classList.remove('show');
             this.startTracking();
         } else {
-            // Khi Pause, Buffer, End -> Dừng quét để tiết kiệm CPU
             this.stopTracking();
         }
     }
 
-    // 🟢 HỆ THỐNG QUÉT THỜI GIAN THEO FRAME (SIÊU NHẸ CPU)
+    // HỆ THỐNG QUÉT THỜI GIAN THEO FRAME
     startTracking() {
-        this.stopTracking(); // Clear tracking cũ nếu có
+        this.stopTracking(); 
         
         const checkTime = () => {
             if (!this.player || !this.player.getCurrentTime) return;
@@ -21600,13 +21631,11 @@ class ShadowingTheater {
             const currentTime = this.player.getCurrentTime();
             const currentSub = this.subtitles[this.currentIndex];
 
-            // Nếu chưa hết mảng sub và video đã chạy đến thời điểm `end` của câu
             if (currentSub && currentTime >= (currentSub.end - this.TIME_TOLERANCE)) {
                 this.pauseAndShowSub(currentSub);
-                return; // Dừng quét frame
+                return; 
             }
 
-            // Gọi đệ quy quét tiếp ở Frame màn hình tiếp theo
             this.trackingId = requestAnimationFrame(checkTime);
         };
         
@@ -21620,36 +21649,30 @@ class ShadowingTheater {
         }
     }
 
-    // 🟢 HÀNH ĐỘNG AUTO-PAUSE & HIỂN THỊ HỌC TẬP
+    // AUTO-PAUSE & HIỂN THỊ HỌC TẬP
     pauseAndShowSub(sub) {
         this.stopTracking();
         this.player.pauseVideo();
         
-        // Gọi hàm bọc Kanji (để kích hoạt X-Ray)
         const safeJp = escapeHTML(sub.jp);
         document.getElementById('sdwJpText').innerHTML = wrapKanjiWithLink(safeJp);
         document.getElementById('sdwOriginText').innerHTML = escapeHTML(sub.origin);
-        
-        // Cập nhật số câu
         document.getElementById('sdwCurrentSentence').innerText = this.currentIndex + 1;
 
-        // Hiện thẻ Glassmorphism mượt mà
         document.getElementById('shadowingSubCard').classList.add('show');
 
-        // Mở Audio đọc mẫu của hệ thống
+        // Bật Audio đọc tiếng Nhật
         window.safePlayAudio(sub.jp, 0.85);
 
-        // Tăng Index chờ câu tiếp theo
         this.currentIndex++;
     }
 
     replayAudio() {
-        const sub = this.subtitles[this.currentIndex - 1]; // Lấy lại câu vừa phát
+        const sub = this.subtitles[this.currentIndex - 1]; 
         if (sub) window.safePlayAudio(sub.jp, 0.85);
     }
 
     resumeVideo() {
-        // Nếu đã học hết Sub
         if (this.currentIndex >= this.subtitles.length) {
             document.getElementById('shadowingSubCard').classList.remove('show');
             return showToast("🎉 Bạn đã hoàn thành bài Shadowing này!");
@@ -21657,7 +21680,6 @@ class ShadowingTheater {
         this.player.playVideo();
     }
 
-    // DỌN DẸP KHI THOÁT
     destroy() {
         this.stopTracking();
         if (this.player) {
@@ -21668,41 +21690,10 @@ class ShadowingTheater {
         document.getElementById('shadowingSubCard').classList.remove('show');
         document.getElementById('ytVideoInput').value = '';
     }
-
-    // MOCK DATA (Phase 1)
-    getMockData() {
-        return [
-            { start: 0, end: 3.5, origin: "Hello everyone", jp: "みなさん、こんにちは" },
-            { start: 3.5, end: 6.5, origin: "Welcome to my channel", jp: "私のチャンネルへようこそ" },
-            { start: 6.5, end: 10, origin: "Today, we will study Japanese", jp: "今日、日本語を勉強しましょう" },
-            { start: 10, end: 15, origin: "Please repeat after me.", jp: "私の後に続いて繰り返してください。" }
-        ];
-    }
 }
 
-// Khởi tạo Global Instance
+// Khởi tạo Global Instance (Giữ nguyên)
 const theaterApp = new ShadowingTheater();
-
-// Hàm Trigger từ Giao diện
-function showShadowingTheater() {
-    window.location.hash = 'shadowing';
-    showPage('shadowingPage');
-    updateBreadcrumb([{label: "Shadowing Theater"}]);
-    updateHeaderTitle("SHADOWING");
-    
-    // Mở khóa Audio cho iOS ngay khi vào trang
-    window.unlockIOSAudio();
-}
-
-function startShadowingTheater() {
-    const url = document.getElementById('ytVideoInput').value.trim();
-    if(!url) return showToast("Vui lòng nhập Link YouTube!");
-    theaterApp.init(url);
-}
-
-function exitShadowingTheater() {
-    theaterApp.destroy();
-}
 /* =================HẾT HỆ THỐNG SHADOWING THEATER (OOP ARCHITECTURE) ================= */
 
 </script>
