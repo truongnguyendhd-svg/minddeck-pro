@@ -21525,11 +21525,10 @@ class ShadowingTheater {
 
     // 🟢 HÀM MỚI: GỌI AI BÓC TÁCH & DỊCH PHỤ ĐỀ YOUTUBE
     async fetchSubtitlesFromAI(videoId) {
-        const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-        
-        // Prompt thiết kế đặc biệt ép AI trả JSON mảng chuẩn xác, có tính năng tính giây (start/end)
-        const prompt = `Bạn là một chuyên gia ngôn ngữ tiếng Nhật. Hãy truy cập video YouTube sau: ${videoUrl}.
-        Trích xuất phụ đề (transcript) của video này, sau đó dịch từng câu sang tiếng Nhật.
+        // Prompt giờ đây chỉ yêu cầu Dịch và Đóng gói JSON
+        // Backend Vercel sẽ tự động cào Phụ đề và nhét vào sau Prompt này
+        const prompt = `Nhiệm vụ của bạn là đọc phụ đề video kèm thời gian (giây) ở phía dưới.
+        Hãy dịch toàn bộ sang tiếng Nhật. Nếu phụ đề gốc đã là tiếng Nhật, hãy dịch sang tiếng Việt (Cột jp giữ nguyên tiếng Nhật, cột origin để tiếng Việt).
         
         BẮT BUỘC trả về ĐÚNG định dạng JSON Array dưới đây, KHÔNG giải thích thêm, KHÔNG bọc trong markdown \`\`\`json:
         [
@@ -21537,30 +21536,41 @@ class ShadowingTheater {
             "start": 0.0,
             "end": 4.5,
             "origin": "Câu phụ đề gốc",
-            "jp": "Bản dịch tiếng Nhật"
-          },
-          {
-            "start": 4.5,
-            "end": 8.0,
-            "origin": "Câu tiếp theo",
-            "jp": "Bản dịch tiếp theo"
+            "jp": "Bản dịch tiếng Nhật mượt mà, tự nhiên"
           }
         ]
-        Lưu ý quan trọng: 
-        1. Tính toán thời gian "start" và "end" (tính bằng giây, số thập phân) khớp với video.
-        2. Phân chia các câu sao cho tự nhiên, độ dài vừa phải để luyện nghe (Shadowing).`;
+        
+        Lưu ý: Giữ nguyên thông số "start" và "end" (số thập phân) theo đúng bản gốc. Gộp các từ lắt nhắt thành một câu hoàn chỉnh có nghĩa để học viên dễ luyện đọc (Shadowing).`;
 
-        let aiResponse = await callGeminiAI(prompt);
-        
-        // Máy giặt JSON: Chống lỗi AI bọc Markdown
-        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-        
-        const parsedData = JSON.parse(aiResponse);
-        if (!Array.isArray(parsedData) || parsedData.length === 0) {
-            throw new Error("AI trả về dữ liệu rỗng hoặc sai định dạng.");
+        try {
+            // Gọi API Vercel và Gửi KÈM videoId
+            const response = await fetch('/api/gemini', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    prompt: prompt,
+                    videoId: videoId // 👈 Báo cho Backend cào sub của video này
+                })
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Lỗi API.');
+
+            let aiResponse = data.result;
+            
+            // Máy giặt JSON: Chống lỗi AI bọc Markdown
+            aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+            
+            const parsedData = JSON.parse(aiResponse);
+            if (!Array.isArray(parsedData) || parsedData.length === 0) {
+                throw new Error("AI trả về dữ liệu rỗng hoặc sai định dạng.");
+            }
+            
+            return parsedData;
+
+        } catch (error) {
+            throw error; // Ném lỗi ra ngoài cho hàm init() hiển thị Alert
         }
-        
-        return parsedData;
     }
 
     // KHỞI TẠO RẠP PHIM
