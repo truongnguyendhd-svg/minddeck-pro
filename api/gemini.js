@@ -3,7 +3,8 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    // Backend bây giờ chỉ nhận prompt và images (Prompt đã được Frontend nhét sẵn Subtitle vào)
+    // 1. LẤY PROMPT VÀ MẢNG IMAGE(S) TỪ FRONTEND
+    // Frontend gửi key là 'images' (số nhiều)
     const { prompt, images } = req.body;
 
     const keysString = process.env.GEMINI_API_KEYS; 
@@ -15,12 +16,15 @@ export default async function handler(req, res) {
     let startIndex = Math.floor(Math.random() * apiKeys.length);
     let lastErrorMessage = "";
 
-    // Chuẩn bị Payload gửi Gemini
+    // 2. CHUẨN BỊ DỮ LIỆU GỬI LÊN GOOGLE
     let partsArray = [{ text: prompt }];
 
+    // NẾU CÓ ẢNH (MẢNG) -> DÙNG VÒNG LẶP ĐỂ THÊM VÀO
     if (images && Array.isArray(images) && images.length > 0) {
         images.forEach(imgString => {
+            // Lọc chuỗi base64 (Cắt bỏ 'data:image/jpeg;base64,')
             const cleanBase64 = imgString.includes(',') ? imgString.split(',')[1] : imgString;
+            
             partsArray.push({
                 inlineData: {
                     mimeType: "image/jpeg",
@@ -30,12 +34,13 @@ export default async function handler(req, res) {
         });
     }
 
-    // Gọi API bằng vòng xoay Key
+    // 3. VÒNG LẶP THỬ TỪNG KEY
     for (let i = 0; i < apiKeys.length; i++) {
         const currentIndex = (startIndex + i) % apiKeys.length;
         const currentKey = apiKeys[currentIndex];
 
         try {
+            // Gọi model gemini-3-flash-preview theo ý bạn
             const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${currentKey}`;
             
             const response = await fetch(geminiUrl, {
@@ -45,7 +50,7 @@ export default async function handler(req, res) {
                     contents: [{ parts: partsArray }], 
                     generationConfig: { 
                         temperature: 0.2,
-                        maxOutputTokens: 8192 
+                        maxOutputTokens: 8192 // <--- CHO PHÉP AI TRẢ LỜI DÀI TỐI ĐA
                     } 
                 })
             });
