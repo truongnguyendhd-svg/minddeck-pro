@@ -14691,14 +14691,21 @@ async function showGrammarVault(skipHash = false) {
 async function calculateGrammarMastery() {
     if (!currentUser) return;
     
-    userGrammarMasteryMap = {}; // Reset map
+    // 🟢 THÊM MỚI: KIỂM TRA CACHE TRONG SESSION STORAGE ĐỂ CHỐNG F5
+    const cachedGrammar = sessionStorage.getItem(`minddeck_grammar_cache_${currentUser.id}`);
+    if (cachedGrammar) {
+        userGrammarMasteryMap = JSON.parse(cachedGrammar);
+        console.log("MindDeck: Load Ngữ pháp từ Session Cache (0 KB)");
+        return; // Dừng hàm tại đây, không gọi Database nữa!
+    }
+
+    userGrammarMasteryMap = {}; 
     
     try {
-        // 1. TẢI CUỐN CHIẾU TẤT CẢ TIẾN ĐỘ SRS
         let allProgressData = [];
         let isFetching = true;
         let fromIndex = 0;
-        const step = 999; // Tải 1000 dòng mỗi lần
+        const step = 999; 
 
         while (isFetching) {
             const { data, error } = await sb.from('progress')
@@ -14706,25 +14713,17 @@ async function calculateGrammarMastery() {
                 .eq('user_id', currentUser.id)
                 .range(fromIndex, fromIndex + step);
                 
-            if (error) {
-                console.error("Lỗi tải tiến độ ngữ pháp:", error);
-                break;
-            }
+            if (error) break;
             
             if (data && data.length > 0) {
                 allProgressData = allProgressData.concat(data);
                 fromIndex += (step + 1);
             }
-            
-            // Nếu số lượng trả về ít hơn step, nghĩa là đã tải hết trang cuối cùng
-            if (!data || data.length <= step) {
-                isFetching = false;
-            }
+            if (!data || data.length <= step) isFetching = false;
         }
 
         if (allProgressData.length === 0) return;
 
-        // Lưu tạm danh sách mặt trước của các thẻ và interval cao nhất
         let userFlashcards = {};
         allProgressData.forEach(p => {
             const front = p.cards.front;
@@ -14734,15 +14733,11 @@ async function calculateGrammarMastery() {
             }
         });
 
-        // 2. TẢI TỪ ĐIỂN NGỮ PHÁP (NẾU CHƯA CÓ TRONG RAM)
         if (globalGrammarData.length === 0) {
-            const { data: gData, error: gErr } = await sb.from('grammar_dict').select('*');
-            if (!gErr && gData) {
-                globalGrammarData = gData; 
-            }
+            const { data: gData } = await sb.from('grammar_dict').select('*');
+            if (gData) globalGrammarData = gData; 
         }
 
-        // 3. TIẾN HÀNH ĐỐI CHIẾU (MAP)
         if (globalGrammarData.length > 0) {
             globalGrammarData.forEach(g => {
                 const point = g.grammar_point;
@@ -14755,11 +14750,13 @@ async function calculateGrammarMastery() {
                     }
                 }
                 
-                if (maxInterval > 0) {
-                    userGrammarMasteryMap[point] = maxInterval;
-                }
+                if (maxInterval > 0) userGrammarMasteryMap[point] = maxInterval;
             });
         }
+        
+        // 🟢 THÊM MỚI: LƯU KẾT QUẢ VỪA QUÉT ĐƯỢC VÀO SESSION STORAGE
+        sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+
     } catch (err) {
         console.error("Lỗi khi quét tiến độ Ngữ pháp:", err);
     }
@@ -19327,8 +19324,16 @@ async function saveJLPTGoal() {
 // Đã nâng cấp vòng lặp Pagination chống nghẽn dữ liệu
 async function syncKanjiMastery() {
     if (!currentUser) return 0;
+    
+    // 🟢 THÊM MỚI: KIỂM TRA CACHE TRONG SESSION STORAGE
+    const cachedKanji = sessionStorage.getItem(`minddeck_kanji_cache_${currentUser.id}`);
+    if (cachedKanji) {
+        userKanjiMasteryMap = JSON.parse(cachedKanji);
+        console.log("MindDeck: Load Kanji từ Session Cache (0 KB)");
+        return Object.keys(userKanjiMasteryMap).length; // Dừng hàm, trả về số lượng
+    }
+
     try {
-        // 1. TẢI CUỐN CHIẾU TẤT CẢ TIẾN ĐỘ SRS
         let allProgressData = [];
         let isFetching = true;
         let fromIndex = 0;
@@ -19344,20 +19349,14 @@ async function syncKanjiMastery() {
                 allProgressData = allProgressData.concat(data);
                 fromIndex += (step + 1);
             }
-            if (!data || data.length <= step) {
-                isFetching = false;
-            }
+            if (!data || data.length <= step) isFetching = false;
         }
 
-        // 2. Lấy Kỷ lục cũ trên Cloud
-        const { data: profile } = await sb.from('profiles')
-            .select('kanji_mastery').eq('id', currentUser.id).single();
-            
+        const { data: profile } = await sb.from('profiles').select('kanji_mastery').eq('id', currentUser.id).single();
         let cloudArchive = profile?.kanji_mastery || {};
         let liveMap = {};
         let failedMap = {};
 
-        // Quét dữ liệu
         if (allProgressData.length > 0) {
             allProgressData.forEach(p => {
                 const intv = p.interval || 0;
@@ -19372,7 +19371,6 @@ async function syncKanjiMastery() {
             });
         }
 
-        // Trộn và Bảo vệ kỷ lục
         let finalMap = {};
         let changed = false;
         const allKeys = new Set([...Object.keys(liveMap), ...Object.keys(cloudArchive)]);
@@ -19393,10 +19391,15 @@ async function syncKanjiMastery() {
             }
         }
 
-        // Cập nhật Cloud nếu có thay đổi (Thêm await để ép hệ thống lưu xong 100%)
         if (changed) {
             await sb.from('profiles').update({ kanji_mastery: finalMap }).eq('id', currentUser.id);
         }
+        
+        userKanjiMasteryMap = finalMap; // Gán ra biến toàn cục
+        
+        // 🟢 THÊM MỚI: LƯU KẾT QUẢ VÀO SESSION STORAGE
+        sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+        
         return Object.keys(finalMap).length;
     } catch (e) {
         console.error("Lỗi đồng bộ Kanji:", e);
@@ -20346,27 +20349,26 @@ async function saveAdminKanjiBuilder() {
 // Hàm làm mới hoàn toàn kho Kanji Pokedex
 async function refreshKanjiCollection() {
     showLoading("Đang tải dữ liệu mới nhất từ Cloud...");
+    allKanjiData = []; 
+    localStorage.removeItem('minddeck_kanji_dict'); 
     
-    allKanjiData = []; // Xóa trắng RAM
-    localStorage.removeItem('minddeck_kanji_dict'); // Xóa sạch bộ nhớ đệm
+    // 🟢 Xóa Session Cache để ép Full Scan
+    sessionStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
     
-    // Gọi lại hàm hiển thị Pokedex để nó tự động bốc data mới
     await showKanjiCollection(true); 
-    
     hideLoading();
     showToast("✅ Đã cập nhật Bộ sưu tập Kanji!");
 }
 // Hàm làm mới hoàn toàn kho Ngữ Pháp
 async function refreshGrammarCollection() {
     showLoading("Đang tải dữ liệu mới nhất từ Cloud...");
-    
-    // Xóa RAM để ép hệ thống tải lại toàn bộ
     globalGrammarData = []; 
     userGrammarMasteryMap = {};
     
-    // Gọi lại hàm hiển thị Ngữ pháp (Tham số true để không phá URL Hash)
-    await showGrammarVault(true); 
+    // 🟢 Xóa Session Cache để ép Full Scan
+    sessionStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
     
+    await showGrammarVault(true); 
     hideLoading();
     showToast("✅ Đã cập nhật Bộ sưu tập Ngữ pháp!");
 }
