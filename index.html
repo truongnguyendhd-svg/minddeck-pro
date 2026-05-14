@@ -8309,13 +8309,11 @@ async function loadDashboardData() {
         const { count: dueCount, error: err1 } = await sb.from('progress')
             .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
             .eq('user_id', currentUser.id)
-            .eq('cards.decks.type', 'flashcard') // <-- BỘ LỌC CHỈ LẤY FLASHCARD
+            .eq('cards.decks.type', 'flashcard')
             .lte('due', now);
         
-        // Gắn số liệu lên UI
         document.getElementById('dashDueCount').innerText = dueCount || 0;
 
-        // Xử lý trạng thái nút Ôn tập toàn cục
         const btnReview = document.getElementById('btnGlobalReview');
         if (btnReview) {
             if (dueCount > 0) {
@@ -8331,6 +8329,9 @@ async function loadDashboardData() {
             }
         }
         
+        // 2. CHẠY TRÌNH DỌN RÁC THẺ SAI QUÁ 48H NGẦM
+        autoCleanRemedialCards();
+        
         renderJLPTProgress();
         refreshDiscovery();
         await renderRoadmapWidget();
@@ -8339,6 +8340,24 @@ async function loadDashboardData() {
         console.error("Lỗi Dashboard:", err);
     } finally {
         hideLoading();
+    }
+}
+
+// HÀM TỰ HỦY THẺ HỔNG KIẾN THỨC SAU 48H
+async function autoCleanRemedialCards() {
+    if (!currentUser) return;
+    try {
+        const remedialDeckId = `${currentUser.id}:Remedial`;
+        // Tính thời điểm 48 tiếng trước
+        const limitDate = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+        
+        // Xóa tất cả thẻ trong Deck Remedial được tạo TRƯỚC mốc 48h
+        await sb.from('cards').delete()
+            .eq('deck_id', remedialDeckId)
+            .lt('created_at', limitDate);
+            
+    } catch (e) {
+        console.error("Lỗi dọn rác Remedial:", e);
     }
 }
 
@@ -11853,6 +11872,27 @@ async function renderManageDeckList() {
                 borderColor = '#f59e0b'; // Ghi đè màu viền
                 card.style.background = '#fffbeb'; // Đổ nền vàng nhạt
                 card.style.setProperty('border-top', `4px solid ${borderColor}`, 'important');
+            }
+
+            // GIAO DIỆN RIÊNG CHO BỘ BÀI HỔNG KIẾN THỨC (REMEDIAL)
+            const isRemedialDeck = d.id.endsWith(':Remedial');
+            if (isRemedialDeck) {
+                typeIcon = 'medical_services';
+                typeClass = ''; 
+                typeLabel = 'Hổng kiến thức';
+                borderColor = '#ef4444'; // Đỏ
+                card.style.background = '#fef2f2'; // Đổ nền đỏ nhạt
+                card.style.setProperty('border-top', `4px solid ${borderColor}`, 'important');
+                
+                menuOptions = `
+                    <button class="win11-crop-btn" onclick="openStudyOptionsModal('${d.id}', '${cleanName.replace(/'/g, "\\'")}', '${d.type}')">
+                        <span class="material-symbols-outlined" style="color: #10b981;">list_alt</span> Ôn tập lại / Xem thẻ
+                    </button>
+                    <div style="border-top: 1px solid #f0f0f0; margin: 4px 0;"></div>
+                    <button class="win11-crop-btn" onclick="clearFavoriteDeck(event, '${d.id}')" style="color: #e53e3e;">
+                        <span class="material-symbols-outlined" style="color: #e53e3e;">delete_sweep</span> Dọn sạch thẻ
+                    </button>
+                `;
             }
 
             let topElementsHTML = "";
@@ -18517,11 +18557,11 @@ window.incrementPenalty = function() {
     }
 };
 
-// TÍNH ĐIỂM SRS & ĐẨY LÊN DATABASE (BẢN BATCH UPDATE - ĐÃ CHUẨN HÓA LOGIC PHẠT)
+// TÍNH ĐIỂM SRS, ĐẨY LÊN DATABASE & LƯU THẺ HỔNG KIẾN THỨC
 async function processBatchAssessmentResults() {
     if (isVirtualSession) {
         hideLoading();
-        return endAssessmentSession(); // Phiên ảo không lưu DB
+        return endAssessmentSession(); 
     }
     clearAssessmentStateFromLocal();
 
@@ -18534,39 +18574,28 @@ async function processBatchAssessmentResults() {
         const penalty = card.penaltyPoints;
         const meaningFailed = card.isMeaningFailed;
         
-        // 1. Tính hệ số Quality (q) - LOGIC MỚI KHẮT KHE HƠN
         let q = 0;
-        // Rớt thẳng nếu: Chịu thua, Sai nghĩa, hoặc sai từ 2 lỗi trở lên
         if (card.isFailed || meaningFailed || penalty >= 2) {
             q = 0; 
-        } 
-        // Sai 1 lỗi duy nhất (Gõ nhầm, trượt tay)
-        else if (penalty === 1) {
+        } else if (penalty === 1) {
             q = 3;                             
-        } 
-        // Hoàn hảo 100%
-        else {
+        } else {
             q = 5;                                               
         }
 
-        // 2. Thuật toán SRS
         let p = card.progress && card.progress.length > 0 ? card.progress[0] : null;
         let ef = p ? p.ef : 2.5;
         let interval = p ? p.interval : 1;
         let interval_count = p ? p.interval_count : 0;
         
-        // THUẬT TOÁN SRS ĐÃ CHUẨN HÓA (SM-2 Modified)
         if (q === 5) { 
-            // Hoàn hảo 100%: Tăng EF và tiến lên mức interval tiếp theo
             ef += 0.1; 
             interval_count++; 
             interval = interval_count === 1 ? 1 : (interval_count === 2 ? 6 : Math.round(interval * ef)); 
         } else if (q === 3) {
-            // Chật vật (Sai 1 lỗi): Trừ EF. Giữ nguyên interval_count và interval để user bị ép ôn lại sớm.
             ef = Math.max(1.3, ef - 0.15);
             interval = Math.max(1, interval); 
         } else { 
-            // RỚT (q = 0): Reset Interval về 1 ngày, phạt nặng EF
             ef = Math.max(1.3, ef - 0.2); 
             interval_count = 0; 
             interval = 1; 
@@ -18575,38 +18604,76 @@ async function processBatchAssessmentResults() {
         const due = new Date(); 
         due.setDate(due.getDate() + interval);
         
-        // 3. Phân loại thẻ hiển thị ở màn hình Tổng kết
         if (q < 3) boostState.remedialCards.push(card);
         else boostState.passedCards.push(card);
 
-        // 4. Đóng gói Payload
         let payload = { 
-            user_id: currentUser.id, 
-            card_id: card.id, 
-            ef: ef, 
-            interval: interval, 
-            interval_count: interval_count, 
+            user_id: currentUser.id, card_id: card.id, 
+            ef: ef, interval: interval, interval_count: interval_count, 
             due: due.toISOString() 
         };
         if (p && p.id) payload.id = p.id; 
-        
         payloads.push(payload);
     });
 
-    // 5. Gửi lên Supabase bằng 1 lệnh duy nhất (CÓ BẮT LỖI MẠNG)
     if (payloads.length > 0) {
         try {
+            // 1. CẬP NHẬT ĐIỂM SỐ LÊN CLOUD
             const { error } = await sb.from('progress').upsert(payloads);
             if (error) throw error;
+            
+            // 2. YÊU CẦU 1: LƯU THẺ SAI VÀO BỘ BÀI "HỔNG KIẾN THỨC"
+            if (boostState.remedialCards.length > 0) {
+                await saveToRemedialDeck(boostState.remedialCards);
+            }
+            
+            // 3. TỐI ƯU BĂNG THÔNG: Báo cho Dashboard biết là chỉ cần quét lại số lượng, KHÔNG CẦN TẢI LẠI TOÀN BỘ KANJI
+            sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
+
         } catch (err) {
             hideLoading();
             console.error("Lỗi đồng bộ SRS hàng loạt:", err);
-            return customAlert(`Không thể đồng bộ kết quả do lỗi kết nối mạng.<br><br>Chi tiết lỗi: ${err.message}<br><br>Hãy kiểm tra lại mạng và nhấn nộp bài lần nữa!`, "❌ Lỗi Đồng Bộ");
+            return customAlert(`Không thể đồng bộ kết quả do lỗi kết nối mạng.<br>Chi tiết: ${err.message}`, "❌ Lỗi Đồng Bộ");
         }
     }
 
     hideLoading();
     endAssessmentSession();
+}
+
+// HÀM MỚI: TỰ ĐỘNG ĐƯA THẺ SAI VÀO BỘ BÀI "HỔNG KIẾN THỨC"
+async function saveToRemedialDeck(wrongCardsArray) {
+    if (!currentUser) return;
+    const remedialDeckId = `${currentUser.id}:Remedial`;
+
+    try {
+        // Kiểm tra và tạo bộ bài nếu chưa có
+        const { data: deckCheck } = await sb.from('decks').select('id').eq('id', remedialDeckId).single();
+        if (!deckCheck) {
+            await sb.from('decks').insert([{
+                id: remedialDeckId, owner_id: currentUser.id, type: 'flashcard', is_public: false, sort_order: -9998
+            }]);
+        }
+
+        // Lấy thẻ hiện có để chống trùng
+        const { data: existingFavs } = await sb.from('cards').select('front').eq('deck_id', remedialDeckId);
+        const existingFronts = new Set(existingFavs ? existingFavs.map(c => c.front) : []);
+
+        const cardsToInsert = [];
+        wrongCardsArray.forEach(c => {
+            if (!existingFronts.has(c.front)) {
+                cardsToInsert.push({
+                    deck_id: remedialDeckId, front: c.front, back: c.back, info: c.info
+                });
+            }
+        });
+
+        if (cardsToInsert.length > 0) {
+            await sb.from('cards').insert(cardsToInsert);
+        }
+    } catch (e) {
+        console.error("Lỗi lưu thẻ Hổng kiến thức:", e);
+    }
 }
 /* ================= HÀM XỬ LÝ TIẾN ĐỘ JLPT TRÊN DASHBOARD ================= */
 async function renderJLPTProgress() {
@@ -18795,7 +18862,7 @@ async function refreshDiscovery() {
 function endAssessmentSession() {
     const boostArea = document.getElementById('boostArea');
     boostArea.classList.add('hidden');
-    boostArea.style.display = ''; // 🟢 FIX LỖI: Dọn sạch inline style cũ thay vì gán 'none'
+    boostArea.style.display = '';
 
     const summaryPage = document.getElementById('boostSummaryPage');
     summaryPage.classList.remove('hidden');
@@ -18804,23 +18871,23 @@ function endAssessmentSession() {
     const remedial = boostState.remedialCards.length;
     const total = sessionCards.length;
 
+    // ĐÃ CHỈNH SỬA YÊU CẦU 3: Flex:1 cho 2 khối cân xứng, Sửa UI nút bấm
     let html = `
         <div class="summary-title" style="color: #0067c0;">KẾT QUẢ SÁT HẠCH</div>
         <p style="color: #4a5568; font-weight: 600;">Bạn đã hoàn thành phiên đánh giá ${total} thẻ.</p>
         
-        <div style="display: flex; justify-content: center; gap: 20px; margin-top: 20px; margin-bottom: 30px;">
-            <div style="background: white; padding: 15px 30px; border-radius: 15px; border: 1px solid #c6f6d5; box-shadow: 0 4px 10px rgba(0,0,0,0.02);">
+        <div style="display: flex; justify-content: space-between; gap: 15px; margin-top: 20px; margin-bottom: 30px; width: 100%;">
+            <div style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #c6f6d5; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center;">
                 <h3 style="margin:0; color:#38a169; font-size:28px;">${passed}</h3>
-                <small style="color: #718096; font-weight: 700;">Thuộc bài</small>
+                <small style="color: #718096; font-weight: 700; text-align: center;">Thuộc bài</small>
             </div>
-            <div style="background: white; padding: 15px 30px; border-radius: 15px; border: 1px solid #fed7d7; box-shadow: 0 4px 10px rgba(0,0,0,0.02);">
+            <div style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #fed7d7; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center;">
                 <h3 style="margin:0; color:#e53e3e; font-size:28px;">${remedial}</h3>
-                <small style="color: #718096; font-weight: 700;">Hổng kiến thức</small>
+                <small style="color: #718096; font-weight: 700; text-align: center;">Hổng kiến thức</small>
             </div>
         </div>
     `;
 
-    // Luôn render danh sách lỗi nếu có
     if (remedial > 0) {
         html += `<div style="text-align:left; font-size:14px; font-weight:800; color:#c50f1f; margin-bottom:10px; text-transform:uppercase;">Danh sách cần lưu ý:</div>`;
         html += `<ul class="summary-list" style="margin-top:0;">`;
@@ -18836,12 +18903,12 @@ function endAssessmentSession() {
         html += `</ul>`;
     }
 
-    // Luôn luôn hiện nút XEM LẠI TẤT CẢ (Thay vì chỉ hiện khi có lỗi)
+    // ĐÃ CHỈNH SỬA YÊU CẦU 3: Bo góc 16px, text THOÁT VỀ TRANG CHỦ in đậm, to hơn
     html += `
-        <button onclick="startRemedialReview()" class="win11-btn-primary" style="margin-top: 20px; width: 100%; padding: 18px; font-size: 16px; border-radius: 50px; background: #0067c0;">
+        <button onclick="startRemedialReview()" class="win11-btn-primary" style="margin-top: 20px; width: 100%; padding: 18px; font-size: 16px; border-radius: 16px; background: #0067c0;">
             <span class="material-symbols-outlined" style="vertical-align: middle; margin-right: 5px;">preview</span> XEM LẠI TOÀN BỘ (${total})
         </button>
-        <button onclick="showDashboard()" style="margin-top: 10px; width: 100%; padding: 14px; background: transparent; border: none; color: #718096; font-weight: 700; cursor: pointer;">
+        <button onclick="showDashboard()" style="margin-top: 15px; width: 100%; padding: 14px; background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: 15px; cursor: pointer; text-transform: uppercase;">
             Thoát về trang chủ
         </button>
     `;
@@ -19384,9 +19451,21 @@ async function renderRoadmapWidget() {
             .eq('user_id', currentUser.id)
             .eq('cards.decks.type', 'flashcard');
             
-        await calculateGrammarMastery(); 
-        const grammarCount = Object.keys(userGrammarMasteryMap).length;
-        const kanjiCount = await syncKanjiMastery(); // Quét và đồng bộ ngay lập tức
+        // 🟢 CẬP NHẬT: TIẾT KIỆM BĂNG THÔNG CHO DASHBOARD
+        // Nếu user vừa làm bài test xong, bỏ qua bước quét toàn bộ Kanji/Ngữ pháp (Giữ nguyên RAM)
+        const skipFullScan = sessionStorage.getItem(`minddeck_skip_full_scan_${currentUser.id}`);
+        let grammarCount = Object.keys(userGrammarMasteryMap).length; // Lấy từ RAM
+        let kanjiCount = Object.keys(userKanjiMasteryMap).length;     // Lấy từ RAM
+        
+        if (skipFullScan === 'true') {
+            console.log("MindDeck: Bỏ qua Full Scan tiết kiệm băng thông!");
+            sessionStorage.removeItem(`minddeck_skip_full_scan_${currentUser.id}`); // Xóa cờ để lần F5 tiếp theo vẫn quét bình thường
+        } else {
+            // Nếu không có cờ (Vào app lần đầu, hoặc F5) -> Chạy quét toàn bộ
+            await calculateGrammarMastery(); 
+            grammarCount = Object.keys(userGrammarMasteryMap).length;
+            kanjiCount = await syncKanjiMastery();
+        }
 
         // ========================================================
         // 🟢 THUẬT TOÁN MỚI: CHỐT SỔ ĐẦU NGÀY (DAILY SNAPSHOT)
