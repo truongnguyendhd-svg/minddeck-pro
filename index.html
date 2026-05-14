@@ -11483,36 +11483,29 @@ async function answerCurrent(q) {
     const c = sessionCards[currentIndex];
 
     // ==========================================
-    // LOGIC 1: CHẾ ĐỘ NHỒI NHÉT 5 CẤP ĐỘ (CRAM)
+    // LOGIC 1: CHẾ ĐỘ NHỒI NHÉT 5 CẤP ĐỘ (CRAM) - KHÔNG DÙNG DATABASE
     // ==========================================
     if (mode === 'cram') {
-        const isCorrect = (q >= 4); // q=5 là Đúng, q=0 là Sai
-
+        const isCorrect = (q >= 4); 
         if (!isCorrect) {
-            // Trả lời SAI: Rớt về Cấp 1, nhân bản thẻ đẩy xuống cuối hàng đợi
             c.cramLevel = 1;
             sessionCards.push({ ...c });
             showToast("Sai! Bắt đầu lại Cấp 1 📉");
         } else {
-            // Trả lời ĐÚNG: Lên 1 cấp
             c.cramLevel += 1;
-            
             if (c.cramLevel > targetCramLevel) {
-                // Vượt qua mục tiêu -> Hoàn thành, không nhét lại vào mảng
                 showToast("Đã thuộc thẻ này! 🎉");
             } else {
-                // Chưa đạt mục tiêu -> Đẩy xuống cuối hàng đợi để hỏi lại
                 sessionCards.push({ ...c });
                 showToast(`Chính xác! Lên Cấp ${c.cramLevel} 📈`);
             }
         }
-        
         nextCard();
-        return; // Thoát hàm, KHÔNG LƯU LÊN SUPABASE
+        return; 
     }
 
     // ==========================================
-    // LOGIC 2: CHẾ ĐỘ ÔN TẬP SRS (REVIEW)
+    // LOGIC 2: CHẾ ĐỘ ÔN TẬP SRS (REVIEW) - CÓ DÙNG DATABASE & CACHE
     // ==========================================
     let p = c.progress && c.progress.length > 0 
         ? c.progress.find(x => x.user_id === currentUser.id) 
@@ -11546,49 +11539,61 @@ async function answerCurrent(q) {
     };
     if (p && p.id) payload.id = p.id; 
 
-    await sb.from('progress').upsert(payload);
-    
-    // Cập nhật tiến độ vào RAM CACHE
-    if (window.rawDeckCache) {
-        let cacheCard = window.rawDeckCache.find(x => x.id === c.id);
-        if (cacheCard) {
-            if (!cacheCard.progress) cacheCard.progress = [];
-            cacheCard.progress[0] = payload; 
-        }
-    }
-    // ========================================================
-    // 🟢 INCREMENTAL CACHE UPDATE (CHO HỌC TỪNG THẺ)
-    // ========================================================
-    const kMatches = c.front.match(/[\u4e00-\u9faf]/g) || [];
-    kMatches.forEach(k => {
-        let currentInt = userKanjiMasteryMap[k] || 0;
-        if (q < 2) { // Bấm nút SAI
-            let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
-            userKanjiMasteryMap[k] = pen;
-        } else {
-            userKanjiMasteryMap[k] = Math.max(currentInt, interval);
-        }
-    });
+    try {
+        // BƯỚC 1: GỬI DỮ LIỆU LÊN SUPABASE TRƯỚC
+        const { error } = await sb.from('progress').upsert(payload);
+        if (error) throw error; // Nếu lỗi mạng, sẽ nhảy xuống khối catch bên dưới
 
-    if (globalGrammarData && globalGrammarData.length > 0) {
-        globalGrammarData.forEach(g => {
-            const cleanPoint = g.grammar_point.replace(/～/g, '');
-            if (c.front.includes(cleanPoint)) {
-                let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
-                if (q >= 2) { 
-                    userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
-                }
+        // BƯỚC 2: CHỈ KHI LƯU DB THÀNH CÔNG -> MỚI TIẾN HÀNH CẬP NHẬT RAM & CACHE
+        
+        // 2.1. Cập nhật RAM CACHE (Dùng cho F5 nhanh)
+        if (window.rawDeckCache) {
+            let cacheCard = window.rawDeckCache.find(x => x.id === c.id);
+            if (cacheCard) {
+                if (!cacheCard.progress) cacheCard.progress = [];
+                cacheCard.progress[0] = payload; 
+            }
+        }
+
+        // 2.2. Cập nhật Kanji RAM & Cache
+        const kMatches = c.front.match(/[\u4e00-\u9faf]/g) || [];
+        kMatches.forEach(k => {
+            let currentInt = userKanjiMasteryMap[k] || 0;
+            if (q < 2) { // Bấm nút SAI
+                let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
+                userKanjiMasteryMap[k] = pen;
+            } else {
+                userKanjiMasteryMap[k] = Math.max(currentInt, interval);
             }
         });
-    }
 
-    // Cập nhật lại Session Storage
-    sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-    sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
-    // Đặt cờ bỏ qua Full Scan nếu thoát ra ngoài
-    sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
-    // ========================================================
-    nextCard();
+        // 2.3. Cập nhật Ngữ pháp RAM & Cache
+        if (globalGrammarData && globalGrammarData.length > 0) {
+            globalGrammarData.forEach(g => {
+                const cleanPoint = g.grammar_point.replace(/～/g, '');
+                if (c.front.includes(cleanPoint)) {
+                    let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
+                    if (q >= 2) { 
+                        userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
+                    }
+                }
+            });
+        }
+
+        // 2.4. Ghi đè vào Session Storage để Dashboard đọc ngay lập tức mà không cần Full Scan
+        sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+        sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+        sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
+
+        // BƯỚC 3: CHUYỂN SANG THẺ TIẾP THEO
+        nextCard();
+
+    } catch (err) {
+        // XỬ LÝ LỖI MẠNG: Giữ nguyên thẻ hiện tại để người dùng có thể bấm lại
+        console.error("Lỗi đồng bộ SRS:", err);
+        showToast("Lỗi kết nối! Tiến độ chưa được lưu. Thử lại sau 📶");
+        // Không gọi nextCard() ở đây để bảo vệ dữ liệu cho User
+    }
 }
 
 // --- CÁC HÀM HELPER CHO CRAM MODE ---
@@ -18587,6 +18592,7 @@ window.incrementPenalty = function() {
 
 // TÍNH ĐIỂM SRS, ĐẨY LÊN DATABASE & LƯU THẺ HỔNG KIẾN THỨC
 // TÍNH ĐIỂM SRS, ĐẨY LÊN DATABASE & CẬP NHẬT CACHE NHỎ GIỌT
+// TÍNH ĐIỂM SRS, ĐẨY LÊN DATABASE & CẬP NHẬT CACHE CHỈ KHI THÀNH CÔNG
 async function processBatchAssessmentResults() {
     if (isVirtualSession) {
         hideLoading();
@@ -18595,6 +18601,7 @@ async function processBatchAssessmentResults() {
     clearAssessmentStateFromLocal();
 
     let payloads = [];
+    let tempMasteryUpdates = []; // Mảng tạm lưu các thay đổi kiến thức
 
     sessionCards.forEach(card => {
         if (card.isProcessed) return; 
@@ -18603,6 +18610,7 @@ async function processBatchAssessmentResults() {
         const penalty = card.penaltyPoints;
         const meaningFailed = card.isMeaningFailed;
         
+        // 1. Tính hệ số Quality (q)
         let q = 0;
         if (card.isFailed || meaningFailed || penalty >= 2) {
             q = 0; 
@@ -18612,6 +18620,7 @@ async function processBatchAssessmentResults() {
             q = 5;                                               
         }
 
+        // 2. Thuật toán SRS
         let p = card.progress && card.progress.length > 0 ? card.progress[0] : null;
         let ef = p ? p.ef : 2.5;
         let interval = p ? p.interval : 1;
@@ -18633,69 +18642,76 @@ async function processBatchAssessmentResults() {
         const due = new Date(); 
         due.setDate(due.getDate() + interval);
         
+        // Phân loại thẻ cho màn hình tổng kết
         if (q < 3) boostState.remedialCards.push(card);
         else boostState.passedCards.push(card);
 
-        // ========================================================
-        // 🟢 INCREMENTAL CACHE UPDATE: CẬP NHẬT TRỰC TIẾP VÀO RAM
-        // ========================================================
-        // 1. Cập nhật Kanji Cache
-        const kMatches = card.front.match(/[\u4e00-\u9faf]/g) || [];
-        kMatches.forEach(k => {
-            let currentInt = userKanjiMasteryMap[k] || 0;
-            if (q < 3) { 
-                // Áp dụng luật phạt tụt hạng
-                let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
-                userKanjiMasteryMap[k] = pen;
-            } else {
-                // Tăng hạng
-                userKanjiMasteryMap[k] = Math.max(currentInt, interval);
-            }
-        });
+        // Lưu thông tin thay đổi vào hàng đợi tạm
+        tempMasteryUpdates.push({ front: card.front, q: q, newInterval: interval });
 
-        // 2. Cập nhật Grammar Cache
-        if (globalGrammarData && globalGrammarData.length > 0) {
-            globalGrammarData.forEach(g => {
-                const cleanPoint = g.grammar_point.replace(/～/g, '');
-                if (card.front.includes(cleanPoint)) {
-                    let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
-                    if (q >= 3) { // Chỉ tăng điểm ngữ pháp nếu trả lời đúng
-                        userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
-                    }
-                }
-            });
-        }
-        // ========================================================
-
+        // Đóng gói payload gửi lên database
         let payload = { 
-            user_id: currentUser.id, card_id: card.id, 
-            ef: ef, interval: interval, interval_count: interval_count, 
+            user_id: currentUser.id, 
+            card_id: card.id, 
+            ef: ef, 
+            interval: interval, 
+            interval_count: interval_count, 
             due: due.toISOString() 
         };
         if (p && p.id) payload.id = p.id; 
         payloads.push(payload);
     });
 
-    // LƯU LẠI BẢN RAM MỚI VÀO SESSION STORAGE (ĐỂ DASHBOARD ĐỌC)
-    sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-    sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
-
     if (payloads.length > 0) {
         try {
+            // BƯỚC 1: GỬI LÊN CLOUD TRƯỚC
             const { error } = await sb.from('progress').upsert(payloads);
-            if (error) throw error;
-            
+            if (error) throw error; // Nếu lỗi mạng, dừng ngay lập tức
+
+            // BƯỚC 2: CHỈ CẬP NHẬT RAM VÀ CACHE KHI DATABASE ĐÃ LƯU XONG
+            tempMasteryUpdates.forEach(item => {
+                // Cập nhật Kanji Mastery trong RAM
+                const kMatches = item.front.match(/[\u4e00-\u9faf]/g) || [];
+                kMatches.forEach(k => {
+                    let currentInt = userKanjiMasteryMap[k] || 0;
+                    if (item.q < 3) { 
+                        // Bị phạt tụt hạng
+                        let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
+                        userKanjiMasteryMap[k] = pen;
+                    } else {
+                        // Tăng tiến độ
+                        userKanjiMasteryMap[k] = Math.max(currentInt, item.newInterval);
+                    }
+                });
+
+                // Cập nhật Grammar Mastery trong RAM
+                if (globalGrammarData && globalGrammarData.length > 0) {
+                    globalGrammarData.forEach(g => {
+                        const cleanPoint = g.grammar_point.replace(/～/g, '');
+                        if (item.front.includes(cleanPoint) && item.q >= 3) {
+                            userGrammarMasteryMap[g.grammar_point] = Math.max(userGrammarMasteryMap[g.grammar_point] || 0, item.newInterval);
+                        }
+                    });
+                }
+            });
+
+            // Ghi bản RAM mới nhất vào SessionStorage (Để Dashboard/F5 đọc được ngay)
+            sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+            sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+
+            // Lưu thẻ làm sai vào bộ bài Remedial (Hổng kiến thức)
             if (boostState.remedialCards.length > 0) {
                 await saveToRemedialDeck(boostState.remedialCards);
             }
             
-            // Báo cho Dashboard biết KHÔNG CẦN FULL SCAN vì Cache đã được bơm đầy đủ
+            // Cắm cờ báo Dashboard bỏ qua Full Scan vì Cache đã được cập nhật thủ công
             sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
 
         } catch (err) {
             hideLoading();
-            console.error("Lỗi đồng bộ SRS hàng loạt:", err);
-            return customAlert(`Không thể đồng bộ kết quả do lỗi kết nối mạng.<br>Chi tiết: ${err.message}`, "❌ Lỗi Đồng Bộ");
+            console.error("Lỗi đồng bộ SRS:", err);
+            // Giữ nguyên RAM cũ, báo lỗi để người dùng biết dữ liệu chưa được lưu
+            return customAlert(`Lỗi kết nối Cloud: Tiến độ chưa được lưu. Vui lòng kiểm tra mạng và thử lại!`, "❌ Thất bại");
         }
     }
 
