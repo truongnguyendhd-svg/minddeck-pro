@@ -8297,7 +8297,7 @@ function showDashboard(skipHash = false) {
     loadDashboardData();
 }
 
-// HÀM TRUY VẤN VÀ TÍNH TOÁN DỮ LIỆU TỪ SUPABASE
+// HÀM TRUY VẤN VÀ TÍNH TOÁN DỮ LIỆU TỪ SUPABASE (SIÊU TỐC ĐỘ MỚI)
 async function loadDashboardData() {
     if (!currentUser) return;
     showLoading("Đang tổng hợp dữ liệu...");
@@ -8305,7 +8305,7 @@ async function loadDashboardData() {
     try {
         const now = new Date().toISOString();
 
-        // 1. TÍNH SỐ THẺ CẦN ÔN HÔM NAY (due <= now)
+        // 1. LẤY SỐ THẺ TRỄ HẠN
         const { count: dueCount, error: err1 } = await sb.from('progress')
             .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
             .eq('user_id', currentUser.id)
@@ -8329,9 +8329,23 @@ async function loadDashboardData() {
             }
         }
         
-        // 2. CHẠY TRÌNH DỌN RÁC THẺ SAI QUÁ 48H NGẦM
-        autoCleanRemedialCards();
+        // 2. TẢI TOÀN BỘ MAP KANJI & GRAMMAR TỪ CLOUD (1 DÒNG DUY NHẤT - TỐC ĐỘ 0.1s)
+        const { data: profData } = await sb.from('profiles')
+            .select('kanji_mastery, grammar_mastery')
+            .eq('id', currentUser.id)
+            .single();
+
+        if (profData) {
+            userKanjiMasteryMap = profData.kanji_mastery || {};
+            userGrammarMasteryMap = profData.grammar_mastery || {};
+            
+            // Lưu thẳng vào RAM Cache để các trang khác xài ngay lập tức
+            sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+            sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+            sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true'); // Đánh dấu không cần scan
+        }
         
+        autoCleanRemedialCards();
         renderJLPTProgress();
         refreshDiscovery();
         await renderRoadmapWidget();
@@ -14729,19 +14743,15 @@ async function showGrammarVault(skipHash = false) {
     }
 }
 
-// Hàm mới: Quét kho thẻ Flashcard của User để xem họ đã học/thuộc ngữ pháp nào
-// (Đã Fix lỗi F5 mất dữ liệu)
-// Hàm mới: Quét kho thẻ Flashcard của User để xem họ đã học/thuộc ngữ pháp nào
-// (Đã nâng cấp thuật toán tải cuốn chiếu - Pagination chống nghẽn Supabase)
+// Hàm Quét kho thẻ Flashcard (CHỈ DÙNG KHI BẤM NÚT SYNC THỦ CÔNG ĐỂ CHỮA LÀNH DỮ LIỆU)
 async function calculateGrammarMastery() {
     if (!currentUser) return;
     
-    // 🟢 THÊM MỚI: KIỂM TRA CACHE TRONG SESSION STORAGE ĐỂ CHỐNG F5
+    // Nếu có cache RAM rồi thì bỏ qua không quét nữa, lấy luôn cho nhanh
     const cachedGrammar = sessionStorage.getItem(`minddeck_grammar_cache_${currentUser.id}`);
     if (cachedGrammar) {
         userGrammarMasteryMap = JSON.parse(cachedGrammar);
-        console.log("MindDeck: Load Ngữ pháp từ Session Cache (0 KB)");
-        return; // Dừng hàm tại đây, không gọi Database nữa!
+        return; 
     }
 
     userGrammarMasteryMap = {}; 
@@ -14799,7 +14809,8 @@ async function calculateGrammarMastery() {
             });
         }
         
-        // 🟢 THÊM MỚI: LƯU KẾT QUẢ VỪA QUÉT ĐƯỢC VÀO SESSION STORAGE
+        // LƯU KẾT QUẢ QUÉT LẠI LÊN CLOUD VÀ RAM ĐỂ CHỮA LÀNH
+        await sb.from('profiles').update({ grammar_mastery: userGrammarMasteryMap }).eq('id', currentUser.id);
         sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
 
     } catch (err) {
@@ -18686,11 +18697,9 @@ async function processBatchAssessmentResults() {
                 kMatches.forEach(k => {
                     let currentInt = userKanjiMasteryMap[k] || 0;
                     if (item.q < 3) { 
-                        // Bị phạt tụt hạng
                         let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
                         userKanjiMasteryMap[k] = pen;
                     } else {
-                        // Tăng tiến độ
                         userKanjiMasteryMap[k] = Math.max(currentInt, item.newInterval);
                     }
                 });
@@ -18706,23 +18715,27 @@ async function processBatchAssessmentResults() {
                 }
             });
 
-            // Ghi bản RAM mới nhất vào SessionStorage (Để Dashboard/F5 đọc được ngay)
+            // 🟢 LƯU BẢN ĐỒ KANJI/GRAMMAR LÊN PROFILES ĐỂ DASHBOARD TẢI SIÊU TỐC VÀO NGÀY MAI
+            await sb.from('profiles').update({ 
+                kanji_mastery: userKanjiMasteryMap,
+                grammar_mastery: userGrammarMasteryMap 
+            }).eq('id', currentUser.id);
+
+            // Ghi bản RAM mới nhất vào SessionStorage
             sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
             sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
 
-            // Lưu thẻ làm sai vào bộ bài Remedial (Hổng kiến thức)
+            // Lưu thẻ làm sai vào bộ bài Remedial
             if (boostState.remedialCards.length > 0) {
                 await saveToRemedialDeck(boostState.remedialCards);
             }
             
-            // Cắm cờ báo Dashboard bỏ qua Full Scan vì Cache đã được cập nhật thủ công
             sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
 
         } catch (err) {
             hideLoading();
             console.error("Lỗi đồng bộ SRS:", err);
             
-            // 🟢 LỖI MẠNG: Dọn sạch biến đã processed để lần sau user bấm lại không bị bỏ qua
             sessionCards.forEach(card => card.isProcessed = false);
             boostState.passedCards = [];
             boostState.remedialCards = [];
