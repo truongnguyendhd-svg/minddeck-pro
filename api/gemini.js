@@ -1,5 +1,51 @@
-// Thêm duy nhất dòng import này lên trên cùng
-import { YoutubeTranscript } from 'youtube-transcript'; 
+// KHÔNG CẦN IMPORT THƯ VIỆN NỮA - TỰ VIẾT HÀM SCRAPING BẰNG JS THUẦN
+
+// Hàm cào Subtitle ẩn danh (Giả lập Chrome để vượt rào YouTube)
+async function fetchYoutubeTranscript(videoId) {
+    // Bước 1: Lấy HTML của trang Youtube
+    const response = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7' // Gợi ý Youtube ưu tiên trả sub Nhật nếu có
+        }
+    });
+    
+    if (!response.ok) throw new Error("Không thể kết nối đến YouTube");
+    const html = await response.text();
+
+    // Bước 2: Dùng Regex moi cục JSON chứa danh sách link Subtitle
+    const captionRegex = /"captionTracks":(\[.*?\])/;
+    const match = captionRegex.exec(html);
+    if (!match) throw new Error("Video này không có phụ đề (CC) hoặc bị khóa bản quyền.");
+
+    const tracks = JSON.parse(match[1]);
+    if (!tracks || tracks.length === 0) throw new Error("Video không có dải phụ đề nào.");
+
+    // Bước 3: Ưu tiên tìm Sub tiếng Nhật (ja), nếu không có lấy Sub đầu tiên (thường là Auto-generated)
+    let selectedTrack = tracks.find(t => t.languageCode.includes('ja')) || tracks[0];
+
+    // Bước 4: Tải file XML Subtitle về
+    const xmlResponse = await fetch(selectedTrack.baseUrl);
+    const xml = await xmlResponse.text();
+
+    // Bước 5: Bóc tách XML bằng Regex thành dạng Array Object
+    const textRegex = /<text start="([\d.]+)"(?: dur="([\d.]+)")?[^>]*>([\s\S]*?)<\/text>/g;
+    let result = [];
+    let m;
+    while ((m = textRegex.exec(xml)) !== null) {
+        const start = parseFloat(m[1]);
+        const dur = m[2] ? parseFloat(m[2]) : 0.0;
+        // Giải mã các ký tự HTML đặc biệt (VD: &amp; -> &)
+        const text = m[3]
+            .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+            .replace(/<[^>]+>/g, ''); // Cắt bỏ các tag html rác lồng bên trong
+        
+        result.push({ offset: start, duration: dur, text: text });
+    }
+
+    return result;
+}
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -18,13 +64,13 @@ export default async function handler(req, res) {
     let startIndex = Math.floor(Math.random() * apiKeys.length);
     let lastErrorMessage = "";
 
-    // ================= TÍNH NĂNG MỚI: CÀO SUBTITLE YOUTUBE =================
+    // ================= TÍNH NĂNG MỚI: CÀO SUBTITLE YOUTUBE (TỰ VIẾT) =================
     let finalPrompt = prompt;
 
     if (videoId) {
         try {
-            // Nâng cấp: Cố gắng ép thư viện lấy bất kỳ phụ đề nào có sẵn (kể cả Auto-generated)
-            const transcriptData = await YoutubeTranscript.fetchTranscript(videoId);
+            // Gọi hàm tự viết thay vì dùng thư viện
+            const transcriptData = await fetchYoutubeTranscript(videoId);
             
             // Format Subtitle thành chuỗi văn bản kèm theo Timestamp
             const formattedSubtitles = transcriptData.map(t => 
@@ -41,19 +87,8 @@ export default async function handler(req, res) {
                 ---
             `;
         } catch (err) {
-            // 🟢 ĐÃ SỬA: Bắt chính xác lỗi từ YouTube để báo cho Frontend biết
-            console.error("Lỗi cào Youtube:", err.message);
-            
-            let errorMsg = "Video này không có phụ đề (CC).";
-            if (err.message.includes("Too many requests") || err.message.includes("429")) {
-                errorMsg = "Server Vercel đang bị YouTube chặn IP tạm thời do gọi quá nhiều. Hãy thử lại sau!";
-            } else if (err.message.includes("Could not find transcripts")) {
-                errorMsg = "Video có phụ đề nhưng YouTube không cho phép Server bên thứ 3 đọc (Thường do cài đặt bản quyền của kênh).";
-            } else {
-                errorMsg = `Lỗi từ Youtube: ${err.message}`; // In thẳng lỗi thật ra màn hình
-            }
-
-            return res.status(400).json({ error: errorMsg });
+            console.error("Lỗi cào Youtube nội bộ:", err.message);
+            return res.status(400).json({ error: `Lỗi từ Youtube: ${err.message}` });
         }
     }
     // ========================================================================
@@ -82,7 +117,7 @@ export default async function handler(req, res) {
         const currentKey = apiKeys[currentIndex];
 
         try {
-            // Gọi model gemini-3-flash-preview theo ý bạn
+            // GIỮ NGUYÊN MODEL CỦA BẠN
             const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${currentKey}`;
             
             const response = await fetch(geminiUrl, {
@@ -92,7 +127,7 @@ export default async function handler(req, res) {
                     contents: [{ parts: partsArray }], 
                     generationConfig: { 
                         temperature: 0.2,
-                        maxOutputTokens: 8192 // <--- CHO PHÉP AI TRẢ LỜI DÀI TỐI ĐA
+                        maxOutputTokens: 8192 // GIỮ NGUYÊN LƯỢNG TOKENS CỦA BẠN
                     } 
                 })
             });
