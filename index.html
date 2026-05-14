@@ -10567,8 +10567,8 @@ function renderBoostCard() {
 
         case 7: // 🎮 KANJI FILLER (ĐIỀN KANJI VÀO CHỖ TRỐNG)
             prompt.innerText = "🧩 Điền Kanji vào ô trống (Lần lượt từ trái qua)";
-            question.innerText = c.exampleVN; // Hiện nghĩa Tiếng Việt phía trên
-            question.style.fontSize = "20px";
+            // Xóa nội dung mặc định của question để tự build layout bên dưới
+            question.innerHTML = ""; 
             
             let sentenceHTML = "";
             let targetKanjiSequence = []; // Lưu đúng thứ tự Kanji cần điền
@@ -10587,19 +10587,15 @@ function renderBoostCard() {
             
             // 2. TẠO ĐÁP ÁN NHIỄU TỐI ƯU (KHÔNG DUYỆT CẢ BỘ BÀI)
             let distractorSet = new Set();
-            let attempts = 0; // Biến đếm số lần thử để chống treo máy (Infinite Loop)
+            let attempts = 0; 
             
-            // Chỉ cần tìm khoảng 6 chữ Kanji nhiễu là đủ để trộn. 
-            // Nếu tìm đủ 6 chữ hoặc đã quét quá 30 thẻ ngẫu nhiên thì DỪNG NGAY LẬP TỨC.
             while (distractorSet.size < 6 && attempts < 30) {
-                // Bốc đại 1 thẻ bất kỳ trong bộ bài
                 let randomCard = sessionCards[Math.floor(Math.random() * sessionCards.length)];
                 
                 if (randomCard.id !== rawCard.id) {
                     let pCard = parseCardData(randomCard);
                     if (pCard.exampleJP) {
                         for (let char of pCard.exampleJP) {
-                            // Nếu ký tự là Kanji và KHÔNG nằm trong đáp án đúng -> Cho vào rổ nhiễu
                             if (/[\u4e00-\u9faf]/.test(char) && !targetKanjiSequence.includes(char)) {
                                 distractorSet.add(char);
                             }
@@ -10609,30 +10605,27 @@ function renderBoostCard() {
                 attempts++;
             }
             
-            // Tính toán số lượng nhiễu hiển thị cho hợp lý:
-            // - Tổng số viên gạch (Đúng + Nhiễu) nên loanh quanh 6 - 8 viên để không bị chật màn hình.
-            // - Nếu câu có 2 chỗ trống -> cho 4 nhiễu. Nếu câu có 5 chỗ trống -> cho 2 nhiễu thôi.
             let maxDistractors = Math.max(2, 6 - targetKanjiSequence.length);
-            
             let distractorArr = Array.from(distractorSet).sort(() => 0.5 - Math.random()).slice(0, maxDistractors);
             
-            // Trường hợp dự phòng (Fallback): Rủi ro lấy phải bộ bài quá ít Kanji
             if (distractorArr.length === 0) {
                 const fallbackKanji = ['人', '見', '行', '食', '言', '学', '生', '日', '本'].filter(k => !targetKanjiSequence.includes(k));
                 distractorArr = fallbackKanji.sort(() => 0.5 - Math.random()).slice(0, 3);
             }
             
-            // Trộn mảng đáp án đúng + đáp án nhiễu
             let poolKanji = [...targetKanjiSequence, ...distractorArr].sort(() => 0.5 - Math.random());            
-            // 3. RENDER GIAO DIỆN
-            // Vùng giữa: Chỉ chứa câu hỏi (câu văn bị đục lỗ)
-            zone.innerHTML = `
-                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; flex: 1;">
-                    <div class="kf-sentence-container">${sentenceHTML}</div>
-                </div>
+            
+            // 3. RENDER GIAO DIỆN MỚI
+            // Đưa câu Tiếng Việt và câu Tiếng Nhật (có ô trống) lên dính liền nhau ở Top Zone
+            question.innerHTML = `
+                <div style="font-size: 20px; color: #1d1d1f; margin-bottom: 20px; font-weight: 800;">${c.exampleVN}</div>
+                <div class="kf-sentence-container" style="margin-bottom: 0;">${sentenceHTML}</div>
             `;
             
-            // Vùng đáy (Bottom Zone): Chứa rổ gạch (Lưới 5 cột) và nút Chịu thua
+            // Làm trống vùng giữa màn hình để đẩy Rổ gạch xuống sát đáy
+            zone.innerHTML = ``;
+            
+            // Vùng đáy (Bottom Zone): Chứa rổ gạch và nút Chịu thua
             const giveUpZone = document.getElementById('boostGiveUpZone');
             giveUpZone.style.display = 'flex';
             giveUpZone.style.flexDirection = 'column';
@@ -10646,7 +10639,7 @@ function renderBoostCard() {
             `;
             
             const kfPool = document.getElementById('kf-pool');
-            let currentFillIndex = 0; // Biến theo dõi xem đang điền đến ô thứ mấy
+            let currentFillIndex = 0;
             
             // 4. LOGIC TƯƠNG TÁC
             poolKanji.forEach((char) => {
