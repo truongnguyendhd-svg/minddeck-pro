@@ -14791,9 +14791,18 @@ async function calculateGrammarMastery() {
             }
         });
 
+        // Lấy từ LocalStorage trước để đỡ gọi DB khi chạy ngầm
         if (globalGrammarData.length === 0) {
-            const { data: gData } = await sb.from('grammar_dict').select('*');
-            if (gData) globalGrammarData = gData; 
+            const cachedDict = localStorage.getItem('minddeck_grammar_dict');
+            if (cachedDict) {
+                globalGrammarData = JSON.parse(cachedDict);
+            } else {
+                const { data: gData } = await sb.from('grammar_dict').select('*');
+                if (gData) {
+                    globalGrammarData = gData;
+                    localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
+                }
+            }
         }
 
         if (globalGrammarData.length > 0) {
@@ -14889,21 +14898,44 @@ async function loadGrammarData(level, btnElement = null) {
     grid.innerHTML = '<div style="text-align:center; padding:50px; grid-column:1/-1;"><div class="spinner" style="margin:auto; border-top-color:#1d1d1f;"></div><p style="color:#718096; margin-top:15px;">Đang nạp dữ liệu ngữ pháp...</p></div>';
 
     try {
-        let query = sb.from('grammar_dict').select('*').order('level', { ascending: true });
-        if (level !== 'ALL') query = query.eq('level', level);
+        // 🟢 BƯỚC 1: KIỂM TRA LOCALSTORAGE TRƯỚC (CHỈ KHI CHỌN ALL MỚI DÙNG CACHE)
+        if (level === 'ALL' && globalGrammarData.length === 0) {
+            const cachedDict = localStorage.getItem('minddeck_grammar_dict');
+            if (cachedDict) {
+                globalGrammarData = JSON.parse(cachedDict);
+                console.log("MindDeck: Load Từ điển Ngữ pháp từ LocalStorage (0 KB)");
+            }
+        }
 
-        const { data, error } = await query;
-        if (error) throw error;
+        // 🟢 BƯỚC 2: NẾU CACHE RỖNG, GỌI SUPABASE VÀ LƯU VÀO LOCALSTORAGE
+        if (globalGrammarData.length === 0) {
+            const { data, error } = await sb.from('grammar_dict')
+                .select('*')
+                .order('level', { ascending: true });
+            
+            if (error) throw error;
+            globalGrammarData = data || []; 
+            
+            // Lưu cứng vào ổ cứng trình duyệt
+            if (globalGrammarData.length > 0) {
+                localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
+            }
+        }
 
-        globalGrammarData = data || []; 
+        // Lọc dữ liệu theo level nếu cần
+        let displayData = globalGrammarData;
+        if (level !== 'ALL') {
+            displayData = globalGrammarData.filter(g => g.level === level);
+        }
         
-        // 🟢 GỌI HÀM QUÉT MAP NGAY SAU KHI TẢI XONG DICTIONARY
+        // 🟢 GỌI HÀM QUÉT MAP ĐỂ TÔ MÀU
         await calculateGrammarMastery(); 
 
-        renderGrammarGrid(globalGrammarData);
+        // Render ra UI
+        renderGrammarGrid(displayData);
 
     } catch (err) {
-        console.error(err);
+        console.error("Lỗi tải Grammar Dict:", err);
         grid.innerHTML = '<p style="color:#e53e3e; text-align:center; grid-column:1/-1;">Lỗi tải dữ liệu!</p>';
     }
 }
@@ -20491,10 +20523,13 @@ async function refreshKanjiCollection() {
 // Hàm làm mới hoàn toàn kho Ngữ Pháp
 async function refreshGrammarCollection() {
     showLoading("Đang tải dữ liệu mới nhất từ Cloud...");
-    globalGrammarData = []; 
-    userGrammarMasteryMap = {};
     
-    // 🟢 Xóa Session Cache để ép Full Scan
+    // 1. Xóa Cache Từ điển (Ổ cứng)
+    globalGrammarData = []; 
+    localStorage.removeItem('minddeck_grammar_dict'); 
+    
+    // 2. Xóa Cache Tiến độ (RAM)
+    userGrammarMasteryMap = {};
     sessionStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
     
     await showGrammarVault(true); 
