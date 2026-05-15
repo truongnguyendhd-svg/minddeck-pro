@@ -68,20 +68,17 @@ module.exports = async (req, res) => {
             original: item.original
         }));
 
-        const prompt = `Đóng vai trò là chuyên gia ngôn ngữ tiếng Nhật. Dưới đây là phụ đề của một video (ngôn ngữ gốc có thể là tiếng Anh, Pháp, Hàn, Việt...). Ngôn ngữ mà người dùng thường dùng để hiểu là tiếng Việt.
-        Nhiệm vụ của bạn:
-        1. Nhận diện ngôn ngữ gốc.
-        2. Dịch từng dòng sang tiếng Nhật Bản một cách tự nhiên, phù hợp giao tiếp thực tế.
-        3. BẮT BUỘC giữ nguyên ID của từng dòng.
+        const prompt = `Bạn là chuyên gia ngôn ngữ tiếng Nhật. Dưới đây là các mảnh vỡ phụ đề video.
+        NHIỆM VỤ:
+        1. Đọc hiểu toàn bộ để nối các mảnh vụn thành những câu nói có nghĩa hoàn chỉnh của người Việt. 
+        2. Cứ mỗi khi hết một câu trọn vẹn (có dấu chấm hoặc dứt ý), hãy tạo một dòng mới.
+        3. Dịch các câu hoàn chỉnh đó sang tiếng Nhật tự nhiên.
+        4. Trả về mảng JSON. 
         
-        Dữ liệu đầu vào:
-        ${JSON.stringify(rawTextForAI)}
+        LƯU Ý: Mốc 'start' là của mảnh đầu tiên, mốc 'end' là của mảnh cuối cùng trong câu đó.
         
-        BẮT BUỘC trả về ĐÚNG MỘT MẢNG JSON theo định dạng sau (Không bọc trong markdown \`\`\`json):
-        [
-          {"id": 0, "japanese": "Bản dịch tiếng Nhật"},
-          {"id": 1, "japanese": "Bản dịch tiếng Nhật"}
-        ]`;
+        Dữ liệu: ${JSON.stringify(chunkData)}
+        Trả về format: [{"start": 0, "end": 5, "original": "Câu hoàn chỉnh", "japanese": "Bản dịch Nhật"}]`;
 
         // 4. GỌI AI
         const aiRawText = await translateWithGemini(prompt);
