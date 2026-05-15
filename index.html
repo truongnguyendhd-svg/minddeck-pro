@@ -5942,7 +5942,8 @@ body.grammar-searching #headerGrammarSearch {
             <span class="material-symbols-outlined">account_tree</span> Bộ sưu tập Ngữ pháp
         </button>
         <button class="side-menu-btn" onclick="closeSideMenu(); showYoutubeReader()">
-            <span class="material-symbols-outlined">smart_display</span> Shadowing Cinema
+            <span class="material-symbols-outlined" style="color: #c53030;">smart_display</span> 
+            Shadowing Cinema
         </button>
         <div style="height: 1px; background: #edf2f7; margin: 15px 0;"></div>
         
@@ -8256,6 +8257,18 @@ let pendingModalReturn = null; // Cờ nhớ thông tin Modal để quay lại
 let isInlineListLoaded = false; // Cờ kiểm tra danh sách đã load chưa
 let isVirtualSession = false;
 let tempVirtualCards = []; // Cache RAM để nạp thẻ vào phiên học ảo
+// =========================================================================
+// CÁC BIẾN TOÀN CỤC CHO YOUTUBE SHADOWING CINEMA (DÁN LÊN ĐẦU SCRIPT)
+// =========================================================================
+let ytPlayer = null;        // Thực thể của YouTube Player
+let ytRawSubs = [];         // Chứa toàn bộ "kịch bản" thô từ file SRT
+let ytFinalSubs = [];       // Chứa các câu đã được AI gộp và dịch thành công
+let ytIndex = 0;            // Chỉ số câu đang học hiện tại
+let ytChunkIdx = 0;         // Đang ở đoạn 2 phút thứ mấy
+let ytIsFetching = false;   // Cờ chặn gọi AI liên tục khi đang load
+let ytVideoId = "";         // ID video đang chơi
+let ytState = 'IDLE';       // Trạng thái: IDLE (chờ), WATCHING (đang xem), STUCK (đang dừng học)
+let ytHeartbeat = null;     // Lưu ID của vòng lặp theo dõi thời gian (requestAnimationFrame)
 /* ================= 3. UTILITIES ================= */
 function sanitizeTagName(tag) {
     if (!tag) return "untitled";
@@ -21604,6 +21617,26 @@ async function ytFetchNextChunk() {
 
 // Global Cleanup (Xóa RAM khi đóng trình duyệt)
 window.addEventListener('pagehide', () => { ytRawSubs = []; ytFinalSubs = []; });
+function showYoutubeReader(skipHash = false) {
+    if (!skipHash) window.location.hash = 'youtube';
+    
+    // Quay về trạng thái Bước 1 (Dán link)
+    document.getElementById('ytHubState').classList.remove('hidden');
+    document.getElementById('ytStep1UI').classList.remove('hidden');
+    document.getElementById('ytStep2UI').classList.add('hidden');
+    document.getElementById('ytCinemaState').classList.add('hidden');
+    document.getElementById('ytBtnStart').classList.add('hidden');
+    document.getElementById('ytUrlInput').value = '';
+    
+    showPage('youtubeReaderPage');
+    updateBreadcrumb([{label: "Shadowing Cinema"}]);
+    updateHeaderTitle("YOUTUBE CINEMA");
+}
+function extractVideoID(url) {
+    const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[7].length == 11) ? match[7] : false;
+}
 // =================Hết YOUTUBE SHADOWING CINEMA (CORE LOGIC) =================
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
