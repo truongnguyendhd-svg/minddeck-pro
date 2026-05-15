@@ -21600,7 +21600,7 @@ class ShadowingTheater {
         this.rawSubs = [];          // Mảng lưu toàn bộ 100% các mảnh vỡ gốc
         this.playableSubs = [];     // Mảng chứa các câu HOÀN CHỈNH đã được AI dịch và chốt Timestamp
         this.chunks = [];           // Các lô dữ liệu thô chia theo mốc ~120s
-        
+        this.translatedChunks = new Set(); // 🟢 MỚI: Quản lý các lô đã được AI dịch
         this.currentChunkIdx = 0;
         this.currentIndex = 0;      // Index của câu hoàn chỉnh đang phát
         
@@ -21678,12 +21678,48 @@ class ShadowingTheater {
         }
     }
 
-    onPlayerStateChange(event) {
+    async onPlayerStateChange(event) {
         if (event.data === YT.PlayerState.PLAYING) {
             document.getElementById('shadowingSubCard').classList.remove('show');
+            
+            // 🟢 MỚI: Đồng bộ hóa dữ liệu trước khi tracking
+            await this.syncStateWithVideoTime();
+            
             this.startTracking();
         } else {
             this.stopTracking();
+        }
+    }
+    async syncStateWithVideoTime() {
+        if (!this.player || !this.player.getCurrentTime) return;
+        const currentTime = this.player.getCurrentTime();
+
+        // 1. Tìm xem Video đang nằm ở Lô (Chunk) số mấy
+        let activeChunkIdx = this.chunks.findIndex(chunk => 
+            currentTime >= chunk[0].start && currentTime <= chunk[chunk.length - 1].end
+        );
+        if (activeChunkIdx === -1) activeChunkIdx = this.chunks.length - 1; // Fallback nếu ở cuối video
+
+        this.currentChunkIdx = activeChunkIdx;
+
+        // 2. Nếu Lô này CHƯA ĐƯỢC DỊCH -> Ép dừng video và gọi AI dịch gấp
+        if (!this.translatedChunks.has(this.currentChunkIdx)) {
+            this.player.pauseVideo();
+            this.showLoadingCard(); // Hiện thẻ báo đang dịch
+            await this.translateChunk(this.currentChunkIdx);
+            
+            // Dịch xong thì ẩn loading và cho chạy tiếp
+            document.getElementById('shadowingSubCard').classList.remove('show');
+            this.player.playVideo(); 
+        }
+
+        // 3. Tính toán lại currentIndex sao cho khớp với currentTime
+        // Tìm câu ĐẦU TIÊN trong playableSubs có thời gian kết thúc > thời gian hiện tại
+        this.currentIndex = this.playableSubs.findIndex(sub => sub.end > currentTime);
+        
+        // Nếu không tìm thấy (ở cuối video), ép về phần tử cuối cùng
+        if (this.currentIndex === -1) {
+            this.currentIndex = this.playableSubs.length; 
         }
     }
 
@@ -21773,10 +21809,10 @@ class ShadowingTheater {
     // LÕI XỬ LÝ HYBRID SEMANTIC (FRONTEND + BACKEND)
     // ===============================================
     async translateChunk(chunkIndex) {
+        if (this.translatedChunks.has(chunkIndex)) return; // Bỏ qua nếu đã dịch rồi
         this.isFetchingNext = true;
         const chunk = this.chunks[chunkIndex];
         
-        // Payload chỉ chứa ID và Text để tiết kiệm Token
         const payload = chunk.map(frag => ({ id: frag.id, text: frag.text }));
 
         const prompt = `Đóng vai trò là biên dịch viên JLPT. Dưới đây là các mảnh vỡ phụ đề tự động (kèm ID).
@@ -21802,43 +21838,41 @@ class ShadowingTheater {
             aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
             const translatedData = JSON.parse(aiResponse);
 
-            // BƯỚC "CHỐT HẠ" TIMESTAMP BẰNG TOÁN HỌC JAVASCRIPT
             translatedData.forEach(item => {
-                // Lấy ra các mảnh gốc dựa trên mảng IDs AI trả về
                 const fragments = item.ids.map(id => this.rawSubs.find(s => s.id === id)).filter(Boolean);
                 
                 if (fragments.length > 0) {
-                    // Start = mảnh đầu tiên, End = mảnh cuối cùng
                     const trueStart = fragments[0].start;
                     const trueEnd = fragments[fragments.length - 1].end;
                     
                     this.playableSubs.push({
                         start: trueStart,
                         end: trueEnd,
-                        vn: item.vn, // Tiếng Việt đã được làm sạch
+                        vn: item.vn, 
                         jp: item.jp,
-                        rawIds: item.ids // Lưu lại để check chuyển lô
+                        rawIds: item.ids 
                     });
                 }
             });
 
+            // 🟢 MỚI 1: Ghi nhận Lô này đã được dịch thành công
+            this.translatedChunks.add(chunkIndex);
+
+            // 🟢 MỚI 2: Sắp xếp lại mảng theo dòng thời gian (Bảo vệ khi User nhảy cóc)
+            this.playableSubs.sort((a, b) => a.start - b.start);
+
             console.log(`Đã xử lý xong Semantic Chunk ${chunkIndex}`);
-            
-            // Nếu màn hình đang bị Loading chờ AI, tắt Loading và đi tiếp
-            if (this.currentIndex < this.playableSubs.length && !this.trackingId) {
-                document.getElementById('shadowingSubCard').classList.remove('show');
-                this.player.playVideo();
-            }
 
         } catch (err) {
             console.error("Lỗi Semantic Chunking:", err);
-            // Xử lý lỗi: Nếu AI sập, bốc thô ném vào playable để không đứng app
             chunk.forEach(frag => {
                 this.playableSubs.push({
                     start: frag.start, end: frag.end, 
                     vn: frag.text, jp: "(Lỗi mạng: Không thể dịch)", rawIds: [frag.id]
                 });
             });
+            this.translatedChunks.add(chunkIndex); // Đánh dấu đã xử lý (dù lỗi) để không gọi lại vòng lặp vô tận
+            this.playableSubs.sort((a, b) => a.start - b.start);
         } finally {
             this.isFetchingNext = false;
         }
