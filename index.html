@@ -21575,90 +21575,34 @@ function timeToSeconds(timeStr) {
     return (parseInt(parts[0]) * 3600) + (parseInt(parts[1]) * 60) + parseInt(secParts[0]) + (parseInt(secParts[1]) / 1000);
 }
 
-// Bộ bóc tách SRT và Gom câu thông minh (Smart Merge)
+// Bóc tách SRT nguyên thủy (Gắn ID, lấy thời gian chuẩn xác 100%)
 function parseSRT(data) {
     const regex = /(\d+)\s+(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\s+([\s\S]*?)(?=\n\n\d+|\n*$)/g;
     let match;
     const rawFragments = [];
+    let idCounter = 1;
 
-    // 1. Bóc tách toàn bộ mảnh vụn nguyên thủy
     while ((match = regex.exec(data)) !== null) {
         rawFragments.push({
+            id: idCounter++, // Cấp thẻ căn cước cho từng mảnh vỡ
             start: timeToSeconds(match[2]),
             end: timeToSeconds(match[3]),
             text: match[4].replace(/<[^>]*>/g, '').replace(/\n/g, ' ').trim()
         });
     }
 
-    // 2. Thuật toán Gom câu (Smart Merge)
-    const mergedSubs = [];
-    let currentMerge = null;
-
-    for (let i = 0; i < rawFragments.length; i++) {
-        const frag = rawFragments[i];
-        const nextFrag = rawFragments[i + 1]; // Có thể null nếu là câu cuối
-
-        // Bắt đầu một cụm mới hoặc nối tiếp cụm cũ
-        if (!currentMerge) {
-            currentMerge = { start: frag.start, end: frag.end, text: frag.text };
-        } else {
-            currentMerge.text += " " + frag.text;
-            currentMerge.end = frag.end; // Kéo dài thời gian kết thúc
-        }
-
-        let shouldBreak = false;
-        let textClean = currentMerge.text.trim();
-
-        // ĐIỀU KIỆN 1: Kết thúc bằng dấu câu tự nhiên
-        if (/[.!?。！？]$/.test(textClean)) {
-            shouldBreak = true;
-        }
-        
-        // ĐIỀU KIỆN 2: Có khoảng lặng > 1.5 giây trước khi người đó nói tiếp
-        if (nextFrag && (nextFrag.start - frag.end) > 1.5) {
-            shouldBreak = true;
-        }
-
-        // ĐIỀU KIỆN 3: Giới hạn an toàn (Câu dài quá 8 giây hoặc quá 25 từ thì ép ngắt để shadowing không bị ngộp)
-        if ((currentMerge.end - currentMerge.start) > 8) {
-            shouldBreak = true;
-        }
-        if (textClean.split(' ').length > 25) {
-            shouldBreak = true;
-        }
-
-        // ĐIỀU KIỆN 4: Là mảnh cuối cùng của video
-        if (i === rawFragments.length - 1) {
-            shouldBreak = true;
-        }
-
-        // Nếu đạt điều kiện ngắt câu -> Lưu vào mảng đích và reset
-        if (shouldBreak) {
-            // Chuẩn hóa lại text cho đẹp (viết hoa chữ cái đầu nếu cần)
-            let finalText = currentMerge.text.trim();
-            finalText = finalText.charAt(0).toUpperCase() + finalText.slice(1);
-
-            mergedSubs.push({
-                id: mergedSubs.length + 1, // Tạo ID mới liền mạch
-                start: currentMerge.start,
-                end: currentMerge.end,
-                origin: finalText,
-                jp: "" // Chờ AI dịch
-            });
-            currentMerge = null; 
-        }
-    }
-
-    return mergedSubs;
+    return rawFragments;
 }
-/* ================= HỆ THỐNG SHADOWING THEATER (DỊCH ĐUỔI - AI STREAMING) ================= */
+/* ================= HỆ THỐNG SHADOWING THEATER (HYBRID SEMANTIC) ================= */
 class ShadowingTheater {
     constructor() {
         this.player = null;
-        this.rawSubs = [];       // Toàn bộ sub gốc
-        this.chunks = [];        // Mảng chứa các Chunk (mỗi chunk ~120s)
+        this.rawSubs = [];          // Mảng lưu toàn bộ 100% các mảnh vỡ gốc
+        this.playableSubs = [];     // Mảng chứa các câu HOÀN CHỈNH đã được AI dịch và chốt Timestamp
+        this.chunks = [];           // Các lô dữ liệu thô chia theo mốc ~120s
+        
         this.currentChunkIdx = 0;
-        this.currentIndex = 0;   // Vị trí câu sub hiện tại đang phát
+        this.currentIndex = 0;      // Index của câu hoàn chỉnh đang phát
         
         this.isFetchingNext = false;
         this.trackingId = null;
@@ -21684,44 +21628,42 @@ class ShadowingTheater {
         return (match && match[2].length === 11) ? match[2] : url;
     }
 
-    // KHỞI TẠO RẠP PHIM
-    async init(youtubeUrl, parsedSubs) {
+    async init(youtubeUrl, rawFragments) {
         if (!this.isAPIReady) return customAlert("YouTube API đang tải, thử lại sau 1s.", "⚠️");
         
         const videoId = this.extractVideoID(youtubeUrl);
         if (!videoId || videoId.length !== 11) return customAlert("Link YouTube không hợp lệ!", "⚠️");
         
         this.currentVideoId = videoId;
-        this.rawSubs = parsedSubs;
+        this.rawSubs = rawFragments;
+        this.playableSubs = []; // Clear data cũ
         this.currentIndex = 0;
         this.currentChunkIdx = 0;
 
-        // 1. CHIA CHUNK (Mỗi chunk ~120s)
+        // 1. CHIA CHUNK DỮ LIỆU THÔ (~120s mỗi lô)
         this.chunks = [];
         let currentChunk = [];
         let chunkStartTime = this.rawSubs[0].start;
 
-        for (let sub of this.rawSubs) {
-            currentChunk.push(sub);
-            if (sub.end - chunkStartTime >= 120) {
+        for (let frag of this.rawSubs) {
+            currentChunk.push(frag);
+            if (frag.end - chunkStartTime >= 120) {
                 this.chunks.push(currentChunk);
                 currentChunk = [];
-                chunkStartTime = sub.end;
+                chunkStartTime = frag.end;
             }
         }
         if (currentChunk.length > 0) this.chunks.push(currentChunk);
 
-        // Render UI
         document.getElementById('shadowingSetupZone').classList.add('hidden');
         document.getElementById('shadowingTheaterZone').classList.remove('hidden');
-        document.getElementById('sdwTotalSentence').innerText = this.rawSubs.length;
 
-        // 2. GỌI AI DỊCH CHUNK ĐẦU TIÊN (Khối này bắt buộc chờ)
-        showLoading("AI đang chuẩn bị phân cảnh đầu tiên...");
+        // 2. GỌI AI DỊCH LÔ ĐẦU TIÊN (Khóa màn hình chờ)
+        showLoading("AI đang thiết lập ngữ nghĩa cho phân cảnh đầu tiên...");
         await this.translateChunk(0);
         hideLoading();
 
-        // 3. Khởi tạo Player
+        // 3. KHỞI TẠO PLAYER
         if (this.player) {
             this.player.loadVideoById(videoId);
         } else {
@@ -21745,7 +21687,6 @@ class ShadowingTheater {
         }
     }
 
-    // VÒNG LẶP QUÉT THỜI GIAN
     startTracking() {
         this.stopTracking();
         
@@ -21753,24 +21694,32 @@ class ShadowingTheater {
             if (!this.player || !this.player.getCurrentTime) return;
             
             const currentTime = this.player.getCurrentTime();
-            const currentSub = this.rawSubs[this.currentIndex];
+            
+            // XỬ LÝ KHI NGƯỜI DÙNG XEM NHANH HƠN AI DỊCH
+            if (this.currentIndex >= this.playableSubs.length) {
+                // Hết câu khả dụng -> Tạm dừng video để chờ AI
+                if (!this.isFetchingNext && this.currentChunkIdx + 1 < this.chunks.length) {
+                    this.player.pauseVideo();
+                    this.showLoadingCard();
+                }
+                return; // Tạm dừng tracking
+            }
 
-            if (!currentSub) return; // Đã hết phim
+            const activeSub = this.playableSubs[this.currentIndex];
 
-            // 1. KIỂM TRA ĐIỀU KIỆN PAUSE CÂU
-            if (currentTime >= (currentSub.end - this.TIME_TOLERANCE)) {
-                this.pauseAndShowSub(currentSub);
+            // 1. KIỂM TRA ĐIỀU KIỆN DỪNG CÂU
+            if (currentTime >= (activeSub.end - this.TIME_TOLERANCE)) {
+                this.pauseAndShowSub(activeSub);
                 return; // Dừng quét
             }
 
-            // 2. KIỂM TRA MỐC 70% ĐỂ PRE-FETCH CHUNK TIẾP THEO
+            // 2. PRE-FETCH: LẤY LÔ TIẾP THEO KHI XEM ĐẾN 70% CỦA LÔ HIỆN TẠI
             const activeChunk = this.chunks[this.currentChunkIdx];
             const chunkStart = activeChunk[0].start;
             const chunkEnd = activeChunk[activeChunk.length - 1].end;
             const progress = (currentTime - chunkStart) / (chunkEnd - chunkStart);
 
             if (progress > 0.7 && !this.isFetchingNext && this.currentChunkIdx + 1 < this.chunks.length) {
-                // Đã đạt 70% -> Gọi AI dịch chunk tiếp theo NGẦM trong background
                 this.translateChunk(this.currentChunkIdx + 1);
             }
 
@@ -21787,69 +21736,65 @@ class ShadowingTheater {
         }
     }
 
+    showLoadingCard() {
+        const card = document.getElementById('shadowingSubCard');
+        document.getElementById('sdwJpText').innerHTML = `<div class="spinner" style="width:20px;height:20px;border-top-color:#0071e3;margin:auto;"></div>`;
+        document.getElementById('sdwOriginText').innerHTML = "AI đang dịch, chờ chút nhé...";
+        card.classList.add('show');
+    }
+
     pauseAndShowSub(sub) {
         this.stopTracking();
         this.player.pauseVideo();
         
-        const card = document.getElementById('shadowingSubCard');
-        const jpTextEl = document.getElementById('sdwJpText');
-        const vnTextEl = document.getElementById('sdwOriginText');
-
-        // KIỂM TRA XEM AI ĐÃ DỊCH XONG CÂU NÀY CHƯA?
-        if (!sub.jp) {
-            // Trường hợp user xem nhanh hơn tốc độ dịch của AI
-            jpTextEl.innerHTML = `<div class="spinner" style="width:20px;height:20px;border-top-color:#0071e3;margin:auto;"></div>`;
-            vnTextEl.innerHTML = "AI đang dịch, chờ chút nhé...";
-            card.classList.add('show');
-            
-            // Lặp lại kiểm tra mỗi 500ms cho đến khi AI điền sub.jp vào
-            const waitForAI = setInterval(() => {
-                if (sub.jp) {
-                    clearInterval(waitForAI);
-                    this.renderSubContent(sub, jpTextEl, vnTextEl);
-                }
-            }, 500);
-            return;
-        }
-
-        // Nếu đã có tiếng Nhật thì Render luôn
-        this.renderSubContent(sub, jpTextEl, vnTextEl);
-    }
-
-    renderSubContent(sub, jpTextEl, vnTextEl) {
-        jpTextEl.innerHTML = wrapKanjiWithLink(escapeHTML(sub.jp));
-        vnTextEl.innerHTML = escapeHTML(sub.origin);
+        document.getElementById('sdwJpText').innerHTML = wrapKanjiWithLink(escapeHTML(sub.jp));
+        document.getElementById('sdwOriginText').innerHTML = escapeHTML(sub.vn);
         document.getElementById('sdwCurrentSentence').innerText = this.currentIndex + 1;
+        
+        // Tổng số câu hiện tại mà AI đã dịch được
+        document.getElementById('sdwTotalSentence').innerText = this.playableSubs.length; 
+
         document.getElementById('shadowingSubCard').classList.add('show');
         
         window.safePlayAudio(sub.jp, 0.85);
 
-        // Chuyển ranh giới Chunk nếu câu này là câu cuối của Chunk hiện tại
+        // Chuyển ranh giới Chunk nếu câu này chứa ID cuối cùng của Chunk
         const activeChunk = this.chunks[this.currentChunkIdx];
-        if (sub.id === activeChunk[activeChunk.length - 1].id) {
+        const lastIdInChunk = activeChunk[activeChunk.length - 1].id;
+        
+        if (sub.rawIds.includes(lastIdInChunk)) {
             this.currentChunkIdx++;
         }
         
         this.currentIndex++;
     }
 
-    // HÀM GỌI AI DỊCH THUẬT (XỬ LÝ 1 CHUNK)
+    // ===============================================
+    // LÕI XỬ LÝ HYBRID SEMANTIC (FRONTEND + BACKEND)
+    // ===============================================
     async translateChunk(chunkIndex) {
         this.isFetchingNext = true;
         const chunk = this.chunks[chunkIndex];
         
-        // Trích xuất ID và Text để gửi AI
-        const payload = chunk.map(s => ({ id: s.id, text: s.origin }));
+        // Payload chỉ chứa ID và Text để tiết kiệm Token
+        const payload = chunk.map(frag => ({ id: frag.id, text: frag.text }));
 
-        const prompt = `Bạn là chuyên viên phiên dịch cấp cao. Dưới đây là các câu phụ đề trong một đoạn video (được gắn ID).
-        Hãy dịch chúng sang Tiếng Nhật tự nhiên nhất theo văn cảnh.
-        BẮT BUỘC TRẢ VỀ DUY NHẤT 1 MẢNG JSON như sau (Không bọc Markdown):
+        const prompt = `Đóng vai trò là biên dịch viên JLPT. Dưới đây là các mảnh vỡ phụ đề tự động (kèm ID).
+        Nhiệm vụ:
+        1. Gom các mảnh vỡ thành các câu tiếng Việt hoàn chỉnh, tự nhiên về mặt ngữ nghĩa (Dựa vào dấu câu hoặc ngữ cảnh).
+        2. Dịch các câu hoàn chỉnh đó sang tiếng Nhật (thể lịch sự).
+        3. Ghi nhận CHÍNH XÁC danh sách các ID của các mảnh vỡ đã được gộp vào câu đó.
+
+        BẮT BUỘC TRẢ VỀ DUY NHẤT 1 MẢNG JSON (Không bọc Markdown):
         [
-          {"id": 1, "jp": "Tiếng Nhật 1"},
-          {"id": 2, "jp": "Tiếng Nhật 2"}
+          {
+            "ids": [1, 2, 3],
+            "vn": "Câu tiếng Việt đã gộp mượt mà.",
+            "jp": "Câu dịch tiếng Nhật."
+          }
         ]
         
-        Dữ liệu cần dịch:
+        Dữ liệu thô:
         ${JSON.stringify(payload)}`;
 
         try {
@@ -21857,33 +21802,59 @@ class ShadowingTheater {
             aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
             const translatedData = JSON.parse(aiResponse);
 
-            // Ráp nối kết quả trả về vào mảng rawSubs gốc
+            // BƯỚC "CHỐT HẠ" TIMESTAMP BẰNG TOÁN HỌC JAVASCRIPT
             translatedData.forEach(item => {
-                const targetSub = this.rawSubs.find(s => s.id === item.id);
-                if (targetSub) targetSub.jp = item.jp;
+                // Lấy ra các mảnh gốc dựa trên mảng IDs AI trả về
+                const fragments = item.ids.map(id => this.rawSubs.find(s => s.id === id)).filter(Boolean);
+                
+                if (fragments.length > 0) {
+                    // Start = mảnh đầu tiên, End = mảnh cuối cùng
+                    const trueStart = fragments[0].start;
+                    const trueEnd = fragments[fragments.length - 1].end;
+                    
+                    this.playableSubs.push({
+                        start: trueStart,
+                        end: trueEnd,
+                        vn: item.vn, // Tiếng Việt đã được làm sạch
+                        jp: item.jp,
+                        rawIds: item.ids // Lưu lại để check chuyển lô
+                    });
+                }
             });
-            console.log(`Đã dịch xong Chunk ${chunkIndex}`);
+
+            console.log(`Đã xử lý xong Semantic Chunk ${chunkIndex}`);
+            
+            // Nếu màn hình đang bị Loading chờ AI, tắt Loading và đi tiếp
+            if (this.currentIndex < this.playableSubs.length && !this.trackingId) {
+                document.getElementById('shadowingSubCard').classList.remove('show');
+                this.player.playVideo();
+            }
 
         } catch (err) {
-            console.error("Lỗi AI Dịch Chunk:", err);
-            // Gắn cờ lỗi để User biết nếu mở lên
-            chunk.forEach(s => { if(!s.jp) s.jp = "(Lỗi mạng: Không thể dịch câu này)"; });
+            console.error("Lỗi Semantic Chunking:", err);
+            // Xử lý lỗi: Nếu AI sập, bốc thô ném vào playable để không đứng app
+            chunk.forEach(frag => {
+                this.playableSubs.push({
+                    start: frag.start, end: frag.end, 
+                    vn: frag.text, jp: "(Lỗi mạng: Không thể dịch)", rawIds: [frag.id]
+                });
+            });
         } finally {
             this.isFetchingNext = false;
         }
     }
 
     replayAudio() {
-        const sub = this.rawSubs[this.currentIndex - 1]; 
+        const sub = this.playableSubs[this.currentIndex - 1]; 
         if (sub && sub.jp) window.safePlayAudio(sub.jp, 0.85);
     }
 
     resumeVideo() {
-        if (this.currentIndex >= this.rawSubs.length) {
+        if (this.currentIndex >= this.playableSubs.length && this.currentChunkIdx >= this.chunks.length) {
             document.getElementById('shadowingSubCard').classList.remove('show');
             return showToast("🎉 Bạn đã hoàn thành toàn bộ Video!");
         }
-        this.player.playVideo(); // Gọi hàm này sẽ kích hoạt onPlayerStateChange -> tự động startTracking()
+        this.player.playVideo();
     }
 
     destroy() {
@@ -21893,7 +21864,6 @@ class ShadowingTheater {
         document.getElementById('shadowingTheaterZone').classList.add('hidden');
         document.getElementById('shadowingSubCard').classList.remove('show');
         
-        // Reset Input
         document.getElementById('ytSmartInput').value = '';
         document.getElementById('ytActionButtons').innerHTML = '<button class="btn-apple-glass-primary" style="background: #0071e3; color: white; border: none; opacity: 0.5;" disabled>VUI LÒNG DÁN LINK</button>';
     }
