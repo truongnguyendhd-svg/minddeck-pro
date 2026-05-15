@@ -6800,14 +6800,25 @@ body.grammar-searching #headerGrammarSearch {
     <div id="shadowingPage" class="hidden">
         <div class="shadowing-container">
             
-            <!-- TRẠNG THÁI 1: Nhập link YouTube -->
+            <!-- TRẠNG THÁI 1: Nhập link YouTube / Transcript -->
             <div id="shadowingSetupZone" class="yt-input-zone">
                 <span class="material-symbols-outlined" style="font-size: 50px; color: #ff0000; margin-bottom: 10px;">youtube_activity</span>
-                <h3 style="margin: 0 0 15px 0; color: #1d1d1f;">Rạp Phim Luyện Nghe (Shadowing)</h3>
-                <input type="text" id="ytVideoInput" class="win11-input" style="max-width: 500px; margin: 0 auto 15px auto; text-align: center;" placeholder="Dán link hoặc ID video YouTube vào đây...">
-                <button onclick="startShadowingTheater()" class="btn-apple-glass-primary" style="max-width: 300px; margin: 0 auto; background: #0071e3; color: white; border: none;">
-                    <span class="material-symbols-outlined">play_arrow</span> NẠP VIDEO
-                </button>
+                <h3 style="margin: 0 0 5px 0; color: #1d1d1f;">Rạp Phim Luyện Nghe (Dịch Đuổi)</h3>
+                <p style="font-size: 13px; color: #718096; margin-bottom: 20px;">Dán Link YouTube vào đây. Hệ thống sẽ hỗ trợ bạn lấy Subtitle.</p>
+                
+                <!-- Smart Input -->
+                <textarea id="ytSmartInput" class="win11-input" rows="2" style="max-width: 600px; margin: 0 auto 15px auto; resize: none; font-size: 16px; text-align: center; border-color: #0071e3;" placeholder="Dán Link YouTube vào đây..." oninput="handleSmartInput()"></textarea>
+                
+                <!-- Vùng Nút Hành Động (Sẽ hiển thị động bằng JS) -->
+                <div id="ytActionButtons" style="display: flex; flex-direction: column; gap: 10px; max-width: 350px; margin: 0 auto;">
+                    <!-- Nút mặc định khi chưa có link -->
+                    <button id="btnInitShadowing" onclick="startShadowingTheater()" class="btn-apple-glass-primary" style="background: #0071e3; color: white; border: none; opacity: 0.5;" disabled>
+                        VUI LÒNG DÁN LINK
+                    </button>
+                </div>
+            
+                <!-- Nút upload ẩn -->
+                <input type="file" id="subFileInput" accept=".srt,.txt" style="display: none;" onchange="handleSubUpload(event)">
             </div>
     
             <!-- TRẠNG THÁI 2: Rạp chiếu -->
@@ -21492,121 +21503,210 @@ async function triggerSilentBackgroundSync() {
 }
 // =================Hết HỆ THỐNG ĐỒNG BỘ NGẦM (SILENT BACKGROUND SYNC) =================
 /* ================= HỆ THỐNG SHADOWING THEATER (OOP ARCHITECTURE) ================= */
+/* ================= SMART INPUT & SRT PARSER ================= */
+function handleSmartInput() {
+    const val = document.getElementById('ytSmartInput').value.trim();
+    const actionZone = document.getElementById('ytActionButtons');
+    
+    // Regex nhận diện Link YouTube
+    const ytRegExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = val.match(ytRegExp);
 
+    if (match && match[2].length === 11) {
+        // Đã dán Link YT thành công -> Đổi UI
+        const ytUrl = encodeURIComponent(val);
+        actionZone.innerHTML = `
+            <div style="background: #e6f2ff; border: 1px solid #bfdbfe; padding: 12px; border-radius: 12px; font-size: 13px; color: #1e3a8a; margin-bottom: 10px; text-align: left;">
+                <b>Bước 1:</b> Bấm nút xanh dưới đây để tải file Sub tiếng Việt về máy.<br>
+                <b>Bước 2:</b> Bấm nút tải lên để nạp file Sub đó vào App.
+            </div>
+            <button onclick="window.open('https://subtitle.to/${val}', '_blank')" class="win11-btn-secondary" style="width: 100%; justify-content: center; color: #0067c0; border-color: #bee3f8; background: #ebf8ff; padding: 14px; font-weight: 800;">
+                <span class="material-symbols-outlined">download</span> 1. TẢI SUBTITLE VỀ MÁY
+            </button>
+            <button onclick="document.getElementById('subFileInput').click()" class="btn-apple-glass-primary" style="width: 100%; justify-content: center; background: #1d1d1f; border: none; padding: 14px; font-weight: 800;">
+                <span class="material-symbols-outlined">upload_file</span> 2. NẠP FILE SUB ĐỂ BẮT ĐẦU
+            </button>
+        `;
+    } else if (val.length > 0) {
+        actionZone.innerHTML = `
+            <button class="btn-apple-glass-primary" style="background: #0071e3; color: white; border: none; opacity: 0.5;" disabled>
+                LINK CHƯA HỢP LỆ
+            </button>
+        `;
+    }
+}
+
+// Xử lý đọc file SRT/TXT
+function handleSubUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    showLoading("Đang đọc file Subtitle...");
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const text = e.target.result;
+        const parsedSubs = parseSRT(text);
+        
+        if (parsedSubs.length === 0) {
+            hideLoading();
+            return customAlert("Không đọc được dữ liệu từ file này. Vui lòng đảm bảo đây là file chuẩn .srt", "⚠️");
+        }
+
+        hideLoading();
+        // File sub ok, lấy Link YT từ ô input để bắt đầu
+        const ytLink = document.getElementById('ytSmartInput').value.trim();
+        theaterApp.init(ytLink, parsedSubs); // Bắt đầu Rạp phim!
+        event.target.value = ''; // Reset input
+    };
+    reader.readAsText(file);
+}
+
+// Chuyển đổi "00:01:23,400" thành 83.4 giây
+function timeToSeconds(timeStr) {
+    const parts = timeStr.split(':');
+    const secParts = parts[2].split(',');
+    return (parseInt(parts[0]) * 3600) + (parseInt(parts[1]) * 60) + parseInt(secParts[0]) + (parseInt(secParts[1]) / 1000);
+}
+
+// Bộ bóc tách SRT (Loại bỏ HTML rác nếu có)
+function parseSRT(data) {
+    const regex = /(\d+)\s+(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\s+([\s\S]*?)(?=\n\n\d+|\n*$)/g;
+    let match;
+    const subs = [];
+    while ((match = regex.exec(data)) !== null) {
+        subs.push({
+            id: parseInt(match[1]),
+            start: timeToSeconds(match[2]),
+            end: timeToSeconds(match[3]),
+            origin: match[4].replace(/<[^>]*>/g, '').replace(/\n/g, ' ').trim(), // Gộp dòng, xóa HTML
+            jp: "" // Cột này chờ AI điền vào
+        });
+    }
+    return subs;
+}
+/* ================= HỆ THỐNG SHADOWING THEATER (DỊCH ĐUỔI - AI STREAMING) ================= */
 class ShadowingTheater {
     constructor() {
         this.player = null;
-        this.subtitles = []; // Mảng chứa dữ liệu sub
-        this.currentIndex = 0;
-        this.trackingId = null; // ID của requestAnimationFrame
+        this.rawSubs = [];       // Toàn bộ sub gốc
+        this.chunks = [];        // Mảng chứa các Chunk (mỗi chunk ~120s)
+        this.currentChunkIdx = 0;
+        this.currentIndex = 0;   // Vị trí câu sub hiện tại đang phát
+        
+        this.isFetchingNext = false;
+        this.trackingId = null;
         this.isAPIReady = false;
         this.currentVideoId = "";
-        
-        // Ngưỡng thời gian (giây) để quyết định ngắt câu
         this.TIME_TOLERANCE = 0.15; 
         
         this.loadYouTubeAPI();
     }
 
-    // Tải script API của YouTube một lần duy nhất
     loadYouTubeAPI() {
-        if (window.YT) {
-            this.isAPIReady = true;
-            return;
-        }
+        if (window.YT) { this.isAPIReady = true; return; }
         const tag = document.createElement('script');
         tag.src = "https://www.youtube.com/iframe_api";
         const firstScriptTag = document.getElementsByTagName('script')[0];
         firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-        
-        // Callback bắt buộc của Google
-        window.onYouTubeIframeAPIReady = () => {
-            this.isAPIReady = true;
-        };
+        window.onYouTubeIframeAPIReady = () => { this.isAPIReady = true; };
     }
 
-    // Xử lý Link YT để lấy ID
     extractVideoID(url) {
         const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
         const match = url.match(regExp);
-        return (match && match[2].length === 11) ? match[2] : url; // Nếu nhập trực tiếp ID thì trả về luôn
+        return (match && match[2].length === 11) ? match[2] : url;
     }
 
     // KHỞI TẠO RẠP PHIM
-    async init(youtubeUrl) {
-        if (!this.isAPIReady) return customAlert("YouTube API đang tải, vui lòng thử lại sau 1 giây.", "⚠️");
+    async init(youtubeUrl, parsedSubs) {
+        if (!this.isAPIReady) return customAlert("YouTube API đang tải, thử lại sau 1s.", "⚠️");
         
         const videoId = this.extractVideoID(youtubeUrl);
         if (!videoId || videoId.length !== 11) return customAlert("Link YouTube không hợp lệ!", "⚠️");
         
         this.currentVideoId = videoId;
-        showLoading("Đang khởi tạo Rạp phim...");
-
-        // ĐỔI SANG PHASE 2 Ở ĐÂY SAU NÀY: 
-        // this.subtitles = await fetchVercelAI(videoId); 
-        this.subtitles = this.getMockData(); 
+        this.rawSubs = parsedSubs;
         this.currentIndex = 0;
+        this.currentChunkIdx = 0;
+
+        // 1. CHIA CHUNK (Mỗi chunk ~120s)
+        this.chunks = [];
+        let currentChunk = [];
+        let chunkStartTime = this.rawSubs[0].start;
+
+        for (let sub of this.rawSubs) {
+            currentChunk.push(sub);
+            if (sub.end - chunkStartTime >= 120) {
+                this.chunks.push(currentChunk);
+                currentChunk = [];
+                chunkStartTime = sub.end;
+            }
+        }
+        if (currentChunk.length > 0) this.chunks.push(currentChunk);
 
         // Render UI
         document.getElementById('shadowingSetupZone').classList.add('hidden');
         document.getElementById('shadowingTheaterZone').classList.remove('hidden');
-        document.getElementById('sdwTotalSentence').innerText = this.subtitles.length;
+        document.getElementById('sdwTotalSentence').innerText = this.rawSubs.length;
 
-        // Khởi tạo iFrame Player
+        // 2. GỌI AI DỊCH CHUNK ĐẦU TIÊN (Khối này bắt buộc chờ)
+        showLoading("AI đang chuẩn bị phân cảnh đầu tiên...");
+        await this.translateChunk(0);
+        hideLoading();
+
+        // 3. Khởi tạo Player
         if (this.player) {
             this.player.loadVideoById(videoId);
         } else {
             this.player = new YT.Player('youtubePlayerBox', {
-                height: '100%',
-                width: '100%',
-                videoId: videoId,
-                playerVars: {
-                    'playsinline': 1,
-                    'controls': 1,
-                    'disablekb': 1,
-                    'rel': 0
-                },
+                height: '100%', width: '100%', videoId: videoId,
+                playerVars: { 'playsinline': 1, 'controls': 1, 'disablekb': 1, 'rel': 0 },
                 events: {
-                    'onReady': (e) => this.onPlayerReady(e),
+                    'onReady': (e) => e.target.playVideo(),
                     'onStateChange': (e) => this.onPlayerStateChange(e)
                 }
             });
         }
-        hideLoading();
-    }
-
-    onPlayerReady(event) {
-        // Có thể auto play ở đây nếu muốn
     }
 
     onPlayerStateChange(event) {
         if (event.data === YT.PlayerState.PLAYING) {
-            // Khi video bắt đầu chạy, thu gọn thẻ Subtitle và bắt đầu quét thời gian
             document.getElementById('shadowingSubCard').classList.remove('show');
             this.startTracking();
         } else {
-            // Khi Pause, Buffer, End -> Dừng quét để tiết kiệm CPU
             this.stopTracking();
         }
     }
 
-    // 🟢 HỆ THỐNG QUÉT THỜI GIAN THEO FRAME (SIÊU NHẸ CPU)
+    // VÒNG LẶP QUÉT THỜI GIAN
     startTracking() {
-        this.stopTracking(); // Clear tracking cũ nếu có
+        this.stopTracking();
         
         const checkTime = () => {
             if (!this.player || !this.player.getCurrentTime) return;
             
             const currentTime = this.player.getCurrentTime();
-            const currentSub = this.subtitles[this.currentIndex];
+            const currentSub = this.rawSubs[this.currentIndex];
 
-            // Nếu chưa hết mảng sub và video đã chạy đến thời điểm `end` của câu
-            if (currentSub && currentTime >= (currentSub.end - this.TIME_TOLERANCE)) {
+            if (!currentSub) return; // Đã hết phim
+
+            // 1. KIỂM TRA ĐIỀU KIỆN PAUSE CÂU
+            if (currentTime >= (currentSub.end - this.TIME_TOLERANCE)) {
                 this.pauseAndShowSub(currentSub);
-                return; // Dừng quét frame
+                return; // Dừng quét
             }
 
-            // Gọi đệ quy quét tiếp ở Frame màn hình tiếp theo
+            // 2. KIỂM TRA MỐC 70% ĐỂ PRE-FETCH CHUNK TIẾP THEO
+            const activeChunk = this.chunks[this.currentChunkIdx];
+            const chunkStart = activeChunk[0].start;
+            const chunkEnd = activeChunk[activeChunk.length - 1].end;
+            const progress = (currentTime - chunkStart) / (chunkEnd - chunkStart);
+
+            if (progress > 0.7 && !this.isFetchingNext && this.currentChunkIdx + 1 < this.chunks.length) {
+                // Đã đạt 70% -> Gọi AI dịch chunk tiếp theo NGẦM trong background
+                this.translateChunk(this.currentChunkIdx + 1);
+            }
+
             this.trackingId = requestAnimationFrame(checkTime);
         };
         
@@ -21620,63 +21720,115 @@ class ShadowingTheater {
         }
     }
 
-    // 🟢 HÀNH ĐỘNG AUTO-PAUSE & HIỂN THỊ HỌC TẬP
     pauseAndShowSub(sub) {
         this.stopTracking();
         this.player.pauseVideo();
         
-        // Gọi hàm bọc Kanji (để kích hoạt X-Ray)
-        const safeJp = escapeHTML(sub.jp);
-        document.getElementById('sdwJpText').innerHTML = wrapKanjiWithLink(safeJp);
-        document.getElementById('sdwOriginText').innerHTML = escapeHTML(sub.origin);
-        
-        // Cập nhật số câu
+        const card = document.getElementById('shadowingSubCard');
+        const jpTextEl = document.getElementById('sdwJpText');
+        const vnTextEl = document.getElementById('sdwOriginText');
+
+        // KIỂM TRA XEM AI ĐÃ DỊCH XONG CÂU NÀY CHƯA?
+        if (!sub.jp) {
+            // Trường hợp user xem nhanh hơn tốc độ dịch của AI
+            jpTextEl.innerHTML = `<div class="spinner" style="width:20px;height:20px;border-top-color:#0071e3;margin:auto;"></div>`;
+            vnTextEl.innerHTML = "AI đang dịch, chờ chút nhé...";
+            card.classList.add('show');
+            
+            // Lặp lại kiểm tra mỗi 500ms cho đến khi AI điền sub.jp vào
+            const waitForAI = setInterval(() => {
+                if (sub.jp) {
+                    clearInterval(waitForAI);
+                    this.renderSubContent(sub, jpTextEl, vnTextEl);
+                }
+            }, 500);
+            return;
+        }
+
+        // Nếu đã có tiếng Nhật thì Render luôn
+        this.renderSubContent(sub, jpTextEl, vnTextEl);
+    }
+
+    renderSubContent(sub, jpTextEl, vnTextEl) {
+        jpTextEl.innerHTML = wrapKanjiWithLink(escapeHTML(sub.jp));
+        vnTextEl.innerHTML = escapeHTML(sub.origin);
         document.getElementById('sdwCurrentSentence').innerText = this.currentIndex + 1;
-
-        // Hiện thẻ Glassmorphism mượt mà
         document.getElementById('shadowingSubCard').classList.add('show');
-
-        // Mở Audio đọc mẫu của hệ thống
+        
         window.safePlayAudio(sub.jp, 0.85);
 
-        // Tăng Index chờ câu tiếp theo
+        // Chuyển ranh giới Chunk nếu câu này là câu cuối của Chunk hiện tại
+        const activeChunk = this.chunks[this.currentChunkIdx];
+        if (sub.id === activeChunk[activeChunk.length - 1].id) {
+            this.currentChunkIdx++;
+        }
+        
         this.currentIndex++;
     }
 
+    // HÀM GỌI AI DỊCH THUẬT (XỬ LÝ 1 CHUNK)
+    async translateChunk(chunkIndex) {
+        this.isFetchingNext = true;
+        const chunk = this.chunks[chunkIndex];
+        
+        // Trích xuất ID và Text để gửi AI
+        const payload = chunk.map(s => ({ id: s.id, text: s.origin }));
+
+        const prompt = `Bạn là chuyên viên phiên dịch cấp cao. Dưới đây là các câu phụ đề trong một đoạn video (được gắn ID).
+        Hãy dịch chúng sang Tiếng Nhật tự nhiên nhất theo văn cảnh.
+        BẮT BUỘC TRẢ VỀ DUY NHẤT 1 MẢNG JSON như sau (Không bọc Markdown):
+        [
+          {"id": 1, "jp": "Tiếng Nhật 1"},
+          {"id": 2, "jp": "Tiếng Nhật 2"}
+        ]
+        
+        Dữ liệu cần dịch:
+        ${JSON.stringify(payload)}`;
+
+        try {
+            let aiResponse = await callGeminiAI(prompt);
+            aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+            const translatedData = JSON.parse(aiResponse);
+
+            // Ráp nối kết quả trả về vào mảng rawSubs gốc
+            translatedData.forEach(item => {
+                const targetSub = this.rawSubs.find(s => s.id === item.id);
+                if (targetSub) targetSub.jp = item.jp;
+            });
+            console.log(`Đã dịch xong Chunk ${chunkIndex}`);
+
+        } catch (err) {
+            console.error("Lỗi AI Dịch Chunk:", err);
+            // Gắn cờ lỗi để User biết nếu mở lên
+            chunk.forEach(s => { if(!s.jp) s.jp = "(Lỗi mạng: Không thể dịch câu này)"; });
+        } finally {
+            this.isFetchingNext = false;
+        }
+    }
+
     replayAudio() {
-        const sub = this.subtitles[this.currentIndex - 1]; // Lấy lại câu vừa phát
-        if (sub) window.safePlayAudio(sub.jp, 0.85);
+        const sub = this.rawSubs[this.currentIndex - 1]; 
+        if (sub && sub.jp) window.safePlayAudio(sub.jp, 0.85);
     }
 
     resumeVideo() {
-        // Nếu đã học hết Sub
-        if (this.currentIndex >= this.subtitles.length) {
+        if (this.currentIndex >= this.rawSubs.length) {
             document.getElementById('shadowingSubCard').classList.remove('show');
-            return showToast("🎉 Bạn đã hoàn thành bài Shadowing này!");
+            return showToast("🎉 Bạn đã hoàn thành toàn bộ Video!");
         }
-        this.player.playVideo();
+        this.player.playVideo(); // Gọi hàm này sẽ kích hoạt onPlayerStateChange -> tự động startTracking()
     }
 
-    // DỌN DẸP KHI THOÁT
     destroy() {
         this.stopTracking();
-        if (this.player) {
-            this.player.stopVideo();
-        }
+        if (this.player) this.player.stopVideo();
         document.getElementById('shadowingSetupZone').classList.remove('hidden');
         document.getElementById('shadowingTheaterZone').classList.add('hidden');
         document.getElementById('shadowingSubCard').classList.remove('show');
-        document.getElementById('ytVideoInput').value = '';
-    }
-
-    // MOCK DATA (Phase 1)
-    getMockData() {
-        return [
-            { start: 0, end: 3.5, origin: "Hello everyone", jp: "みなさん、こんにちは" },
-            { start: 3.5, end: 6.5, origin: "Welcome to my channel", jp: "私のチャンネルへようこそ" },
-            { start: 6.5, end: 10, origin: "Today, we will study Japanese", jp: "今日、日本語を勉強しましょう" },
-            { start: 10, end: 15, origin: "Please repeat after me.", jp: "私の後に続いて繰り返してください。" }
-        ];
+        
+        // Reset Input
+        document.getElementById('ytSmartInput').value = '';
+        document.getElementById('ytActionButtons').innerHTML = '<button class="btn-apple-glass-primary" style="background: #0071e3; color: white; border: none; opacity: 0.5;" disabled>VUI LÒNG DÁN LINK</button>';
     }
 }
 
