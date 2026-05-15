@@ -83,18 +83,32 @@ module.exports = async (req, res) => {
         // 3. KẾT NỐI VÀ LẤY THÔNG TIN VIDEO
         const info = await youtubeInstance.getInfo(videoId);
         
-        const captionTracks = info.captions?.caption_tracks;
-        if (!captionTracks || captionTracks.length === 0) {
-            return res.status(404).json({ error: 'Video này không có Subtitle. Vui lòng chọn video khác!' });
+        let transcriptData;
+        try {
+            const captionTracks = info.captions?.caption_tracks;
+
+            if (captionTracks && captionTracks.length > 0) {
+                // 🟢 CHIẾN THUẬT SĂN SUB: Ưu tiên Nhật -> Anh -> Sub Tự động (ASR) -> Lấy đại cái đầu tiên
+                const track = captionTracks.find(t => t.language_code === 'ja') ||
+                              captionTracks.find(t => t.language_code === 'en') ||
+                              captionTracks.find(t => t.kind === 'asr') || 
+                              captionTracks[0];
+
+                transcriptData = await info.getTranscript(track.vss_id);
+            } else {
+                // Nếu mảng sub rỗng, cố gắng "ép" InnerTube lấy sub tự động mặc định của video
+                transcriptData = await info.getTranscript();
+            }
+        } catch (e) {
+            console.error("Lỗi cào Sub:", e);
+            return res.status(404).json({ error: 'InnerTube bị từ chối hoặc video hoàn toàn không có Subtitle.' });
         }
 
-        // Lấy track subtitle đầu tiên (mặc định của video)
-        const track = captionTracks[0]; 
-        const transcriptData = await info.getTranscript(track.vss_id);
-
+        // Kiểm tra xem dữ liệu cào về có ruột bên trong không
         if (!transcriptData || !transcriptData.transcript || !transcriptData.transcript.content) {
-            return res.status(404).json({ error: 'Không thể đọc được dữ liệu Subtitle của video này.' });
+            return res.status(404).json({ error: 'Có Subtitle nhưng không thể đọc được nội dung chữ.' });
         }
+
 
         // 4. BÓC TÁCH & CHIA CHUNK (LAZY LOADING - 2 phút / chunk)
         const allLines = transcriptData.transcript.content.body.initial_segments;
