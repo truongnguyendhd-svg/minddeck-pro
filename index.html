@@ -21506,26 +21506,75 @@ function ytOpenExternalFetcher() {
 function ytHandleFileSelect(e) {
     const file = e.target.files[0];
     if (!file) return;
+
+    // Hiển thị tên file cho user an tâm
     document.getElementById('ytFileNameDisplay').innerText = `📄 ${file.name} (Đã nhận)`;
     document.getElementById('ytBtnStart').classList.remove('hidden');
     
     const reader = new FileReader();
     reader.onload = (event) => {
         const text = event.target.result;
+        // BẮT ĐẦU PARSE
         ytRawSubs = parseSRT(text);
+        
+        if (ytRawSubs.length === 0) {
+            customAlert("File này không đúng định dạng SRT hoặc bị lỗi nội dung!", "❌ Lỗi đọc file");
+            document.getElementById('ytBtnStart').classList.add('hidden');
+        } else {
+            showToast(`🚀 Đã nhận diện ${ytRawSubs.length} câu sub!`);
+        }
     };
-    reader.readAsText(file);
+    
+    // Đọc theo chuẩn UTF-8 để không bị lỗi tiếng Việt/Nhật
+    reader.readAsText(file, 'UTF-8');
+}
+// 1. Hàm chuyển thời gian (chấp nhận cả dấu phẩy và dấu chấm)
+function timeToSec(t) {
+    if (!t) return 0;
+    // Chuyển 00:00:01,760 hoặc 00:00:01.760 thành giây
+    const a = t.replace(',', '.').split(':');
+    if (a.length < 3) return 0;
+    return (+a[0]) * 3600 + (+a[1]) * 60 + (+a[2]);
 }
 
+// 2. Hàm Parser SRT trâu bò (Chống lỗi xuống dòng và định dạng lạ)
 function parseSRT(data) {
-    const regex = /(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n([\s\S]*?)(?=\n\n|\n\d+\n|$)/g;
-    let match, result = [];
-    while ((match = regex.exec(data)) !== null) {
-        result.push({ start: timeToSec(match[2]), end: timeToSec(match[3]), text: match[4].replace(/\n/g, ' ').trim() });
-    }
+    // Chuẩn hóa xuống dòng về một kiểu duy nhất là \n
+    const cleanData = data.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    
+    // Tách các khối sub (mỗi khối cách nhau bởi ít nhất 1 dòng trống)
+    const blocks = cleanData.split(/\n\n+/);
+    const result = [];
+
+    blocks.forEach(block => {
+        const lines = block.split('\n');
+        
+        // Tìm dòng chứa dấu mũi tên thời gian -->
+        const timeLine = lines.find(l => l.includes('-->'));
+        
+        if (timeLine) {
+            // Dùng Regex lấy chính xác 2 mốc thời gian
+            const times = timeLine.match(/(\d{2}:\d{2}:\d{2}[.,]\d{3})/g);
+            
+            if (times && times.length >= 2) {
+                const timeIdx = lines.indexOf(timeLine);
+                // Gom tất cả các dòng nằm SAU dòng thời gian làm nội dung Sub
+                const text = lines.slice(timeIdx + 1).join(' ').replace(/<[^>]*>/g, '').trim();
+                
+                if (text) {
+                    result.push({
+                        start: timeToSec(times[0]),
+                        end: timeToSec(times[1]),
+                        text: text
+                    });
+                }
+            }
+        }
+    });
+
+    console.log("MindDeck: Đã đọc thành công " + result.length + " câu sub.");
     return result;
 }
-function timeToSec(t) { const a = t.replace(',', '.').split(':'); return (+a[0]) * 3600 + (+a[1]) * 60 + (+a[2]); }
 
 // 3. Khởi chạy Cinema
 async function ytStartShadowing() {
