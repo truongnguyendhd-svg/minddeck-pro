@@ -5848,6 +5848,12 @@ body.grammar-searching #headerGrammarSearch {
     border: none; cursor: pointer; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
     display: flex; align-items: center; justify-content: center; gap: 10px;
 }
+/* Ép Player luôn lấp đầy khung đen */
+#ytPlayerDiv {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+}
 /* =================HẾT CSS: YOUTUBE SHADOWING CINEMA ================= */
 
 </style>
@@ -21577,20 +21583,65 @@ function parseSRT(data) {
 }
 
 // 3. Khởi chạy Cinema
+// Hàm kiểm tra và đợi YouTube API sẵn sàng
+function checkYTReady() {
+    return new Promise((resolve) => {
+        if (window.YT && window.YT.Player) {
+            resolve();
+        } else {
+            // Nếu chưa có, đợi 100ms rồi kiểm tra lại
+            const interval = setInterval(() => {
+                if (window.YT && window.YT.Player) {
+                    clearInterval(interval);
+                    resolve();
+                }
+            }, 100);
+        }
+    });
+}
+
+// Cập nhật lại hàm ytStartShadowing (Bản vá lỗi Player)
 async function ytStartShadowing() {
     if (ytRawSubs.length === 0) return customAlert("Dữ liệu Sub rỗng!", "⚠️");
     
+    const vId = extractVideoID(document.getElementById('ytUrlInput').value);
+    if (!vId) return customAlert("Không tìm thấy Video ID!", "⚠️");
+
+    // 1. Hiện màn hình Cinema trước
     document.getElementById('ytHubState').classList.add('hidden');
     document.getElementById('ytCinemaState').classList.remove('hidden');
 
-    if (!ytPlayer) {
-        ytPlayer = new YT.Player('ytPlayerDiv', { 
-            height:'100%', width:'100%', videoId: extractVideoID(document.getElementById('ytUrlInput').value),
-            events: { 'onStateChange': onYtStateChange }
-        });
-    } else { ytPlayer.loadVideoById(extractVideoID(document.getElementById('ytUrlInput').value)); }
+    // 2. Đợi YouTube API nạp xong mới tạo Player
+    await checkYTReady();
 
-    await ytFetchNextChunk(); // Dịch 2 phút đầu
+    try {
+        if (!ytPlayer) {
+            ytPlayer = new YT.Player('ytPlayerDiv', { 
+                height: '100%', 
+                width: '100%', 
+                videoId: vId,
+                playerVars: { 
+                    'playsinline': 1, 
+                    'autoplay': 1, 
+                    'rel': 0, 
+                    'modestbranding': 1 
+                },
+                events: { 
+                    'onStateChange': onYtStateChange,
+                    'onReady': (e) => { e.target.playVideo(); } // Ép chạy khi sẵn sàng
+                }
+            });
+        } else {
+            ytPlayer.loadVideoById(vId);
+        }
+
+        // 3. Gọi AI dịch 2 phút đầu
+        await ytFetchNextChunk(); 
+
+    } catch (err) {
+        console.error("Lỗi khởi tạo Player:", err);
+        customAlert("Không thể khởi động trình phát video. Thử tải lại trang!", "❌");
+    }
 }
 
 function onYtStateChange(e) {
@@ -21636,6 +21687,7 @@ function ytResumeVideo() {
 }
 
 async function ytFetchNextChunk() {
+    if (ytIsFetching) return;
     ytIsFetching = true;
     const start = ytChunkIdx * 120; const end = (ytChunkIdx + 1) * 120;
     const chunk = ytRawSubs.filter(s => s.start >= start && s.start < end).map((s,i)=>({id:i, original:s.text, start:s.start, end:s.end}));
@@ -21643,16 +21695,34 @@ async function ytFetchNextChunk() {
     if (chunk.length === 0) return;
     try {
         const res = await fetch('/api/youtube-shadow', { 
-            method: 'POST', headers: {'Content-Type':'application/json'}, 
+            method: 'POST', 
+            headers: {'Content-Type':'application/json'}, 
             body: JSON.stringify({ chunkData: chunk }) 
         });
+        
         const result = await res.json();
-        ytFinalSubs = ytFinalSubs.concat(result.data);
-        ytChunkIdx++; ytIsFetching = false;
-        if(ytChunkIdx === 1) { unlockIOSAudio(); hideLoading(); }
-    } catch (e) { ytIsFetching = false; }
-}
+        if (result.error) throw new Error(result.error);
 
+        ytFinalSubs = ytFinalSubs.concat(result.data);
+        ytChunkIdx++;
+        ytIsFetching = false;
+
+        // 🟢 QUAN TRỌNG: Nếu là đoạn đầu tiên, phải tắt Loading và hiện UI học tập ngay
+        if (ytChunkIdx === 1) {
+            document.getElementById('ytLoadingUI').classList.add('hidden');
+            document.getElementById('ytCinemaUI').classList.remove('hidden');
+            hideLoading(); // Tắt spinner toàn cục
+            unlockIOSAudio(); 
+        }
+
+    } catch (e) { 
+        ytIsFetching = false;
+        console.error("Lỗi dịch AI:", e);
+        if (ytChunkIdx === 0) {
+             document.getElementById('ytLoadingUI').innerHTML = `<p style="color:#e53e3e;">Lỗi kết nối AI. Vui lòng thử lại!</p>`;
+        }
+    }
+}
 // Global Cleanup (Xóa RAM khi đóng trình duyệt)
 window.addEventListener('pagehide', () => { ytRawSubs = []; ytFinalSubs = []; });
 function showYoutubeReader(skipHash = false) {
