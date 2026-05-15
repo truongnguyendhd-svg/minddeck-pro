@@ -5865,6 +5865,72 @@ body.grammar-searching #headerGrammarSearch {
     border-color: #1e3a8a;
 }
 /* =================HẾT SHADOWING THEATER (APPLE GLASSMORPHISM) ================= */
+/* ================= CSS GIAO DIỆN SHADOWING THEATER KỊCH TRẦN ================= */
+/* 1. Ẩn Header & Breadcrumb khi vào chế độ xem phim */
+body.shadowing-fullscreen .app-header,
+body.shadowing-fullscreen .breadcrumb-container {
+    display: none !important;
+}
+
+body.shadowing-fullscreen {
+    overflow: hidden !important; /* Khóa cuộn trang web ngoài cùng */
+    background: #fbfbfd;
+}
+
+/* 2. Khối Subtitle (Bottom Sheet) */
+.shadowing-sub-card {
+    flex: 1; /* Tự động kéo dài lấp đầy khoảng trống bên dưới video */
+    min-height: 0; /* Quan trọng: Cho phép thẻ div con bên trong cuộn được */
+    margin-top: 20px; /* Tạo gap (khoảng cách) với khối video ở trên */
+    width: 100%;
+    
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: saturate(180%) blur(25px);
+    -webkit-backdrop-filter: saturate(180%) blur(25px);
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    
+    /* Bo góc trên, dưới vuông, sát 2 lề */
+    border-radius: 28px 28px 0 0;
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.06);
+    
+    display: flex;
+    flex-direction: column;
+    
+    /* Hiệu ứng trượt từ dưới lên */
+    transform: translateY(100%);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.shadowing-sub-card.show {
+    transform: translateY(0);
+    opacity: 1;
+    visibility: visible;
+}
+
+/* 3. Vùng chứa Text có thể cuộn */
+.shadowing-text-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 30px 20px 10px 20px;
+    
+    /* Ẩn thanh cuộn */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.shadowing-text-scroll::-webkit-scrollbar { display: none; }
+
+/* 4. Vùng chứa Nút bấm cố định ở đáy */
+.shadowing-action-area {
+    flex-shrink: 0;
+    padding: 15px 20px 30px 20px; /* Padding bottom dư ra cho an toàn trên iPhone */
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    background: linear-gradient(to top, rgba(255,255,255,1) 70%, rgba(255,255,255,0) 100%);
+}
+/* =================HẾT CSS GIAO DIỆN SHADOWING THEATER KỊCH TRẦN ================= */
 
 </style>
 </head>
@@ -6821,40 +6887,48 @@ body.grammar-searching #headerGrammarSearch {
                 <input type="file" id="subFileInput" style="display: none;" onchange="handleSubUpload(event)">
             </div>
     
-            <!-- TRẠNG THÁI 2: Rạp chiếu -->
-            <div id="shadowingTheaterZone" class="hidden">
-                <!-- Header điều khiển -->
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <button onclick="exitShadowingTheater()" class="win11-close-btn" style="background: #fee2e2; color: #c50f1f; width: auto; padding: 4px 12px; border-radius: 50px; font-weight: 700; font-size: 13px;">
+            <!-- TRẠNG THÁI 2: Rạp chiếu (Giao diện Fullscreen kịch trần) -->
+            <div id="shadowingTheaterZone" class="hidden" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; background: #fbfbfd; z-index: 2000; display: flex; flex-direction: column;">
+                
+                <!-- Header điều khiển (Nút Thoát có border) -->
+                <div style="padding: 15px 20px; flex-shrink: 0; display: flex; align-items: center;">
+                    <button onclick="exitShadowingTheater()" style="background: #fff5f5; color: #c50f1f; border: 1.5px solid #fecaca; padding: 6px 16px; border-radius: 50px; font-weight: 800; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff5f5'">
                         <span class="material-symbols-outlined" style="font-size: 16px;">logout</span> THOÁT
                     </button>
-                    <div style="font-size: 13px; font-weight: 800; color: #86868b; text-transform: uppercase;">Câu: <span id="sdwCurrentSentence">0</span>/<span id="sdwTotalSentence">0</span></div>
+                    <!-- Đã xóa bỏ "Câu: X/Y" theo yêu cầu -->
                 </div>
-    
-                <!-- Khung Video -->
-                <div class="video-wrapper-16-9">
-                    <div id="youtubePlayerBox"></div>
-                    
-                    <!-- 🟢 MỚI: Lớp màng vô hiệu hóa click khi AI đang dịch -->
-                    <div id="ytInteractionBlocker" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 50; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); align-items: center; justify-content: center; flex-direction: column; color: white;">
-                        <div class="spinner" style="width:30px;height:30px;border-top-color:#ffffff;margin-bottom:10px;"></div>
-                        <div style="font-weight: 600; font-size: 14px;">AI đang dịch, vui lòng đợi...</div>
+            
+                <!-- Khung Video (Căn giữa, có giới hạn max-width trên iPad/PC) -->
+                <div style="padding: 0 15px; width: 100%; max-width: 850px; margin: 0 auto; box-sizing: border-box; flex-shrink: 0;">
+                    <div class="video-wrapper-16-9">
+                        <div id="youtubePlayerBox"></div>
+                        <!-- Lớp màng vô hiệu hóa click khi AI đang dịch -->
+                        <div id="ytInteractionBlocker" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 50; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); align-items: center; justify-content: center; flex-direction: column; color: white;">
+                            <div class="spinner" style="width:30px;height:30px;border-top-color:#ffffff;margin-bottom:10px;"></div>
+                            <div style="font-weight: 600; font-size: 14px;">AI đang dịch, vui lòng đợi...</div>
+                        </div>
                     </div>
                 </div>
-    
-                <!-- Thẻ Subtitle (Glassmorphism) -->
+            
+                <!-- Thẻ Subtitle (Glassmorphism - Sát lề dưới, Full width) -->
                 <div id="shadowingSubCard" class="shadowing-sub-card">
-                    <div id="sdwJpText" class="shadowing-jp"></div>
-                    <div id="sdwOriginText" class="shadowing-origin"></div>
                     
-                    <div style="display: flex; gap: 10px; justify-content: center;">
-                        <button onclick="theaterApp.replayAudio()" class="win11-btn-secondary" style="border-radius: 50px; padding: 12px 20px;">
+                    <!-- Vùng text cuộn được -->
+                    <div class="shadowing-text-scroll">
+                        <div id="sdwJpText" class="shadowing-jp"></div>
+                        <div id="sdwOriginText" class="shadowing-origin" style="margin-bottom: 0;"></div>
+                    </div>
+                    
+                    <!-- Vùng Nút bấm nổi cố định không bị cuộn -->
+                    <div class="shadowing-action-area">
+                        <button onclick="theaterApp.replayAudio()" class="win11-btn-secondary" style="border-radius: 50px; padding: 14px 24px; font-weight: 800; border-color: #d2d2d7;">
                             <span class="material-symbols-outlined" style="color: #0071e3;">replay</span> NGHE LẠI
                         </button>
-                        <button onclick="theaterApp.resumeVideo()" class="btn-apple-glass-primary" style="width: auto; padding: 12px 30px;">
+                        <button onclick="theaterApp.resumeVideo()" class="btn-apple-glass-primary" style="width: auto; flex: 1; max-width: 250px; padding: 14px 30px;">
                             XEM TIẾP <span class="material-symbols-outlined">arrow_forward</span>
                         </button>
                     </div>
+            
                 </div>
             </div>
     
@@ -21915,7 +21989,7 @@ class ShadowingTheater {
         document.getElementById('shadowingSetupZone').classList.remove('hidden');
         document.getElementById('shadowingTheaterZone').classList.add('hidden');
         document.getElementById('shadowingSubCard').classList.remove('show');
-        
+        document.body.classList.remove('shadowing-fullscreen');
         document.getElementById('ytSmartInput').value = '';
         document.getElementById('ytActionButtons').innerHTML = '<button class="btn-apple-glass-primary" style="background: #0071e3; color: white; border: none; opacity: 0.5;" disabled>VUI LÒNG DÁN LINK</button>';
     }
@@ -21928,9 +22002,7 @@ const theaterApp = new ShadowingTheater();
 function showShadowingTheater() {
     window.location.hash = 'shadowing';
     showPage('shadowingPage');
-    updateBreadcrumb([{label: "Shadowing Theater"}]);
-    updateHeaderTitle("SHADOWING");
-    
+    document.body.classList.add('shadowing-fullscreen');
     // Mở khóa Audio cho iOS ngay khi vào trang
     window.unlockIOSAudio();
 }
