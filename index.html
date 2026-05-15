@@ -21568,21 +21568,81 @@ function timeToSeconds(timeStr) {
     return (parseInt(parts[0]) * 3600) + (parseInt(parts[1]) * 60) + parseInt(secParts[0]) + (parseInt(secParts[1]) / 1000);
 }
 
-// Bộ bóc tách SRT (Loại bỏ HTML rác nếu có)
+// Bộ bóc tách SRT và Gom câu thông minh (Smart Merge)
 function parseSRT(data) {
     const regex = /(\d+)\s+(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\s+([\s\S]*?)(?=\n\n\d+|\n*$)/g;
     let match;
-    const subs = [];
+    const rawFragments = [];
+
+    // 1. Bóc tách toàn bộ mảnh vụn nguyên thủy
     while ((match = regex.exec(data)) !== null) {
-        subs.push({
-            id: parseInt(match[1]),
+        rawFragments.push({
             start: timeToSeconds(match[2]),
             end: timeToSeconds(match[3]),
-            origin: match[4].replace(/<[^>]*>/g, '').replace(/\n/g, ' ').trim(), // Gộp dòng, xóa HTML
-            jp: "" // Cột này chờ AI điền vào
+            text: match[4].replace(/<[^>]*>/g, '').replace(/\n/g, ' ').trim()
         });
     }
-    return subs;
+
+    // 2. Thuật toán Gom câu (Smart Merge)
+    const mergedSubs = [];
+    let currentMerge = null;
+
+    for (let i = 0; i < rawFragments.length; i++) {
+        const frag = rawFragments[i];
+        const nextFrag = rawFragments[i + 1]; // Có thể null nếu là câu cuối
+
+        // Bắt đầu một cụm mới hoặc nối tiếp cụm cũ
+        if (!currentMerge) {
+            currentMerge = { start: frag.start, end: frag.end, text: frag.text };
+        } else {
+            currentMerge.text += " " + frag.text;
+            currentMerge.end = frag.end; // Kéo dài thời gian kết thúc
+        }
+
+        let shouldBreak = false;
+        let textClean = currentMerge.text.trim();
+
+        // ĐIỀU KIỆN 1: Kết thúc bằng dấu câu tự nhiên
+        if (/[.!?。！？]$/.test(textClean)) {
+            shouldBreak = true;
+        }
+        
+        // ĐIỀU KIỆN 2: Có khoảng lặng > 1.5 giây trước khi người đó nói tiếp
+        if (nextFrag && (nextFrag.start - frag.end) > 1.5) {
+            shouldBreak = true;
+        }
+
+        // ĐIỀU KIỆN 3: Giới hạn an toàn (Câu dài quá 8 giây hoặc quá 25 từ thì ép ngắt để shadowing không bị ngộp)
+        if ((currentMerge.end - currentMerge.start) > 8) {
+            shouldBreak = true;
+        }
+        if (textClean.split(' ').length > 25) {
+            shouldBreak = true;
+        }
+
+        // ĐIỀU KIỆN 4: Là mảnh cuối cùng của video
+        if (i === rawFragments.length - 1) {
+            shouldBreak = true;
+        }
+
+        // Nếu đạt điều kiện ngắt câu -> Lưu vào mảng đích và reset
+        if (shouldBreak) {
+            // Chuẩn hóa lại text cho đẹp (viết hoa chữ cái đầu nếu cần)
+            let finalText = currentMerge.text.trim();
+            finalText = finalText.charAt(0).toUpperCase() + finalText.slice(1);
+
+            mergedSubs.push({
+                id: mergedSubs.length + 1, // Tạo ID mới liền mạch
+                start: currentMerge.start,
+                end: currentMerge.end,
+                origin: finalText,
+                jp: "" // Chờ AI dịch
+            });
+            currentMerge = null; 
+        }
+    }
+
+    return mergedSubs;
 }
 /* ================= HỆ THỐNG SHADOWING THEATER (DỊCH ĐUỔI - AI STREAMING) ================= */
 class ShadowingTheater {
