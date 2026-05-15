@@ -88,9 +88,19 @@ module.exports = async (req, res) => {
             return res.status(404).json({ error: 'Video này không có Subtitle. Vui lòng chọn video khác!' });
         }
 
-        // Lấy track subtitle đầu tiên (mặc định của video)
-        const track = captionTracks[0]; 
-        const transcriptData = await info.getTranscript(track.vss_id);
+        // Tìm sub tiếng Nhật (ja), nếu không có tìm tiếng Anh (en), nếu không có lấy đại cái đầu tiên (thường là Auto-gen)
+        const track = captionTracks.find(t => t.language_code === 'ja') || 
+                      captionTracks.find(t => t.language_code === 'en') || 
+                      captionTracks[0];
+        
+        // Gọi lấy transcript kèm theo xử lý lỗi sâu hơn
+        let transcriptData;
+        try {
+            transcriptData = await info.getTranscript(); 
+        } catch (e) {
+            // Fallback: nếu gọi getTranscript() không tham số lỗi, thử dùng vss_id của track đã tìm
+            transcriptData = await info.getTranscript(track.vss_id);
+        }
 
         if (!transcriptData || !transcriptData.transcript || !transcriptData.transcript.content) {
             return res.status(404).json({ error: 'Không thể đọc được dữ liệu Subtitle của video này.' });
