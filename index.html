@@ -6834,6 +6834,12 @@ body.grammar-searching #headerGrammarSearch {
                 <!-- Khung Video -->
                 <div class="video-wrapper-16-9">
                     <div id="youtubePlayerBox"></div>
+                    
+                    <!-- 🟢 MỚI: Lớp màng vô hiệu hóa click khi AI đang dịch -->
+                    <div id="ytInteractionBlocker" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 50; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); align-items: center; justify-content: center; flex-direction: column; color: white;">
+                        <div class="spinner" style="width:30px;height:30px;border-top-color:#ffffff;margin-bottom:10px;"></div>
+                        <div style="font-weight: 600; font-size: 14px;">AI đang dịch, vui lòng đợi...</div>
+                    </div>
                 </div>
     
                 <!-- Thẻ Subtitle (Glassmorphism) -->
@@ -21603,7 +21609,8 @@ class ShadowingTheater {
         this.translatedChunks = new Set(); // 🟢 MỚI: Quản lý các lô đã được AI dịch
         this.currentChunkIdx = 0;
         this.currentIndex = 0;      // Index của câu hoàn chỉnh đang phát
-        
+        this.isTranslatingCurrentChunk = false; // 🟢 Ổ khóa chống Spam API
+
         this.isFetchingNext = false;
         this.trackingId = null;
         this.isAPIReady = false;
@@ -21690,37 +21697,48 @@ class ShadowingTheater {
             this.stopTracking();
         }
     }
+    // Đồng bộ hóa mọi thứ dựa theo thời gian của Video
     async syncStateWithVideoTime() {
         if (!this.player || !this.player.getCurrentTime) return;
+
+        // 🟢 BẢO VỆ MỨC 1: Nếu AI ĐANG DỊCH mảng này rồi, ép dừng video và từ chối xử lý tiếp
+        if (this.isTranslatingCurrentChunk) {
+            this.player.pauseVideo();
+            return;
+        }
+
         const currentTime = this.player.getCurrentTime();
 
-        // 1. Tìm xem Video đang nằm ở Lô (Chunk) số mấy
         let activeChunkIdx = this.chunks.findIndex(chunk => 
             currentTime >= chunk[0].start && currentTime <= chunk[chunk.length - 1].end
         );
-        if (activeChunkIdx === -1) activeChunkIdx = this.chunks.length - 1; // Fallback nếu ở cuối video
+        if (activeChunkIdx === -1) activeChunkIdx = this.chunks.length - 1; 
 
         this.currentChunkIdx = activeChunkIdx;
 
-        // 2. Nếu Lô này CHƯA ĐƯỢC DỊCH -> Ép dừng video và gọi AI dịch gấp
+        // NẾU LÔ NÀY CHƯA DỊCH -> KHOÁ VÀ GỌI AI
         if (!this.translatedChunks.has(this.currentChunkIdx)) {
+            
+            // 🟢 BẬT KHOÁ: Chặn UI và JS
+            this.isTranslatingCurrentChunk = true;
+            document.getElementById('ytInteractionBlocker').style.display = 'flex'; // Hiện màng bảo vệ
+            
             this.player.pauseVideo();
-            this.showLoadingCard(); // Hiện thẻ báo đang dịch
+            this.showLoadingCard(); 
+
+            // Đợi AI dịch xong
             await this.translateChunk(this.currentChunkIdx);
             
-            // Dịch xong thì ẩn loading và cho chạy tiếp
+            // 🟢 MỞ KHOÁ: AI dịch xong, cho phép tương tác lại
+            this.isTranslatingCurrentChunk = false;
+            document.getElementById('ytInteractionBlocker').style.display = 'none'; // Tắt màng bảo vệ
+            
             document.getElementById('shadowingSubCard').classList.remove('show');
             this.player.playVideo(); 
         }
 
-        // 3. Tính toán lại currentIndex sao cho khớp với currentTime
-        // Tìm câu ĐẦU TIÊN trong playableSubs có thời gian kết thúc > thời gian hiện tại
         this.currentIndex = this.playableSubs.findIndex(sub => sub.end > currentTime);
-        
-        // Nếu không tìm thấy (ở cuối video), ép về phần tử cuối cùng
-        if (this.currentIndex === -1) {
-            this.currentIndex = this.playableSubs.length; 
-        }
+        if (this.currentIndex === -1) this.currentIndex = this.playableSubs.length; 
     }
 
     startTracking() {
