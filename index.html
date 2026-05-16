@@ -21995,50 +21995,63 @@ class ShadowingTheater {
         Dữ liệu thô:
         ${JSON.stringify(payload)}`;
 
-        try {
-            let aiResponse = await callGeminiAI(prompt);
-            aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-            const translatedData = JSON.parse(aiResponse);
+        let isSuccess = false;
+        let retryCount = 2; // Tự động thử lại tối đa 2 lần nếu bị lỗi Cold Start
 
-            translatedData.forEach(item => {
-                const fragments = item.ids.map(id => this.rawSubs.find(s => s.id === id)).filter(Boolean);
-                
-                if (fragments.length > 0) {
-                    const trueStart = fragments[0].start;
-                    const trueEnd = fragments[fragments.length - 1].end;
+        while (!isSuccess && retryCount >= 0) {
+            try {
+                let aiResponse = await callGeminiAI(prompt);
+                aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+                const translatedData = JSON.parse(aiResponse);
+
+                translatedData.forEach(item => {
+                    const fragments = item.ids.map(id => this.rawSubs.find(s => s.id === id)).filter(Boolean);
                     
-                    this.playableSubs.push({
-                        start: trueStart,
-                        end: trueEnd,
-                        vn: item.vn, 
-                        jp: item.jp,
-                        rawIds: item.ids 
-                    });
+                    if (fragments.length > 0) {
+                        const trueStart = fragments[0].start;
+                        const trueEnd = fragments[fragments.length - 1].end;
+                        
+                        this.playableSubs.push({
+                            start: trueStart,
+                            end: trueEnd,
+                            vn: item.vn, 
+                            jp: item.jp,
+                            rawIds: item.ids 
+                        });
+                    }
+                });
+
+                // 🟢 Ghi nhận Lô này đã được dịch thành công
+                this.translatedChunks.add(chunkIndex);
+                this.playableSubs.sort((a, b) => a.start - b.start);
+                console.log(`Đã xử lý xong Semantic Chunk ${chunkIndex}`);
+                
+                isSuccess = true; // Đánh dấu thành công để thoát vòng lặp
+
+            } catch (err) {
+                console.warn(`Lỗi dịch Chunk ${chunkIndex}. Còn ${retryCount} lần thử...`, err);
+                retryCount--;
+                if (retryCount >= 0) {
+                    // Đợi 1.5 giây rồi mới thử lại để tránh bị API chặn spam
+                    await new Promise(resolve => setTimeout(resolve, 1500));
                 }
-            });
+            }
+        }
 
-            // 🟢 MỚI 1: Ghi nhận Lô này đã được dịch thành công
-            this.translatedChunks.add(chunkIndex);
-
-            // 🟢 MỚI 2: Sắp xếp lại mảng theo dòng thời gian (Bảo vệ khi User nhảy cóc)
-            this.playableSubs.sort((a, b) => a.start - b.start);
-
-            console.log(`Đã xử lý xong Semantic Chunk ${chunkIndex}`);
-
-        } catch (err) {
-            console.error("Lỗi Semantic Chunking:", err);
+        // Nếu đã thử hết số lần mà vẫn thất bại -> Mới chấp nhận gán "Lỗi mạng"
+        if (!isSuccess) {
+            console.error(`Chunk ${chunkIndex} thất bại hoàn toàn sau các lần thử.`);
             chunk.forEach(frag => {
                 this.playableSubs.push({
                     start: frag.start, end: frag.end, 
                     vn: frag.text, jp: "(Lỗi mạng: Không thể dịch)", rawIds: [frag.id]
                 });
             });
-            this.translatedChunks.add(chunkIndex); // Đánh dấu đã xử lý (dù lỗi) để không gọi lại vòng lặp vô tận
+            this.translatedChunks.add(chunkIndex); 
             this.playableSubs.sort((a, b) => a.start - b.start);
-        } finally {
-            this.isFetchingNext = false;
         }
-    }
+
+        this.isFetchingNext = false;
 
     replayAudio() {
         const sub = this.playableSubs[this.currentIndex - 1]; 
