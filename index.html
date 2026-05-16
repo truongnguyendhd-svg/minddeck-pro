@@ -6007,113 +6007,7 @@ body.shadowing-mode #shadowingPage {
 #shadowingSetupZone::-webkit-scrollbar { display: none; }
 #shadowingSetupZone { -ms-overflow-style: none; scrollbar-width: none; }
 /* =================HẾT FIX LỖI KHÔNG CUỘN ĐƯỢC Ở MÀN NHẬP LINK SHADOWING ================= */
-/* ================= FURIGANA & ROMAJI KARAOKE (SHADOWING) ================= */
-.shadowing-jp-container {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: flex-end;
-    gap: 2px 6px;
-    margin-bottom: 15px;
-    min-height: 80px; /* Chừa không gian cho hiệu ứng nảy */
-}
-
-.shadowing-token {
-    display: inline-flex;
-    flex-direction: column;
-    align-items: center;
-    position: relative;
-    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-/* Base style cho Kanji */
-.shadowing-token ruby {
-    font-size: clamp(20px, 5vw, 28px);
-    font-weight: 900;
-    color: #4a5568; /* Màu xám mờ mặc định khi chưa đọc tới */
-    font-family: 'Noto Sans JP', sans-serif;
-    ruby-position: over;
-    transition: color 0.2s ease;
-}
-
-/* Base style cho Furigana (rt) */
-.shadowing-token rt {
-    font-size: 0.5em;
-    font-weight: 700;
-    color: #3b82f6; /* Xanh dương */
-    opacity: 0;
-    transform: translateY(5px);
-    transition: all 0.2s ease;
-    user-select: none;
-}
-
-/* Base style cho Romaji */
-.shadowing-token .romaji-text {
-    font-size: 13px;
-    font-weight: 800;
-    color: #f59e0b; /* Vàng cam */
-    margin-top: 2px;
-    opacity: 0;
-    transform: translateY(-5px);
-    transition: all 0.2s ease;
-    user-select: none;
-    font-family: 'Segoe UI Variable', sans-serif;
-}
-
-/* HIỆU ỨNG KARAOKE: KHI ĐANG ĐỌC (ACTIVE) */
-.shadowing-token.active ruby {
-    color: #1d1d1f !important; /* Đổi màu chữ Kanji thành đen đậm */
-}
-
-/* 🟢 TRẠNG THÁI HIỂN THỊ (ĐƯỢC ĐIỀU KHIỂN BỞI CLASS CỦA CONTAINER) */
-
-/* Chế độ 1: Kanji Only (Mặc định) -> Chỉ có hiệu ứng đổi màu đen, không hiện Furi/Romaji */
-
-/* Chế độ 2: Furigana Mode */
-.shadowing-jp-container.mode-furi .shadowing-token rt {
-    opacity: 0.3; /* Hiện mờ mờ sẵn */
-    transform: translateY(0);
-}
-.shadowing-jp-container.mode-furi .shadowing-token.active rt {
-    opacity: 1; /* Sáng rực lên khi máy đọc tới */
-    transform: translateY(-3px) scale(1.1); /* Nảy lên nhẹ */
-    color: #0067c0;
-}
-
-/* Chế độ 3: Romaji Mode */
-.shadowing-jp-container.mode-romaji .shadowing-token .romaji-text {
-    opacity: 0.4;
-    transform: translateY(0);
-}
-.shadowing-jp-container.mode-romaji .shadowing-token.active .romaji-text {
-    opacity: 1;
-    transform: translateY(3px) scale(1.1);
-    color: #d97706;
-}
-
-/* Nút Toggle Chế độ hiển thị chữ */
-.btn-toggle-reading {
-    background: rgba(255,255,255,0.5);
-    border: 1px solid rgba(0,0,0,0.1);
-    color: #4a5568;
-    padding: 6px 12px;
-    border-radius: 50px;
-    font-size: 12px;
-    font-weight: 800;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    transition: 0.2s;
-    margin: 0 auto 15px auto;
-}
-.btn-toggle-reading:hover {
-    background: #ffffff;
-    color: #1d1d1f;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
-}
-/* ================= FURIGANA & ROMAJI KARAOKE (SHADOWING) ================= */
-
+  
 </style>
 </head>
 <body>
@@ -9275,8 +9169,8 @@ window.unlockIOSAudio = function() {
     }
 };
 
-// 3. HÀM PHÁT ÂM THANH BẤT TỬ (PHIÊN BẢN ĐÃ FIX LỖI TIẾNG NHẬT TRÊN IOS + KARAOKE)
-window.safePlayAudio = function(text, rate = 0.85, onStartCb = null, onEndCb = null, onBoundaryCb = null) {
+// 3. HÀM PHÁT ÂM THANH BẤT TỬ (PHIÊN BẢN ĐÃ FIX LỖI TIẾNG NHẬT TRÊN IOS)
+window.safePlayAudio = function(text, rate = 0.85, onStartCb = null, onEndCb = null) {
     if (!('speechSynthesis' in window)) {
         showToast("Trình duyệt không hỗ trợ âm thanh.");
         if (onEndCb) onEndCb();
@@ -9286,32 +9180,33 @@ window.safePlayAudio = function(text, rate = 0.85, onStartCb = null, onEndCb = n
     window.speechSynthesis.resume();
     window.speechSynthesis.cancel(); 
 
+    // Dọn dẹp callback của audio cũ trước khi tạo mới để tránh kẹt UI / Memory Leak
     if (window.globalUtterance) {
         window.globalUtterance.onend = null;
         window.globalUtterance.onerror = null;
         window.globalUtterance.onstart = null;
-        window.globalUtterance.onboundary = null;
     }
 
     window.globalUtterance = new SpeechSynthesisUtterance(text);
     window.globalUtterance.lang = 'ja-JP';
     window.globalUtterance.rate = rate;
 
+    // --- THUẬT TOÁN TÌM GIỌNG ĐỌC NHẬT BẢN CHO IOS ---
     let voices = window.speechSynthesis.getVoices();
+    // Tìm giọng nào có chứa mã "ja" hoặc "JP"
     let japaneseVoice = voices.find(v => v.lang.includes('ja') || v.lang.includes('JA'));
     
     if (japaneseVoice) {
         window.globalUtterance.voice = japaneseVoice;
+        console.log("MindDeck: Đã tìm thấy giọng Nhật:", japaneseVoice.name);
+    } else {
+        console.warn("MindDeck: Không tìm thấy giọng Nhật cụ thể, dùng mặc định của máy.");
     }
+    // -----------------------------------------------
 
     if (onStartCb) window.globalUtterance.onstart = onStartCb;
     window.globalUtterance.onend = () => { if (onEndCb) onEndCb(); };
-    window.globalUtterance.onerror = () => { if (onEndCb) onEndCb(); };
-    
-    // Bắt sự kiện đọc từng từ (Dùng cho Karaoke)
-    if (onBoundaryCb) {
-        window.globalUtterance.onboundary = onBoundaryCb;
-    }
+    window.globalUtterance.onerror = (e) => { if (onEndCb) onEndCb(); };
 
     setTimeout(() => {
         window.speechSynthesis.speak(window.globalUtterance);
@@ -21854,26 +21749,23 @@ function parseSRT(data) {
 
     return rawFragments;
 }
-/* ================= HỆ THỐNG SHADOWING THEATER (HYBRID SEMANTIC + KARAOKE) ================= */
+/* ================= HỆ THỐNG SHADOWING THEATER (HYBRID SEMANTIC) ================= */
 class ShadowingTheater {
     constructor() {
         this.player = null;
-        this.rawSubs = [];          
-        this.playableSubs = [];     
-        this.chunks = [];           
-        this.translatedChunks = new Set(); 
+        this.rawSubs = [];          // Mảng lưu toàn bộ 100% các mảnh vỡ gốc
+        this.playableSubs = [];     // Mảng chứa các câu HOÀN CHỈNH đã được AI dịch và chốt Timestamp
+        this.chunks = [];           // Các lô dữ liệu thô chia theo mốc ~120s
+        this.translatedChunks = new Set(); // 🟢 MỚI: Quản lý các lô đã được AI dịch
         this.currentChunkIdx = 0;
-        this.currentIndex = 0;      
-        this.isTranslatingCurrentChunk = false; 
+        this.currentIndex = 0;      // Index của câu hoàn chỉnh đang phát
+        this.isTranslatingCurrentChunk = false; // 🟢 Ổ khóa chống Spam API
 
         this.isFetchingNext = false;
         this.trackingId = null;
         this.isAPIReady = false;
         this.currentVideoId = "";
         this.TIME_TOLERANCE = 0.15; 
-        
-        // 0: Kanji (Mặc định), 1: Furigana, 2: Romaji
-        this.readingMode = 0; 
         
         this.loadYouTubeAPI();
     }
@@ -21901,7 +21793,7 @@ class ShadowingTheater {
         
         this.currentVideoId = videoId;
         this.rawSubs = rawFragments;
-        this.playableSubs = []; 
+        this.playableSubs = []; // Clear data cũ
         this.currentIndex = 0;
         this.currentChunkIdx = 0;
 
@@ -21924,10 +21816,12 @@ class ShadowingTheater {
         document.getElementById('shadowingTheaterZone').classList.remove('hidden');
         document.body.classList.add('playing-theater');
 
-        showLoading("AI đang thiết lập ngữ nghĩa và Furigana...");
+        // 2. GỌI AI DỊCH LÔ ĐẦU TIÊN (Khóa màn hình chờ)
+        showLoading("AI đang thiết lập ngữ nghĩa cho phân cảnh đầu tiên...");
         await this.translateChunk(0);
         hideLoading();
 
+        // 3. KHỞI TẠO PLAYER
         if (this.player) {
             this.player.loadVideoById(videoId);
         } else {
@@ -21945,16 +21839,20 @@ class ShadowingTheater {
     async onPlayerStateChange(event) {
         if (event.data === YT.PlayerState.PLAYING) {
             document.getElementById('shadowingSubCard').classList.remove('show');
+            
+            // 🟢 MỚI: Đồng bộ hóa dữ liệu trước khi tracking
             await this.syncStateWithVideoTime();
+            
             this.startTracking();
         } else {
             this.stopTracking();
         }
     }
-
+    // Đồng bộ hóa mọi thứ dựa theo thời gian của Video
     async syncStateWithVideoTime() {
         if (!this.player || !this.player.getCurrentTime) return;
 
+        // 🟢 BẢO VỆ MỨC 1: Nếu AI ĐANG DỊCH mảng này rồi, ép dừng video và từ chối xử lý tiếp
         if (this.isTranslatingCurrentChunk) {
             this.player.pauseVideo();
             return;
@@ -21969,17 +21867,22 @@ class ShadowingTheater {
 
         this.currentChunkIdx = activeChunkIdx;
 
+        // NẾU LÔ NÀY CHƯA DỊCH -> KHOÁ VÀ GỌI AI
         if (!this.translatedChunks.has(this.currentChunkIdx)) {
+            
+            // 🟢 BẬT KHOÁ: Chặn UI và JS
             this.isTranslatingCurrentChunk = true;
-            document.getElementById('ytInteractionBlocker').style.display = 'flex'; 
+            document.getElementById('ytInteractionBlocker').style.display = 'flex'; // Hiện màng bảo vệ
             
             this.player.pauseVideo();
             this.showLoadingCard(); 
 
+            // Đợi AI dịch xong
             await this.translateChunk(this.currentChunkIdx);
             
+            // 🟢 MỞ KHOÁ: AI dịch xong, cho phép tương tác lại
             this.isTranslatingCurrentChunk = false;
-            document.getElementById('ytInteractionBlocker').style.display = 'none'; 
+            document.getElementById('ytInteractionBlocker').style.display = 'none'; // Tắt màng bảo vệ
             
             document.getElementById('shadowingSubCard').classList.remove('show');
             this.player.playVideo(); 
@@ -21997,21 +21900,25 @@ class ShadowingTheater {
             
             const currentTime = this.player.getCurrentTime();
             
+            // XỬ LÝ KHI NGƯỜI DÙNG XEM NHANH HƠN AI DỊCH
             if (this.currentIndex >= this.playableSubs.length) {
+                // Hết câu khả dụng -> Tạm dừng video để chờ AI
                 if (!this.isFetchingNext && this.currentChunkIdx + 1 < this.chunks.length) {
                     this.player.pauseVideo();
                     this.showLoadingCard();
                 }
-                return; 
+                return; // Tạm dừng tracking
             }
 
             const activeSub = this.playableSubs[this.currentIndex];
 
+            // 1. KIỂM TRA ĐIỀU KIỆN DỪNG CÂU
             if (currentTime >= (activeSub.end - this.TIME_TOLERANCE)) {
                 this.pauseAndShowSub(activeSub);
-                return; 
+                return; // Dừng quét
             }
 
+            // 2. PRE-FETCH: LẤY LÔ TIẾP THEO KHI XEM ĐẾN 70% CỦA LÔ HIỆN TẠI
             const activeChunk = this.chunks[this.currentChunkIdx];
             const chunkStart = activeChunk[0].start;
             const chunkEnd = activeChunk[activeChunk.length - 1].end;
@@ -22041,70 +21948,39 @@ class ShadowingTheater {
         card.classList.add('show');
     }
 
-    // NÚT CHUYỂN ĐỔI CHẾ ĐỘ HIỂN THỊ
-    toggleReadingMode() {
-        this.readingMode = (this.readingMode + 1) % 3;
-        const container = document.getElementById('sdwJpTextContainer');
-        const btnText = document.getElementById('btnToggleReadingText');
-        
-        if (!container || !btnText) return;
-
-        container.className = 'shadowing-jp-container'; // Reset
-        
-        if (this.readingMode === 0) {
-            btnText.innerText = 'Trạng thái: Chỉ Kanji';
-        } else if (this.readingMode === 1) {
-            container.classList.add('mode-furi');
-            btnText.innerText = 'Trạng thái: Kanji + Furigana';
-        } else {
-            container.classList.add('mode-romaji');
-            btnText.innerText = 'Trạng thái: Kanji + Romaji';
-        }
-    }
-
     pauseAndShowSub(sub) {
         this.stopTracking();
         this.player.pauseVideo();
         this.player.seekTo(sub.end + 0.1, true);
-        
         const clickBlocker = document.getElementById('ytClickBlocker');
         if (clickBlocker) clickBlocker.style.display = 'block';
-        
-        // --- 1. RENDER HTML KARAOKE ---
-        let htmlTokens = '';
-        let currentClassMode = this.readingMode === 1 ? 'mode-furi' : (this.readingMode === 2 ? 'mode-romaji' : '');
-        
-        // Thêm nút Toggle vào trước câu
-        let modeLabel = this.readingMode === 0 ? 'Chỉ Kanji' : (this.readingMode === 1 ? 'Kanji + Furigana' : 'Kanji + Romaji');
-        const toggleBtnHTML = `
-            <button class="btn-toggle-reading" onclick="theaterApp.toggleReadingMode()">
-                <span class="material-symbols-outlined" style="font-size: 16px;">translate</span>
-                <span id="btnToggleReadingText">Trạng thái: ${modeLabel}</span>
-            </button>
-        `;
-
-        sub.tokens.forEach((tk, idx) => {
-            let furiHTML = tk.h ? `<rt>${tk.h}</rt>` : `<rt></rt>`; // Giữ tag rt rỗng để layout không bị giật
-            
-            htmlTokens += `
-                <span class="shadowing-token" id="sdw-token-${idx}" data-start="${tk.startIdx}" data-end="${tk.endIdx}">
-                    <ruby>${tk.w}${furiHTML}</ruby>
-                    <span class="romaji-text">${tk.r}</span>
-                </span>
-            `;
-        });
-
-        document.getElementById('sdwJpText').innerHTML = `
-            ${toggleBtnHTML}
-            <div id="sdwJpTextContainer" class="shadowing-jp-container ${currentClassMode}">${htmlTokens}</div>
-        `;
+        document.getElementById('sdwJpText').innerHTML = wrapKanjiWithLink(escapeHTML(sub.jp));
         document.getElementById('sdwOriginText').innerHTML = escapeHTML(sub.vn);
-        
         document.getElementById('shadowingSubCard').classList.add('show');
         
-        // --- 2. GỌI AUDIO VÀ TRUYỀN CALLBACK KARAOKE ---
-        this.playKaraokeAudio(sub.jp);
+        const btnResume = document.getElementById('btnResumeShadowing');
+        window.safePlayAudio(
+            sub.jp, 
+            0.85,
+            // Khi bắt đầu đọc -> Khóa nút Xem tiếp
+            () => {
+                if (btnResume) {
+                    btnResume.disabled = true;
+                    btnResume.style.opacity = '0.4';
+                    btnResume.style.cursor = 'wait';
+                }
+            },
+            // Khi đọc xong (hoặc lỗi) -> Mở khóa nút
+            () => {
+                if (btnResume) {
+                    btnResume.disabled = false;
+                    btnResume.style.opacity = '1';
+                    btnResume.style.cursor = 'pointer';
+                }
+            }
+        );
 
+        // Chuyển ranh giới Chunk nếu câu này chứa ID cuối cùng của Chunk
         const activeChunk = this.chunks[this.currentChunkIdx];
         const lastIdInChunk = activeChunk[activeChunk.length - 1].id;
         
@@ -22115,81 +21991,28 @@ class ShadowingTheater {
         this.currentIndex++;
     }
 
-    playKaraokeAudio(fullJpText) {
-        const btnResume = document.getElementById('btnResumeShadowing');
-        
-        // Hàm chạy khi phát âm thanh từng từ
-        const onBoundary = (event) => {
-            const charIndex = event.charIndex;
-            // Tìm token chứa charIndex này
-            const tokens = document.querySelectorAll('.shadowing-token');
-            tokens.forEach(tk => {
-                const s = parseInt(tk.getAttribute('data-start'));
-                const e = parseInt(tk.getAttribute('data-end'));
-                if (charIndex >= s && charIndex < e) {
-                    // Xóa active cũ, bật active mới
-                    document.querySelectorAll('.shadowing-token').forEach(t => t.classList.remove('active'));
-                    tk.classList.add('active');
-                }
-            });
-        };
-
-        window.safePlayAudio(
-            fullJpText, 
-            0.85,
-            // onStart
-            () => {
-                if (btnResume) {
-                    btnResume.disabled = true;
-                    btnResume.style.opacity = '0.4';
-                    btnResume.style.cursor = 'wait';
-                }
-            },
-            // onEnd
-            () => {
-                if (btnResume) {
-                    btnResume.disabled = false;
-                    btnResume.style.opacity = '1';
-                    btnResume.style.cursor = 'pointer';
-                }
-                // Tắt tất cả active khi đọc xong
-                document.querySelectorAll('.shadowing-token').forEach(t => t.classList.remove('active'));
-            },
-            // onBoundary
-            onBoundary
-        );
-    }
-
+    // ===============================================
+    // LÕI XỬ LÝ HYBRID SEMANTIC (FRONTEND + BACKEND)
+    // ===============================================
     async translateChunk(chunkIndex) {
-        if (this.translatedChunks.has(chunkIndex)) return; 
+        if (this.translatedChunks.has(chunkIndex)) return; // Bỏ qua nếu đã dịch rồi
         this.isFetchingNext = true;
         const chunk = this.chunks[chunkIndex];
         
         const payload = chunk.map(frag => ({ id: frag.id, text: frag.text }));
 
-        // ĐÃ NÂNG CẤP PROMPT: Bắt AI cắt từng từ và trả Hiragana
-        const prompt = `Đóng vai trò là biên dịch viên JLPT. Dưới đây là các mảnh vỡ phụ đề tự động.
+        const prompt = `Đóng vai trò là biên dịch viên JLPT. Dưới đây là các mảnh vỡ phụ đề tự động (kèm ID).
         Nhiệm vụ:
-        1. Gom các mảnh vỡ thành câu tiếng Việt hoàn chỉnh, mượt mà.
-        2. Dịch câu đó sang tiếng Nhật (thể lịch sự).
-        3. CẮT câu tiếng Nhật đó thành MẢNG CÁC TỪ VỰNG (jp_tokens). Với mỗi từ, cung cấp chữ gốc (w) và cách đọc Hiragana/Furigana (h). Nếu từ đó là Kana sẵn hoặc dấu câu, để h là rỗng "".
-        4. Ghi nhận CHÍNH XÁC danh sách các ID của các mảnh vỡ đã được gộp vào câu đó.
+        1. Gom các mảnh vỡ thành các câu tiếng Việt hoàn chỉnh, tự nhiên về mặt ngữ nghĩa (Dựa vào dấu câu hoặc ngữ cảnh).
+        2. Dịch các câu hoàn chỉnh đó sang tiếng Nhật (thể lịch sự).
+        3. Ghi nhận CHÍNH XÁC danh sách các ID của các mảnh vỡ đã được gộp vào câu đó.
 
         BẮT BUỘC TRẢ VỀ DUY NHẤT 1 MẢNG JSON (Không bọc Markdown):
         [
           {
-            "ids": [1, 2],
-            "vn": "Nợ máu phải trả bằng máu.",
-            "jp_tokens": [
-              {"w": "血", "h": "ち"},
-              {"w": "の", "h": ""},
-              {"w": "債務", "h": "さいむ"},
-              {"w": "は", "h": ""},
-              {"w": "血", "h": "ち"},
-              {"w": "で", "h": ""},
-              {"w": "購い", "h": "あがない"},
-              {"w": "。", "h": ""}
-            ]
+            "ids": [1, 2, 3],
+            "vn": "Câu tiếng Việt đã gộp mượt mà.",
+            "jp": "Câu dịch tiếng Nhật."
           }
         ]
         
@@ -22197,7 +22020,7 @@ class ShadowingTheater {
         ${JSON.stringify(payload)}`;
 
         let isSuccess = false;
-        let retryCount = 2; 
+        let retryCount = 2; // Tự động thử lại tối đa 2 lần nếu bị lỗi Cold Start
 
         while (!isSuccess && retryCount >= 0) {
             try {
@@ -22212,67 +22035,40 @@ class ShadowingTheater {
                         const trueStart = fragments[0].start;
                         const trueEnd = fragments[fragments.length - 1].end;
                         
-                        // Ghép chuỗi JP hoàn chỉnh để cho Engine đọc
-                        let fullJp = "";
-                        // Dùng Frontend tạo Romaji và tính toán Index để chuẩn bị cho Karaoke
-                        let processedTokens = [];
-                        let currentIndexTracker = 0;
-
-                        if (item.jp_tokens) {
-                            item.jp_tokens.forEach(tk => {
-                                const wordLen = tk.w.length;
-                                // Dùng Wanakana tạo Romaji (Nếu có Hiragana thì tạo từ Hiragana, không thì tạo từ chữ gốc)
-                                const romajiStr = (typeof wanakana !== 'undefined') 
-                                    ? wanakana.toRomaji(tk.h || tk.w) 
-                                    : '';
-
-                                processedTokens.push({
-                                    w: tk.w,
-                                    h: tk.h,
-                                    r: romajiStr,
-                                    startIdx: currentIndexTracker,
-                                    endIdx: currentIndexTracker + wordLen
-                                });
-                                
-                                fullJp += tk.w;
-                                currentIndexTracker += wordLen;
-                            });
-                        }
-
                         this.playableSubs.push({
                             start: trueStart,
                             end: trueEnd,
                             vn: item.vn, 
-                            jp: fullJp,
-                            tokens: processedTokens,
+                            jp: item.jp,
                             rawIds: item.ids 
                         });
                     }
                 });
 
+                // 🟢 Ghi nhận Lô này đã được dịch thành công
                 this.translatedChunks.add(chunkIndex);
                 this.playableSubs.sort((a, b) => a.start - b.start);
                 console.log(`Đã xử lý xong Semantic Chunk ${chunkIndex}`);
                 
-                isSuccess = true; 
+                isSuccess = true; // Đánh dấu thành công để thoát vòng lặp
 
             } catch (err) {
                 console.warn(`Lỗi dịch Chunk ${chunkIndex}. Còn ${retryCount} lần thử...`, err);
                 retryCount--;
                 if (retryCount >= 0) {
+                    // Đợi 1.5 giây rồi mới thử lại để tránh bị API chặn spam
                     await new Promise(resolve => setTimeout(resolve, 1500));
                 }
             }
         }
 
+        // Nếu đã thử hết số lần mà vẫn thất bại -> Mới chấp nhận gán "Lỗi mạng"
         if (!isSuccess) {
-            console.error(`Chunk ${chunkIndex} thất bại.`);
+            console.error(`Chunk ${chunkIndex} thất bại hoàn toàn sau các lần thử.`);
             chunk.forEach(frag => {
                 this.playableSubs.push({
                     start: frag.start, end: frag.end, 
-                    vn: frag.text, jp: "(Lỗi mạng)", 
-                    tokens: [{w: "(Lỗi mạng)", h: "", r: "", startIdx: 0, endIdx: 10}],
-                    rawIds: [frag.id]
+                    vn: frag.text, jp: "(Lỗi mạng: Không thể dịch)", rawIds: [frag.id]
                 });
             });
             this.translatedChunks.add(chunkIndex); 
@@ -22285,7 +22081,13 @@ class ShadowingTheater {
     replayAudio() {
         const sub = this.playableSubs[this.currentIndex - 1]; 
         if (sub && sub.jp) {
-            this.playKaraokeAudio(sub.jp);
+            const btnResume = document.getElementById('btnResumeShadowing');
+            window.safePlayAudio(
+                sub.jp, 
+                0.85,
+                () => { if(btnResume) { btnResume.disabled = true; btnResume.style.opacity = '0.4'; } },
+                () => { if(btnResume) { btnResume.disabled = false; btnResume.style.opacity = '1'; } }
+            );
         }
     }
 
@@ -22635,7 +22437,6 @@ function exitShadowingTheater() {
 </div>
 </body>
 </html>
-
 
 
 
