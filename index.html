@@ -6007,7 +6007,14 @@ body.shadowing-mode #shadowingPage {
 #shadowingSetupZone::-webkit-scrollbar { display: none; }
 #shadowingSetupZone { -ms-overflow-style: none; scrollbar-width: none; }
 /* =================HẾT FIX LỖI KHÔNG CUỘN ĐƯỢC Ở MÀN NHẬP LINK SHADOWING ================= */
-  
+/* ================= CSS FURIGANA (SHADOWING) ================= */
+.shadowing-jp ruby { ruby-align: center; }
+.shadowing-jp rt {
+    font-size: 0.45em; font-weight: 800; color: #0067c0;
+    transform: translateY(-2px); font-family: 'Noto Sans JP', sans-serif;
+}
+/* =================HẾT CSS FURIGANA (SHADOWING) ================= */
+
 </style>
 </head>
 <body>
@@ -15604,6 +15611,48 @@ function saveGrammarToDeck() {
         encodeURIComponent(exampleJP)
     );
 }
+/* ================= HỆ THỐNG GỌI VERCEL API (GROQ) ================= */
+// Hàm gọi Groq chung 
+async function callGroqAI(promptText) {
+    try {
+        const response = await fetch('/api/groq', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: promptText })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Lỗi API Groq.');
+        
+        return data.result;
+    } catch (error) {
+        console.error("Groq AI Error:", error);
+        throw error;
+    }
+}
+
+// Hàm chuyên dụng gọi Groq bọc Furigana
+async function callGroqFurigana(japaneseSentencesArray) {
+    try {
+        const prompt = `Bạn là hệ thống xử lý tiếng Nhật. Dưới đây là mảng JSON các câu tiếng Nhật.
+        Nhiệm vụ BẮT BUỘC: Bọc TẤT CẢ các chữ Kanji bằng thẻ HTML Ruby (<ruby>Kanji<rt>Hiragana</rt></ruby>).
+        - Tuyệt đối GIỮ NGUYÊN Hiragana, Katakana, dấu câu, khoảng trắng.
+        - CHỈ TRẢ VỀ DUY NHẤT 1 MẢNG JSON chứa chuỗi đã bọc thẻ. Không giải thích, không dùng markdown.
+        
+        Input:
+        ${JSON.stringify(japaneseSentencesArray)}`;
+
+        let aiResponse = await callGroqAI(prompt);
+        
+        // Dọn rác Markdown nếu AI lỡ sinh ra
+        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(aiResponse);
+
+    } catch (error) {
+        console.error("Lỗi xử lý Furigana bằng Groq:", error);
+        return japaneseSentencesArray; 
+    }
+}
 /* ================= HỆ THỐNG GỌI VERCEL API (GEMINI) ================= */
 async function callGeminiAI(promptText, imageBase64 = null) {
     try {
@@ -21954,7 +22003,8 @@ class ShadowingTheater {
         this.player.seekTo(sub.end + 0.1, true);
         const clickBlocker = document.getElementById('ytClickBlocker');
         if (clickBlocker) clickBlocker.style.display = 'block';
-        document.getElementById('sdwJpText').innerHTML = wrapKanjiWithLink(escapeHTML(sub.jp));
+        // Bỏ escapeHTML để trình duyệt render được thẻ <ruby>
+        document.getElementById('sdwJpText').innerHTML = wrapKanjiWithLink(sub.jp);
         document.getElementById('sdwOriginText').innerHTML = escapeHTML(sub.vn);
         document.getElementById('shadowingSubCard').classList.add('show');
         
@@ -22028,7 +22078,11 @@ class ShadowingTheater {
                 aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
                 const translatedData = JSON.parse(aiResponse);
 
-                translatedData.forEach(item => {
+                // --- BẮT ĐẦU DÙNG GROQ ĐỂ BỌC FURIGANA ---
+                const jpArray = translatedData.map(item => item.jp);
+                const furiganaArray = await callGroqFurigana(jpArray);
+
+                translatedData.forEach((item, index) => {
                     const fragments = item.ids.map(id => this.rawSubs.find(s => s.id === id)).filter(Boolean);
                     
                     if (fragments.length > 0) {
@@ -22039,11 +22093,13 @@ class ShadowingTheater {
                             start: trueStart,
                             end: trueEnd,
                             vn: item.vn, 
-                            jp: item.jp,
+                            // Dùng câu đã bọc Furigana, nếu mảng lỗi thì fallback dùng câu jp gốc
+                            jp: furiganaArray[index] || item.jp, 
                             rawIds: item.ids 
                         });
                     }
                 });
+                // --- KẾT THÚC DÙNG GROQ ---
 
                 // 🟢 Ghi nhận Lô này đã được dịch thành công
                 this.translatedChunks.add(chunkIndex);
