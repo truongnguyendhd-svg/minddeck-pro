@@ -6007,14 +6007,7 @@ body.shadowing-mode #shadowingPage {
 #shadowingSetupZone::-webkit-scrollbar { display: none; }
 #shadowingSetupZone { -ms-overflow-style: none; scrollbar-width: none; }
 /* =================HẾT FIX LỖI KHÔNG CUỘN ĐƯỢC Ở MÀN NHẬP LINK SHADOWING ================= */
-/* ================= CSS FURIGANA (SHADOWING) ================= */
-.shadowing-jp ruby { ruby-align: center; }
-.shadowing-jp rt {
-    font-size: 0.45em; font-weight: 800; color: #0067c0;
-    transform: translateY(-2px); font-family: 'Noto Sans JP', sans-serif;
-}
-/* =================HẾT CSS FURIGANA (SHADOWING) ================= */
-
+  
 </style>
 </head>
 <body>
@@ -7000,9 +6993,6 @@ body.shadowing-mode #shadowingPage {
                         <div id="sdwOriginText" class="shadowing-origin"></div>
                     </div>
                     <div class="shadowing-action-buttons">
-                        <button id="btnToggleFuri" onclick="theaterApp.toggleFurigana()" class="win11-btn-secondary" style="border-radius: 50px; padding: 14px 20px; font-weight: 800;">
-                            <span class="material-symbols-outlined" style="color: #64748b;">sort_by_alpha</span> FURIGANA
-                        </button>
                         <button onclick="theaterApp.replayAudio()" class="win11-btn-secondary" style="border-radius: 50px; padding: 14px 20px; font-weight: 800;">
                             <span class="material-symbols-outlined" style="color: #0071e3;">replay</span> NGHE LẠI
                         </button>
@@ -15614,38 +15604,6 @@ function saveGrammarToDeck() {
         encodeURIComponent(exampleJP)
     );
 }
-/* ================= HỆ THỐNG GỌI VERCEL API (GROQ) ================= */
-// Hàm gọi Groq chung 
-async function callGroqAI(promptText) {
-    try {
-        const response = await fetch('/api/groq', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: promptText })
-        });
-
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Lỗi API Groq.');
-        
-        return data.result;
-    } catch (error) {
-        console.error("Groq AI Error:", error);
-        throw error;
-    }
-}
-// Hàm gọi Groq bọc Furigana cho TỪNG CÂU (Tiết kiệm Token, độ chính xác 100%)
-async function callGroqFuriganaSingle(rawJpSentence) {
-    try {
-        const prompt = `Chỉ trả về chuỗi HTML. Thêm thẻ <ruby> và <rt> cho TẤT CẢ Kanji trong câu sau: "${rawJpSentence}". 
-        Giữ nguyên Hiragana, Katakana, dấu câu. KHÔNG giải thích, KHÔNG markdown.`;
-
-        let aiResponse = await callGroqAI(prompt);
-        return aiResponse.replace(/```html/g, '').replace(/```/g, '').trim();
-    } catch (error) {
-        console.error("Lỗi tạo Furigana:", error);
-        return rawJpSentence; // Nếu lỗi, trả về câu gốc
-    }
-}
 /* ================= HỆ THỐNG GỌI VERCEL API (GEMINI) ================= */
 async function callGeminiAI(promptText, imageBase64 = null) {
     try {
@@ -21808,7 +21766,7 @@ class ShadowingTheater {
         this.isAPIReady = false;
         this.currentVideoId = "";
         this.TIME_TOLERANCE = 0.15; 
-        this.isFuriganaEnabled = false; // Mặc định TẮT
+        
         this.loadYouTubeAPI();
     }
 
@@ -21996,22 +21954,15 @@ class ShadowingTheater {
         this.player.seekTo(sub.end + 0.1, true);
         const clickBlocker = document.getElementById('ytClickBlocker');
         if (clickBlocker) clickBlocker.style.display = 'block';
-        
-        // 1. Luôn hiển thị câu gốc không có Furigana trước cho nhanh
-        document.getElementById('sdwJpText').innerHTML = wrapKanjiWithLink(sub.jp);
+        document.getElementById('sdwJpText').innerHTML = wrapKanjiWithLink(escapeHTML(sub.jp));
         document.getElementById('sdwOriginText').innerHTML = escapeHTML(sub.vn);
         document.getElementById('shadowingSubCard').classList.add('show');
         
-        // 2. Nếu User đang bật Furigana -> Tự động gọi API ngầm
-        if (this.isFuriganaEnabled) {
-            this.fetchAndShowFurigana();
-        }
-
-        // 3. ĐẢM BẢO CHỈ ĐỌC RAW TEXT `sub.jp`
         const btnResume = document.getElementById('btnResumeShadowing');
         window.safePlayAudio(
-            sub.jp, // <--- BÍ QUYẾT LÀ ĐÂY: Truyền câu gốc vào, không truyền innerHTML
+            sub.jp, 
             0.85,
+            // Khi bắt đầu đọc -> Khóa nút Xem tiếp
             () => {
                 if (btnResume) {
                     btnResume.disabled = true;
@@ -22019,6 +21970,7 @@ class ShadowingTheater {
                     btnResume.style.cursor = 'wait';
                 }
             },
+            // Khi đọc xong (hoặc lỗi) -> Mở khóa nút
             () => {
                 if (btnResume) {
                     btnResume.disabled = false;
@@ -22028,11 +21980,14 @@ class ShadowingTheater {
             }
         );
 
+        // Chuyển ranh giới Chunk nếu câu này chứa ID cuối cùng của Chunk
         const activeChunk = this.chunks[this.currentChunkIdx];
         const lastIdInChunk = activeChunk[activeChunk.length - 1].id;
+        
         if (sub.rawIds.includes(lastIdInChunk)) {
             this.currentChunkIdx++;
         }
+        
         this.currentIndex++;
     }
 
@@ -22075,13 +22030,16 @@ class ShadowingTheater {
 
                 translatedData.forEach(item => {
                     const fragments = item.ids.map(id => this.rawSubs.find(s => s.id === id)).filter(Boolean);
+                    
                     if (fragments.length > 0) {
+                        const trueStart = fragments[0].start;
+                        const trueEnd = fragments[fragments.length - 1].end;
+                        
                         this.playableSubs.push({
-                            start: fragments[0].start,
-                            end: fragments[fragments.length - 1].end,
+                            start: trueStart,
+                            end: trueEnd,
                             vn: item.vn, 
-                            jp: item.jp, // Trả lại JP Gốc, không nhét Furigana ở đây nữa
-                            furigana_jp: null, // Mới: Cột chờ lưu Furigana
+                            jp: item.jp,
                             rawIds: item.ids 
                         });
                     }
@@ -22124,7 +22082,6 @@ class ShadowingTheater {
         const sub = this.playableSubs[this.currentIndex - 1]; 
         if (sub && sub.jp) {
             const btnResume = document.getElementById('btnResumeShadowing');
-            // LUÔN ĐỌC RAW TEXT sub.jp
             window.safePlayAudio(
                 sub.jp, 
                 0.85,
@@ -22143,57 +22100,7 @@ class ShadowingTheater {
         if (clickBlocker) clickBlocker.style.display = 'none';
         this.player.playVideo();
     }
-    // Xử lý nút bấm Tắt/Bật
-    async toggleFurigana() {
-        this.isFuriganaEnabled = !this.isFuriganaEnabled;
-        const btn = document.getElementById('btnToggleFuri');
 
-        if (this.isFuriganaEnabled) {
-            btn.style.background = '#eff6ff';
-            btn.style.color = '#0067c0';
-            btn.querySelector('span').style.color = '#0067c0';
-            await this.fetchAndShowFurigana();
-        } else {
-            btn.style.background = '';
-            btn.style.color = '';
-            btn.querySelector('span').style.color = '#64748b';
-            
-            // Tắt thì hiển thị lại câu tiếng Nhật gốc
-            const sub = this.playableSubs[this.currentIndex - 1];
-            if (sub) {
-                // Tắt escapeHTML để tránh lỗi X-Ray
-                document.getElementById('sdwJpText').innerHTML = wrapKanjiWithLink(sub.jp);
-            }
-        }
-    }
-
-    // Gọi API Groq cho đúng 1 câu hiện tại
-    async fetchAndShowFurigana() {
-        const sub = this.playableSubs[this.currentIndex - 1];
-        if (!sub) return;
-
-        // Nếu đã gọi Groq cho câu này rồi thì lấy từ RAM xài luôn, không tốn Token nữa
-        if (sub.furigana_jp) {
-            document.getElementById('sdwJpText').innerHTML = wrapKanjiWithLink(sub.furigana_jp);
-            return;
-        }
-
-        // Bật Loading trên nút
-        const btn = document.getElementById('btnToggleFuri');
-        const originalHtml = btn.innerHTML;
-        btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#0067c0;margin-right:5px;"></div> Đang tạo...';
-        btn.disabled = true;
-
-        // Gọi Groq
-        sub.furigana_jp = await callGroqFuriganaSingle(sub.jp);
-        
-        // Hiển thị ra màn hình
-        document.getElementById('sdwJpText').innerHTML = wrapKanjiWithLink(sub.furigana_jp);
-        
-        // Trả lại UI nút
-        btn.innerHTML = originalHtml;
-        btn.disabled = false;
-    }
     destroy() {
         this.stopTracking();
         if (this.player) this.player.stopVideo();
@@ -22530,7 +22437,6 @@ function exitShadowingTheater() {
 </div>
 </body>
 </html>
-
 
 
 
