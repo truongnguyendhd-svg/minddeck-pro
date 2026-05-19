@@ -6703,36 +6703,44 @@ body.shadowing-mode #shadowingPage {
 
                 <!-- ================= VÙNG CHỦ ĐỀ & AI GENERATOR ================= -->
                 
-                <!-- 1. Danh sách các Tag Chủ Đề -->
-                <div id="thematicTagsZone" class="thematic-tags-container">
-                    <!-- JS sẽ bơm các Pill Chủ đề vào đây -->
-                </div>
-
-                <!-- 2. Thẻ AI Generator phong cách Apple Store -->
+                <!-- Thẻ AI Generator phong cách Apple Store (Đã gộp chung Tags vào trong) -->
                 <div class="apple-store-ai-card">
-                    <h3 style="margin: 0 0 8px 0; font-size: 22px; font-weight: 900; display: flex; align-items: center; gap: 8px;">
+                    <h3 style="margin: 0 0 15px 0; font-size: 22px; font-weight: 900; display: flex; align-items: center; gap: 8px;">
                         <span class="material-symbols-outlined" style="color: #a8c0ff;">bolt</span> Học theo chủ đề
                     </h3>
-                    <p style="margin: 0 0 20px 0; font-size: 14px; opacity: 0.8; line-height: 1.5;">
-                        Nhập một chủ đề bạn thích (VD: "Từ vựng IT N3" hoặc "Giao tiếp sân bay"). AI sẽ gom các thẻ bạn đã có và bổ sung thêm từ mới để tạo thành một chủ đề học cho riêng bạn!
-                    </p>
                     
-                    <textarea id="aiPromptInput" class="apple-ai-textarea" rows="3" placeholder="Nhập chủ đề vào đây..."></textarea>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px;">
-                        <div>
-                            <select id="aiAmountSelect" class="apple-ai-select">
-                                <option value="10">Lấy 10 thẻ</option>
-                                <option value="20" selected>Lấy 20 thẻ</option>
-                                <option value="50">Lấy 50 thẻ</option>
+                    <!-- 1. Danh sách các Tag Chủ Đề NẰM BÊN TRONG -->
+                    <div id="thematicTagsZone" class="thematic-tags-container" style="margin-bottom: 15px;">
+                        <!-- JS sẽ bơm các Pill Chủ đề vào đây -->
+                    </div>
+
+                    <!-- 2. Nút bật/tắt form tạo chủ đề mới -->
+                    <button onclick="toggleAIGeneratorZone()" style="background: rgba(255,255,255,0.1); border: 1px dashed rgba(255,255,255,0.4); color: white; padding: 8px 15px; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s; width: fit-content;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">
+                        <span id="aiGenToggleIcon" class="material-symbols-outlined" style="font-size: 16px;">add</span> Tự tạo chủ đề mới bằng AI
+                    </button>
+
+                    <!-- 3. Vùng Tạo mới (Ẩn mặc định, thiết kế nhỏ gọn hơn) -->
+                    <div id="aiGeneratorCollapseZone" style="display: none; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 15px; animation: fadeInChat 0.3s ease;">
+                        <p style="margin: 0 0 12px 0; font-size: 13px; opacity: 0.8; line-height: 1.5;">
+                            Nhập một chủ đề (VD: "Từ vựng IT N3"). AI sẽ gom các thẻ bạn đã có và bổ sung từ mới!
+                        </p>
+                        
+                        <!-- Đổi từ Textarea to đùng sang Input 1 dòng cho gọn -->
+                        <input type="text" id="aiPromptInput" class="apple-ai-textarea" placeholder="Nhập chủ đề vào đây..." style="padding: 12px !important; margin-bottom: 12px !important;">
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 10px;">
+                            <select id="aiAmountSelect" class="apple-ai-select" style="padding: 10px !important; font-size: 13px !important;">
+                                <option value="10">10 thẻ</option>
+                                <option value="20" selected>20 thẻ</option>
+                                <option value="50">50 thẻ</option>
                             </select>
+                            <button onclick="generateThematicDeckWithAI()" class="btn-apple-glow" style="padding: 10px !important; font-size: 13px !important;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">rocket_launch</span> KHỞI TẠO
+                            </button>
                         </div>
-                        <button onclick="generateThematicDeckWithAI()" class="btn-apple-glow">
-                            <span class="material-symbols-outlined">rocket_launch</span> KHỞI TẠO CHỦ ĐỀ
-                        </button>
                     </div>
                 </div>
-                <!-- ====HẾT VÙNG CHỦ ĐỀ & AI GENERATOR========================================================== -->
+                <!-- ===========HẾT VÙNG CHỦ ĐỀ & AI GENERATOR=================================================== -->
                 <div id="manageDeckList" class="deck-grid"></div>
             </div>
         </div>
@@ -16082,7 +16090,102 @@ function createHashtagFromText(text) {
     return `#${clean}`;
 }
 
-// 2. Hàm kích hoạt AI tạo Chủ đề
+// Biến toàn cục để lưu các hashtag đã có, phục vụ việc chặn trùng lặp
+window.existingThematicTags = [];
+
+// Hàm Bật/Tắt Form AI thu gọn
+window.toggleAIGeneratorZone = function() {
+    const zone = document.getElementById('aiGeneratorCollapseZone');
+    const icon = document.getElementById('aiGenToggleIcon');
+    if (zone.style.display === 'none') {
+        zone.style.display = 'block';
+        icon.innerText = 'remove';
+        setTimeout(() => document.getElementById('aiPromptInput').focus(), 50);
+    } else {
+        zone.style.display = 'none';
+        icon.innerText = 'add';
+    }
+};
+
+// Hàm Vẽ đám mây Tag (Đã thêm: Màu ngẫu nhiên, bo góc 16px, ẩn dấu #)
+async function renderThematicTagCloud() {
+    const zone = document.getElementById('thematicTagsZone');
+    if (!currentUser) return;
+
+    try {
+        const { data } = await sb.from('cards')
+            .select('info, decks!inner(owner_id)')
+            .eq('decks.owner_id', currentUser.id)
+            .like('info', '%[TAGS]%');
+
+        if (!data || data.length === 0) {
+            zone.innerHTML = '<span style="color: rgba(255,255,255,0.5); font-size: 13px;">Bạn chưa có chủ đề nào. Hãy tạo một cái nhé!</span>';
+            window.existingThematicTags = [];
+            return;
+        }
+
+        let tagCounts = {};
+        let tagNames = {}; 
+
+        data.forEach(c => {
+            const info = c.info;
+            const match = info.match(/\[TAGS\](.*?)\n/); 
+            if (match && match[1]) {
+                const tagPairs = match[1].split(',').map(t => t.trim()).filter(Boolean);
+                tagPairs.forEach(pair => {
+                    const parts = pair.split('|').map(p => p.trim());
+                    if (parts.length > 0) {
+                        const rawTag = parts[0]; 
+                        const displayName = parts[1] || rawTag; 
+                        
+                        if (!tagCounts[rawTag]) {
+                            tagCounts[rawTag] = 0;
+                            tagNames[rawTag] = displayName;
+                        }
+                        tagCounts[rawTag]++;
+                    }
+                });
+            }
+        });
+
+        // Lưu danh sách Tag vào biến toàn cục để chặn trùng lặp khi tạo mới
+        window.existingThematicTags = Object.keys(tagCounts);
+
+        // Bảng màu kẹo ngọt chuẩn Apple (Màu nền + Màu chữ tương phản)
+        const appleColors = [
+            { bg: '#3b82f6', text: '#ffffff' }, // Xanh biển
+            { bg: '#10b981', text: '#ffffff' }, // Xanh lá
+            { bg: '#f59e0b', text: '#ffffff' }, // Cam
+            { bg: '#ef4444', text: '#ffffff' }, // Đỏ
+            { bg: '#8b5cf6', text: '#ffffff' }, // Tím
+            { bg: '#ec4899', text: '#ffffff' }, // Hồng
+            { bg: '#14b8a6', text: '#ffffff' }  // Teal lục lam
+        ];
+
+        let html = '';
+        let colorIdx = 0;
+        
+        for (const [tag, count] of Object.entries(tagCounts)) {
+            const theme = appleColors[colorIdx % appleColors.length];
+            colorIdx++;
+            
+            // Xóa dấu # ở tên hiển thị để đẹp hơn
+            const cleanDisplayName = tagNames[tag].replace(/^#/, '').trim(); 
+            
+            // Đã cập nhật CSS bo góc 16px và màu sắc ngẫu nhiên
+            html += `
+                <div class="thematic-tag-pill" style="background: ${theme.bg}; color: ${theme.text}; border: none; border-radius: 16px;" onclick="openTagActionModal('${tag}', '${cleanDisplayName}', ${count})">
+                    ${escapeHTML(cleanDisplayName)} 
+                    <span style="background: rgba(0,0,0,0.2); color: white; padding: 2px 8px; border-radius: 50px; font-size: 11px;">${count}</span>
+                </div>
+            `;
+        }
+        zone.innerHTML = html;
+
+    } catch (e) { console.error("Lỗi tải Tag:", e); }
+}
+
+// Hàm Tạo chủ đề (Đã thêm CHỐT CHẶN TRÙNG LẶP)
 async function generateThematicDeckWithAI() {
     if (!currentUser) return customAlert("Vui lòng đăng nhập để dùng AI!", "⚠️");
 
@@ -16093,6 +16196,12 @@ async function generateThematicDeckWithAI() {
 
     // Tạo Hashtag cho chủ đề này
     const newTag = createHashtagFromText(promptInput);
+    
+    // 🛑 CHỐT CHẶN TRÙNG LẶP: Nếu tag này đã có trong máy, lập tức chặn lại và báo lỗi
+    if (window.existingThematicTags && window.existingThematicTags.includes(newTag)) {
+        return customAlert(`Chủ đề <b>"${escapeHTML(promptInput)}"</b> đã có sẵn trong danh sách phía trên.<br><br>Hãy bấm vào nó để học hoặc yêu cầu AI mở rộng thêm từ vựng nhé!`, "⚠️ Đã có chủ đề này", "warning");
+    }
+
     const displayTagName = promptInput.length > 20 ? promptInput.substring(0, 20) + "..." : promptInput;
 
     showLoading("AI đang thu thập dữ liệu chủ đề... Vui lòng đợi!");
@@ -16121,60 +16230,46 @@ async function generateThematicDeckWithAI() {
 
         document.getElementById('loadingText').innerText = "Đang kiểm tra và quy hoạch dữ liệu...";
 
-        // Chuẩn bị dữ liệu cho thẻ
         const formattedCards = cardsArr.map(card => {
             const backPacked = `${card.reading}\n${card.meaning}`;
             let iArr = [];
             if(card.hv) iArr.push(`[HV] ${card.hv}`);
             if(card.ex1jp) iArr.push(`[EX1] ${card.ex1jp}`);
             if(card.ex1vn) iArr.push(`[VN1] ${card.ex1vn}`);
-            // GẮN HASHTAG VÀO DÒNG ĐẦU TIÊN CỦA CỘT INFO
             iArr.unshift(`[TAGS] ${newTag} | ${displayTagName}`);
-            
             return { front: card.front, back: backPacked, info: iArr.join('\n') };
         });
 
-        // TÁCH THẺ TRÙNG VÀ THẺ MỚI
         const uniqueFronts = new Set(formattedCards.map(c => c.front));
-        
-        // Quét DB xem thẻ nào đã tồn tại
         const { data: existingCards } = await sb.from('cards')
             .select('id, front, info, decks!inner(owner_id)')
             .eq('decks.owner_id', currentUser.id)
             .in('front', Array.from(uniqueFronts));
 
         const existingFrontsMap = {};
-        if (existingCards) {
-            existingCards.forEach(c => existingFrontsMap[c.front] = c);
-        }
+        if (existingCards) existingCards.forEach(c => existingFrontsMap[c.front] = c);
 
         let cardsToInsert = [];
         let cardsToUpdate = [];
-
-        // Đảm bảo có một bộ bài gốc "Kho Lưu Trữ AI" để chứa các thẻ mới được AI đẻ ra
         const vaultDeckId = `${currentUser.id}:AI_Vault`;
         await sb.from('decks').upsert({ id: vaultDeckId, owner_id: currentUser.id, type: 'flashcard', is_public: false });
 
         formattedCards.forEach(newCard => {
             if (existingFrontsMap[newCard.front]) {
-                // TRƯỜNG HỢP TRÙNG (ĐÃ CÓ THẺ NÀY RỒI): Bổ sung Tag vào info cũ
                 let oldInfo = existingFrontsMap[newCard.front].info || "";
-                if (!oldInfo.includes(newTag)) { // Tránh gắn trùng tag 2 lần
+                if (!oldInfo.includes(newTag)) {
                     let updatedInfo = oldInfo.startsWith('[TAGS]') 
                         ? oldInfo.replace(/\[TAGS\]/, `[TAGS] ${newTag} | ${displayTagName} ,`) 
                         : `[TAGS] ${newTag} | ${displayTagName}\n${oldInfo}`;
-                    
                     cardsToUpdate.push({ id: existingFrontsMap[newCard.front].id, info: updatedInfo });
                 }
             } else {
-                // TRƯỜNG HỢP THẺ MỚI TINH: Đẩy vào Vault
                 cardsToInsert.push({ ...newCard, deck_id: vaultDeckId });
             }
         });
 
         document.getElementById('loadingText').innerText = "Đang lưu lên hệ thống...";
 
-        // LƯU DB MỘT LƯỢT
         if (cardsToInsert.length > 0) {
             const { error: insErr } = await sb.from('cards').insert(cardsToInsert);
             if (insErr) throw insErr;
@@ -16186,82 +16281,23 @@ async function generateThematicDeckWithAI() {
 
         hideLoading();
         
-        // Hiện thông báo thành quả
         customAlert(`
             🎉 <b>Đã gom thành công bộ chủ đề!</b><br><br>
             ✨ Tạo mới: <b>${cardsToInsert.length}</b> thẻ<br>
             ♻️ Kết nối từ bộ bài cũ: <b>${cardsToUpdate.length}</b> thẻ<br><br>
-            Bấm vào Tag <b>${newTag}</b> trên màn hình để học ngay nhé!
+            Bấm vào Tag vừa tạo trên màn hình để học ngay nhé!
         `, "✨ Hoàn tất", "success");
 
-        document.getElementById('aiPromptInput').value = ''; // Reset input
+        document.getElementById('aiPromptInput').value = ''; 
+        toggleAIGeneratorZone(); // Tự động đóng Form AI lại cho gọn
         
-        // Tải lại mây Tag
-        renderThematicTagCloud();
+        renderThematicTagCloud(); // Tải lại mây Tag
 
     } catch (err) {
         hideLoading();
         console.error("AI Gen Error:", err);
         customAlert("AI không thể xử lý. Hãy thử chủ đề khác ngắn gọn hơn.", "❌");
     }
-}
-
-// 3. Hàm Quét DB và vẽ ra đám mây Tag trên giao diện
-async function renderThematicTagCloud() {
-    const zone = document.getElementById('thematicTagsZone');
-    if (!currentUser) return;
-
-    try {
-        // Quét lấy cột info của toàn bộ thẻ để bóc tag (Giới hạn nhẹ để DB không quá tải)
-        const { data } = await sb.from('cards')
-            .select('info, decks!inner(owner_id)')
-            .eq('decks.owner_id', currentUser.id)
-            .like('info', '%[TAGS]%');
-
-        if (!data || data.length === 0) {
-            zone.innerHTML = '';
-            return;
-        }
-
-        let tagCounts = {};
-        let tagNames = {}; // Lưu tên hiển thị đẹp
-
-        data.forEach(c => {
-            const info = c.info;
-            const match = info.match(/\[TAGS\](.*?)\n/); // Bóc dòng đầu tiên
-            if (match && match[1]) {
-                // Tách các cụm tag (Vì có thể có nhiều tag ngăn cách bởi dấu phẩy)
-                const tagPairs = match[1].split(',').map(t => t.trim()).filter(Boolean);
-                tagPairs.forEach(pair => {
-                    const parts = pair.split('|').map(p => p.trim());
-                    if (parts.length > 0) {
-                        const rawTag = parts[0]; // #tu_vung_it
-                        const displayName = parts[1] || rawTag; // Từ vựng IT N3
-                        
-                        if (!tagCounts[rawTag]) {
-                            tagCounts[rawTag] = 0;
-                            tagNames[rawTag] = displayName;
-                        }
-                        tagCounts[rawTag]++;
-                    }
-                });
-            }
-        });
-
-        // Vẽ UI
-        let html = '';
-        for (const [tag, count] of Object.entries(tagCounts)) {
-            html += `
-                <div class="thematic-tag-pill" onclick="openTagActionModal('${tag}', '${tagNames[tag]}', ${count})">
-                    <span class="material-symbols-outlined" style="font-size: 16px;">tag</span>
-                    ${escapeHTML(tagNames[tag])} 
-                    <span style="background: #e2e8f0; color: #475569; padding: 2px 8px; border-radius: 50px; font-size: 11px;">${count}</span>
-                </div>
-            `;
-        }
-        zone.innerHTML = html;
-
-    } catch (e) { console.error("Lỗi tải Tag:", e); }
 }
 
 // 4. Mở Bảng điều khiển khi bấm vào Tag
