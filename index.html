@@ -16113,11 +16113,32 @@ async function popoverActionQuickAdd(e) {
 
 // 1. Hàm tạo ra một chuỗi Tag hợp lệ từ Chủ đề người dùng nhập (VD: "Từ vựng IT" -> "#Tu_vung_IT")
 function createHashtagFromText(text) {
-    let clean = text.toLowerCase()
-        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Bỏ dấu tiếng Việt
-        .replace(/[^a-z0-9\s]/g, '') // Bỏ ký tự đặc biệt
-        .trim().replace(/\s+/g, '_'); // Đổi khoảng trắng thành gạch dưới
+    let clean = text.toLowerCase().trim()
+        .replace(/\s+/g, '_') // Đổi khoảng trắng thành gạch dưới
+        // 🟢 FIX LỖI: Dùng thuộc tính Unicode để GIỮ LẠI Tiếng Việt, Kanji, Kana. Chỉ xóa ký tự đặc biệt.
+        .replace(/[^\p{L}\p{N}_]/gu, ''); 
     return `#${clean}`;
+}
+
+// 🟢 THÊM MỚI: HÀM "TỰ CHỮA LÀNH" DỮ LIỆU JSON KHI AI BỊ QUÁ TẢI (TRUNCATION)
+function safeParseJSON(jsonStr) {
+    try {
+        return JSON.parse(jsonStr);
+    } catch (e) {
+        console.warn("MindDeck: Dữ liệu AI trả về bị cắt cụt, đang cố gắng phục hồi...");
+        // Tìm vị trí của dấu } cuối cùng để bắt được Object hoàn chỉnh cuối cùng
+        const lastBrace = jsonStr.lastIndexOf('}');
+        if (lastBrace !== -1) {
+            // Cắt bỏ phần rác rưởi viết dở dang, và đóng mảng JSON lại bằng dấu ]
+            const recoveredStr = jsonStr.substring(0, lastBrace + 1) + "]";
+            try {
+                return JSON.parse(recoveredStr);
+            } catch (e2) {
+                throw new Error("AI trả về dữ liệu quá lỗi, không thể phục hồi.");
+            }
+        }
+        throw new Error("Không tìm thấy cấu trúc JSON hợp lệ.");
+    }
 }
 
 // Biến toàn cục để lưu các hashtag đã có, phục vụ việc chặn trùng lặp
@@ -16254,7 +16275,9 @@ async function generateThematicDeckWithAI() {
     try {
         let aiResult = await callGeminiAI(systemPrompt);
         aiResult = aiResult.replace(/```json/g, '').replace(/```/g, '').trim();
-        let cardsArr = JSON.parse(aiResult);
+        
+        // 🟢 FIX LỖI: Dùng hàm cấp cứu JSON thay vì JSON.parse thông thường
+        let cardsArr = safeParseJSON(aiResult);
         
         if (!Array.isArray(cardsArr) || cardsArr.length === 0) throw new Error("AI trả về sai định dạng");
 
@@ -16412,20 +16435,20 @@ async function expandTagWithAI() {
             
         const existingFronts = existingCards ? existingCards.map(c => c.front.trim()) : [];
         
-        // Chuẩn bị câu lệnh ép buộc AI
-        const antiDupePrompt = existingFronts.length > 0 
-            ? `\n\nLƯU Ý CỰC KỲ QUAN TRỌNG: Học sinh ĐÃ BIẾT các từ sau đây. TẤT CẢ TỪ BẠN TẠO MỚI TUYỆT ĐỐI KHÔNG ĐƯỢC TRÙNG với danh sách này: [ ${existingFronts.join(', ')} ]` 
+        // 🟢 FIX LỖI "NGỘ ĐỘC PROMPT": Chỉ bốc ngẫu nhiên TỐI ĐA 30 TỪ để gửi cho AI (Thay vì gửi hàng trăm từ)
+        const sampleFronts = existingFronts.sort(() => 0.5 - Math.random()).slice(0, 30);
+        
+        const antiDupePrompt = sampleFronts.length > 0 
+            ? `\n\nLƯU Ý CỰC KỲ QUAN TRỌNG: Học sinh ĐÃ BIẾT các từ sau đây. TẤT CẢ TỪ BẠN TẠO MỚI TUYỆT ĐỐI KHÔNG ĐƯỢC TRÙNG với danh sách này: [ ${sampleFronts.join(', ')} ]` 
             : "";
 
         // Bước B: Gọi AI tạo thêm 15 từ
         document.getElementById('loadingText').innerText = `AI đang quét và cập nhật từ vựng mới...`;
         
-        // 🟢 ĐÃ SỬA PROMPT: Cấp quyền "đầu hàng" cho AI nếu hết từ
         const systemPrompt = `Dựa vào chủ đề: "${displayName}". 
         Hãy CỐ GẮNG tạo thêm TỐI ĐA 15 từ vựng/câu giao tiếp tiếng Nhật chuyên sâu về chủ đề này. ${antiDupePrompt}
         
-        ⚠️ QUY TẮC GIỚI HẠN (EXHAUSTION RULE):
-        Nếu chủ đề này quá hẹp (VD: Các tháng trong năm, Màu sắc cơ bản...) và bạn nhận thấy KHÔNG CÒN TỪ NÀO THÔNG DỤNG/HỢP LÝ NỮA ngoài danh sách đã cấm ở trên, BẠN ĐƯỢC PHÉP trả về số lượng ít hơn 15, hoặc thậm chí TRẢ VỀ MẢNG RỖNG []. Tuyệt đối không bịa ra từ vô nghĩa để chạy KPI.
+        ⚠️ QUY TẮC GIỚI HẠN: Nếu chủ đề này đã cạn kiệt từ vựng thông dụng, bạn có thể tạo ít hơn 15 từ, đừng cố bịa ra từ không có thật.
 
         Trả về kết quả ĐÚNG định dạng JSON Array (KHÔNG GHI CHÚ THÊM, KHÔNG DÙNG MARKDOWN).
         Format yêu cầu: 
@@ -16438,23 +16461,13 @@ async function expandTagWithAI() {
 
         let aiResult = await callGeminiAI(systemPrompt);
         aiResult = aiResult.replace(/```json/g, '').replace(/```/g, '').trim();
-        let cardsArr = JSON.parse(aiResult);
         
+        // 🟢 Dùng hàm cấp cứu JSON
+        let cardsArr = safeParseJSON(aiResult);
         if (!Array.isArray(cardsArr)) throw new Error("AI trả về sai định dạng");
 
-        // 🟢 KIỂM TRA TRẠNG THÁI "TỐT NGHIỆP" CHỦ ĐỀ
-        if (cardsArr.length === 0) {
-            hideLoading();
-            return customAlert(`
-                🎉 <b>Chúc mừng! Bạn đã "phá đảo" chủ đề này!</b><br><br>
-                AI xác nhận rằng chủ đề <b>"${displayName}"</b> đã cạn kiệt các từ vựng thông dụng.<br>Kho từ vựng của bạn về lĩnh vực này đã cực kỳ đầy đủ.<br><br>
-                Hãy bấm Luyện tập hoặc chuyển sang khám phá chủ đề khác nhé!
-            `, "🏆 Chạm ngưỡng từ vựng", "success");
-        }
-
-        // Bước C: Tái sử dụng lại logic gom thẻ, gộp thẻ cũ, tạo thẻ mới như lúc Create Tag ban đầu
-        document.getElementById('loadingText').innerText = "Đang kiểm tra và lưu dữ liệu...";
-
+        // Bước C: Tái sử dụng lại logic gom thẻ, gộp thẻ cũ, tạo thẻ mới
+        document.getElementById('loadingText').innerText = "Đang kiểm tra và lọc trùng lặp...";
 
         const formattedCards = cardsArr.map(card => {
             const backPacked = `${card.reading}\n${card.meaning}`;
@@ -16482,6 +16495,7 @@ async function expandTagWithAI() {
         formattedCards.forEach(newCard => {
             if (existingFrontsMap[newCard.front]) {
                 let oldInfo = existingFrontsMap[newCard.front].info || "";
+                // Chỉ Update nếu thẻ cũ chưa gắn cái Tag này
                 if (!oldInfo.includes(tagCode)) {
                     let updatedInfo = oldInfo.startsWith('[TAGS]') 
                         ? oldInfo.replace(/\[TAGS\]/, `[TAGS] ${tagCode} | ${displayName} ,`) 
@@ -16489,11 +16503,23 @@ async function expandTagWithAI() {
                     cardsToUpdate.push({ id: existingFrontsMap[newCard.front].id, info: updatedInfo });
                 }
             } else {
+                // Nếu chưa có trên DB -> Chuẩn bị Insert
                 cardsToInsert.push({ ...newCard, deck_id: vaultDeckId });
             }
         });
 
+        // 🟢 THUẬT TOÁN "BẪY TRÙNG LẶP": KIỂM TRA CHẠM NGƯỠNG
+        if (cardsToInsert.length === 0 && cardsToUpdate.length === 0) {
+            hideLoading();
+            return customAlert(`
+                🎉 <b>Chúc mừng! Bạn đã "phá đảo" chủ đề này!</b><br><br>
+                Hệ thống xác nhận rằng chủ đề <b>"${displayName}"</b> đã cạn kiệt các từ vựng thông dụng.<br>Kho từ vựng của bạn về lĩnh vực này đã cực kỳ đầy đủ.<br><br>
+                Hãy bấm <b>Luyện tập</b> hoặc chuyển sang khám phá chủ đề khác nhé!
+            `, "🏆 Chạm ngưỡng từ vựng", "success");
+        }
+
         // Bơm lên Database
+        document.getElementById('loadingText').innerText = "Đang lưu lên hệ thống...";
         if (cardsToInsert.length > 0) await sb.from('cards').insert(cardsToInsert);
         if (cardsToUpdate.length > 0) await sb.from('cards').upsert(cardsToUpdate);
 
@@ -16502,7 +16528,7 @@ async function expandTagWithAI() {
         customAlert(`
             🎉 <b>Mở rộng chủ đề thành công!</b><br><br>
             ✨ Từ vựng mới tinh: <b>${cardsToInsert.length}</b> thẻ<br>
-            ♻️ Tái sử dụng từ cũ (gắn thêm tag): <b>${cardsToUpdate.length}</b> thẻ<br><br>
+            ♻️ Nạp từ cũ (gắn thêm tag): <b>${cardsToUpdate.length}</b> thẻ<br><br>
             Đám mây Tag đã cập nhật số lượng mới. Bấm vào để học thôi!
         `, "✨ Hoàn tất", "success");
 
