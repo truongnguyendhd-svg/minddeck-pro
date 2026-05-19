@@ -9502,6 +9502,12 @@ async function loadCards(d, skipHash = false) {
         return handleGlobalReviewClick(); 
     }
 
+    // 🟢 THÊM MỚI: BẮT HƯỚNG F5 CỦA SÁT HẠCH CỤC BỘ
+    if (mode === 'assessment') {
+        if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/assessment`;
+        return startLocalAssessment(d);
+    }
+
     if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/${mode}`;
     
     let cards = [];
@@ -21523,7 +21529,9 @@ async function resumeAssessmentFromLocal(data) {
         boostState = data.boostState;
         currentIndex = data.currentIndex;
         mode = 'assessment';
-        currentDeckName = 'GLOBAL_REVIEW';
+        
+        // 🟢 ĐÃ FIX: Lấy đúng tên bộ bài thay vì ép thành GLOBAL_REVIEW
+        currentDeckName = data.deckName || 'GLOBAL_REVIEW'; 
 
         // 2. Mở khóa Audio iOS (FIX: Thay chuỗi rỗng bằng chữ 'あ')
         try {
@@ -22684,9 +22692,36 @@ function exitShadowingTheater() {
 // ================= HÀM SÁT HẠCH DÀNH RIÊNG CHO 1 BỘ BÀI (LOCAL ASSESSMENT) =================
 window.startLocalAssessment = async function(deckId) {
     if (!currentUser) return;
+
+    // 1. KIỂM TRA AUTOSAVE TRƯỚC (Tính năng chống F5 / Đang học dở)
+    const savedJson = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
+    if (savedJson) {
+        try {
+            const data = JSON.parse(savedJson);
+            const hoursPassed = (Date.now() - data.timestamp) / (1000 * 60 * 60);
+            
+            // Chỉ khôi phục nếu đúng bộ bài này và chưa quá 12h
+            if (hoursPassed <= 12 && data.deckName === deckId) {
+                const ok = await showConfirm(
+                    "Đang học dở dang ⏳", 
+                    "Bạn có một phiên Sát hạch chưa hoàn thành trong bộ bài này. Bạn muốn tiếp tục hay làm bài mới?", 
+                    "Tiếp tục học", 
+                    "Làm bài mới"
+                );
+                if (ok) {
+                    return resumeAssessmentFromLocal(data);
+                } else {
+                    clearAssessmentStateFromLocal();
+                }
+            } else if (hoursPassed > 12) {
+                clearAssessmentStateFromLocal();
+            }
+        } catch(e) {
+            clearAssessmentStateFromLocal();
+        }
+    }
     
     showLoading("Đang chuẩn bị Sát hạch...");
-    // 🟢 MỞ KHÓA AUDIO CHO iOS/SAFARI NGAY KHI BẤM NÚT
     if ('speechSynthesis' in window) {
         let unlockAudio = new SpeechSynthesisUtterance('あ');
         unlockAudio.volume = 0;
@@ -22694,16 +22729,25 @@ window.startLocalAssessment = async function(deckId) {
     }
     
     try {
+        let cards = [];
+        
+        // 2. LẤY TỪ RAM NẾU CÓ SẴN (Chuyển chế độ 0 giây từ Cram sang Sát hạch)
+        if (currentDeckName === deckId && window.rawDeckCache && window.rawDeckCache.length > 0) {
+            cards = JSON.parse(JSON.stringify(window.rawDeckCache));
+        } else {
+            // CHƯA CÓ THÌ TẢI TỪ DATABASE VÀ NẠP VÀO RAM
+            const { data, error } = await sb.from('cards')
+                .select('*, progress(*)')
+                .eq('deck_id', deckId);
+
+            if (error) throw error;
+            cards = data || [];
+            window.rawDeckCache = JSON.parse(JSON.stringify(cards)); // 🟢 LƯU VÀO RAM Ở ĐÂY
+        }
+
         const now = new Date().toISOString();
 
-        // 1. Tải toàn bộ thẻ của bộ bài này và tiến trình của User
-        const { data: cards, error } = await sb.from('cards')
-            .select('*, progress(*)')
-            .eq('deck_id', deckId);
-
-        if (error) throw error;
-
-        // 2. Lọc ra thẻ Trễ hạn (due <= now) HOẶC thẻ mới tinh (chưa có progress)
+        // 3. Lọc ra thẻ Trễ hạn HOẶC thẻ mới tinh
         let dueOrNewCards = cards.filter(c => {
             const p = (c.progress && c.progress.length > 0) ? c.progress.find(x => x.user_id === currentUser.id) : null;
             return !p || p.due <= now;
@@ -22711,22 +22755,21 @@ window.startLocalAssessment = async function(deckId) {
 
         if (!dueOrNewCards || dueOrNewCards.length === 0) {
             hideLoading();
-            // Nếu không có thẻ trễ hạn, tự động trả về chế độ học cơ bản
+            // 🟢 Tự động trả về chế độ Học Cơ Bản 0 giây nhờ có RAM Cache
             document.getElementById('toggleSrsCb').checked = false;
             mode = 'cram';
+            targetCramLevel = 1;
             loadCards(deckId);
             return showToast("Tuyệt vời! Hôm nay bạn không còn thẻ nào cần Sát hạch trong bộ này. 🎉");
         }
 
-        // 3. Trộn và giới hạn tối đa 15 thẻ/phiên
+        // 4. Trộn và giới hạn tối đa 15 thẻ/phiên
         dueOrNewCards.sort(() => Math.random() - 0.5);
         sessionCards = dueOrNewCards.slice(0, 15);
 
-        // 4. Chuyển đổi dữ liệu và gắn State ma trận 3 game
+        // 5. Gắn State ma trận 3 game
         sessionCards = sessionCards.map(c => {
-            // Lấy riêng cái progress của user hiện tại gắn lên đầu để dễ tính toán sau này
             const userProgress = (c.progress && c.progress.length > 0) ? c.progress.find(x => x.user_id === currentUser.id) : null;
-            
             return {
                 ...c,
                 progress: userProgress ? [userProgress] : [],
@@ -22738,7 +22781,7 @@ window.startLocalAssessment = async function(deckId) {
             };
         });
 
-        // 5. Thiết lập State tổng cho Vòng lặp Round-Robin
+        // 6. Thiết lập State
         mode = 'assessment';
         currentDeckName = deckId; 
         
@@ -22751,12 +22794,16 @@ window.startLocalAssessment = async function(deckId) {
         
         currentIndex = boostState.activeQueue[0];
 
-        // 6. Chuyển giao diện
+        // 7. Chuyển giao diện
+        updateBreadcrumb([
+            { label: 'Kho học phần', action: 'showHome()' },
+            { label: 'Sát hạch SRS' }
+        ]);
+        
         document.getElementById('studyArea').classList.add('hidden');
         document.getElementById('boostArea').classList.remove('hidden');
         showPage('reviewPage');
         
-        // Bắt đầu
         showCard();
         saveAssessmentStateToLocal(); // Auto-save chống F5
 
