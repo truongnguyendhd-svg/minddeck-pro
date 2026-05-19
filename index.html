@@ -9497,39 +9497,9 @@ async function openCopyDeck(event, deckId) {
 window.rawDeckCache = [];
 
 async function loadCards(d, skipHash = false) {
+    // --- 1. LOGIC TIẾT KIỆM BĂNG THÔNG ---
     if (d === 'GLOBAL_REVIEW') {
         return handleGlobalReviewClick(); 
-    }
-
-    // 🟢 1. KIỂM TRA AUTOSAVE CỦA BỘ BÀI NÀY TRƯỚC KHI VÀO HỌC
-    if (currentUser && d !== 'VIRTUAL_SESSION') {
-        const savedJson = localStorage.getItem(`minddeck_local_assessment_save_${currentUser.id}`);
-        if (savedJson) {
-            try {
-                const data = JSON.parse(savedJson);
-                const hoursPassed = (Date.now() - data.timestamp) / (1000 * 60 * 60);
-                // Nếu có file save chưa quá 12h
-                if (hoursPassed <= 12 && data.deckName === d) {
-                    const ok = await showConfirm(
-                        "Đang học dở dang ⏳",
-                        "Bạn có một phiên Sát hạch chưa hoàn thành trong bộ bài này. Bạn muốn tiếp tục hay xóa đi học bài mới?",
-                        "Tiếp tục học",
-                        "Xóa và học mới"
-                    );
-                    if (ok) {
-                        if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/assessment`;
-                        return resumeAssessmentFromLocal(data);
-                    } else {
-                        // Xóa file save cũ đi và tiếp tục load bình thường
-                        localStorage.removeItem(`minddeck_local_assessment_save_${currentUser.id}`);
-                    }
-                } else if (hoursPassed > 12) {
-                    localStorage.removeItem(`minddeck_local_assessment_save_${currentUser.id}`);
-                }
-            } catch(e) {
-                localStorage.removeItem(`minddeck_local_assessment_save_${currentUser.id}`);
-            }
-        }
     }
 
     if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/${mode}`;
@@ -9605,7 +9575,14 @@ async function loadCards(d, skipHash = false) {
         sessionCards = cards; // Mặc định lấy toàn bộ
         currentIndex = 0;
         // 5. XỬ LÝ LOGIC THEO TỪNG CHẾ ĐỘ
-        if (mode === 'cram') {
+        if (mode === 'review') {
+            sessionCards = cards.filter(c => {
+                const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
+                return !p || p.due <= now;
+            });
+            sessionCards.sort(() => Math.random() - 0.5); 
+        } 
+        else if (mode === 'cram') {
             const savedLevel = sessionStorage.getItem('minddeck_cram_level');
             if (savedLevel) {
                 targetCramLevel = parseInt(savedLevel);
@@ -9728,11 +9705,12 @@ function showCard() {
 
     const isTest = (mode === 'test');
     const isCram = (mode === 'cram');
+    const isReview = (mode === 'review'); // <-- THÊM BIẾN NÀY ĐỂ NHẬN DIỆN SRS
     const isBoost = (mode === 'boost' || mode === 'assessment'); 
     const isRemedial = (mode === 'remedial'); 
 
-    // --- BẬT/TẮT FULLSCREEN MODE (ẨN HEADER KHI CHƠI GAME) ---
-    if (isBoost || isCram || isRemedial) { 
+    // --- BẬT/TẮT FULLSCREEN MODE (ẨN HEADER KHI CHƠI GAME HOẶC ÔN TẬP SRS) ---
+    if (isBoost || isCram || isReview || isRemedial) { 
         document.body.classList.add('game-fullscreen-mode');
     } else {
         document.body.classList.remove('game-fullscreen-mode');
@@ -9744,13 +9722,13 @@ function showCard() {
     const boostArea = document.getElementById('boostArea');
     if (boostArea) {
         boostArea.classList.toggle('hidden', !isBoost);
-        boostArea.style.display = ''; 
+        boostArea.style.display = ''; // 🟢 CHỐT CHẶN: Dọn sạch mọi inline style gây kẹt tàng hình
     }
     
     const summaryPage = document.getElementById('boostSummaryPage');
     if (summaryPage) {
         summaryPage.classList.add('hidden');
-        summaryPage.style.display = ''; 
+        summaryPage.style.display = ''; // 🟢 CHỐT CHẶN
     }
     
     const studyHeaderRow = document.querySelector('.study-header-row');
@@ -9759,30 +9737,44 @@ function showCard() {
     const srsGroup = document.getElementById('answer-group-standard');
     const testGroup = document.getElementById('answer-group-test');
     
+    // Ẩn cụm nút SRS nếu đang ở Test, Boost, Assessment
     if (srsGroup) srsGroup.classList.toggle('hidden', isTest || isBoost); 
     if (testGroup) testGroup.classList.toggle('hidden', !isTest);
 
-    const quizCounters = document.getElementById('quizCounters');
-    if (quizCounters) quizCounters.classList.toggle('hidden', !isTest);
+    // 4. Điều khiển thanh công cụ (Header của trang học)
+        const quizCounters = document.getElementById('quizCounters');
+        if (quizCounters) quizCounters.classList.toggle('hidden', !isTest);
 
-    const progressEl = document.getElementById('progressText');
-    const optionsRow = document.getElementById('studyOptionsRow');
-    const btnList = document.getElementById('btnStudyList');
-    const btnExitCram = document.getElementById('btnExitCram');
-    const btnSettings = document.getElementById('btnStudySettings');
+        // 5. ĐIỀU KHIỂN UI RIÊNG CHO CRAM & REVIEW (ĐỒNG BỘ GIAO DIỆN)
+        const progressEl = document.getElementById('progressText');
+        const optionsRow = document.getElementById('studyOptionsRow');
+        const btnList = document.getElementById('btnStudyList');
+        const btnExitCram = document.getElementById('btnExitCram');
+        
+        // Lấy nút Cài đặt mới
+        const btnSettings = document.getElementById('btnStudySettings');
 
-    // 🟢 ÁP DỤNG CHUNG LOGIC ẨN NÚT CHO CRAM VÀ REMEDIAL (Đã dọn sạch isReview)
-    if (isCram || isRemedial) {
-        if (btnList) btnList.classList.add('hidden');
-        if (btnExitCram) btnExitCram.classList.remove('hidden');
-        if (optionsRow) optionsRow.classList.add('hidden');
-        if (btnSettings) btnSettings.classList.toggle('hidden', mode === 'remedial' || mode === 'assessment');
-    } else {
-        if (btnList) btnList.classList.remove('hidden');
-        if (btnExitCram) btnExitCram.classList.add('hidden');
-        if (optionsRow) optionsRow.classList.remove('hidden');
-        if (btnSettings) btnSettings.classList.toggle('hidden', isTest || isBoost);
-    }
+        // ÁP DỤNG CHUNG LOGIC ẨN NÚT CHO CRAM, REVIEW VÀ REMEDIAL
+        if (isCram || isReview || isRemedial) {
+            // Ẩn nút Danh sách, Hiện nút Thoát
+            if (btnList) btnList.classList.add('hidden');
+            if (btnExitCram) btnExitCram.classList.remove('hidden');
+
+            // Ẩn nguyên hàng chứa nút Boost dưới đáy
+            if (optionsRow) optionsRow.classList.add('hidden');
+            
+            // Hiện nút cài đặt (Trừ phi đang bị thi lại - remedial)
+            if (btnSettings) btnSettings.classList.toggle('hidden', mode === 'remedial' || mode === 'assessment');
+            
+        } else {
+            // Trả lại trạng thái bình thường cho các chế độ khác
+            if (btnList) btnList.classList.remove('hidden');
+            if (btnExitCram) btnExitCram.classList.add('hidden');
+            if (optionsRow) optionsRow.classList.remove('hidden');
+            
+            // Ẩn nút cài đặt nếu đang làm trắc nghiệm hoặc chơi Game Boost
+            if (btnSettings) btnSettings.classList.toggle('hidden', isTest || isBoost);
+        }
 
     if (progressEl) {
         if (isCram && targetCramLevel > 1) {
@@ -9792,6 +9784,7 @@ function showCard() {
         }
     }
 
+    // 6. Render nội dung thẻ theo logic riêng của từng mode
     if (isTest) {
         renderQuiz();
     } else if (isBoost) {
@@ -9800,6 +9793,7 @@ function showCard() {
         renderStudy();
     }
     
+    // 7. Cập nhật màu giao diện (Dark/Light mode) dựa trên trạng thái đã lưu
     if (typeof applyCardTheme === 'function') applyCardTheme();
 }
 
@@ -9830,11 +9824,12 @@ function renderStudy() {
     const c = sessionCards[currentIndex];
     if (!c) return; 
 
+    // Sử dụng biến toàn cục isReverseCardMode thay vì lấy id từ DOM cũ
     const isRev = typeof isReverseCardMode !== 'undefined' ? isReverseCardMode : false; 
     const cardArea = document.getElementById('cardArea');
     const answerGroup = document.getElementById('answer-group-standard');
     
-    // 1. KHỞI TẠO NÚT BẤM (CHỈ CÒN LẠI CỦA CRAM MODE)
+    // 1. KHỞI TẠO NÚT BẤM (SRS & CRAM)
     if (answerGroup) {
         answerGroup.style.padding = '0';
         if (mode === 'cram' && targetCramLevel > 1) {
@@ -9844,13 +9839,19 @@ function renderStudy() {
                 <button class="answer-btn btn-sai" onclick="answerCurrent(0)">Sai (Về Cấp 1)</button>
                 <button class="answer-btn btn-de" onclick="answerCurrent(5)">Đúng (Lên Cấp)</button>
             `;
-        } else {
-            answerGroup.innerHTML = ''; // Xóa sạch 4 nút cũ
+        } else if (mode === 'review') {
+            answerGroup.innerHTML = `
+                <button class="answer-btn btn-sai" onclick="answerCurrent(0)">Sai (1)</button>
+                <button class="answer-btn btn-kho" onclick="answerCurrent(2)">Khó (2)</button>
+                <button class="answer-btn btn-tot" onclick="answerCurrent(4)">Tốt (3)</button>
+                <button class="answer-btn btn-de" onclick="answerCurrent(5)">Dễ (4)</button>
+            `;
         }
     }
 
     const parsedCard = parseCardData(c);
     
+    // Các nút chức năng nhỏ trên thẻ
     const editBtnHTML = `<button onclick="openQuickEdit(event)" class="btn-edit-inside" title="Sửa thẻ nhanh"><span class="material-symbols-outlined" style="font-size:22px;">edit</span></button>`;
     const infoBtnHTML = `<button onclick="handleInfoClick(event)" class="btn-info-inside" title="Thông tin phụ"><span class="material-symbols-outlined" style="font-size:24px;">lightbulb</span></button>`;
     
@@ -9897,7 +9898,7 @@ function renderStudy() {
         cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + micBtnHTML + `<i style="font-size: ${dynamicSize};">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoBtnHTML;
     }
 
-    // 3. LOGIC NÚT ĐIỀU HƯỚNG REMEDIAL
+    // 3. ✨ LOGIC NÚT ĐIỀU HƯỚNG REMEDIAL (NỀN TRẮNG, CHỮ ĐEN, VIỀN MẢNH - CHUẨN HEADER)
     if ((mode === 'remedial' || (mode === 'cram' && targetCramLevel === 1)) && answerGroup) {
         answerGroup.classList.remove('hidden');
         answerGroup.style.display = 'flex';
@@ -11923,6 +11924,98 @@ async function answerCurrent(q) {
             }
         }
         nextCard();
+        return; 
+    }
+
+    // ==========================================
+    // LOGIC 2: CHẾ ĐỘ ÔN TẬP SRS (REVIEW) - CÓ DÙNG DATABASE & CACHE
+    // ==========================================
+    let p = c.progress && c.progress.length > 0 
+        ? c.progress.find(x => x.user_id === currentUser.id) 
+        : null;
+        
+    if (!p) p = { ef: 2.5, interval: 1, interval_count: 0 };
+    
+    let { ef, interval, interval_count } = p;
+    
+    if (q >= 2) { 
+        if (q == 2) ef = Math.max(1.3, ef - 0.15); 
+        else if (q == 5) ef += 0.1; 
+        interval_count++; 
+        interval = interval_count == 1 ? 1 : interval_count == 2 ? 6 : Math.round(interval * ef); 
+    } else { 
+        ef = Math.max(1.3, ef - 0.2); 
+        interval_count = 0; 
+        interval = 1; 
+    }
+    
+    const due = new Date(); 
+    due.setDate(due.getDate() + interval);
+    
+    const payload = { 
+        user_id: currentUser.id, 
+        card_id: c.id, 
+        ef, 
+        interval, 
+        interval_count, 
+        due: due.toISOString() 
+    };
+    if (p && p.id) payload.id = p.id; 
+
+    try {
+        // BƯỚC 1: GỬI DỮ LIỆU LÊN SUPABASE TRƯỚC
+        const { error } = await sb.from('progress').upsert(payload);
+        if (error) throw error; // Nếu lỗi mạng, sẽ nhảy xuống khối catch bên dưới
+
+        // BƯỚC 2: CHỈ KHI LƯU DB THÀNH CÔNG -> MỚI TIẾN HÀNH CẬP NHẬT RAM & CACHE
+        
+        // 2.1. Cập nhật RAM CACHE (Dùng cho F5 nhanh)
+        if (window.rawDeckCache) {
+            let cacheCard = window.rawDeckCache.find(x => x.id === c.id);
+            if (cacheCard) {
+                if (!cacheCard.progress) cacheCard.progress = [];
+                cacheCard.progress[0] = payload; 
+            }
+        }
+
+        // 2.2. Cập nhật Kanji RAM & Cache
+        const kMatches = c.front.match(/[\u4e00-\u9faf]/g) || [];
+        kMatches.forEach(k => {
+            let currentInt = userKanjiMasteryMap[k] || 0;
+            if (q < 2) { // Bấm nút SAI
+                let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
+                userKanjiMasteryMap[k] = pen;
+            } else {
+                userKanjiMasteryMap[k] = Math.max(currentInt, interval);
+            }
+        });
+
+        // 2.3. Cập nhật Ngữ pháp RAM & Cache
+        if (globalGrammarData && globalGrammarData.length > 0) {
+            globalGrammarData.forEach(g => {
+                const cleanPoint = g.grammar_point.replace(/～/g, '');
+                if (c.front.includes(cleanPoint)) {
+                    let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
+                    if (q >= 2) { 
+                        userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
+                    }
+                }
+            });
+        }
+
+        // 2.4. Ghi đè vào Session Storage để Dashboard đọc ngay lập tức mà không cần Full Scan
+        sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+        sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+        sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
+
+        // BƯỚC 3: CHUYỂN SANG THẺ TIẾP THEO
+        nextCard();
+
+    } catch (err) {
+        // XỬ LÝ LỖI MẠNG: Giữ nguyên thẻ hiện tại để người dùng có thể bấm lại
+        console.error("Lỗi đồng bộ SRS:", err);
+        showToast("Lỗi kết nối! Tiến độ chưa được lưu. Thử lại sau 📶");
+        // Không gọi nextCard() ở đây để bảo vệ dữ liệu cho User
     }
 }
 
@@ -19809,7 +19902,7 @@ async function refreshDiscovery() {
     }, 400); // Đợi 400ms cho animation úp thẻ hoàn tất rồi mới đổi nội dung
 }
 
-// MÀN HÌNH TỔNG KẾT SÁT HẠCH SRS
+// MÀN HÌNH TỔNG KẾT PHASE 2
 function endAssessmentSession() {
     const boostArea = document.getElementById('boostArea');
     boostArea.classList.add('hidden');
@@ -19822,6 +19915,7 @@ function endAssessmentSession() {
     const remedial = boostState.remedialCards.length;
     const total = sessionCards.length;
 
+    // ĐÃ CHỈNH SỬA YÊU CẦU 3: Flex:1 cho 2 khối cân xứng, Sửa UI nút bấm
     let html = `
         <div class="summary-title" style="color: #0067c0;">KẾT QUẢ SÁT HẠCH</div>
         <p style="color: #4a5568; font-weight: 600;">Bạn đã hoàn thành phiên đánh giá ${total} thẻ.</p>
@@ -19853,26 +19947,13 @@ function endAssessmentSession() {
         html += `</ul>`;
     }
 
-    // 🟢 THUẬT TOÁN ĐIỀU HƯỚNG THÔNG MINH
-    let exitAction = "";
-    let exitText = "";
-
-    if (currentDeckName === 'GLOBAL_REVIEW') {
-        // Nếu Sát hạch ngoài Dashboard -> Thoát về Dashboard
-        exitAction = "exitStudySession()";
-        exitText = "VỀ TỔNG QUAN HÔM NAY";
-    } else {
-        // Nếu Sát hạch trong Bộ bài -> Tự động gạt tắt công tắc SRS và nạp lại thẻ Học cơ bản
-        exitAction = "document.getElementById('toggleSrsCb').checked = false; mode = 'cram'; targetCramLevel = 1; loadCards(currentDeckName);";
-        exitText = "HỌC CƠ BẢN BỘ BÀI NÀY";
-    }
-
+    // ĐÃ CHỈNH SỬA YÊU CẦU 3: Bo góc 16px, text THOÁT VỀ TRANG CHỦ in đậm, to hơn
     html += `
         <button onclick="startRemedialReview()" class="win11-btn-primary" style="margin-top: 20px; width: 100%; padding: 18px; font-size: 16px; border-radius: 16px; background: #0067c0;">
             <span class="material-symbols-outlined" style="vertical-align: middle; margin-right: 5px;">preview</span> XEM LẠI TOÀN BỘ (${total})
         </button>
-        <button onclick="${exitAction}" style="margin-top: 15px; width: 100%; padding: 14px; background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: 15px; cursor: pointer; text-transform: uppercase;">
-            ${exitText}
+        <button onclick="showDashboard()" style="margin-top: 15px; width: 100%; padding: 14px; background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: 15px; cursor: pointer; text-transform: uppercase;">
+            Thoát về trang chủ
         </button>
     `;
 
@@ -20055,14 +20136,15 @@ function exitStudySession() {
     sessionStorage.removeItem('minddeck_cram_level');
     sessionStorage.removeItem('minddeck_prev_mode');
 
-    // 🟢 ĐÃ FIX: Không xóa file save ở đây để người dùng có thể quay lại học tiếp
-    // clearAssessmentStateFromLocal(); 
-    // clearBoostStateFromLocal();
+    if (currentDeckName === 'GLOBAL_REVIEW') {
+        clearAssessmentStateFromLocal(); 
+    }
+    clearBoostStateFromLocal();
 
     if (currentDeckName === 'GLOBAL_REVIEW') {
         showDashboard();
     } else {
-        showHome(); 
+        showHome(); // VIRTUAL_SESSION cũng sẽ về lại trang Home để xem mây Tag
     }
     
     if (pendingModalReturn && currentDeckName !== 'GLOBAL_REVIEW' && currentDeckName !== 'VIRTUAL_SESSION') {
@@ -20147,12 +20229,9 @@ function openChangeGameModal() {
 // Xử lý khi chọn "Thoát luôn"
 function executeExitBoost() {
     closeModal('boostExitModal');
-    if (mode === 'assessment') {
-        // 🟢 ĐÃ FIX: Thoát thẳng ra ngoài mà không chốt điểm (để giữ Autosave)
-        exitStudySession(); 
-    } else {
-        // Chế độ Boost tự do thì vẫn cho kết thúc hiện bảng điểm như cũ
-        clearBoostStateFromLocal(); 
+    if (mode === 'assessment') endAssessmentSession();
+    else {
+        clearBoostStateFromLocal(); // 🟢 THÊM DÒNG NÀY
         endBoostSession();
     }
 }
@@ -21464,41 +21543,27 @@ window.addToFavorites = async function(event, btnElement) {
     }
 };
 // Hết================= HÀM LƯU THẺ YÊU THÍCH (BỎ QUA LỌC TRÙNG LẶP) =================
+/* ================= HỆ THỐNG AUTOSAVE SÁT HẠCH (BẢN FIX LỖI IOS & NETWORK) ================= */
 
-/* ================= HỆ THỐNG AUTOSAVE SÁT HẠCH (ĐÃ TÁCH RIÊNG GLOBAL/LOCAL) ================= */
 function saveAssessmentStateToLocal() {
     if (mode !== 'assessment' || !currentUser) return;
     try {
         const saveData = {
-            deckName: currentDeckName,
             sessionCards: sessionCards,
             boostState: boostState,
             currentIndex: currentIndex,
             timestamp: Date.now()
         };
-        // 🟢 CÁCH LY: Phân biệt tên file lưu của Global và Local
-        const saveKey = currentDeckName === 'GLOBAL_REVIEW' 
-            ? `minddeck_global_assessment_save_${currentUser.id}` 
-            : `minddeck_local_assessment_save_${currentUser.id}`;
-            
-        localStorage.setItem(saveKey, JSON.stringify(saveData));
+        localStorage.setItem(`minddeck_assessment_save_${currentUser.id}`, JSON.stringify(saveData));
     } catch (e) {
-        console.warn("Không thể AutoSave:", e);
+        console.warn("Không thể AutoSave (có thể do đầy bộ nhớ):", e);
     }
 }
 
 function clearAssessmentStateFromLocal() {
     if (!currentUser) return;
-    // 🟢 ĐÃ FIX: Chỉ xóa file save của chế độ đang học, không xóa phạm vi khác
-    if (currentDeckName === 'GLOBAL_REVIEW') {
-        localStorage.removeItem(`minddeck_global_assessment_save_${currentUser.id}`);
-    } else if (currentDeckName && currentDeckName !== 'VIRTUAL_SESSION') {
-        localStorage.removeItem(`minddeck_local_assessment_save_${currentUser.id}`);
-    }
+    localStorage.removeItem(`minddeck_assessment_save_${currentUser.id}`);
 }
-/* ================= HẾT HỆ THỐNG AUTOSAVE SÁT HẠCH (ĐÃ TÁCH RIÊNG GLOBAL/LOCAL) ================= */
-
-
 // ================= AUTOSAVE CHO BOOST MODE (CHỐNG F5) =================
 function saveBoostStateToLocal() {
     if (mode !== 'boost' || !currentUser) return;
@@ -21522,26 +21587,26 @@ function clearBoostStateFromLocal() {
 }
 // hết================= AUTOSAVE CHO BOOST MODE (CHỐNG F5) =================
 
-window.handleGlobalReviewClick = async function(skipHash = false) {
+window.handleGlobalReviewClick = async function() {
     if (!currentUser) return;
     
-    // 🟢 Đọc đúng file save của Global Review
-    const savedJson = localStorage.getItem(`minddeck_global_assessment_save_${currentUser.id}`);
+    const savedJson = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
     
     if (savedJson) {
         try {
             const data = JSON.parse(savedJson);
+            // 🟢 TÍNH NĂNG MỚI: Hủy file save nếu đã quá 12 tiếng (Anti-Ghost Save)
             const hoursPassed = (Date.now() - data.timestamp) / (1000 * 60 * 60);
             
             if (hoursPassed > 12) {
                 console.log("MindDeck: File save quá hạn 12h, đã tự động hủy.");
                 clearAssessmentStateFromLocal();
-                return startGlobalReview(skipHash);
+                return startGlobalReview();
             }
 
             const ok = await showConfirm(
                 "Đang học dở dang ⏳", 
-                "Bạn có một phiên Sát hạch tổng hợp chưa hoàn thành. Bạn muốn tiếp tục học hay làm bài mới?", 
+                "Bạn có một phiên Sát hạch chưa hoàn thành. Bạn muốn tiếp tục học hay làm bài mới?", 
                 "Tiếp tục học", 
                 "Làm bài mới"
             );
@@ -21550,14 +21615,14 @@ window.handleGlobalReviewClick = async function(skipHash = false) {
                 resumeAssessmentFromLocal(data);
             } else {
                 clearAssessmentStateFromLocal();
-                startGlobalReview(skipHash);
+                startGlobalReview();
             }
         } catch (e) {
             clearAssessmentStateFromLocal();
-            startGlobalReview(skipHash);
+            startGlobalReview();
         }
     } else {
-        startGlobalReview(skipHash);
+        startGlobalReview();
     }
 };
 
@@ -21569,9 +21634,7 @@ async function resumeAssessmentFromLocal(data) {
         boostState = data.boostState;
         currentIndex = data.currentIndex;
         mode = 'assessment';
-        
-        // 🟢 ĐÃ FIX: Lấy đúng tên bộ bài thay vì ép thành GLOBAL_REVIEW
-        currentDeckName = data.deckName || 'GLOBAL_REVIEW'; 
+        currentDeckName = 'GLOBAL_REVIEW';
 
         // 2. Mở khóa Audio iOS (FIX: Thay chuỗi rỗng bằng chữ 'あ')
         try {
@@ -21941,7 +22004,7 @@ window.toggleStudySettings = function(e) {
     document.getElementById('toggleCramCb').checked = isCramming;
     document.getElementById('cramLevelBox').classList.toggle('show', isCramming);
     document.getElementById('cramGroupWrapper').classList.toggle('active', isCramming); // Hiện viền khối
-    document.getElementById('toggleSrsCb').checked = (mode === 'assessment');
+    document.getElementById('toggleSrsCb').checked = (mode === 'review');
     
     // Đồng bộ dấu tích cho các cấp độ
     document.querySelectorAll('.cram-lvl-btn').forEach(btn => btn.classList.remove('active-lvl'));
@@ -21971,20 +22034,17 @@ window.toggleSrsMode = function(isOn) {
         document.getElementById('toggleCramCb').checked = false;
         document.getElementById('cramLevelBox').classList.remove('show');
         document.getElementById('cramGroupWrapper').classList.remove('active'); // Tắt viền Liên hoàn
-        
-        showToast("Đã bật Sát hạch SRS.");
-        // GỌI HÀM SÁT HẠCH RIÊNG
-        startLocalAssessment(currentDeckName);
+        mode = 'review';
+        showToast("Đã bật Ôn tập thông minh (SRS).");
     } else {
         mode = 'cram';
         targetCramLevel = 1;
         showToast("Đã tắt SRS. Chuyển về Học cơ bản.");
-        loadCards(currentDeckName); 
     }
-    
     document.getElementById('studySettingsDropdown').classList.remove('expanded');
     document.getElementById('btnStudySettings').classList.remove('active');
     document.getElementById('studySettingsIcon').innerText = 'settings';
+    loadCards(currentDeckName); 
 };
 
 window.toggleCramMode = function(isOn) {
@@ -22729,107 +22789,7 @@ function exitShadowingTheater() {
     theaterApp.destroy();
 }
 /* =================HẾT HỆ THỐNG SHADOWING THEATER (OOP ARCHITECTURE) ================= */
-// ================= HÀM SÁT HẠCH DÀNH RIÊNG CHO 1 BỘ BÀI (LOCAL ASSESSMENT) =================
-window.startLocalAssessment = async function(deckId) {
-    if (!currentUser) return;
-    
-    // (Đã dời logic kiểm tra Autosave sang hàm loadCards để tối ưu UX)
-    
-    showLoading("Đang chuẩn bị Sát hạch...");
-    if ('speechSynthesis' in window) {
-        let unlockAudio = new SpeechSynthesisUtterance('あ');
-        unlockAudio.volume = 0;
-        window.speechSynthesis.speak(unlockAudio);
-    }
-    
-    try {
-        let cards = [];
-        
-        // 2. LẤY TỪ RAM NẾU CÓ SẴN (Chuyển chế độ 0 giây từ Cram sang Sát hạch)
-        if (currentDeckName === deckId && window.rawDeckCache && window.rawDeckCache.length > 0) {
-            cards = JSON.parse(JSON.stringify(window.rawDeckCache));
-        } else {
-            // CHƯA CÓ THÌ TẢI TỪ DATABASE VÀ NẠP VÀO RAM
-            const { data, error } = await sb.from('cards')
-                .select('*, progress(*)')
-                .eq('deck_id', deckId);
 
-            if (error) throw error;
-            cards = data || [];
-            window.rawDeckCache = JSON.parse(JSON.stringify(cards)); // 🟢 LƯU VÀO RAM Ở ĐÂY
-        }
-
-        const now = new Date().toISOString();
-
-        // 3. Lọc ra thẻ Trễ hạn HOẶC thẻ mới tinh
-        let dueOrNewCards = cards.filter(c => {
-            const p = (c.progress && c.progress.length > 0) ? c.progress.find(x => x.user_id === currentUser.id) : null;
-            return !p || p.due <= now;
-        });
-
-        if (!dueOrNewCards || dueOrNewCards.length === 0) {
-            hideLoading();
-            // 🟢 Tự động trả về chế độ Học Cơ Bản 0 giây nhờ có RAM Cache
-            document.getElementById('toggleSrsCb').checked = false;
-            mode = 'cram';
-            targetCramLevel = 1;
-            loadCards(deckId);
-            return showToast("Tuyệt vời! Hôm nay bạn không còn thẻ nào cần Sát hạch trong bộ này. 🎉");
-        }
-
-        // 4. Trộn và giới hạn tối đa 15 thẻ/phiên
-        dueOrNewCards.sort(() => Math.random() - 0.5);
-        sessionCards = dueOrNewCards.slice(0, 15);
-
-        // 5. Gắn State ma trận 3 game
-        sessionCards = sessionCards.map(c => {
-            const userProgress = (c.progress && c.progress.length > 0) ? c.progress.find(x => x.user_id === currentUser.id) : null;
-            return {
-                ...c,
-                progress: userProgress ? [userProgress] : [],
-                matrix: generateAspectMatrixForCard(c),
-                penaltyPoints: 0,
-                isMeaningFailed: false,
-                isFailed: false, 
-                isProcessed: false 
-            };
-        });
-
-        // 6. Thiết lập State
-        mode = 'assessment';
-        currentDeckName = deckId; 
-        
-        boostState = {
-            currentRound: 1, 
-            activeQueue: sessionCards.map((_, i) => i),
-            passedCards: [], 
-            remedialCards: []
-        };
-        
-        currentIndex = boostState.activeQueue[0];
-
-        // 7. Chuyển giao diện
-        updateBreadcrumb([
-            { label: 'Kho học phần', action: 'showHome()' },
-            { label: 'Sát hạch SRS' }
-        ]);
-        
-        document.getElementById('studyArea').classList.add('hidden');
-        document.getElementById('boostArea').classList.remove('hidden');
-        showPage('reviewPage');
-        
-        showCard();
-        if (deckId !== 'VIRTUAL_SESSION') {
-            saveAssessmentStateToLocal();
-        }
-
-    } catch (err) {
-        console.error("Lỗi Local Assessment:", err);
-        customAlert("Không thể nạp dữ liệu Sát hạch. Vui lòng thử lại.", "❌");
-    } finally {
-        hideLoading();
-    }
-};
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
@@ -23166,7 +23126,6 @@ window.startLocalAssessment = async function(deckId) {
 </div>
 </body>
 </html>
-
 
 
 
