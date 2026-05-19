@@ -9497,15 +9497,39 @@ async function openCopyDeck(event, deckId) {
 window.rawDeckCache = [];
 
 async function loadCards(d, skipHash = false) {
-    // --- 1. LOGIC TIẾT KIỆM BĂNG THÔNG ---
     if (d === 'GLOBAL_REVIEW') {
         return handleGlobalReviewClick(); 
     }
 
-    // 🟢 THÊM MỚI: BẮT HƯỚNG F5 CỦA SÁT HẠCH CỤC BỘ
-    if (mode === 'assessment') {
-        if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/assessment`;
-        return startLocalAssessment(d);
+    // 🟢 1. KIỂM TRA AUTOSAVE CỦA BỘ BÀI NÀY TRƯỚC KHI VÀO HỌC
+    if (currentUser && d !== 'VIRTUAL_SESSION') {
+        const savedJson = localStorage.getItem(`minddeck_local_assessment_save_${currentUser.id}`);
+        if (savedJson) {
+            try {
+                const data = JSON.parse(savedJson);
+                const hoursPassed = (Date.now() - data.timestamp) / (1000 * 60 * 60);
+                // Nếu có file save chưa quá 12h
+                if (hoursPassed <= 12 && data.deckName === d) {
+                    const ok = await showConfirm(
+                        "Đang học dở dang ⏳",
+                        "Bạn có một phiên Sát hạch chưa hoàn thành trong bộ bài này. Bạn muốn tiếp tục hay xóa đi học bài mới?",
+                        "Tiếp tục học",
+                        "Xóa và học mới"
+                    );
+                    if (ok) {
+                        if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/assessment`;
+                        return resumeAssessmentFromLocal(data);
+                    } else {
+                        // Xóa file save cũ đi và tiếp tục load bình thường
+                        localStorage.removeItem(`minddeck_local_assessment_save_${currentUser.id}`);
+                    }
+                } else if (hoursPassed > 12) {
+                    localStorage.removeItem(`minddeck_local_assessment_save_${currentUser.id}`);
+                }
+            } catch(e) {
+                localStorage.removeItem(`minddeck_local_assessment_save_${currentUser.id}`);
+            }
+        }
     }
 
     if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/${mode}`;
@@ -21463,9 +21487,12 @@ function saveAssessmentStateToLocal() {
 
 function clearAssessmentStateFromLocal() {
     if (!currentUser) return;
-    // 🟢 Xóa sạch cả 2 phòng trường hợp kẹt
-    localStorage.removeItem(`minddeck_global_assessment_save_${currentUser.id}`);
-    localStorage.removeItem(`minddeck_local_assessment_save_${currentUser.id}`);
+    // 🟢 ĐÃ FIX: Chỉ xóa file save của chế độ đang học, không xóa phạm vi khác
+    if (currentDeckName === 'GLOBAL_REVIEW') {
+        localStorage.removeItem(`minddeck_global_assessment_save_${currentUser.id}`);
+    } else if (currentDeckName && currentDeckName !== 'VIRTUAL_SESSION') {
+        localStorage.removeItem(`minddeck_local_assessment_save_${currentUser.id}`);
+    }
 }
 /* ================= HẾT HỆ THỐNG AUTOSAVE SÁT HẠCH (ĐÃ TÁCH RIÊNG GLOBAL/LOCAL) ================= */
 
@@ -22701,39 +22728,10 @@ function exitShadowingTheater() {
 }
 /* =================HẾT HỆ THỐNG SHADOWING THEATER (OOP ARCHITECTURE) ================= */
 // ================= HÀM SÁT HẠCH DÀNH RIÊNG CHO 1 BỘ BÀI (LOCAL ASSESSMENT) =================
-// ================= HÀM SÁT HẠCH DÀNH RIÊNG CHO 1 BỘ BÀI (LOCAL ASSESSMENT) =================
 window.startLocalAssessment = async function(deckId) {
     if (!currentUser) return;
-
-    // 1. KIỂM TRA AUTOSAVE (Bỏ qua nếu là phiên học ảo VIRTUAL_SESSION)
-    if (deckId !== 'VIRTUAL_SESSION') {
-        // 🟢 Đọc đúng file save của Local Assessment
-        const savedJson = localStorage.getItem(`minddeck_local_assessment_save_${currentUser.id}`);
-        if (savedJson) {
-            try {
-                const data = JSON.parse(savedJson);
-                const hoursPassed = (Date.now() - data.timestamp) / (1000 * 60 * 60);
-                
-                if (hoursPassed <= 12 && data.deckName === deckId) {
-                    const ok = await showConfirm(
-                        "Đang học dở dang ⏳", 
-                        "Bạn có một phiên Sát hạch chưa hoàn thành trong bộ bài này. Bạn muốn tiếp tục hay làm bài mới?", 
-                        "Tiếp tục học", 
-                        "Làm bài mới"
-                    );
-                    if (ok) {
-                        return resumeAssessmentFromLocal(data);
-                    } else {
-                        clearAssessmentStateFromLocal();
-                    }
-                } else if (hoursPassed > 12) {
-                    clearAssessmentStateFromLocal();
-                }
-            } catch(e) {
-                clearAssessmentStateFromLocal();
-            }
-        }
-    }
+    
+    // (Đã dời logic kiểm tra Autosave sang hàm loadCards để tối ưu UX)
     
     showLoading("Đang chuẩn bị Sát hạch...");
     if ('speechSynthesis' in window) {
