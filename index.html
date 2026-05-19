@@ -13791,11 +13791,10 @@ async function saveQuickEdit() {
     }
 
     // --- 2. GỬI LÊN SUPABASE ---
-    showLoading(isQuickAddMode ? "Đang tạo thẻ mới..." : "Đang lưu thay đổi...");
+    showLoading(isQuickAddMode ? "Đang tạo thẻ mới..." : "Đang đồng bộ thay đổi...");
     try {
         if (isQuickAddMode) {
-            // 🟢 CHẾ ĐỘ THÊM MỚI
-            // Kiểm tra trùng lặp nhẹ
+            // 🟢 CHẾ ĐỘ THÊM MỚI (GIỮ NGUYÊN)
             const dupeCheck = await checkDuplicateCards([{ front: newFront }]);
             if (dupeCheck.hasDuplicate) {
                 hideLoading();
@@ -13803,28 +13802,56 @@ async function saveQuickEdit() {
             }
 
             const { error } = await sb.from('cards').insert([{
-                deck_id: deckToStudyId, // Lấy ID bộ bài đang mở trong Danh sách
+                deck_id: deckToStudyId,
                 front: newFront, back: newBack, info: newInfo
             }]);
             if (error) throw error;
             showToast("Đã thêm thẻ mới thành công! ✨");
+            
         } else {
-            // 🟠 CHẾ ĐỘ SỬA THẺ
+            // 🟠 CHẾ ĐỘ SỬA THẺ: CẬP NHẬT ĐỒNG LOẠT (GLOBAL SYNC UPDATE)
             const c = sessionCards[currentIndex];
-            const { error } = await sb.from('cards').update({ front: newFront, back: newBack, info: newInfo }).eq('id', c.id);
-            if (error) throw error;
+            const originalFront = c.front; // Lấy mặt trước CŨ làm mỏ neo tìm kiếm
+
+            // BƯỚC A: Tìm TẤT CẢ các bản sao của thẻ này trong toàn bộ kho của User
+            const { data: matchingCards, error: matchErr } = await sb.from('cards')
+                .select('id, decks!inner(owner_id)')
+                .eq('decks.owner_id', currentUser.id)
+                .eq('front', originalFront);
+
+            if (matchErr) throw matchErr;
+
+            // Lấy ra danh sách ID của các bản sao. Nếu vì lý do nào đó lỗi, thì lấy ID của chính thẻ hiện tại để backup
+            const idsToUpdate = (matchingCards && matchingCards.length > 0) 
+                ? matchingCards.map(mc => mc.id) 
+                : [c.id];
+
+            // BƯỚC B: Cập nhật đồng loạt nội dung cho toàn bộ các ID vừa tìm được (Không đụng chạm điểm SRS)
+            if (idsToUpdate.length > 0) {
+                const { error: updateErr } = await sb.from('cards')
+                    .update({ front: newFront, back: newBack, info: newInfo })
+                    .in('id', idsToUpdate);
+                    
+                if (updateErr) throw updateErr;
+            }
             
-            // Cập nhật thẻ hiện tại trên UI
-            c.front = newFront; c.back = newBack; c.info = newInfo;
-            
-            // Cập nhật vào RAM CACHE 
-            if (window.rawDeckCache) {
-                let cacheCard = window.rawDeckCache.find(x => x.id === c.id);
-                if (cacheCard) {
-                    cacheCard.front = newFront;
-                    cacheCard.back = newBack;
-                    cacheCard.info = newInfo;
+            // BƯỚC C: Cập nhật đồng loạt vào RAM CACHE của hệ thống
+            sessionCards.forEach(card => {
+                if (card.front === originalFront) {
+                    card.front = newFront;
+                    card.back = newBack;
+                    card.info = newInfo;
                 }
+            });
+            
+            if (window.rawDeckCache) {
+                window.rawDeckCache.forEach(cacheCard => {
+                    if (cacheCard.front === originalFront) {
+                        cacheCard.front = newFront;
+                        cacheCard.back = newBack;
+                        cacheCard.info = newInfo;
+                    }
+                });
             }
 
             // Đồng bộ LocalStorage nếu đang thi Sát hạch
@@ -13834,7 +13861,13 @@ async function saveQuickEdit() {
                 }
             }
 
-            showToast("Đã cập nhật thẻ thành công! ✨");
+            // Thông báo hiển thị số lượng thẻ đã được sửa theo
+            if (idsToUpdate.length > 1) {
+                showToast(`✨ Đã sửa và đồng bộ ${idsToUpdate.length} thẻ trên hệ thống!`);
+            } else {
+                showToast("Đã cập nhật thẻ thành công! ✨");
+            }
+            
             if (!document.getElementById('reviewPage').classList.contains('hidden')) showCard(); 
         }
 
