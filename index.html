@@ -16336,6 +16336,33 @@ function openTagActionModal(tagCode, displayName, count) {
     document.getElementById('taModalCount').innerText = `Chủ đề này đang có ${count} thẻ`;
     document.getElementById('taTagCode').value = tagCode;
     
+    // --- MA THUẬT AVATAR CHỮ CÁI ---
+    // 1. Lấy chữ cái đầu tiên (Viết hoa)
+    const firstLetter = displayName.charAt(0).toUpperCase();
+    document.getElementById('taModalIconText').innerText = firstLetter;
+
+    // 2. Bảng màu nhạt pastel chuẩn Apple (Nền nhạt, Chữ đậm, Bóng đổ nhẹ)
+    const pastelThemes = [
+        { bg: '#ebf8ff', text: '#3b82f6', shadow: 'rgba(59, 130, 246, 0.15)' }, // Xanh biển
+        { bg: '#ecfdf5', text: '#10b981', shadow: 'rgba(16, 185, 129, 0.15)' }, // Xanh lá
+        { bg: '#fffbeb', text: '#f59e0b', shadow: 'rgba(245, 158, 11, 0.15)' }, // Cam
+        { bg: '#fef2f2', text: '#ef4444', shadow: 'rgba(239, 68, 68, 0.15)' },  // Đỏ
+        { bg: '#f5f3ff', text: '#8b5cf6', shadow: 'rgba(139, 92, 246, 0.15)' }, // Tím
+        { bg: '#fdf2f8', text: '#ec4899', shadow: 'rgba(236, 72, 153, 0.15)' }  // Hồng
+    ];
+
+    // 3. Chọn màu "Cố định ngẫu nhiên" dựa vào mã ASCII của chữ cái đầu
+    // (Giúp chủ đề "Gia đình" mở ra 10 lần thì cả 10 lần đều là một màu)
+    const colorIndex = displayName.charCodeAt(0) % pastelThemes.length;
+    const theme = pastelThemes[colorIndex];
+
+    // 4. Áp dụng CSS
+    const iconBox = document.getElementById('taModalIconBox');
+    iconBox.style.background = theme.bg;
+    iconBox.style.color = theme.text;
+    iconBox.style.boxShadow = `0 10px 20px ${theme.shadow}`;
+    // ---------------------------------
+
     document.getElementById('tagActionModal').style.display = 'flex';
 }
 
@@ -16368,7 +16395,7 @@ async function startStudyFromTagModal() {
     }
 }
 
-// 6. Nút MỞ RỘNG BẰNG AI (Tránh thẻ đã có)
+// 6. Nút MỞ RỘNG BẰNG AI (Có hệ thống báo chạm ngưỡng)
 async function expandTagWithAI() {
     const tagCode = document.getElementById('taTagCode').value;
     const displayName = document.getElementById('taModalTitle').innerText;
@@ -16391,11 +16418,15 @@ async function expandTagWithAI() {
             : "";
 
         // Bước B: Gọi AI tạo thêm 15 từ
-        document.getElementById('loadingText').innerText = `AI đang suy nghĩ thêm 15 từ vựng mới...`;
+        document.getElementById('loadingText').innerText = `AI đang quét và cập nhật từ vựng mới...`;
         
+        // 🟢 ĐÃ SỬA PROMPT: Cấp quyền "đầu hàng" cho AI nếu hết từ
         const systemPrompt = `Dựa vào chủ đề: "${displayName}". 
-        Hãy tạo thêm 15 từ vựng/câu giao tiếp tiếng Nhật chuyên sâu về chủ đề này. ${antiDupePrompt}
+        Hãy CỐ GẮNG tạo thêm TỐI ĐA 15 từ vựng/câu giao tiếp tiếng Nhật chuyên sâu về chủ đề này. ${antiDupePrompt}
         
+        ⚠️ QUY TẮC GIỚI HẠN (EXHAUSTION RULE):
+        Nếu chủ đề này quá hẹp (VD: Các tháng trong năm, Màu sắc cơ bản...) và bạn nhận thấy KHÔNG CÒN TỪ NÀO THÔNG DỤNG/HỢP LÝ NỮA ngoài danh sách đã cấm ở trên, BẠN ĐƯỢC PHÉP trả về số lượng ít hơn 15, hoặc thậm chí TRẢ VỀ MẢNG RỖNG []. Tuyệt đối không bịa ra từ vô nghĩa để chạy KPI.
+
         Trả về kết quả ĐÚNG định dạng JSON Array (KHÔNG GHI CHÚ THÊM, KHÔNG DÙNG MARKDOWN).
         Format yêu cầu: 
         [
@@ -16409,10 +16440,21 @@ async function expandTagWithAI() {
         aiResult = aiResult.replace(/```json/g, '').replace(/```/g, '').trim();
         let cardsArr = JSON.parse(aiResult);
         
-        if (!Array.isArray(cardsArr) || cardsArr.length === 0) throw new Error("AI trả về sai định dạng");
+        if (!Array.isArray(cardsArr)) throw new Error("AI trả về sai định dạng");
+
+        // 🟢 KIỂM TRA TRẠNG THÁI "TỐT NGHIỆP" CHỦ ĐỀ
+        if (cardsArr.length === 0) {
+            hideLoading();
+            return customAlert(`
+                🎉 <b>Chúc mừng! Bạn đã "phá đảo" chủ đề này!</b><br><br>
+                AI xác nhận rằng chủ đề <b>"${displayName}"</b> đã cạn kiệt các từ vựng thông dụng.<br>Kho từ vựng của bạn về lĩnh vực này đã cực kỳ đầy đủ.<br><br>
+                Hãy bấm Luyện tập hoặc chuyển sang khám phá chủ đề khác nhé!
+            `, "🏆 Chạm ngưỡng từ vựng", "success");
+        }
 
         // Bước C: Tái sử dụng lại logic gom thẻ, gộp thẻ cũ, tạo thẻ mới như lúc Create Tag ban đầu
         document.getElementById('loadingText').innerText = "Đang kiểm tra và lưu dữ liệu...";
+
 
         const formattedCards = cardsArr.map(card => {
             const backPacked = `${card.reading}\n${card.meaning}`;
@@ -23017,31 +23059,28 @@ function exitShadowingTheater() {
             <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
         </button>
 
-        <div style="width: 60px; height: 60px; background: #eff6ff; color: #3b82f6; border-radius: 20px; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px auto; box-shadow: 0 10px 20px rgba(59, 130, 246, 0.15);">
-            <span class="material-symbols-outlined" style="font-size: 32px;">tag</span>
+        <!-- ĐÃ ĐỔI: Thêm ID để JS can thiệp đổi màu, bỏ class icon -->
+        <div id="taModalIconBox" style="width: 60px; height: 60px; border-radius: 20px; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px auto; transition: all 0.3s ease;">
+            <span id="taModalIconText" style="font-size: 32px; font-weight: 900; font-family: 'SF Pro Display', 'Segoe UI', 'Noto Sans JP', sans-serif;">A</span>
         </div>
         
         <h3 id="taModalTitle" style="margin: 0 0 5px 0; font-size: 20px; font-weight: 900; color: #1d1d1f;">Tên Chủ Đề</h3>
         <p id="taModalCount" style="margin: 0 0 25px 0; font-size: 14px; color: #718096; font-weight: 600;">Bạn đang có 0 thẻ trong chủ đề này</p>
 
-        <!-- Lưu ngầm data để JS xử lý -->
         <input type="hidden" id="taTagCode">
 
         <div style="display: flex; flex-direction: column; gap: 12px;">
-            <!-- NÚT 1: HỌC NGAY -->
             <button onclick="startStudyFromTagModal()" style="width: 100%; padding: 16px; background: #1d1d1f; color: white; border: none; border-radius: 16px; font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; box-shadow: 0 8px 20px rgba(0,0,0,0.15); transition: 0.2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
                 <span class="material-symbols-outlined" style="font-size: 20px;">sports_esports</span> LUYỆN TẬP NGAY
             </button>
             
-            <!-- NÚT 2: MỞ RỘNG BẰNG AI -->
+            <!-- ĐÃ ĐỔI: Text nút AI -->
             <button onclick="expandTagWithAI()" style="width: 100%; padding: 16px; background: #f3f8fd; border: 2px dashed #0067c0; color: #0067c0; border-radius: 16px; font-weight: 800; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#ebf8ff'" onmouseout="this.style.background='#f3f8fd'">
-                <span class="material-symbols-outlined" style="font-size: 20px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> YÊU CẦU AI THÊM 15 TỪ MỚI
+                <span class="material-symbols-outlined" style="font-size: 20px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> AI CẬP NHẬT VÀ THÊM MỚI
             </button>
             
-            <!-- Phân cách -->
             <div style="border-top: 1px solid rgba(0,0,0,0.05); margin: 5px 0;"></div>
             
-            <!-- NÚT 3: XÓA CHỦ ĐỀ -->
             <button onclick="deleteThematicTag()" style="width: 100%; padding: 12px; background: transparent; color: #e53e3e; border: none; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: 0.2s; border-radius: 12px;" onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background='transparent'">
                 <span class="material-symbols-outlined" style="font-size: 18px;">delete</span> Xóa chủ đề này
             </button>
