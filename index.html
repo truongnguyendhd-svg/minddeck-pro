@@ -16443,7 +16443,91 @@ async function expandTagWithAI() {
         customAlert("AI không thể xử lý. Hãy thử lại sau.", "❌");
     }
 }
+// 7. Hàm Xóa Chủ đề (Xóa Tag khỏi các thẻ, không xóa thẻ)
+async function deleteThematicTag() {
+    const tagCode = document.getElementById('taTagCode').value;
+    const displayName = document.getElementById('taModalTitle').innerText;
 
+    // 1. Cảnh báo an toàn cho người dùng
+    const ok = await showConfirm(
+        "Xóa chủ đề này?",
+        `Bạn có chắc chắn muốn xóa chủ đề <b>"${displayName}"</b>?<br><br><i style="font-size: 13px; color: #718096;">*Lưu ý: Các thẻ từ vựng sẽ <b>KHÔNG bị xóa</b>, hệ thống chỉ hủy việc gom nhóm chúng lại với nhau.</i>`,
+        "Xóa chủ đề"
+    );
+    
+    if (!ok) return;
+
+    showLoading("Đang xóa chủ đề...");
+    closeModal('tagActionModal');
+
+    try {
+        // 2. Tìm tất cả các thẻ đang chứa Tag này
+        const { data: cards, error: fetchErr } = await sb.from('cards')
+            .select('id, info, decks!inner(owner_id)')
+            .eq('decks.owner_id', currentUser.id)
+            .like('info', `%${tagCode}%`);
+
+        if (fetchErr) throw fetchErr;
+
+        if (!cards || cards.length === 0) {
+            hideLoading();
+            renderThematicTagCloud();
+            return;
+        }
+
+        const cardsToUpdate = [];
+
+        // 3. Quét từng thẻ, dùng "cục tẩy" xóa đúng cái Tag đó đi
+        cards.forEach(c => {
+            let infoLines = c.info.split('\n');
+            let tagLineIndex = infoLines.findIndex(line => line.startsWith('[TAGS]'));
+
+            if (tagLineIndex !== -1) {
+                let tagLine = infoLines[tagLineIndex].replace('[TAGS]', '').trim();
+                
+                // Cắt dòng tag ra thành các mảnh (Ví dụ có nhiều tag trên cùng 1 thẻ)
+                let tagPairs = tagLine.split(',').map(t => t.trim()).filter(Boolean);
+
+                // Lọc bỏ cái mảnh chứa mã tagCode mà ta muốn xóa
+                tagPairs = tagPairs.filter(pair => {
+                    const rawTag = pair.split('|')[0].trim();
+                    return rawTag !== tagCode;
+                });
+
+                if (tagPairs.length > 0) {
+                    // Nếu vẫn còn tag khác, thì giữ lại dòng [TAGS]
+                    infoLines[tagLineIndex] = `[TAGS] ${tagPairs.join(' , ')}`;
+                } else {
+                    // Nếu xóa xong mà trắng bóc, thì xóa luôn cái dòng [TAGS] đi cho sạch Database
+                    infoLines.splice(tagLineIndex, 1);
+                }
+
+                // Gói lại để update
+                cardsToUpdate.push({
+                    id: c.id,
+                    info: infoLines.join('\n')
+                });
+            }
+        });
+
+        // 4. Cập nhật đồng loạt lên Database
+        if (cardsToUpdate.length > 0) {
+            const { error: updErr } = await sb.from('cards').upsert(cardsToUpdate);
+            if (updErr) throw updErr;
+        }
+
+        hideLoading();
+        showToast("🗑️ Đã xóa chủ đề thành công!");
+        
+        // Cập nhật lại đám mây Tag trên màn hình
+        renderThematicTagCloud(); 
+
+    } catch (e) {
+        hideLoading();
+        console.error("Lỗi xóa Tag:", e);
+        customAlert("Không thể xóa chủ đề: " + e.message, "❌");
+    }
+}
 // 5. Móc hàm Render Tag Cloud vào lúc load trang chủ
 const originalShowHome = window.showHome;
 window.showHome = function(skipHash = false, keepFolder = false) {
@@ -22922,6 +23006,14 @@ function exitShadowingTheater() {
             <!-- NÚT 2: MỞ RỘNG BẰNG AI -->
             <button onclick="expandTagWithAI()" style="width: 100%; padding: 16px; background: #f3f8fd; border: 2px dashed #0067c0; color: #0067c0; border-radius: 16px; font-weight: 800; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#ebf8ff'" onmouseout="this.style.background='#f3f8fd'">
                 <span class="material-symbols-outlined" style="font-size: 20px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> YÊU CẦU AI THÊM 15 TỪ MỚI
+            </button>
+            
+            <!-- Phân cách -->
+            <div style="border-top: 1px solid rgba(0,0,0,0.05); margin: 5px 0;"></div>
+            
+            <!-- NÚT 3: XÓA CHỦ ĐỀ -->
+            <button onclick="deleteThematicTag()" style="width: 100%; padding: 12px; background: transparent; color: #e53e3e; border: none; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: 0.2s; border-radius: 12px;" onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background='transparent'">
+                <span class="material-symbols-outlined" style="font-size: 18px;">delete</span> Xóa chủ đề này
             </button>
         </div>
     </div>
