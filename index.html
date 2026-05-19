@@ -9512,7 +9512,23 @@ async function loadCards(d, skipHash = false) {
         if (currentDeckName === d && window.rawDeckCache.length > 0) {
             cards = JSON.parse(JSON.stringify(window.rawDeckCache)); 
             isLoadedFromRAM = true;
-        } else {
+        } 
+        // 🟢 FIX LỖI: PHỤC HỒI SESSION ẢO TỪ TRÌNH DUYỆT NẾU VỪA BỊ F5
+        else if (d === 'VIRTUAL_SESSION') {
+            const savedVirtual = sessionStorage.getItem('minddeck_virtual_cards');
+            if (savedVirtual) {
+                cards = JSON.parse(savedVirtual);
+                window.rawDeckCache = JSON.parse(savedVirtual); // Phục hồi RAM
+                currentDeckName = 'VIRTUAL_SESSION';
+                isVirtualSession = true; // Phục hồi cờ hệ thống
+                isLoadedFromRAM = true;
+            } else {
+                // Nếu copy link gửi cho máy khác, không có cache -> Đá về trang chủ
+                showToast("Phiên học chủ đề đã hết hạn, vui lòng tạo lại.");
+                return showHome();
+            }
+        } 
+        else {
             // CHƯA CÓ THÌ TẢI TỪ DATABASE
             currentDeckName = d; 
             showLoading("Đang nạp dữ liệu...");
@@ -20135,6 +20151,7 @@ function exitStudySession() {
     window.rawDeckCache = []; // XÓA SẠCH RAM KHI THOÁT
     sessionStorage.removeItem('minddeck_cram_level');
     sessionStorage.removeItem('minddeck_prev_mode');
+    sessionStorage.removeItem('minddeck_virtual_cards');
 
     if (currentDeckName === 'GLOBAL_REVIEW') {
         clearAssessmentStateFromLocal(); 
@@ -20177,8 +20194,9 @@ function startVirtualSession(cardsArray) {
     sessionCards.sort(() => Math.random() - 0.5);
     currentIndex = 0;
     
-    // 🟢 QUAN TRỌNG: Nạp thẻ vào RAM Cache để khi bật/tắt SRS không bị lỗi mất dữ liệu
+    // 🟢 QUAN TRỌNG: Nạp thẻ vào RAM Cache và SessionStorage để chống F5
     window.rawDeckCache = JSON.parse(JSON.stringify(cardsArray));
+    sessionStorage.setItem('minddeck_virtual_cards', JSON.stringify(cardsArray));
     
     updateBreadcrumb([
         { label: 'Kho học phần', action: 'showHome()' },
