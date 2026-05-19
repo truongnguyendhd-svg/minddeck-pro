@@ -9575,46 +9575,7 @@ async function loadCards(d, skipHash = false) {
         sessionCards = cards; // Mặc định lấy toàn bộ
         currentIndex = 0;
         // 5. XỬ LÝ LOGIC THEO TỪNG CHẾ ĐỘ
-        if (mode === 'assessment') {
-            const now = new Date().toISOString();
-            
-            // 🟢 LỌC: Lấy thẻ Trễ hạn HOẶC Thẻ mới tinh (chưa có progress)
-            let dueOrNewCards = cards.filter(c => {
-                const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
-                return !p || p.due <= now;
-            });
-
-            // 🟢 TRỘN & GIỚI HẠN 15 THẺ / PHIÊN
-            dueOrNewCards.sort(() => Math.random() - 0.5);
-            sessionCards = dueOrNewCards.slice(0, 15);
-
-            if (sessionCards.length === 0) {
-                hideLoading();
-                return customAlert("Tuyệt vời! Bạn không còn thẻ nào cần ôn trong bộ này hôm nay. 🎉", "✨");
-            }
-
-            // 🟢 GẮN MA TRẬN 3 CHẶNG GAME CHO TỪNG THẺ
-            sessionCards = sessionCards.map(c => {
-                return {
-                    ...c,
-                    matrix: generateAspectMatrixForCard(c),
-                    penaltyPoints: 0,
-                    isMeaningFailed: false,
-                    isFailed: false,
-                    isProcessed: false
-                };
-            });
-
-            // 🟢 THIẾT LẬP STATE SÁT HẠCH
-            boostState = {
-                currentRound: 1,
-                activeQueue: sessionCards.map((_, i) => i),
-                passedCards: [],
-                remedialCards: []
-            };
-            currentIndex = boostState.activeQueue[0];
-        } 
-        else if (mode === 'cram') {
+        if (mode === 'cram') {
             const savedLevel = sessionStorage.getItem('minddeck_cram_level');
             if (savedLevel) {
                 targetCramLevel = parseInt(savedLevel);
@@ -21950,25 +21911,20 @@ window.toggleSrsMode = function(isOn) {
         document.getElementById('toggleCramCb').checked = false;
         document.getElementById('cramLevelBox').classList.remove('show');
         document.getElementById('cramGroupWrapper').classList.remove('active'); // Tắt viền Liên hoàn
-        mode = 'assessment'; // 🟢 ĐỔI TỪ 'review' SANG 'assessment'
+        
         showToast("Đã bật Sát hạch SRS.");
+        // GỌI HÀM SÁT HẠCH RIÊNG
+        startLocalAssessment(currentDeckName);
     } else {
         mode = 'cram';
         targetCramLevel = 1;
         showToast("Đã tắt SRS. Chuyển về Học cơ bản.");
+        loadCards(currentDeckName); 
     }
+    
     document.getElementById('studySettingsDropdown').classList.remove('expanded');
     document.getElementById('btnStudySettings').classList.remove('active');
     document.getElementById('studySettingsIcon').innerText = 'settings';
-    
-    // 🟢 MỞ KHÓA AUDIO CHO iOS/SAFARI TRƯỚC KHI VÀO GAME
-    if ('speechSynthesis' in window) {
-        let unlockAudio = new SpeechSynthesisUtterance('あ');
-        unlockAudio.volume = 0;
-        window.speechSynthesis.speak(unlockAudio);
-    }
-    
-    loadCards(currentDeckName); 
 };
 
 window.toggleCramMode = function(isOn) {
@@ -22713,7 +22669,92 @@ function exitShadowingTheater() {
     theaterApp.destroy();
 }
 /* =================HẾT HỆ THỐNG SHADOWING THEATER (OOP ARCHITECTURE) ================= */
+// ================= HÀM SÁT HẠCH DÀNH RIÊNG CHO 1 BỘ BÀI (LOCAL ASSESSMENT) =================
+window.startLocalAssessment = async function(deckId) {
+    if (!currentUser) return;
+    
+    showLoading("Đang chuẩn bị Sát hạch...");
+    // 🟢 MỞ KHÓA AUDIO CHO iOS/SAFARI NGAY KHI BẤM NÚT
+    if ('speechSynthesis' in window) {
+        let unlockAudio = new SpeechSynthesisUtterance('あ');
+        unlockAudio.volume = 0;
+        window.speechSynthesis.speak(unlockAudio);
+    }
+    
+    try {
+        const now = new Date().toISOString();
 
+        // 1. Tải toàn bộ thẻ của bộ bài này và tiến trình của User
+        const { data: cards, error } = await sb.from('cards')
+            .select('*, progress(*)')
+            .eq('deck_id', deckId);
+
+        if (error) throw error;
+
+        // 2. Lọc ra thẻ Trễ hạn (due <= now) HOẶC thẻ mới tinh (chưa có progress)
+        let dueOrNewCards = cards.filter(c => {
+            const p = (c.progress && c.progress.length > 0) ? c.progress.find(x => x.user_id === currentUser.id) : null;
+            return !p || p.due <= now;
+        });
+
+        if (!dueOrNewCards || dueOrNewCards.length === 0) {
+            hideLoading();
+            // Nếu không có thẻ trễ hạn, tự động trả về chế độ học cơ bản
+            document.getElementById('toggleSrsCb').checked = false;
+            mode = 'cram';
+            loadCards(deckId);
+            return showToast("Tuyệt vời! Hôm nay bạn không còn thẻ nào cần Sát hạch trong bộ này. 🎉");
+        }
+
+        // 3. Trộn và giới hạn tối đa 15 thẻ/phiên
+        dueOrNewCards.sort(() => Math.random() - 0.5);
+        sessionCards = dueOrNewCards.slice(0, 15);
+
+        // 4. Chuyển đổi dữ liệu và gắn State ma trận 3 game
+        sessionCards = sessionCards.map(c => {
+            // Lấy riêng cái progress của user hiện tại gắn lên đầu để dễ tính toán sau này
+            const userProgress = (c.progress && c.progress.length > 0) ? c.progress.find(x => x.user_id === currentUser.id) : null;
+            
+            return {
+                ...c,
+                progress: userProgress ? [userProgress] : [],
+                matrix: generateAspectMatrixForCard(c),
+                penaltyPoints: 0,
+                isMeaningFailed: false,
+                isFailed: false, 
+                isProcessed: false 
+            };
+        });
+
+        // 5. Thiết lập State tổng cho Vòng lặp Round-Robin
+        mode = 'assessment';
+        currentDeckName = deckId; 
+        
+        boostState = {
+            currentRound: 1, 
+            activeQueue: sessionCards.map((_, i) => i),
+            passedCards: [], 
+            remedialCards: []
+        };
+        
+        currentIndex = boostState.activeQueue[0];
+
+        // 6. Chuyển giao diện
+        document.getElementById('studyArea').classList.add('hidden');
+        document.getElementById('boostArea').classList.remove('hidden');
+        showPage('reviewPage');
+        
+        // Bắt đầu
+        showCard();
+        saveAssessmentStateToLocal(); // Auto-save chống F5
+
+    } catch (err) {
+        console.error("Lỗi Local Assessment:", err);
+        customAlert("Không thể nạp dữ liệu Sát hạch. Vui lòng thử lại.", "❌");
+    } finally {
+        hideLoading();
+    }
+};
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
