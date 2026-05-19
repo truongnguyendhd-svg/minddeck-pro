@@ -11903,7 +11903,6 @@ function shuffleQuiz() {
     showToast("Đã xáo trộn câu hỏi! 🔀");
 }
 async function answerCurrent(q) {
-    if (isVirtualSession) return; // CHỐT CHẶN
     const c = sessionCards[currentIndex];
 
     // ==========================================
@@ -20142,10 +20141,10 @@ function exitStudySession() {
     }
     clearBoostStateFromLocal();
 
-    if (currentDeckName === 'GLOBAL_REVIEW' || currentDeckName === 'VIRTUAL_SESSION') {
+    if (currentDeckName === 'GLOBAL_REVIEW') {
         showDashboard();
     } else {
-        showHome();
+        showHome(); // VIRTUAL_SESSION cũng sẽ về lại trang Home để xem mây Tag
     }
     
     if (pendingModalReturn && currentDeckName !== 'GLOBAL_REVIEW' && currentDeckName !== 'VIRTUAL_SESSION') {
@@ -20154,7 +20153,7 @@ function exitStudySession() {
         }, 150);
     }
 }
-// ================= HÀM KHỞI TẠO PHIÊN HỌC ẢO =================
+// ================= HÀM KHỞI TẠO PHIÊN HỌC ẢO (THEMATIC TAGS) =================
 function startVirtualSession(cardsArray) {
     if (!cardsArray || cardsArray.length === 0) return;
 
@@ -20162,35 +20161,41 @@ function startVirtualSession(cardsArray) {
     closeModal('xrayModal');
     
     isVirtualSession = true;
-    mode = 'boost';
     currentDeckName = 'VIRTUAL_SESSION';
+    
+    // Đọc lại chế độ học gần nhất người dùng đã chọn (SRS hoặc Cram)
+    const savedMode = sessionStorage.getItem('minddeck_prev_mode');
+    if (savedMode === 'review') {
+        mode = 'review';
+    } else {
+        mode = 'cram';
+        targetCramLevel = 1;
+    }
     
     // Nạp thẻ và xáo trộn
     sessionCards = cardsArray;
     sessionCards.sort(() => Math.random() - 0.5);
     currentIndex = 0;
     
-    // Giả lập trạng thái Boost Mode Endless (Vô tận)
-    boostState = { 
-        mode: 'endless', 
-        maxRounds: 9999, 
-        selectedGame: 'random', 
-        currentRound: 1, 
-        correct: 0, 
-        wrong: 0, 
-        history: [] 
-    };
+    // 🟢 QUAN TRỌNG: Nạp thẻ vào RAM Cache để khi bật/tắt SRS không bị lỗi mất dữ liệu
+    window.rawDeckCache = JSON.parse(JSON.stringify(cardsArray));
     
     updateBreadcrumb([
-        { label: 'Tổng quan', action: 'showDashboard()' },
-        { label: 'Phiên học ảo: ' + cardsArray.length + ' Thẻ' }
+        { label: 'Kho học phần', action: 'showHome()' },
+        { label: 'Học theo Chủ đề' }
     ]);
-    updateHeaderTitle("VIRTUAL SESSION");
+    updateHeaderTitle("HỌC THEO CHỦ ĐỀ");
     
     showPage('reviewPage');
-    document.getElementById('studyArea').classList.add('hidden');
+    
+    // BẬT GIAO DIỆN FLASHCARD, TẮT MINIGAME
+    document.getElementById('boostArea').classList.add('hidden');
     document.getElementById('testArea').classList.add('hidden');
-    document.getElementById('boostArea').classList.remove('hidden');
+    document.getElementById('studyArea').classList.remove('hidden');
+    
+    // Hiện thanh Header để người dùng có thể bấm nút Cài đặt (Bật/Tắt SRS)
+    const studyHeaderRow = document.querySelector('.study-header-row');
+    if(studyHeaderRow) studyHeaderRow.style.display = 'flex';
     
     showCard();
 }
