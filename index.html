@@ -19420,10 +19420,23 @@ async function toggleInlineDeckList() {
             </button>
         `;
 
+        // 🟢 THÊM THANH TÌM KIẾM CỤC BỘ (STICKY WIN 11)
+        html += `
+            <div style="position: sticky; top: -1px; background: #ffffff; padding-bottom: 10px; margin-bottom: 4px; z-index: 10;">
+                <div style="position: relative; display: flex; align-items: center;">
+                    <span class="material-symbols-outlined" style="position: absolute; left: 12px; color: #8c8c8c; font-size: 18px;">search</span>
+                    <input type="text" id="inlineDeckSearchInput" class="win11-input" placeholder="Tìm từ vựng, ý nghĩa trong bộ này..." style="padding-left: 38px; border-radius: 8px;" oninput="filterInlineDeckList()">
+                </div>
+            </div>
+        `;
+
+        // 🟢 Bọc danh sách thẻ vào một container để dễ Lọc (Filter)
+        html += `<div id="inlineCardsWrapper">`;
+
         cards.forEach((c, index) => {
             const isQuiz = pendingModalReturn.type === 'quiz';
             
-            // 🟢 TẠO NÚT SỬA THẺ
+            // TẠO NÚT SỬA THẺ
             const editBtnHtml = `
                 <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e5e5e5; display: flex; justify-content: flex-start;">
                     <button onclick="currentIndex = ${index}; openQuickEdit(event);" class="win11-btn-secondary" style="padding: 6px 12px; font-size: 13px; color: #0067c0; border-color: #bee3f8; background: #ebf8ff;">
@@ -19485,6 +19498,7 @@ async function toggleInlineDeckList() {
             }
         });
         
+        html += `</div>`; // Đóng inlineCardsWrapper
         listContainer.innerHTML = html;
         isInlineListLoaded = true;
 
@@ -19492,6 +19506,34 @@ async function toggleInlineDeckList() {
         listContainer.innerHTML = '<div style="text-align:center; padding: 15px; color:#c50f1f;">Lỗi tải dữ liệu thẻ.</div>';
     }
 }
+// HÀM LỌC TÌM KIẾM THẺ TRỰC TIẾP TRONG MODAL
+window.filterInlineDeckList = function() {
+    const input = document.getElementById('inlineDeckSearchInput');
+    if (!input) return;
+    
+    let query = input.value.toLowerCase().trim();
+    let kanaQuery = query;
+
+    // Tự động chuyển Romaji sang Hiragana để tìm cho dễ
+    if (typeof wanakana !== 'undefined' && wanakana.isRomaji(query)) {
+        kanaQuery = wanakana.toHiragana(query);
+    }
+
+    // Lấy tất cả các thẻ nằm trong wrapper
+    const items = document.querySelectorAll('#inlineCardsWrapper .inline-card-item');
+    
+    items.forEach(item => {
+        // Lấy toàn bộ chữ của thẻ đó (Bao gồm cả Tiếng Nhật và Nghĩa Việt)
+        const textContent = item.innerText.toLowerCase();
+        
+        // So sánh: Nếu chuỗi có chứa từ khóa (Romaji hoặc Kana) thì hiện, ngược lại ẩn
+        if (textContent.includes(query) || textContent.includes(kanaQuery)) {
+            item.style.display = 'block';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+};
 // Thêm hàm này vào JS
 function exitStudySession() {
     isVirtualSession = false; 
