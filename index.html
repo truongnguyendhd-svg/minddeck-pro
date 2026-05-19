@@ -11934,7 +11934,10 @@ function shuffleQuiz() {
     showCard();
     showToast("Đã xáo trộn câu hỏi! 🔀");
 }
+let isSrsSubmitting = false; // 🟢 THÊM CỜ KHÓA SPAM CLICK
+
 async function answerCurrent(q) {
+    if (isSrsSubmitting) return; // 🟢 CHỐT CHẶN: Đang gửi API thì chặn click tiếp theo
     const c = sessionCards[currentIndex];
 
     // ==========================================
@@ -11962,6 +11965,8 @@ async function answerCurrent(q) {
     // ==========================================
     // LOGIC 2: CHẾ ĐỘ ÔN TẬP SRS (REVIEW) - CÓ DÙNG DATABASE & CACHE
     // ==========================================
+    isSrsSubmitting = true; // 🟢 BẬT KHÓA
+
     let p = c.progress && c.progress.length > 0 
         ? c.progress.find(x => x.user_id === currentUser.id) 
         : null;
@@ -11995,13 +12000,9 @@ async function answerCurrent(q) {
     if (p && p.id) payload.id = p.id; 
 
     try {
-        // BƯỚC 1: GỬI DỮ LIỆU LÊN SUPABASE TRƯỚC
         const { error } = await sb.from('progress').upsert(payload);
-        if (error) throw error; // Nếu lỗi mạng, sẽ nhảy xuống khối catch bên dưới
+        if (error) throw error; 
 
-        // BƯỚC 2: CHỈ KHI LƯU DB THÀNH CÔNG -> MỚI TIẾN HÀNH CẬP NHẬT RAM & CACHE
-        
-        // 2.1. Cập nhật RAM CACHE (Dùng cho F5 nhanh)
         if (window.rawDeckCache) {
             let cacheCard = window.rawDeckCache.find(x => x.id === c.id);
             if (cacheCard) {
@@ -12010,11 +12011,10 @@ async function answerCurrent(q) {
             }
         }
 
-        // 2.2. Cập nhật Kanji RAM & Cache
         const kMatches = c.front.match(/[\u4e00-\u9faf]/g) || [];
         kMatches.forEach(k => {
             let currentInt = userKanjiMasteryMap[k] || 0;
-            if (q < 2) { // Bấm nút SAI
+            if (q < 2) { 
                 let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
                 userKanjiMasteryMap[k] = pen;
             } else {
@@ -12022,7 +12022,6 @@ async function answerCurrent(q) {
             }
         });
 
-        // 2.3. Cập nhật Ngữ pháp RAM & Cache
         if (globalGrammarData && globalGrammarData.length > 0) {
             globalGrammarData.forEach(g => {
                 const cleanPoint = g.grammar_point.replace(/～/g, '');
@@ -12035,19 +12034,17 @@ async function answerCurrent(q) {
             });
         }
 
-        // 2.4. Ghi đè vào Session Storage để Dashboard đọc ngay lập tức mà không cần Full Scan
         sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
         sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
         sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
 
-        // BƯỚC 3: CHUYỂN SANG THẺ TIẾP THEO
         nextCard();
 
     } catch (err) {
-        // XỬ LÝ LỖI MẠNG: Giữ nguyên thẻ hiện tại để người dùng có thể bấm lại
         console.error("Lỗi đồng bộ SRS:", err);
         showToast("Lỗi kết nối! Tiến độ chưa được lưu. Thử lại sau 📶");
-        // Không gọi nextCard() ở đây để bảo vệ dữ liệu cho User
+    } finally {
+        isSrsSubmitting = false; // 🟢 MỞ KHÓA BẤT KỂ THÀNH CÔNG HAY THẤT BẠI
     }
 }
 
@@ -19709,7 +19706,20 @@ async function processBatchAssessmentResults() {
             boostState.passedCards = [];
             boostState.remedialCards = [];
             
-            return customAlert(`Lỗi kết nối Cloud: Tiến độ chưa được lưu. Vui lòng kiểm tra mạng và ấn nút NỘP BÀI lại!`, "❌ Thất bại");
+            // 🟢 VÁ LỖI MẮC KẸT: Render giao diện NỘP LẠI BÀI vào thẳng thẻ Game
+            document.getElementById('boostQuestion').innerHTML = "⚠️ LỖI KẾT NỐI MẠNG";
+            document.getElementById('boostPrompt').innerText = "Cảnh báo";
+            document.getElementById('boostInteractiveZone').innerHTML = `
+                <div style="text-align: center; color: #64748b; margin-bottom: 20px; font-size: 15px;">
+                    Hệ thống không thể nộp kết quả Sát hạch lên máy chủ. Vui lòng kiểm tra lại kết nối Wifi/4G và thử lại để không mất tiến độ.
+                </div>
+                <button onclick="processBatchAssessmentResults()" class="win11-btn-primary" style="padding: 16px; font-size: 16px; width: 100%; border-radius: 12px; background: #c50f1f; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; box-shadow: 0 4px 15px rgba(197, 15, 31, 0.3);">
+                    <span class="material-symbols-outlined">wifi_protected_setup</span> BẤM VÀO ĐÂY ĐỂ NỘP LẠI
+                </button>
+            `;
+            document.getElementById('boostGiveUpZone').style.display = 'none';
+
+            return customAlert(`Lỗi mạng. Vui lòng kiểm tra Wifi/4G và bấm nút Nộp lại trên màn hình!`, "❌ Thất bại");
         }
     }
 
@@ -20623,18 +20633,16 @@ async function renderRoadmapWidget() {
         // Nếu qua ngày mới, hoặc chưa có sổ -> Chốt sổ lưu lại số dư đầu ngày
         if (dailySnapshot.date !== todayStr) {
             
-            // 🟢 FIX: BẢO VỆ DỮ LIỆU. Chống lỗi rớt mạng khiến app chốt sổ đầu ngày bằng 0 
-            // (Kiến thức không bao giờ tụt lùi, số chốt sổ hôm nay không được phép nhỏ hơn hôm qua)
             const prevVocab = dailySnapshot.vocab || 0;
             const prevGrammar = dailySnapshot.grammar || 0;
             const prevKanji = dailySnapshot.kanji || 0;
         
             dailySnapshot = {
                 date: todayStr,
-                // Nếu load bị lỗi ra 0, tự động lấy lại số liệu của ngày hôm trước để bảo vệ bộ đếm
-                vocab: (vocabStudiedCount === 0 && prevVocab > 0) ? prevVocab : (vocabStudiedCount || 0),
-                grammar: (grammarCount === 0 && prevGrammar > 0) ? prevGrammar : (grammarCount || 0),
-                kanji: (kanjiCount === 0 && prevKanji > 0) ? prevKanji : (kanjiCount || 0)
+                // 🟢 ĐÃ SỬA: Dùng !vocabStudiedCount để bắt trọn cả lỗi trả về 0, null, hoặc undefined
+                vocab:   (!vocabStudiedCount && prevVocab > 0) ? prevVocab : (vocabStudiedCount || 0),
+                grammar: (!grammarCount && prevGrammar > 0)    ? prevGrammar : (grammarCount || 0),
+                kanji:   (!kanjiCount && prevKanji > 0)        ? prevKanji : (kanjiCount || 0)
             };
             localStorage.setItem(`minddeck_snapshot_${currentUser.id}`, JSON.stringify(dailySnapshot));
         }
