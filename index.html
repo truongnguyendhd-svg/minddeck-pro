@@ -14502,7 +14502,7 @@ async function searchQuickDictionary() {
 // LÕI XỬ LÝ: CHỈ QUÉT MAZII VÀ KẾT HỢP KANJI X-RAY + GỢI Ý ADMIN
 async function executeHybridSearch(input, resDiv) {
     try {
-        // 1. Chỉ gọi Mazii API (Người dùng thường tốn 0 băng thông Supabase)
+        // 1. Chỉ gọi Mazii API (Tốn 0 byte băng thông Supabase)
         const maziiRes = await fetchMaziiDictionary(input);
 
         // 2. KIỂM TRA QUYỀN ADMIN & TÌM TRONG DB NỘI BỘ (Chỉ Admin mới chạy đoạn này)
@@ -14510,14 +14510,11 @@ async function executeHybridSearch(input, resDiv) {
         const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
         
         if (isAdmin) {
-            // Admin quét thử 1 câu query cực nhẹ để xem từ này có trong DB của mình chưa
             const { data: dbCheck } = await sb.from('dictionary').select('id').eq('word', input).single();
-            
-            // Nếu chưa có, tạo Banner gợi ý
             if (!dbCheck) {
                 adminHintHTML = `
                     <div class="qd-admin-hint">
-                        <span>Từ <b>"${escapeHTML(input)}"</b> chưa có trong DB nội bộ.</span>
+                        <span>Từ <b>"${escapeHTML(input).replace(/"/g, '&quot;')}"</b> chưa có trong DB nội bộ.</span>
                         <button onclick="openDictAdminModal({ word: '${escapeHTML(input).replace(/'/g, "\\'")}' }, true, true)">+ Bổ sung</button>
                     </div>
                 `;
@@ -14530,43 +14527,12 @@ async function executeHybridSearch(input, resDiv) {
             return;
         }
 
-        // 3. Thu thập Kanji để gắn bộ X-Ray
-        let allKanjis = [];
-        maziiRes.forEach(d => {
-            const matches = d.word.match(/[\u4e00-\u9faf]/g);
-            if (matches) allKanjis = allKanjis.concat(matches);
-        });
-        const uniqueKanjis = [...new Set(allKanjis)];
-
-        let kanjiDataMap = {};
-        if (uniqueKanjis.length > 0) {
-            const { data: kData } = await sb.from('kanji_builder').select('kanji, hv, meaning').in('kanji', uniqueKanjis);
-            if (kData) kData.forEach(k => kanjiDataMap[k.kanji] = k);
-        }
-
-        // 4. Render giao diện từ Mazii (CHÈN BANNER ADMIN LÊN ĐẦU)
+        // 3. RENDER GIAO DIỆN TỪ MAZII (Tuyệt đối không truy vấn Database)
         const cardsHTML = maziiRes.map(d => {
             const safeWord = escapeHTML(d.word);
             const safeReading = escapeHTML(d.reading || '');
             const safeMeaning = escapeHTML(d.meaning);
             const safeExample = escapeHTML(d.example || '');
-
-            // Render Kanji Breakdown
-            const wordKanjis = [...new Set(d.word.match(/[\u4e00-\u9faf]/g) || [])];
-            let breakdownHTML = "";
-            if (wordKanjis.length > 0) {
-                let rowsHTML = wordKanjis.map(k => {
-                    const info = kanjiDataMap[k];
-                    if (!info) return '';
-                    return `
-                        <div class="kb-mini-row">
-                            <div class="kb-mini-kanji" onclick="showKanjiXRay(event, '${k}')" style="cursor:pointer;" title="Chạm để xem chi tiết">${k}</div>
-                            <div><span class="kb-mini-hv">[${info.hv}]</span> - <span style="font-weight: 500;">${info.meaning}</span></div>
-                        </div>
-                    `;
-                }).join('');
-                if (rowsHTML) breakdownHTML = `<div class="kanji-breakdown-box"><div style="font-size: 11px; font-weight: 800; color: #3182ce; letter-spacing: 0.5px;">GỐC HÁN VIỆT:</div>${rowsHTML}</div>`;
-            }
 
             // Nút Thêm vào thẻ
             const btnHTML = `<button class="btn-dict-add" title="Thêm vào bộ bài" 
@@ -14580,25 +14546,23 @@ async function executeHybridSearch(input, resDiv) {
                     <div class="d-reading" style="font-size:13px; display:flex; align-items:center;">
                         ${safeReading}
                     </div>
-                    <div class="d-word" style="font-size: 22px; margin-bottom: 5px;">${safeWord}</div>
+                    <!-- Chữ Kanji đã được bọc sẵn thẻ span để click gọi X-Ray an toàn -->
+                    <div class="d-word" style="font-size: 22px; margin-bottom: 5px;">${wrapKanjiWithLink(safeWord)}</div>
                     <div class="d-meaning" style="font-size: 16px;">${safeMeaning}</div>
-                    
-                    ${breakdownHTML}
                     
                     ${safeExample ? `
                     <div style="margin-top: 10px; font-size: 13px; color: #4a5568; background: #fbfbfb; padding: 8px 10px; border-radius: 8px; border-left: 3px solid #8b5cf6;">
-                        <span style="color: #8b5cf6; font-weight: 800; font-size: 11px;">VÍ DỤ</span> <br>${safeExample}
+                        <span style="color: #8b5cf6; font-weight: 800; font-size: 11px;">VÍ DỤ</span> <br>${wrapKanjiWithLink(safeExample)}
                     </div>` : ''}
                 </div>
                 ${btnHTML}
             </div>`;
         }).join('');
 
-        // Gắn Banner Admin + List Thẻ vào giao diện
         resDiv.innerHTML = adminHintHTML + cardsHTML;
 
     } catch (err) {
-        console.error("Lỗi tra từ Modal:", err);
+        console.error("Lỗi tra từ:", err);
         resDiv.innerHTML = `<div style="color:#e53e3e; text-align:center; padding: 20px; background:#fff; border-radius:12px;">Có lỗi xảy ra khi gọi từ điển mở rộng.</div>`;
     }
 }
@@ -20559,10 +20523,17 @@ async function generateDailyStoryWithAI() {
     if (!currentUser) return customAlert("Vui lòng đăng nhập!", "⚠️");
 
     let targetLevel = "N3"; 
-    try {
-        const { data } = await sb.from('profiles').select('study_goal').eq('id', currentUser.id).single();
-        if (data && data.study_goal && data.study_goal.level) targetLevel = data.study_goal.level;
-    } catch(e) {}
+    if (currentUser && currentUser.study_goal && currentUser.study_goal.level) {
+        targetLevel = currentUser.study_goal.level; // Đọc trực tiếp từ RAM
+    } else {
+        const cachedGoal = localStorage.getItem(`minddeck_study_goal_${currentUser?.id}`);
+        if (cachedGoal) {
+            try {
+                const parsed = JSON.parse(cachedGoal);
+                targetLevel = parsed.level || "N3"; // Đọc từ bộ nhớ đệm
+            } catch (e) {}
+        }
+    }
 
     showLoading(`AI đang viết bài Đọc hiểu ${targetLevel} độc bản cho bạn...\nVui lòng đợi 15-20 giây ☕`);
 
