@@ -9095,7 +9095,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 /* ================= 4. AUTH ================= */
-sb.auth.onAuthStateChange((event, session) => {
+let realtimeSessionChannel = null; // Quản lý kênh lắng nghe Realtime chống trùng lặp
+sb.auth.onAuthStateChange(async (event, session) => {
     const headerSearch = document.getElementById('headerSearch');
     const globalMenuBtn = document.getElementById('globalMenuBtn');
     const sideMenuUserSection = document.getElementById('sideMenuUserSection');
@@ -9113,11 +9114,23 @@ sb.auth.onAuthStateChange((event, session) => {
         headerSearch.classList.remove('hidden'); 
         globalMenuBtn.classList.remove('hidden');
 
+        // ==========================================
+        // 🚀 THIẾT LẬP SINGLE SESSION (REALTIME)
+        // ==========================================
+        setupSingleSessionProtection();
+
         if (!isAppInitialized) {
             handleRoute(); 
             isAppInitialized = true;
         } 
     } else {
+        // Hủy kênh lắng nghe Realtime khi đăng xuất để tránh rò rỉ bộ nhớ (Memory Leak)
+        if (realtimeSessionChannel) {
+            sb.removeChannel(realtimeSessionChannel);
+            realtimeSessionChannel = null;
+        }
+        sessionStorage.removeItem('current_session_id');
+
         currentUser = null; 
         isAppInitialized = false; 
         headerSearch.classList.add('hidden'); 
@@ -9131,6 +9144,77 @@ sb.auth.onAuthStateChange((event, session) => {
         }
     }
 });
+async function setupSingleSessionProtection() {
+    if (!currentUser) return;
+
+    // 1. Tạo Session ID duy nhất cho thiết bị hiện tại nếu chưa có
+    let localSessionId = sessionStorage.getItem('current_session_id');
+    if (!localSessionId) {
+        localSessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        sessionStorage.setItem('current_session_id', localSessionId);
+        
+        // Cập nhật mã phiên mới lên Supabase Cloud
+        await sb.from('profiles')
+            .update({ active_session_id: localSessionId })
+            .eq('id', currentUser.id);
+    }
+
+    // 2. Tránh đăng ký trùng lặp kênh lắng nghe
+    if (realtimeSessionChannel) return;
+
+    // 3. Đăng ký kênh lắng nghe thay đổi thời gian thực trên dòng Profile của mình
+    realtimeSessionChannel = sb.channel(`public:profiles:id=eq.${currentUser.id}`)
+        .on(
+            'postgres_changes',
+            {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'profiles',
+                filter: `id=eq.${currentUser.id}`
+            },
+            (payload) => {
+                const newActiveSessionId = payload.new.active_session_id;
+                const myLocalSessionId = sessionStorage.getItem('current_session_id');
+
+                // 🚨 Nếu mã phiên trên Cloud thay đổi và KHÔNG trùng với mã cục bộ của máy này
+                if (newActiveSessionId && myLocalSessionId && newActiveSessionId !== myLocalSessionId) {
+                    handleForcedLogout();
+                }
+            }
+        )
+        .subscribe();
+}
+
+// Hàm thực thi việc đăng xuất cưỡng chế
+async function handleForcedLogout() {
+    // Tạm khóa màn hình bằng Loading để chặn người dùng thao tác
+    showLoading("Tài khoản đang được kết nối từ thiết bị khác...");
+    
+    // Hủy kênh lắng nghe
+    if (realtimeSessionChannel) {
+        sb.removeChannel(realtimeSessionChannel);
+        realtimeSessionChannel = null;
+    }
+    sessionStorage.removeItem('current_session_id');
+
+    // Gọi API đăng xuất hệ thống
+    await sb.auth.signOut();
+    hideLoading();
+
+    // Hiển thị thông báo cảnh báo kính mờ
+    customAlert(
+        "Tài khoản của bạn vừa đăng nhập ở một thiết bị hoặc trình duyệt khác. Bạn đã được đăng xuất khỏi thiết bị này để bảo mật.",
+        "⚠️ ĐĂNG NHẬP THIẾT BỊ KHÁC",
+        "warning"
+    );
+
+    // Chuyển hướng về trang Login
+    setTimeout(() => {
+        closeModal('customAlert');
+        window.location.hash = '';
+        window.location.reload();
+    }, 4000);
+}
 async function login() { 
     showLoading("Đang kết nối Google...");
     try {
