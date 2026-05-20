@@ -9239,30 +9239,18 @@ async function openDeckSelection(m, skipHash = false) {
         return;
     }
 
-    // Cập nhật URL Hash để phân biệt có đang ở trong thư mục hay không
+    // Cập nhật URL Hash không còn folder
     if (!skipHash) {
-        window.location.hash = currentFolderId ? `decks/${m}/${currentFolderId}` : `decks/${m}`;
+        window.location.hash = `decks/${m}`;
     }
     mode = m; 
     showPage('deckSelectionPage');
 
-    // Phục hồi tên thư mục nếu ấn F5 hoặc ấn Back từ trình duyệt
-    if (currentFolderId && !currentFolderName) {
-        try {
-            const { data } = await sb.from('folders').select('name').eq('id', currentFolderId).single();
-            if (data) currentFolderName = data.name;
-        } catch (e) {
-            console.error("Lỗi khôi phục tên thư mục:", e);
-        }
-    }
-
     const labels = { 'review': 'Ôn tập hôm nay', 'cram': 'Học căn bản', 'test': 'Luyện đề thi', 'boost': 'Boost Mode' };
     const currentLabel = labels[m] || 'Học tập';
     
-    // Cập nhật Breadcrumb (Nếu đang ở trong thư mục thì thêm Tên thư mục vào sau)
-    let breadcrumbArr = [{label: currentLabel, action: `currentFolderId=null; openDeckSelection('${m}')`}];
-    if (currentFolderId) breadcrumbArr.push({label: currentFolderName});
-    updateBreadcrumb(breadcrumbArr);
+    // Cập nhật Breadcrumb thẳng thắn
+    updateBreadcrumb([{label: currentLabel, action: `openDeckSelection('${m}')`}]);
 
     const list = document.getElementById('deckList');
     const recentContainer = document.getElementById('recentDecksContainer');
@@ -9272,51 +9260,17 @@ async function openDeckSelection(m, skipHash = false) {
     const type = m === 'test' ? 'quiz' : 'flashcard';
 
     try {
-        // =================================================================
-        // 1. TẢI THƯ MỤC (CHỈ HIỂN THỊ, KHÔNG CÓ NÚT XÓA Ở MÀN HỌC TẬP)
-        // =================================================================
-        let foldersHTML = "";
-        if (!currentFolderId) {
-            // Dùng truy vấn quan hệ: Lấy folder và loại (type) của các bộ bài (decks) bên trong nó
-            const { data: folders, error: fErr } = await sb.from('folders')
-                .select('*, decks(id, type)')
-                .eq('owner_id', currentUser.id)
-                .order('created_at', { ascending: false });
-                
-            if (!fErr && folders) {
-                // LỌC THƯ MỤC: Chỉ lấy thư mục RỖNG HOẶC có chứa bài ĐÚNG LOẠI
-                const validFolders = folders.filter(f => {
-                    if (!f.decks || f.decks.length === 0) return true; 
-                    return f.decks.some(d => d.type === type);
-                });
+        // Không dùng Folder: Đọc trực tiếp danh sách bộ bài, bỏ qua kiểm tra folder
+        list.innerHTML = ''; // Làm sạch lưới chuẩn bị render
 
-                validFolders.forEach(f => {
-                    foldersHTML += `
-                        <div class="folder-card" style="--book-color: ${f.color || '#3b82f6'};" onclick="openFolder('${f.id}', '${escapeHTML(f.name)}')">
-                            <span class="material-symbols-outlined folder-icon">menu_book</span>
-                            <div class="folder-title">${escapeHTML(f.name)}</div>
-                        </div>
-                    `;
-                });
-            }
-        }
-
-        // =================================================================
-        // 2. TẢI BỘ BÀI
-        // =================================================================
         let deckQuery = sb.from('decks')
-            .select(`*, profiles:owner_id (full_name, avatar_url)`)
+            .select('*, profiles:owner_id (full_name, avatar_url)')
             .eq('type', type)
             .order('sort_order', { ascending: true })
             .order('created_at', { ascending: false });
 
-        // Nếu đang ở Root -> Tải bộ bài Public HOẶC (Của mình + Không có folder)
-        if (!currentFolderId) {
-            deckQuery = deckQuery.or(`is_public.eq.true,and(owner_id.eq.${currentUser.id},folder_id.is.null)`);
-        } else {
-            // Nếu trong thư mục -> Chỉ tải bộ bài của mình nằm trong Folder đó
-            deckQuery = deckQuery.eq('owner_id', currentUser.id).eq('folder_id', currentFolderId);
-        }
+        // Chỉ truy vấn các bộ bài công khai hoặc của chính người dùng hiện tại
+        deckQuery = deckQuery.or(`is_public.eq.true,and(owner_id.eq.${currentUser.id},folder_id.is.null)`);
 
         const { data: decks, error: deckError } = await deckQuery;
         if (deckError) throw deckError;
@@ -9381,8 +9335,10 @@ async function openDeckSelection(m, skipHash = false) {
                 card.style.borderTop = '4px solid #f59e0b';
             }
 
-            const authorName = d.profiles?.full_name || 'Ẩn danh';
-            const authorAvatar = d.profiles?.avatar_url || 'https://emojicdn.elk.sh/👤?size=40';
+            const authorName = isOwner ? 'Tôi' : (d.profiles?.full_name || 'Ẩn danh');
+            const authorAvatar = isOwner 
+                ? (currentUser.user_metadata.avatar_url || currentUser.user_metadata.picture || 'https://emojicdn.elk.sh/👤?size=40') 
+                : (d.profiles?.avatar_url || 'https://emojicdn.elk.sh/👤?size=40');
 
             card.innerHTML = `
                 <div class="deck-title">${cleanName}</div>
