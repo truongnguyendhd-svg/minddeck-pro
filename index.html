@@ -11625,18 +11625,15 @@ function renderBoostCard() {
             const targetK = kanjisToDraw[0] || c.front[0]; // Lấy chữ Kanji đầu tiên để vẽ
 
             // 🟢 TẠO HIỆU ỨNG ĐỤC LỖ (MASKING)
-            // Giấu chữ Kanji cần vẽ đi, thay bằng dấu [?]
             const maskedFront = c.front.replace(targetK, '<span style="color:#cbd5e0; border-bottom: 2px dashed #cbd5e0; padding: 0 5px;"> ? </span>');
 
             prompt.innerText = "✍️ Thư Pháp Quán";
             
-            // 🟢 HIỂN THỊ CÂU HỎI ĐÃ BỊ GIẤU ĐÁP ÁN
             question.innerHTML = `
                 <div style="font-size: 14px; color: #718096; font-weight: 600; margin-bottom: 5px;">Hãy nhớ và vẽ chữ Kanji còn thiếu:</div>
                 <div style="font-size: 32px; font-weight: 900; color: #1d1d1f; letter-spacing: 2px;">${maskedFront}</div>
                 <div style="font-size: 16px; font-weight: 700; color: #c50f1f; margin-top: 5px;">${c.meaning}</div>
                 
-                <!-- Khu vực hiện đáp án sau khi chấm (Mặc định ẩn) -->
                 <div id="shodoRevealZone" style="display: none; margin-top: 15px; animation: popIn 0.3s ease;">
                     <span style="font-size: 13px; color: #4a5568;">Chữ đúng là: </span>
                     <b style="color: #0067c0; font-size: 28px;">${targetK}</b>
@@ -11676,18 +11673,23 @@ function renderBoostCard() {
                 const pos = getShodoPos(e);
                 sCtx.beginPath();
                 sCtx.moveTo(pos.x, pos.y);
-                sCtx.strokeStyle = "#1a1a1a"; // Mực đen
+                sCtx.strokeStyle = "#1a1a1a";
                 sCtx.lineWidth = 6;
                 sCtx.lineCap = "round";
             };
             const drawShodo = (e) => {
                 if (!isShodoDrawing) return;
-                e.preventDefault(); // Chống cuộn màn hình
+                e.preventDefault();
                 const pos = getShodoPos(e);
                 sCtx.lineTo(pos.x, pos.y);
                 sCtx.stroke();
             };
             const stopShodo = () => { isShodoDrawing = false; };
+
+            // 🟢 DỌN DẸP SỰ KIỆN CŨ TRƯỚC KHI ĐĂNG KÝ (NẾU CÓ)
+            if (typeof window.shodoCleanup === 'function') {
+                window.shodoCleanup();
+            }
 
             sCanvas.addEventListener('mousedown', startShodo);
             sCanvas.addEventListener('mousemove', drawShodo);
@@ -11695,6 +11697,17 @@ function renderBoostCard() {
             sCanvas.addEventListener('touchstart', startShodo, {passive:false});
             sCanvas.addEventListener('touchmove', drawShodo, {passive:false});
             window.addEventListener('touchend', stopShodo);
+
+            // 🟢 THIẾT LẬP HÀM DỌN DẸP TOÀN CỤC MỚI
+            window.shodoCleanup = () => {
+                sCanvas.removeEventListener('mousedown', startShodo);
+                sCanvas.removeEventListener('mousemove', drawShodo);
+                window.removeEventListener('mouseup', stopShodo);
+                sCanvas.removeEventListener('touchstart', startShodo);
+                sCanvas.removeEventListener('touchmove', drawShodo);
+                window.removeEventListener('touchend', stopShodo);
+                window.shodoCleanup = null;
+            };
 
             document.getElementById('btnClearShodo').onclick = () => {
                 sCtx.fillRect(0, 0, 280, 280);
@@ -11715,15 +11728,11 @@ function renderBoostCard() {
 
                 try {
                     const feedback = await callGeminiAI(aiPrompt, [base64Img]);
-                    
                     const isPass = feedback.includes("[PASS]");
                     const cleanFeedback = feedback.replace(/\[PASS\]/g, '').replace(/\[FAIL\]/g, '').trim();
 
-                    // 🟢 MỞ KHÓA HIỂN THỊ ĐÁP ÁN ĐÚNG SAU KHI CHẤM XONG
                     document.getElementById('shodoRevealZone').style.display = 'block';
-
                     customAlert(`<div style="text-align:left;">${cleanFeedback.replace(/\n/g,'<br>')}</div>`, isPass ? "🎉 Bút pháp tuyệt vời!" : "❌ Cần luyện thêm");
-
                     handleBoostAnswer(null, isPass);
                     
                 } catch(e) {
@@ -11768,6 +11777,8 @@ function skipBoostCard() {
 }
 
 function nextBoostCard() {
+    if (typeof window.shodoCleanup === 'function') window.shodoCleanup();
+
     // Nếu chế độ chơi bị giới hạn số vòng (không phải endless)
     if (boostState.mode !== 'endless' && boostState.currentRound >= boostState.maxRounds) {
         return endBoostSession();
@@ -20062,6 +20073,7 @@ window.filterInlineDeckList = function() {
 };
 // Thêm hàm này vào JS
 function exitStudySession() {
+    if (typeof window.shodoCleanup === 'function') window.shodoCleanup();
     isVirtualSession = false; 
     tempVirtualCards = [];
     window.rawDeckCache = []; // XÓA SẠCH RAM KHI THOÁT
