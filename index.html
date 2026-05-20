@@ -8459,14 +8459,10 @@ body.shadowing-mode #shadowingPage {
 async function handleRoute() {
     const hash = window.location.hash.substring(1); 
     
-    // 🟢 Nếu không có hash trên URL: 
-    // - Nếu đã đăng nhập: Tự động phi vào Dashboard.
-    // - Nếu chưa đăng nhập: Trả về Landing.
     if (!hash) {
         return currentUser ? showDashboard() : showLanding();
     }
     
-    // Nếu hash trỏ thẳng vào landing
     if (hash === 'landing') return showLanding(); 
 
     const parts = hash.split('/');
@@ -8474,24 +8470,13 @@ async function handleRoute() {
     
     try {
         if (route === 'home') { 
-            if (parts[1]) {
-                currentFolderId = parts[1];
-                showHome(true, true);
-            } else {
-                showHome(); 
-            }
+            showHome(); // Đã xóa logic folder
         } 
         else if (route === 'dashboard') {
             showDashboard();
         }
         else if (route === 'decks') { 
-            if (parts[2]) {
-                currentFolderId = parts[2];
-            } else {
-                currentFolderId = null;
-                currentFolderName = "";
-            }
-            openDeckSelection(parts[1], true); 
+            openDeckSelection(parts[1], true); // Đã xóa logic folder
         }
         else if (route === 'study') { 
             mode = parts[2];
@@ -8522,12 +8507,10 @@ async function handleRoute() {
             showShadowingTheater(); 
         }
         else { 
-            // 🟢 Fallback (Trang không tồn tại) -> Trả về Dashboard
             showDashboard(); 
         }
     } catch (error) {
         console.error("Lỗi khi khôi phục trang:", error);
-        // 🟢 Fallback lỗi -> Trả về Dashboard
         showDashboard();
     }
 }
@@ -8545,8 +8528,6 @@ let mode = 'review', currentDeckName = "", editingDeckId = null, activeDeckId = 
 let rowCount = 0, quizState = { correctCount: 0, wrongCount: 0, correctList: [], wrongList: [] };
 let isAppInitialized = false;
 let targetCramLevel = 3;
-let currentFolderId = null; // Quản lý thư mục đang mở
-let currentFolderName = ""; // Tên thư mục đang mở
 let deckToMoveId = null; // Lưu ID bộ bài đang cần di chuyển
 let deckToStudyId = null;
 let pendingModalReturn = null; // Cờ nhớ thông tin Modal để quay lại
@@ -8805,8 +8786,6 @@ async function autoCleanRemedialCards() {
 function showHome(skipHash = false) { 
     if (!skipHash) window.location.hash = 'home'; 
     
-    currentFolderId = null; 
-    currentFolderName = ""; 
     editingDeckId = null;
     activeDeckId = null;
 
@@ -8815,10 +8794,21 @@ function showHome(skipHash = false) {
     document.getElementById('newForm').classList.add('hidden'); 
     document.getElementById('importForm').classList.add('hidden'); 
     
-    // Cập nhật đổi nhãn trên Header thành KHO DỮ LIỆU CỦA BẠN
+    // Breadcrumb phẳng (Không còn chui vào thư mục)
     updateBreadcrumb([{label: "KHO DỮ LIỆU CỦA BẠN"}]); 
     renderManageDeckList(); 
     updateHeaderTitle("KHO DỮ LIỆU CỦA BẠN");
+}
+
+function showLearnPage(skipHash = false) { 
+    if (!skipHash) window.location.hash = 'learn'; 
+    showPage('learnPage'); 
+    document.getElementById('learnMenu').classList.remove('hidden'); 
+    document.getElementById('newForm').classList.add('hidden'); 
+    document.getElementById('importForm').classList.add('hidden'); 
+    
+    updateBreadcrumb([{label:'Quản lý dữ liệu', action: 'showLearnPage()'}]); 
+    renderManageDeckList(); 
 }
 function showLanding(skipHash = false) {
     if (!skipHash) window.location.hash = 'landing';
@@ -9269,19 +9259,20 @@ async function openDeckSelection(m, skipHash = false) {
         // Không dùng Folder: Đọc trực tiếp danh sách bộ bài, bỏ qua kiểm tra folder
         list.innerHTML = ''; // Làm sạch lưới chuẩn bị render
 
+        // Quét thẳng bảng decks, không quan tâm thư mục nữa
         let deckQuery = sb.from('decks')
             .select('*, profiles:owner_id (full_name, avatar_url)')
             .eq('type', type)
             .order('sort_order', { ascending: true })
             .order('created_at', { ascending: false });
 
-        // Chỉ truy vấn các bộ bài công khai hoặc của chính người dùng hiện tại
-        deckQuery = deckQuery.or(`is_public.eq.true,and(owner_id.eq.${currentUser.id},folder_id.is.null)`);
+        // Chỉ lấy bộ bài công khai HOẶC bộ bài của user hiện tại
+        deckQuery = deckQuery.or(`is_public.eq.true,owner_id.eq.${currentUser.id}`);
 
         const { data: decks, error: deckError } = await deckQuery;
         if (deckError) throw deckError;
-
-        list.innerHTML = foldersHTML; // Nhét thư mục vào trước (nếu có)
+        
+        // (XÓA luôn dòng `list.innerHTML = foldersHTML;` ở ngay bên dưới đoạn này)
 
         // 🟢 SẮP XẾP ƯU TIÊN VÀ GIỮ THỨ TỰ THỜI GIAN DATABASE CHUẨN XÁC
         if (decks) {
@@ -9494,8 +9485,6 @@ async function openEditDeck(event, deckId, skipHash = false) {
 
         // 6. Cập nhật giao diện Form
         document.getElementById('nTag').value = getCleanName(deck.id);
-await loadFoldersToSelect();
-        document.getElementById('nFolder').value = deck.folder_id || "";
         document.getElementById('nTag').disabled = true; // Khóa không cho đổi tên deck (tránh mất đồng bộ ID)
         document.getElementById('nVisibility').value = deck.is_public.toString();
 // Cấu hình các nút bấm trên Banner
@@ -9557,9 +9546,6 @@ async function openCopyDeck(event, deckId) {
         const cleanName = getCleanName(deckId);
         document.getElementById('nTag').value = cleanName + " (Copy)";
         document.getElementById('nTag').disabled = false; // Mở khóa để người dùng đổi tên
-// Tải danh sách thư mục và đặt bộ bài copy vào đúng thư mục gốc
-        await loadFoldersToSelect();
-        document.getElementById('nFolder').value = deck.folder_id || "";
 
         // 7. Cập nhật Breadcrumb (Thanh điều hướng)
         updateBreadcrumb([]); // Xóa breadcrumb
@@ -9642,19 +9628,7 @@ async function loadCards(d, skipHash = false) {
             saveRecentDeck(d); 
         }
 
-        // TÌM THƯ MỤC (Bỏ qua nếu load từ RAM để đỡ tốn mạng)
-        if (!isLoadedFromRAM) {
-            const { data: deckInfo } = await sb.from('decks').select('folder_id, folders(name)').eq('id', d).single();
-            if (deckInfo && deckInfo.folder_id) {
-                currentFolderId = deckInfo.folder_id;
-                currentFolderName = deckInfo.folders ? deckInfo.folders.name : "";
-            } else {
-                currentFolderId = null;
-                currentFolderName = "";
-            }
-        }
-
-        // 4. CẬP NHẬT BREADCRUMB ĐÚNG HỆ THỐNG THƯ MỤC
+        // 4. CẬP NHẬT BREADCRUMB ĐÚNG HỆ THỐNG MỚI (PHẲNG)
         const labels = { 
             'review': 'Ôn tập hôm nay', 
             'cram': 'Học căn bản', 
@@ -9665,21 +9639,13 @@ async function loadCards(d, skipHash = false) {
         
         let breadcrumbArr = [];
         
-        // Cấp 1: Nút Gốc (Click vào thì phải set currentFolderId = null để thoát ra ngoài)
+        // Nút Gốc
         breadcrumbArr.push({
             label: currentLabel, 
-            action: `currentFolderId=null; openDeckSelection('${mode}')`
+            action: `openDeckSelection('${mode}')`
         });
 
-        // Cấp 2: Thư mục (Chỉ hiện nếu bộ bài này nằm trong thư mục)
-        if (currentFolderId && currentFolderName) {
-            breadcrumbArr.push({
-                label: currentFolderName, 
-                action: `openDeckSelection('${mode}')` // Giữ nguyên ID để quay lại đúng thư mục
-            });
-        }
-
-        // Cấp 3: Tên bộ bài đang học
+        // Tên bộ bài đang học
         breadcrumbArr.push({ label: getCleanName(d) });
 
         updateBreadcrumb(breadcrumbArr);
@@ -12319,26 +12285,7 @@ function showSearchResultDetail(encodedBack, encodedInfo) {
     customAlert(`Đáp án: ${back}<br><br>Lưu ý: ${info}`, "💡 Kết quả");
 }
 
-function showLearnPage(skipHash = false) { 
-    if (!skipHash) window.location.hash = 'learn'; 
-    showPage('learnPage'); 
-    document.getElementById('learnMenu').classList.remove('hidden'); 
-    document.getElementById('newForm').classList.add('hidden'); 
-    document.getElementById('importForm').classList.add('hidden'); 
-    
-    // Cập nhật Breadcrumb hỗ trợ đi vào thư mục
-    if (!currentFolderId) {
-        updateBreadcrumb([{label:'Quản lý dữ liệu', action: 'currentFolderId=null; showLearnPage()'}]); 
-    } else {
-        updateBreadcrumb([
-            {label: 'Quản lý dữ liệu', action: 'currentFolderId=null; showLearnPage()'},
-            {label: currentFolderName}
-        ]);
-    }
 
-    loadFoldersToSelect(); 
-    renderManageDeckList(); // Nạp danh sách Học phần
-}
 
 async function renderManageDeckList() {
     const list = document.getElementById('manageDeckList');
@@ -13636,13 +13583,12 @@ async function smartImportExcel() {
             document.getElementById('loadingText').innerText = `Đang lưu ${filterResult.validCards.length} thẻ lên Cloud...`;
 
             // Lưu Deck
-            const iFolderVal = document.getElementById('iFolder').value;
             await sb.from('decks').upsert({ 
                 id: importDeckId, 
                 owner_id: currentUser.id, 
                 type: type, 
-                is_public: isPublic,
-                folder_id: iFolderVal === "" ? null : iFolderVal
+                is_public: isPublic
+                // Đã xóa folder_id
             });
             
             // Lưu Cards ĐÃ LỌC
@@ -14646,12 +14592,6 @@ async function confirmSaveWordToDeck() {
 
 /* ================= HỆ THỐNG THƯ MỤC (FOLDERS) ================= */
 
-// 1. Mở thư mục
-function openFolder(fId, fName) {
-    currentFolderId = fId;
-    currentFolderName = fName;
-    openDeckSelection(mode); // Re-render danh sách bên trong
-}
 
 // 6. Sắp xếp thứ tự (Lên/Xuống)
 async function reorderDeck(event, deckId, direction, currentSortOrder) {
