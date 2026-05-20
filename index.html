@@ -8765,20 +8765,26 @@ async function loadDashboardData() {
             }
         }
         
-        // 2. TẢI BẢN ĐỒ NĂNG LỰC TỪ CLOUD (1 dòng duy nhất)
+        // 2. TẢI BẢN ĐỒ NĂNG LỰC & MỤC TIÊU TỪ CLOUD (1 dòng duy nhất)
         const { data: profData } = await sb.from('profiles')
-            .select('kanji_mastery, grammar_mastery')
+            .select('kanji_mastery, grammar_mastery, study_goal')
             .eq('id', currentUser.id)
             .single();
 
         if (profData) {
             userKanjiMasteryMap = profData.kanji_mastery || {};
             userGrammarMasteryMap = profData.grammar_mastery || {};
-            
-            // 🟢 ĐÃ SỬA: Đổi từ sessionStorage sang localStorage để chống F5
+            currentUser.study_goal = profData.study_goal; // Lưu vào RAM để dùng nhanh
+
+            // Lưu toàn bộ vào LocalStorage
             localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
             localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
-            sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true'); 
+            if (profData.study_goal) {
+                localStorage.setItem(`minddeck_study_goal_${currentUser.id}`, JSON.stringify(profData.study_goal));
+            } else {
+                localStorage.removeItem(`minddeck_study_goal_${currentUser.id}`);
+            }
+            sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
         }
         
         // 3. 🟢 THIẾT LẬP THỨ TỰ AWAIT CHUẨN XÁC CHỐNG TRANH CHẤP LUỒNG
@@ -20274,14 +20280,15 @@ async function renderRoadmapWidget() {
     if (!currentUser) return;
 
     try {
-        const { data: profile, error: profErr } = await sb.from('profiles')
-            .select('study_goal, kanji_mastery')
-            .eq('id', currentUser.id)
-            .single();
-
-        if (profErr) throw profErr;
-
-        const goal = profile.study_goal;
+        // Ưu tiên lấy study_goal từ RAM hoặc LocalStorage offline
+        let goal = currentUser.study_goal;
+        if (!goal) {
+            const cachedGoal = localStorage.getItem(`minddeck_study_goal_${currentUser.id}`);
+            if (cachedGoal) {
+                goal = JSON.parse(cachedGoal);
+                currentUser.study_goal = goal; // Nạp lại vào RAM
+            }
+        }
 
         if (!goal) {
             zone.innerHTML = `
