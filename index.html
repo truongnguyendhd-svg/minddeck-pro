@@ -14920,18 +14920,19 @@ async function showGrammarVault(skipHash = false) {
 }
 
 // Hàm Quét kho thẻ Flashcard (CHỈ DÙNG KHI BẤM NÚT SYNC THỦ CÔNG ĐỂ CHỮA LÀNH DỮ LIỆU)
-async function calculateGrammarMastery() {
+async function calculateGrammarMastery(force = false) {
     if (!currentUser) return;
     
-    // 1. Thử lấy bản đồ từ localStorage cá nhân trước (tối ưu tốc độ tải và băng thông)
-    const cachedGrammar = localStorage.getItem(`minddeck_grammar_cache_${currentUser.id}`);
-    if (cachedGrammar) {
-        userGrammarMasteryMap = JSON.parse(cachedGrammar);
-        return; 
+    // Nếu không ép buộc, mới dùng Cache
+    if (!force) {
+        const cachedGrammar = localStorage.getItem(`minddeck_grammar_cache_${currentUser.id}`);
+        if (cachedGrammar) {
+            userGrammarMasteryMap = JSON.parse(cachedGrammar);
+            return; 
+        }
     }
 
-    userGrammarMasteryMap = {}; 
-    
+    userGrammarMasteryMap = {};     
     try {
         // 2. Thử lấy bản lưu trữ từ bảng Profiles trên Supabase (mất 0.05s)
         const { data: profileData, error: profileErr } = await sb.from('profiles')
@@ -22060,16 +22061,16 @@ async function triggerSilentBackgroundSync() {
     console.log("MindDeck: Kích hoạt đồng bộ ngầm dọn dẹp Ghost Data...");
     
     try {
-        // Xóa sạch các cache cũ để buộc hệ thống tính toán lại ở lần tải sau
-        sessionStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
-        sessionStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
+        // 🟢 ĐÃ VÁ LỖI: Đổi thành localStorage để xóa đúng mục tiêu
+        localStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
+        localStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
         
-        // 🟢 ĐÃ VÁ LỖI BĂNG THÔNG: TUYỆT ĐỐI KHÔNG XÓA CACHE ĐÁM MÂY TAG Ở ĐÂY NỮA
-        // Mây tag sẽ được update cục bộ khi tạo mới, không cần tải lại toàn bộ DB.
+        // (Giữ nguyên dòng này, không xóa cache tag)
+        // localStorage.removeItem(`minddeck_thematic_tags_cache_${currentUser.id}`);
 
         Promise.all([
-            syncKanjiMastery(),
-            calculateGrammarMastery()
+            syncKanjiMastery(true),        // 🟢 Thêm true để ÉP quét lại Kanji
+            calculateGrammarMastery(true)  // 🟢 Đảm bảo hàm này bỏ qua cache cục bộ
         ]).then(() => {
             console.log("MindDeck: Dọn dẹp Ghost Data thành công!");
             if (!document.getElementById('dashboardPage').classList.contains('hidden')) {
