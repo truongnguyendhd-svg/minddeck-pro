@@ -8162,6 +8162,13 @@ body.shadowing-mode #shadowingPage {
 
 <!-- ================= TRANG PLAYGROUND (AI CHAT MODE) ================= -->
 <div id="playgroundPage" class="hidden">
+    <!-- 🟢 THÊM KHỐI TIÊU ĐỀ PHỤ CÓ NÚT DỌN SẠCH GIẢI PHÓNG RAM -->
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; border-bottom: 1px solid #edf2f7; background: #fbfbfd; flex-shrink: 0;">
+        <span style="font-size: 13px; font-weight: 800; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px;">Phòng hội thoại AI</span>
+        <button onclick="clearChatHistory()" style="background: transparent; border: none; color: #e53e3e; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 4px; cursor: pointer; padding: 4px 8px; border-radius: 6px;" onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background='transparent'">
+            <span class="material-symbols-outlined" style="font-size: 16px;">delete_sweep</span> Dọn sạch chat (Giải phóng RAM)
+        </button>
+    </div>    
     
     <!-- 1. Vùng hiển thị lịch sử tin nhắn -->
     <div id="chatMessages" class="chat-messages-zone">
@@ -8232,9 +8239,7 @@ body.shadowing-mode #shadowingPage {
                         <div class="ai-mode-item" onclick="selectAiMode('chat', 'Trò chuyện', 'chat', this)">
                             <span class="material-symbols-outlined" style="color: #4a5568;">chat</span> Luyện giao tiếp / Sửa lỗi
                         </div>
-                        <div class="ai-mode-item" onclick="selectAiMode('rpg', 'Nihongo RPG', 'sports_esports', this)">
-                            <span class="material-symbols-outlined" style="color: #ea580c;">sports_esports</span> Nihongo RPG (Sinh tồn)
-                        </div>
+
                     </div>
                 </div>
         
@@ -14128,8 +14133,6 @@ function showPlayground(skipHash = false) {
     showPage('playgroundPage');
     updateBreadcrumb([{label: "Playground AI ✨"}]);
     updateHeaderTitle("PLAYGROUND");
-    
-    fetchWordsForRPG(); // Lấy từ vựng chuẩn bị cho RPG
 }
 
 function togglePlaygroundMode() {
@@ -14180,7 +14183,26 @@ function togglePlaygroundMode() {
 // (Bạn hãy tìm hàm handleRoute() ở đầu script, thêm dòng này vào nhánh if-else):
 // else if (route === 'playground') { showPlayground(); }
 
+window.clearChatHistory = async function() {
+    const ok = await showConfirm(
+        "Xóa lịch sử trò chuyện?",
+        "Toàn bộ các tin nhắn và hình ảnh nặng trong phiên này sẽ bị xóa khỏi màn hình để giải phóng bộ nhớ RAM. Bạn chắc chắn chứ?",
+        "Dọn sạch"
+    );
+    if (!ok) return;
 
+    const messagesZone = document.getElementById('chatMessages');
+    if (messagesZone) {
+        // Xóa sạch toàn bộ node con chứa Base64 ảnh nặng
+        messagesZone.innerHTML = '';
+        pendingImages = []; // Xóa mảng chờ
+        renderImagePreviews(); // Cập nhật lại UI preview
+        
+        // Hiện lại bong bóng chào mặc định gọn nhẹ
+        generateModeGreetingBubble(currentAiMode);
+        showToast("🧹 Đã dọn sạch bộ nhớ RAM hội thoại!");
+    }
+};
 
 // 5. HIỂN THỊ MODAL QUẢN LÝ TỪ ĐIỂN
 function openDictAdminModal(dictObj, isAdmin, isNew = false) {
@@ -16934,20 +16956,7 @@ async function handleSendChatMessage() {
             }
             \`\`\``;
         }
-        else if (aiMode === 'rpg') {
-            // Lấy ngẫu nhiên 3 thẻ từ kho của người dùng (Đã được load sẵn ngầm)
-            const forceWords = window.rpgRandomWords || ["こんにちは", "ありがとう", "すみません"]; // Fallback nếu lỗi
-            
-            systemPrompt = `Chúng ta đang chơi trò chơi Nhập vai Sinh tồn (Nihongo RPG).
-            Bối cảnh: Bạn là một nhân vật ngẫu nhiên ở Nhật Bản (Cảnh sát, Nhân viên cửa hàng tiện lợi, Yakuza, v.v...). 
-            Người dùng gửi tin nhắn: "${text}"
-            
-            Luật chơi BẮT BUỘC:
-            1. Người chơi bị ÉP phải sử dụng 3 từ vựng sau trong câu thoại của họ: [ ${forceWords.join(', ')} ].
-            2. Hãy kiểm tra xem trong tin nhắn của người dùng có chứa đủ các từ này chưa. 
-            3. Nếu chưa đủ, hãy đóng vai nhân vật, trả lời lại bằng tiếng Nhật (kèm dịch tiếng Việt) và NHẮC NHỞ người chơi phải dùng các từ đó để qua ải.
-            4. Nếu người chơi dùng đủ và đúng ngữ cảnh, hãy chúc mừng họ, kết thúc tình huống và TỰ ĐỘNG TẠO MỘT BỐI CẢNH MỚI và chọn 3 từ vựng ngẫu nhiên mới để họ tiếp tục chơi.`;
-        }
+        
         // Gọi API: Truyền Prompt (đã có text) và MẢNG ẢNH
         const aiResponse = await callGeminiAI(systemPrompt, imagesToSend);
 
@@ -17355,18 +17364,6 @@ function generateModeGreetingBubble(mode) {
                 <div style="margin-top: 8px; font-size: 14px; color: #4a5568;">
                     Bạn có thể ra lệnh cho tôi làm bất cứ điều gì (Tóm tắt bài, dịch thuật nhanh, viết email...).<br>
                     💡 <b>Mẹo:</b> Nếu bạn yêu cầu tôi <i>"Tạo thẻ flashcard"</i>, tôi vẫn có thể xuất ra các nút lưu thẻ cho bạn đấy!
-                </div>
-            `;
-            break;
-
-        case 'rpg':
-            greetingHTML = `
-                <b style="color: #ea580c; font-size: 16px; display: flex; align-items: center; gap: 6px;">
-                    <span class="material-symbols-outlined">sports_esports</span> Nihongo RPG (Sinh tồn)
-                </b>
-                <div style="margin-top: 8px; font-size: 14px; color: #4a5568;">
-                    Chào mừng đến với Trò chơi Nhập vai!<br>
-                    Tôi sẽ đóng vai một nhân vật ngẫu nhiên (Cảnh sát, Yakuza, Chủ quán...). Bạn <b>BẮT BUỘC</b> phải sử dụng các từ vựng tôi yêu cầu trong câu nói của bạn để vượt qua màn chơi. Sẵn sàng chưa? ⚔️
                 </div>
             `;
             break;
@@ -21189,28 +21186,7 @@ function startUserRecording(targetText, btn, originalBtnHTML, SpeechRecognition)
     } catch(e) { console.error(e); }
 };
 // Hết HÀM XỬ LÝ SHADOWING DOJO (VOICE)
-// HỆ THỐNG KÉO THẺ CHO NIHONGO RPG
-window.rpgRandomWords = [];
-async function fetchWordsForRPG() {
-    if (!currentUser) return;
-    try {
-        // Lấy 3 thẻ trễ hạn (cần ôn tập) từ DB
-        const now = new Date().toISOString();
-        const { data } = await sb.from('progress')
-            .select('cards!inner(front)')
-            .eq('user_id', currentUser.id)
-            .lte('due', now)
-            .limit(10);
-            
-        if (data && data.length > 0) {
-            // Random trộn và lấy 3 từ
-            const shuffled = data.sort(() => 0.5 - Math.random()).slice(0, 3);
-            window.rpgRandomWords = shuffled.map(d => d.cards.front);
-        } else {
-            window.rpgRandomWords = ["旅行", "美味しい", "食べる"]; // Fallback cơ bản
-        }
-    } catch(e) {}
-}
+
 
 /* =========================================================
    PLAYGROUND: XỬ LÝ NÚT UPLOAD ẢNH (CHỌN TỪ THIẾT BỊ)
