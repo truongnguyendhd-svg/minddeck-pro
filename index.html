@@ -16120,15 +16120,29 @@ async function renderThematicTagCloud() {
     const zone = document.getElementById('thematicTagsZone');
     if (!currentUser) return;
 
+    const cacheKey = `minddeck_thematic_tags_cache_${currentUser.id}`;
+    
+    // 🟢 BƯỚC 1: ĐỌC NHANH KẾT QUẢ ĐÃ TÍNH TOÁN TỪ LOCALSTORAGE (MẤT 0MS)
+    const cachedTags = localStorage.getItem(cacheKey);
+    if (cachedTags) {
+        const { html, tagsArray } = JSON.parse(cachedTags);
+        window.existingThematicTags = tagsArray;
+        zone.innerHTML = html;
+        console.log("MindDeck: Phục hồi Đám mây Tag thành công từ bộ nhớ đệm.");
+        return; // Thoát sớm, bảo vệ băng thông
+    }
+
     try {
+        console.log("MindDeck: Đang tính toán lại Đám mây Tag từ Cloud...");
         const { data } = await sb.from('cards')
             .select('info, decks!inner(owner_id)')
             .eq('decks.owner_id', currentUser.id)
             .like('info', '%[TAGS]%');
 
         if (!data || data.length === 0) {
-            zone.innerHTML = '<span style="color: rgba(255,255,255,0.5); font-size: 13px;">Bạn chưa có chủ đề nào. Hãy tạo một cái nhé!</span>';
+            zone.innerHTML = '<span style="color: rgba(0,0,0,0.3); font-size: 13px;">Bạn chưa có chủ đề nào. Hãy tạo một cái nhé!</span>';
             window.existingThematicTags = [];
+            localStorage.removeItem(cacheKey);
             return;
         }
 
@@ -16156,18 +16170,16 @@ async function renderThematicTagCloud() {
             }
         });
 
-        // Lưu danh sách Tag vào biến toàn cục để chặn trùng lặp khi tạo mới
         window.existingThematicTags = Object.keys(tagCounts);
 
-        // Bảng màu kẹo ngọt chuẩn Apple (Màu nền + Màu chữ tương phản)
         const appleColors = [
-            { bg: '#3b82f6', text: '#ffffff' }, // Xanh biển
-            { bg: '#10b981', text: '#ffffff' }, // Xanh lá
-            { bg: '#f59e0b', text: '#ffffff' }, // Cam
-            { bg: '#ef4444', text: '#ffffff' }, // Đỏ
-            { bg: '#8b5cf6', text: '#ffffff' }, // Tím
-            { bg: '#ec4899', text: '#ffffff' }, // Hồng
-            { bg: '#14b8a6', text: '#ffffff' }  // Teal lục lam
+            { bg: '#3b82f6', text: '#ffffff' },
+            { bg: '#10b981', text: '#ffffff' },
+            { bg: '#f59e0b', text: '#ffffff' },
+            { bg: '#ef4444', text: '#ffffff' },
+            { bg: '#8b5cf6', text: '#ffffff' },
+            { bg: '#ec4899', text: '#ffffff' },
+            { bg: '#14b8a6', text: '#ffffff' }
         ];
 
         let html = '';
@@ -16176,11 +16188,8 @@ async function renderThematicTagCloud() {
         for (const [tag, count] of Object.entries(tagCounts)) {
             const theme = appleColors[colorIdx % appleColors.length];
             colorIdx++;
-            
-            // Xóa dấu # ở tên hiển thị để đẹp hơn
             const cleanDisplayName = tagNames[tag].replace(/^#/, '').trim(); 
             
-            // Đã cập nhật CSS bo góc 16px và màu sắc ngẫu nhiên
             html += `
                 <div class="thematic-tag-pill" style="background: ${theme.bg}; color: ${theme.text}; border: none; border-radius: 16px;" onclick="openTagActionModal('${tag}', '${cleanDisplayName}', ${count})">
                     ${escapeHTML(cleanDisplayName)} 
@@ -16188,9 +16197,19 @@ async function renderThematicTagCloud() {
                 </div>
             `;
         }
+
         zone.innerHTML = html;
 
-    } catch (e) { console.error("Lỗi tải Tag:", e); }
+        // 🟢 BƯỚC 2: GHI ĐÈ KẾT QUẢ ĐÃ DỰNG VÀO LOCALSTORAGE
+        const cachePayload = {
+            html: html,
+            tagsArray: window.existingThematicTags
+        };
+        localStorage.setItem(cacheKey, JSON.stringify(cachePayload));
+
+    } catch (e) { 
+        console.error("Lỗi tải Tag:", e); 
+    }
 }
 
 // Hàm Tạo chủ đề (Đã thêm CHỐT CHẶN TRÙNG LẶP)
@@ -22278,17 +22297,18 @@ async function triggerSilentBackgroundSync() {
     console.log("MindDeck: Kích hoạt đồng bộ ngầm dọn dẹp Ghost Data...");
     
     try {
-        // 1. Xóa cờ cache để bắt buộc 2 hàm dưới phải quét thẳng từ DB
+        // Xóa sạch các cache cũ để buộc hệ thống tính toán lại ở lần tải sau
         sessionStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
         sessionStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
+        
+        // 🟢 THÊM DÒNG NÀY: Xóa cache đám mây Tag dính kèm tài khoản
+        localStorage.removeItem(`minddeck_thematic_tags_cache_${currentUser.id}`);
 
-        // 2. Chạy ngầm 2 hàm quét (Không await để không block UI của người dùng)
         Promise.all([
             syncKanjiMastery(),
             calculateGrammarMastery()
         ]).then(() => {
             console.log("MindDeck: Dọn dẹp Ghost Data thành công!");
-            // Nếu người dùng đang ở Dashboard, cập nhật lại UI cho chuẩn
             if (!document.getElementById('dashboardPage').classList.contains('hidden')) {
                 renderJLPTProgress();
             }
