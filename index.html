@@ -6204,10 +6204,6 @@ body.shadowing-mode #shadowingPage {
         </button>
         <div style="height: 1px; background: #edf2f7; margin: 15px 0;"></div>
         
-        <label style="font-size: 12px; font-weight: 800; color: #a0aec0; text-transform: uppercase; margin-bottom: 10px; display: block; padding-left: 10px;">Thêm mới</label>
-        <button class="side-menu-btn" onclick="closeSideMenu(); showNewForm('flashcard')">
-            <span class="material-symbols-outlined">style</span> Tạo Flashcard
-        </button>
         <!-- THÊM MỚI: Tạo bộ JLPT tự động -->
         <button class="side-menu-btn" onclick="closeSideMenu(); openAutoJLPTModal()">
             <span class="material-symbols-outlined">bolt</span> Tạo JLPT Tự động
@@ -8029,6 +8025,39 @@ body.shadowing-mode #shadowingPage {
             </button>
         </div>
 
+    </div>
+</div>
+<!-- MODAL TẠO HỌC PHẦN MỚI (WIN 11 STYLE) -->
+<div id="createDeckModal" class="modal" style="z-index: 14500;">
+    <div class="modal-content win11-modal" style="max-width: 400px;">
+        <div class="win11-modal-header" style="background: #fbfbfd; border-bottom: 1px solid #e5e5e5;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: #0067c0; font-size: 20px;">add_circle</span>
+                <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: #1a1a1a;">Tạo học phần mới</h3>
+            </div>
+            <button class="win11-close-btn" onclick="closeModal('createDeckModal')">
+                <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+            </button>
+        </div>
+        <div class="win11-modal-body" style="padding: 24px; background: #ffffff;">
+            <div style="margin-bottom: 16px;">
+                <label class="win11-label">Tên bộ bài (Tag) *</label>
+                <input type="text" id="createDeckNameInput" class="win11-input" placeholder="VD: Từ vựng N2 cấp tốc">
+            </div>
+            <div style="margin-bottom: 24px;">
+                <label class="win11-label">Chế độ hiển thị</label>
+                <select id="createDeckVisibility" class="win11-input">
+                    <option value="false">🔒 Riêng tư (Chỉ mình tôi)</option>
+                    <option value="true">🌐 Công khai (Mọi người có thể xem)</option>
+                </select>
+            </div>
+            <div style="display: flex; gap: 12px;">
+                <button onclick="closeModal('createDeckModal')" class="win11-btn-secondary" style="flex: 1; justify-content: center;">Hủy</button>
+                <button onclick="saveNewDeckFromModal()" class="win11-btn-primary" style="flex: 1; justify-content: center; display: flex; align-items: center; gap: 6px;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">save</span> Tạo bộ bài
+                </button>
+            </div>
+        </div>
     </div>
 </div>
 <!-- MODAL THIẾT LẬP LỘ TRÌNH JLPT (WIN 11 STYLE) -->
@@ -12211,7 +12240,16 @@ async function renderManageDeckList() {
 
         if (rpcError) throw rpcError;
 
-        list.innerHTML = '';
+        // CẢI TIẾN: Thêm thẻ nét đứt tạo học phần mới lên đầu danh sách
+        const addCardHTML = `
+            <div class="deck-card" style="border: 2px dashed #cbd5e0; border-top: 2px dashed #cbd5e0 !important; background: #fbfbfd; height: 120px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: none;" onclick="openCreateDeckModal()">
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; color: #718096; font-weight: 700;">
+                    <span class="material-symbols-outlined" style="font-size: 32px; color: #3b82f6;">add_circle</span>
+                    <span style="font-size: 14px;">Tạo học phần mới</span>
+                </div>
+            </div>
+        `;
+        list.innerHTML = addCardHTML;
 
         if (decks) {
             decks.sort((a, b) => {
@@ -12219,11 +12257,6 @@ async function renderManageDeckList() {
                 if (b.id.endsWith(':Favorites')) return 1;
                 return (a.sort_order || 0) - (b.sort_order || 0);
             });
-        }
-
-        if (!decks || decks.length === 0) {
-            list.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#718096; margin-top: 20px;">Bạn chưa có dữ liệu nào ở đây.</p>';
-            return;
         }
 
         decks.forEach((d) => {
@@ -12836,7 +12869,65 @@ async function saveFullDeck() {
         hideLoading();
     }
 }
+// Hàm mở Modal khởi tạo học phần
+function openCreateDeckModal() {
+    if (!currentUser) return customAlert("Vui lòng đăng nhập trước!", "⚠️");
+    document.getElementById('createDeckNameInput').value = '';
+    document.getElementById('createDeckVisibility').value = 'false';
+    document.getElementById('createDeckModal').style.display = 'flex';
+    setTimeout(() => {
+        const input = document.getElementById('createDeckNameInput');
+        if (input) input.focus();
+    }, 150);
+}
 
+// Hàm lưu học phần mới lên Supabase và tự động kích hoạt Modal Thêm thẻ nhanh
+async function saveNewDeckFromModal() {
+    const name = document.getElementById('createDeckNameInput').value.trim();
+    const isPublic = document.getElementById('createDeckVisibility').value === 'true';
+
+    if (!name) return customAlert("Vui lòng nhập tên bộ bài!", "⚠️");
+
+    showLoading("Đang khởi tạo học phần...");
+    try {
+        const uniqueName = await generateUniqueDeckName(name, 'flashcard');
+        const deckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
+
+        const { error } = await sb.from('decks').insert([{
+            id: deckId,
+            owner_id: currentUser.id,
+            type: 'flashcard',
+            is_public: isPublic,
+            folder_id: null
+        }]);
+
+        if (error) throw error;
+
+        // Đóng modal khởi tạo học phần
+        closeModal('createDeckModal');
+        showToast("🎉 Đã tạo học phần mới thành công!");
+        
+        // Tải lại danh sách học phần ngay trên trang chủ
+        await renderManageDeckList();
+        
+        // Tự động mở Modal Tuỳ chọn học của chính học phần vừa tạo
+        openStudyOptionsModal(deckId, uniqueName, 'flashcard');
+        
+        // UX cải tiến: Tự động bung danh sách thẻ và kích hoạt luôn trạng thái "Thêm thẻ mới"
+        setTimeout(() => {
+            toggleInlineDeckList();
+            setTimeout(() => {
+                openQuickAddCardModal();
+            }, 300);
+        }, 300);
+
+    } catch (err) {
+        console.error("Lỗi tạo bộ bài:", err);
+        customAlert("Lỗi khi tạo bộ bài: " + err.message, "❌");
+    } finally {
+        hideLoading();
+    }
+}
 async function deleteCurrentDeck() {
     if (!editingDeckId) return;
     const ok = await showConfirm("Xóa vĩnh viễn?", `Xác nhận xóa bộ bài "${getCleanName(editingDeckId)}"?`, "Xóa");
