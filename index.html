@@ -22696,53 +22696,22 @@ function exitShadowingTheater() {
     theaterApp.destroy();
 }
 /* =================HẾT HỆ THỐNG SHADOWING THEATER (OOP ARCHITECTURE) ================= */
-// Hàm lưu ngầm bản đồ Kanji/Ngữ pháp lên Cloud một lần duy nhất
+// Hàm đồng bộ ngầm siêu gọn nhẹ (Không tốn lượt đọc API)
 async function saveMasteryToCloudSilent() {
     if (!currentUser || !isMasteryMapDirty) return;
-    isMasteryMapDirty = false;
+    isMasteryMapDirty = false; // Tắt cờ sớm để chống spam click
     
     try {
-        // 1. Tải nhanh bản đồ hiện tại trên Cloud về (để lấy cập nhật từ thiết bị khác)
-        const { data: cloudData } = await sb.from('profiles')
-            .select('kanji_mastery, grammar_mastery')
-            .eq('id', currentUser.id)
-            .single();
-
-        let finalKanji = userKanjiMasteryMap;
-        let finalGrammar = userGrammarMasteryMap;
-
-        if (cloudData) {
-            // 2. Hợp nhất thông minh Kanji (Lấy Interval lớn nhất)
-            const cloudKanji = cloudData.kanji_mastery || {};
-            finalKanji = { ...cloudKanji };
-            for (const [k, v] of Object.entries(userKanjiMasteryMap)) {
-                finalKanji[k] = Math.max(finalKanji[k] || 0, v);
-            }
-
-            // 3. Hợp nhất thông minh Ngữ pháp (Lấy Interval lớn nhất)
-            const cloudGrammar = cloudData.grammar_mastery || {};
-            finalGrammar = { ...cloudGrammar };
-            for (const [g, v] of Object.entries(userGrammarMasteryMap)) {
-                finalGrammar[g] = Math.max(finalGrammar[g] || 0, v);
-            }
-            
-            // Cập nhật ngược lại RAM nội bộ của thiết bị hiện tại cho đồng bộ
-            userKanjiMasteryMap = finalKanji;
-            userGrammarMasteryMap = finalGrammar;
-            localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(finalKanji));
-            localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(finalGrammar));
-        }
-
-        // 4. Đẩy bản hợp nhất an toàn này lên Cloud
+        // Ghi đè thẳng dữ liệu RAM lên Cloud (Tuyệt đối an toàn nhờ Single Session)
         await sb.from('profiles').update({
-            kanji_mastery: finalKanji,
-            grammar_mastery: finalGrammar
+            kanji_mastery: userKanjiMasteryMap,
+            grammar_mastery: userGrammarMasteryMap
         }).eq('id', currentUser.id);
-
-        console.log("MindDeck: Đã hợp nhất và đồng bộ bản đồ lên Cloud thành công.");
+        
+        console.log("MindDeck: Đã đồng bộ ngầm bản đồ lên Cloud thành công (0 byte đọc).");
     } catch (e) {
         console.error("MindDeck: Đồng bộ ngầm thất bại:", e);
-        isMasteryMapDirty = true;
+        isMasteryMapDirty = true; // Bật lại cờ nếu lỗi mạng để lưu lại sau
     }
 }
 
