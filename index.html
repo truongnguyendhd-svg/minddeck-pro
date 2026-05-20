@@ -9145,8 +9145,10 @@ sb.auth.onAuthStateChange(async (event, session) => {
             sb.removeChannel(realtimeSessionChannel);
             realtimeSessionChannel = null;
         }
-        sessionStorage.removeItem('current_session_id');
-
+        if (currentUser) {
+        localStorage.removeItem(`current_session_id_${currentUser.id}`);
+        }
+    
         currentUser = null; 
         isAppInitialized = false; 
         headerSearch.classList.add('hidden'); 
@@ -9163,12 +9165,14 @@ sb.auth.onAuthStateChange(async (event, session) => {
 async function setupSingleSessionProtection() {
     if (!currentUser) return;
 
-    // 1. Tạo Session ID duy nhất cho thiết bị hiện tại nếu chưa có
-    let localSessionId = sessionStorage.getItem('current_session_id');
+    // 1. Tạo Session ID duy nhất theo User ID trên thiết bị hiện tại nếu chưa có
+    const sessionKey = `current_session_id_${currentUser.id}`;
+    let localSessionId = localStorage.getItem(sessionKey);
+    
     if (!localSessionId) {
         localSessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        sessionStorage.setItem('current_session_id', localSessionId);
-        
+        localStorage.setItem(sessionKey, localSessionId);
+
         // Cập nhật mã phiên mới lên Supabase Cloud
         await sb.from('profiles')
             .update({ active_session_id: localSessionId })
@@ -9190,9 +9194,10 @@ async function setupSingleSessionProtection() {
             },
             (payload) => {
                 const newActiveSessionId = payload.new.active_session_id;
-                const myLocalSessionId = sessionStorage.getItem('current_session_id');
+                const sessionKey = `current_session_id_${currentUser.id}`;
+                const myLocalSessionId = localStorage.getItem(sessionKey);
 
-                // 🚨 Nếu mã phiên trên Cloud thay đổi và KHÔNG trùng với mã cục bộ của máy này
+                // Nếu mã phiên trên Cloud thay đổi và KHÔNG trùng với mã cục bộ của máy này
                 if (newActiveSessionId && myLocalSessionId && newActiveSessionId !== myLocalSessionId) {
                     handleForcedLogout();
                 }
@@ -9205,15 +9210,19 @@ async function setupSingleSessionProtection() {
 async function handleForcedLogout() {
     showLoading("Tài khoản đang được kết nối từ thiết bị khác...");
     
-    // 🟢 VÁ KHE HỞ CUỐI CÙNG: Dọn sạch mọi file Auto-save dở dang của máy bị đá văng
+    // Vá khe hở cuối cùng: Dọn sạch mọi file Auto-save dở dang của máy bị đá văng
     localStorage.removeItem(`minddeck_assessment_save_${currentUser.id}`);
     localStorage.removeItem(`minddeck_boost_save_${currentUser.id}`);
+    
+    // 🟢 BỔ SUNG: Xóa mã phiên làm việc cá nhân của thiết bị bị đá
+    if (currentUser) {
+        localStorage.removeItem(`current_session_id_${currentUser.id}`);
+    }
 
     if (realtimeSessionChannel) {
         sb.removeChannel(realtimeSessionChannel);
         realtimeSessionChannel = null;
     }
-    sessionStorage.removeItem('current_session_id');
 
     await sb.auth.signOut();
     hideLoading();
@@ -9258,6 +9267,9 @@ async function logout() {
         // Xóa sạch bộ nhớ đệm cá nhân của tài khoản này trên máy trước khi ra đi
         localStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
         localStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
+        
+        // 🟢 BỔ SUNG: Xóa mã phiên làm việc của user này trong localStorage
+        localStorage.removeItem(`current_session_id_${currentUser.id}`);
     }
     await sb.auth.signOut(); 
     hideLoading(); 
