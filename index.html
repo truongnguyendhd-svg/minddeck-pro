@@ -8534,8 +8534,6 @@ let pendingModalReturn = null; // Cờ nhớ thông tin Modal để quay lại
 let isInlineListLoaded = false; // Cờ kiểm tra danh sách đã load chưa
 let isVirtualSession = false;
 let tempVirtualCards = []; // Cache RAM để nạp thẻ vào phiên học ảo
-let isMasteryMapDirty = false;
-let srsCardWriteCounter = 0;
 /* ================= 3. UTILITIES ================= */
 // HÀM QUẢN LÝ CACHE DANH SÁCH BỘ BÀI (0 BYTE BĂNG THÔNG)
 async function getCachedDeckList(forceRefresh = false) {
@@ -12153,14 +12151,6 @@ async function answerCurrent(q) {
                 sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
                 sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
                 sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
-
-                // Chốt chặn 1: Tự động lưu ngầm lên Cloud sau mỗi 5 thẻ học thường
-                isMasteryMapDirty = true;
-                srsCardWriteCounter++;
-                if (srsCardWriteCounter >= 5) {
-                    srsCardWriteCounter = 0;
-                    saveMasteryToCloudSilent(); // Chạy ngầm bất đồng bộ (không dùng await để tránh giật lag UI)
-                }
 
                 nextCard();
 
@@ -19906,11 +19896,6 @@ function exitStudySession() {
     sessionStorage.removeItem('minddeck_prev_mode');
     sessionStorage.removeItem('minddeck_virtual_cards');
 
-    // Chốt chặn 3: Lưu ngầm nốt các thẻ còn lại nếu thoát giữa chừng
-    if (isMasteryMapDirty) {
-        saveMasteryToCloudSilent();
-    }
-
     if (currentDeckName === 'GLOBAL_REVIEW') {
         clearAssessmentStateFromLocal(); 
     }
@@ -22552,31 +22537,7 @@ function exitShadowingTheater() {
     theaterApp.destroy();
 }
 /* =================HẾT HỆ THỐNG SHADOWING THEATER (OOP ARCHITECTURE) ================= */
-// Hàm đồng bộ ngầm siêu gọn nhẹ (Không tốn lượt đọc API)
-async function saveMasteryToCloudSilent() {
-    if (!currentUser || !isMasteryMapDirty) return;
-    isMasteryMapDirty = false; // Tắt cờ sớm để chống spam click
-    
-    try {
-        // Ghi đè thẳng dữ liệu RAM lên Cloud (Tuyệt đối an toàn nhờ Single Session)
-        await sb.from('profiles').update({
-            kanji_mastery: userKanjiMasteryMap,
-            grammar_mastery: userGrammarMasteryMap
-        }).eq('id', currentUser.id);
-        
-        console.log("MindDeck: Đã đồng bộ ngầm bản đồ lên Cloud thành công (0 byte đọc).");
-    } catch (e) {
-        console.error("MindDeck: Đồng bộ ngầm thất bại:", e);
-        isMasteryMapDirty = true; // Bật lại cờ nếu lỗi mạng để lưu lại sau
-    }
-}
 
-// Chốt chặn 2: Đánh chặn sự kiện ẩn trình duyệt/quẹt tab trên di động để lưu ngầm
-document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && isMasteryMapDirty) {
-        saveMasteryToCloudSilent();
-    }
-});
 // 1. Hàm nạp ngay tiến trình từ LocalStorage (Tốc độ 0ms - Tuyệt đối an toàn)
 function loadLocalUserDataCache() {
     if (!currentUser) return;
@@ -22589,7 +22550,7 @@ function loadLocalUserDataCache() {
     currentUser.study_goal = cachedGoal ? JSON.parse(cachedGoal) : null;
 }
 
-// 2. Hàm chạy đồng bộ ngầm với Supabase để cập nhật bản mới nhất (Có chốt chặn lỗi mạng)
+// 2. Hàm chạy đồng bộ ngầm với Supabase để cập nhật bản mới nhất (Cloud là chân lý tuyệt đối)
 async function syncUserDataWithCloud() {
     if (!currentUser) return;
     try {
@@ -22598,25 +22559,26 @@ async function syncUserDataWithCloud() {
             .eq('id', currentUser.id)
             .single();
 
-        // 🚨 CHỐT CHẶN 1: Nếu API lỗi, ném lỗi thẳng lên trên để chặn UI
+        // CHỐT CHẶN MẠNG: Nếu API lỗi, ném lỗi thẳng lên trên để chặn UI
         if (error) throw error;
 
         if (profData) {
+            // 🟢 CLOUD LÀ CHÂN LÝ: Ghi đè cứng dữ liệu từ Cloud vào RAM
             userKanjiMasteryMap = profData.kanji_mastery || {};
             userGrammarMasteryMap = profData.grammar_mastery || {};
             currentUser.study_goal = profData.study_goal;
 
-            // 🚨 CHỐT CHẶN BẢO HIỂM 2: Nếu Cloud trả về rỗng (Có thể do lỗi DB cũ), 
-            // Kích hoạt "Quét thô" từ bảng progress để tái tạo lại toàn bộ bộ não!
+            // Chốt chặn bảo hiểm nếu DB trống rỗng (Tài khoản mới tinh)
             if (Object.keys(userKanjiMasteryMap).length === 0) {
                 console.log("MindDeck: Dữ liệu Cloud rỗng, tự động quét Raw để tái tạo bộ não...");
                 await syncKanjiMastery(true);
                 await calculateGrammarMastery(true);
             }
 
-            // Ghi đè lại cache mới nhất
+            // Ghi đè cứng vào ổ cứng cục bộ
             localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
             localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+            
             if (profData.study_goal) {
                 localStorage.setItem(`minddeck_study_goal_${currentUser.id}`, JSON.stringify(profData.study_goal));
             } else {
@@ -22631,7 +22593,7 @@ async function syncUserDataWithCloud() {
         }
     } catch (e) {
         console.error("Lỗi đồng bộ ngầm khởi tạo:", e);
-        throw e; // Ném lỗi này lên cho khối Auth Listener bắt
+        throw e; 
     }
 }
 </script>
