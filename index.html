@@ -8720,7 +8720,7 @@ async function loadDashboardData() {
     try {
         const now = new Date().toISOString();
 
-        // 1. LẤY SỐ THẺ TRỄ HẠN
+        // 1. LẤY SỐ THẺ TRỄ HẠN (HEAD Request - 0 byte payload)
         const { count: dueCount, error: err1 } = await sb.from('progress')
             .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
             .eq('user_id', currentUser.id)
@@ -8744,7 +8744,7 @@ async function loadDashboardData() {
             }
         }
         
-        // 2. TẢI TOÀN BỘ MAP KANJI & GRAMMAR TỪ CLOUD (1 DÒNG DUY NHẤT - TỐC ĐỘ 0.1s)
+        // 2. TẢI BẢN ĐỒ NĂNG LỰC TỪ CLOUD (1 dòng duy nhất)
         const { data: profData } = await sb.from('profiles')
             .select('kanji_mastery, grammar_mastery')
             .eq('id', currentUser.id)
@@ -8754,15 +8754,16 @@ async function loadDashboardData() {
             userKanjiMasteryMap = profData.kanji_mastery || {};
             userGrammarMasteryMap = profData.grammar_mastery || {};
             
-            // Lưu thẳng vào RAM Cache để các trang khác xài ngay lập tức
-            sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-            sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
-            sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true'); // Đánh dấu không cần scan
+            // 🟢 ĐÃ SỬA: Đổi từ sessionStorage sang localStorage để chống F5
+            localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+            localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+            sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true'); 
         }
         
-        autoCleanRemedialCards();
-        renderJLPTProgress();
-        refreshDiscovery();
+        // 3. 🟢 THIẾT LẬP THỨ TỰ AWAIT CHUẨN XÁC CHỐNG TRANH CHẤP LUỒNG
+        await autoCleanRemedialCards(); // Chạy ngầm dọn rác (Đã tối ưu 24h)
+        await renderJLPTProgress();     // Phải hoàn thành tải từ điển Kanji trước...
+        refreshDiscovery();             // ... thì hàm bốc thăm này mới chạy chuẩn xác!
         await renderRoadmapWidget();
 
     } catch (err) {
@@ -8775,16 +8776,28 @@ async function loadDashboardData() {
 // HÀM TỰ HỦY THẺ HỔNG KIẾN THỨC SAU 48H
 async function autoCleanRemedialCards() {
     if (!currentUser) return;
+    
+    const cleanupKey = `minddeck_last_remedial_clean_${currentUser.id}`;
+    const lastClean = localStorage.getItem(cleanupKey);
+    const now = Date.now();
+
+    // 🟢 CHỈ CHẠY DỌN RÁC NẾU CHƯA CHẠY TRONG VÒNG 24 TIẾNG QUA
+    if (lastClean && (now - parseInt(lastClean)) < 24 * 60 * 60 * 1000) {
+        console.log("MindDeck: Bỏ qua dọn rác Remedial (Đã chạy trong 24h qua).");
+        return; 
+    }
+
     try {
         const remedialDeckId = `${currentUser.id}:Remedial`;
-        // Tính thời điểm 48 tiếng trước
-        const limitDate = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+        const limitDate = new Date(now - 48 * 60 * 60 * 1000).toISOString();
         
-        // Xóa tất cả thẻ trong Deck Remedial được tạo TRƯỚC mốc 48h
         await sb.from('cards').delete()
             .eq('deck_id', remedialDeckId)
             .lt('created_at', limitDate);
-            
+
+        // Ghi mốc thời gian đã dọn dẹp thành công
+        localStorage.setItem(cleanupKey, now.toString());
+        console.log("MindDeck: Đã hoàn tất dọn rác Remedial tự động.");
     } catch (e) {
         console.error("Lỗi dọn rác Remedial:", e);
     }
