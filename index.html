@@ -14921,9 +14921,12 @@ async function showGrammarVault(skipHash = false) {
 async function calculateGrammarMastery(force = false) {
     if (!currentUser) return;
     
+    // 🟢 CHỐT CHẶN 1: Chụp lại ID cục bộ chống lỗi Null Reference khi người dùng đăng xuất nhanh
+    const userId = currentUser.id; 
+    
     // Nếu không ép buộc, mới dùng Cache
     if (!force) {
-        const cachedGrammar = localStorage.getItem(`minddeck_grammar_cache_${currentUser.id}`);
+        const cachedGrammar = localStorage.getItem(`minddeck_grammar_cache_${userId}`);
         if (cachedGrammar) {
             userGrammarMasteryMap = JSON.parse(cachedGrammar);
             return; 
@@ -14935,12 +14938,15 @@ async function calculateGrammarMastery(force = false) {
         // 2. Thử lấy bản lưu trữ từ bảng Profiles trên Supabase (mất 0.05s)
         const { data: profileData, error: profileErr } = await sb.from('profiles')
             .select('grammar_mastery')
-            .eq('id', currentUser.id)
+            .eq('id', userId)
             .single();
+
+        // Kiểm tra nếu người dùng đã đăng xuất trong lúc chờ mạng phản hồi
+        if (!currentUser || currentUser.id !== userId) return;
 
         if (!profileErr && profileData && profileData.grammar_mastery && Object.keys(profileData.grammar_mastery).length > 0) {
             userGrammarMasteryMap = profileData.grammar_mastery;
-            localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+            localStorage.setItem(`minddeck_grammar_cache_${userId}`, JSON.stringify(userGrammarMasteryMap));
             console.log("MindDeck: Phục hồi bản đồ Ngữ pháp thành công từ Profiles!");
             return; // Thoát sớm, bảo vệ băng thông
         }
@@ -14955,10 +14961,13 @@ async function calculateGrammarMastery(force = false) {
         while (isFetching) {
             const { data, error } = await sb.from('progress')
                 .select(`interval, cards!inner(front)`)
-                .eq('user_id', currentUser.id)
+                .eq('user_id', userId)
                 .range(fromIndex, fromIndex + step);
                 
             if (error) break;
+            
+            // Kiểm tra an toàn trong vòng lặp tải dữ liệu phân đoạn
+            if (!currentUser || currentUser.id !== userId) return;
             
             if (data && data.length > 0) {
                 allProgressData = allProgressData.concat(data);
@@ -14966,6 +14975,9 @@ async function calculateGrammarMastery(force = false) {
             }
             if (!data || data.length <= step) isFetching = false;
         }
+
+        // Kiểm tra an toàn sau khi hoàn tất vòng lặp tải dữ liệu
+        if (!currentUser || currentUser.id !== userId) return;
 
         if (allProgressData.length === 0) return;
 
@@ -14984,12 +14996,19 @@ async function calculateGrammarMastery(force = false) {
                 globalGrammarData = JSON.parse(cachedDict);
             } else {
                 const { data: gData } = await sb.from('grammar_dict').select('*');
+                
+                // Kiểm tra an toàn sau khi gọi danh mục từ điển
+                if (!currentUser || currentUser.id !== userId) return;
+
                 if (gData) {
                     globalGrammarData = gData;
                     localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
                 }
             }
         }
+
+        // Kiểm tra an toàn trước khi chạy thuật toán khớp mẫu
+        if (!currentUser || currentUser.id !== userId) return;
 
         if (globalGrammarData.length > 0) {
             globalGrammarData.forEach(g => {
@@ -15007,12 +15026,18 @@ async function calculateGrammarMastery(force = false) {
             });
         }
         
+        // Kiểm tra an toàn lần cuối trước khi ghi nhận lên Database và LocalStorage
+        if (!currentUser || currentUser.id !== userId) return;
+
         // Cập nhật lại lên Cloud để lần sau không bị quét thô nữa
-        await sb.from('profiles').update({ grammar_mastery: userGrammarMasteryMap }).eq('id', currentUser.id);
-        localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+        await sb.from('profiles').update({ grammar_mastery: userGrammarMasteryMap }).eq('id', userId);
+        localStorage.setItem(`minddeck_grammar_cache_${userId}`, JSON.stringify(userGrammarMasteryMap));
 
     } catch (err) {
-        console.error("Lỗi khi quét tiến độ Ngữ pháp:", err);
+        // Chỉ ghi nhận lỗi nếu người dùng thực sự vẫn đang đăng nhập
+        if (currentUser && currentUser.id === userId) {
+            console.error("Lỗi khi quét tiến độ Ngữ pháp:", err);
+        }
     }
 }
 
@@ -21153,10 +21178,12 @@ async function refreshKanjiCollection() {
 async function syncKanjiMastery(force = false) {
     if (!currentUser) return 0;
     
+    // 🟢 CHỐT CHẶN 1: Chụp lại ID cục bộ chống lỗi Null Reference khi có thay đổi trạng thái đăng nhập đột ngột
+    const userId = currentUser.id; 
+
     // Nếu không ép buộc quét thô, dùng thẳng Cache để tiết kiệm tài nguyên
     if (!force) {
-        // 🟢 ĐÃ ĐỔI: Đọc từ localStorage
-        const cachedKanji = localStorage.getItem(`minddeck_kanji_cache_${currentUser.id}`);
+        const cachedKanji = localStorage.getItem(`minddeck_kanji_cache_${userId}`);
         if (cachedKanji) {
             userKanjiMasteryMap = JSON.parse(cachedKanji);
             return Object.keys(userKanjiMasteryMap).length;
@@ -21169,12 +21196,18 @@ async function syncKanjiMastery(force = false) {
         let fromIndex = 0;
         const step = 999;
 
+        // Vòng lặp kéo dữ liệu theo từng cụm (batch) tránh quá tải mạng
         while (isFetching) {
-            const { data } = await sb.from('progress')
+            const { data, error } = await sb.from('progress')
                 .select('interval, interval_count, cards!inner(front)')
-                .eq('user_id', currentUser.id)
+                .eq('user_id', userId) // Sử dụng userId an toàn thay thế cho currentUser.id
                 .range(fromIndex, fromIndex + step);
                 
+            if (error) throw error;
+
+            // 🟢 CHỐT CHẶN 2: Kiểm tra trạng thái đăng nhập sau khi đợi API phản hồi
+            if (!currentUser || currentUser.id !== userId) return 0;
+
             if (data && data.length > 0) {
                 allProgressData = allProgressData.concat(data);
                 fromIndex += (step + 1);
@@ -21182,11 +21215,22 @@ async function syncKanjiMastery(force = false) {
             if (!data || data.length <= step) isFetching = false;
         }
 
-        const { data: profile } = await sb.from('profiles').select('kanji_mastery').eq('id', currentUser.id).single();
+        // Truy vấn dữ liệu lưu trữ đám mây cũ của Kanji
+        const { data: profile, error: profError } = await sb.from('profiles')
+            .select('kanji_mastery')
+            .eq('id', userId) // Sử dụng userId
+            .single();
+
+        if (profError) throw profError;
+
+        // 🟢 CHỐT CHẶN 3: Kiểm tra trạng thái đăng nhập sau khi lấy hồ sơ cá nhân
+        if (!currentUser || currentUser.id !== userId) return 0;
+
         let cloudArchive = profile?.kanji_mastery || {};
         let liveMap = {};
         let failedMap = {};
 
+        // Bóc tách Kanji thực tế từ tiến trình học tập
         if (allProgressData.length > 0) {
             allProgressData.forEach(p => {
                 const intv = p.interval || 0;
@@ -21201,6 +21245,7 @@ async function syncKanjiMastery(force = false) {
             });
         }
 
+        // Đồng bộ dữ liệu cũ và dữ liệu mới theo giải thuật giữ khoảng cách nhớ (interval) lớn nhất
         let finalMap = {};
         const allKeys = new Set([...Object.keys(liveMap), ...Object.keys(cloudArchive)]);
         
@@ -21219,13 +21264,27 @@ async function syncKanjiMastery(force = false) {
             }
         }
 
-        await sb.from('profiles').update({ kanji_mastery: finalMap }).eq('id', currentUser.id);
+        // Trước khi cập nhật dữ liệu đồng bộ lên database, kiểm tra trạng thái tài khoản
+        if (!currentUser || currentUser.id !== userId) return 0;
+
+        // Đẩy dữ liệu hợp nhất lên cơ sở dữ liệu Supabase
+        const { error: updateError } = await sb.from('profiles')
+            .update({ kanji_mastery: finalMap })
+            .eq('id', userId);
+
+        if (updateError) throw updateError;
+
+        // Cập nhật biến RAM và ghi đè an toàn vào LocalStorage
         userKanjiMasteryMap = finalMap;
-        // 🟢 ĐÃ ĐỔI: Lưu vào localStorage
-        localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+        localStorage.setItem(`minddeck_kanji_cache_${userId}`, JSON.stringify(userKanjiMasteryMap));
+        
         return Object.keys(finalMap).length;
+
     } catch (e) {
-        console.error("Lỗi đồng bộ Kanji thô:", e);
+        // Chỉ ghi nhận lỗi nếu tài khoản thực tế vẫn đang hoạt động khớp với luồng xử lý
+        if (currentUser && currentUser.id === userId) {
+            console.error("Lỗi đồng bộ Kanji thô:", e);
+        }
         return 0;
     }
 }
@@ -22565,36 +22624,50 @@ function loadLocalUserDataCache() {
 // 2. Hàm chạy đồng bộ ngầm với Supabase để cập nhật bản mới nhất (Cloud là chân lý tuyệt đối)
 async function syncUserDataWithCloud() {
     if (!currentUser) return;
+    
+    // 🟢 CHỐT CHẶN 1: Chụp lại ID cục bộ để chống lỗi Null Reference sau các lệnh await
+    const userId = currentUser.id; 
+    
     try {
         const { data: profData, error } = await sb.from('profiles')
             .select('kanji_mastery, grammar_mastery, study_goal')
-            .eq('id', currentUser.id)
+            .eq('id', userId) // Sử dụng biến an toàn userId thay vì currentUser.id
             .single();
 
-        // CHỐT CHẶN MẠNG: Nếu API lỗi, ném lỗi thẳng lên trên để chặn UI
+        // Nếu có lỗi kết nối khi đang kéo dữ liệu
         if (error) throw error;
 
+        // 🟢 CHỐT CHẶN 2: Nếu người dùng đã đăng xuất trong lúc chờ mạng phản hồi, dừng tiến trình ngay lập tức
+        if (!currentUser || currentUser.id !== userId) return;
+
         if (profData) {
-            // 🟢 CLOUD LÀ CHÂN LÝ: Ghi đè cứng dữ liệu từ Cloud vào RAM
+            // CLOUD LÀ CHÂN LÝ: Ghi đè cứng dữ liệu từ Cloud vào RAM
             userKanjiMasteryMap = profData.kanji_mastery || {};
             userGrammarMasteryMap = profData.grammar_mastery || {};
-            currentUser.study_goal = profData.study_goal;
+            
+            // Chỉ gán mục tiêu học tập nếu đối tượng currentUser vẫn tồn tại thực tế
+            if (currentUser) {
+                currentUser.study_goal = profData.study_goal;
+            }
 
             // Chốt chặn bảo hiểm nếu DB trống rỗng (Tài khoản mới tinh)
             if (Object.keys(userKanjiMasteryMap).length === 0) {
                 console.log("MindDeck: Dữ liệu Cloud rỗng, tự động quét Raw để tái tạo bộ não...");
                 await syncKanjiMastery(true);
                 await calculateGrammarMastery(true);
+                
+                // Kiểm tra lại một lần nữa trạng thái đăng nhập sau tác vụ quét thô kéo dài
+                if (!currentUser || currentUser.id !== userId) return;
             }
 
-            // Ghi đè cứng vào ổ cứng cục bộ
-            localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-            localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+            // Ghi đè cứng vào ổ cứng cục bộ sử dụng biến an toàn userId
+            localStorage.setItem(`minddeck_kanji_cache_${userId}`, JSON.stringify(userKanjiMasteryMap));
+            localStorage.setItem(`minddeck_grammar_cache_${userId}`, JSON.stringify(userGrammarMasteryMap));
             
             if (profData.study_goal) {
-                localStorage.setItem(`minddeck_study_goal_${currentUser.id}`, JSON.stringify(profData.study_goal));
+                localStorage.setItem(`minddeck_study_goal_${userId}`, JSON.stringify(profData.study_goal));
             } else {
-                localStorage.removeItem(`minddeck_study_goal_${currentUser.id}`);
+                localStorage.removeItem(`minddeck_study_goal_${userId}`);
             }
             
             // Vẽ lại widget tiến độ trên Dashboard nếu người dùng đang ở trang Dashboard
@@ -22604,8 +22677,11 @@ async function syncUserDataWithCloud() {
             }
         }
     } catch (e) {
-        console.error("Lỗi đồng bộ ngầm khởi tạo:", e);
-        throw e; 
+        // Chỉ ghi nhận lỗi ra console nếu người dùng thực sự vẫn đang đăng nhập
+        if (currentUser && currentUser.id === userId) {
+            console.error("Lỗi đồng bộ ngầm khởi tạo:", e);
+            throw e; 
+        }
     }
 }
 </script>
