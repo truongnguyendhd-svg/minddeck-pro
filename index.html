@@ -8551,6 +8551,8 @@ let pendingModalReturn = null; // Cờ nhớ thông tin Modal để quay lại
 let isInlineListLoaded = false; // Cờ kiểm tra danh sách đã load chưa
 let isVirtualSession = false;
 let tempVirtualCards = []; // Cache RAM để nạp thẻ vào phiên học ảo
+let isMasteryMapDirty = false;
+let srsCardWriteCounter = 0;
 /* ================= 3. UTILITIES ================= */
 function sanitizeTagName(tag) {
     if (!tag) return "untitled";
@@ -12034,11 +12036,20 @@ async function answerCurrent(q) {
             });
         }
 
-        sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-        sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
-        sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
+// Lưu đè bản đồ cập nhật vào sessionStorage để các trang khác lấy nhanh
+                sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+                sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+                sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
 
-        nextCard();
+                // Chốt chặn 1: Tự động lưu ngầm lên Cloud sau mỗi 5 thẻ học thường
+                isMasteryMapDirty = true;
+                srsCardWriteCounter++;
+                if (srsCardWriteCounter >= 5) {
+                    srsCardWriteCounter = 0;
+                    saveMasteryToCloudSilent(); // Chạy ngầm bất đồng bộ (không dùng await để tránh giật lag UI)
+                }
+
+                nextCard();
 
     } catch (err) {
         console.error("Lỗi đồng bộ SRS:", err);
@@ -13111,6 +13122,7 @@ async function saveSingleRow(id) {
 
         hideLoading(); 
         showToast("Đã cập nhật thẻ thành công! ✨");
+        triggerSilentBackgroundSync();
 
     } catch (e) { 
         hideLoading(); 
@@ -13661,7 +13673,7 @@ async function smartImportExcel() {
             } else {
                 showToast(`🎉 Nhập thành công ${filterResult.validCards.length} thẻ!`);
             } 
-
+            triggerSilentBackgroundSync();
         } catch(e) { 
             hideLoading(); 
             console.error(e);
@@ -13995,6 +14007,7 @@ async function saveQuickEdit() {
         }
 
         closeModal('quickEditModal');
+                triggerSilentBackgroundSync();
         
         // 🟢 NẾU MODAL DANH SÁCH ĐANG MỞ -> TỰ ĐỘNG LOAD LẠI ĐỂ THẤY THẺ MỚI/THAY ĐỔI
         if (document.getElementById('studyOptionsModal').style.display === 'flex') {
@@ -14658,6 +14671,7 @@ async function confirmSaveWordToDeck() {
 
         closeModal('saveDictWordModal');
         showToast("Đã thêm vào học phần thành công! ✨");
+        triggerSilentBackgroundSync();
     } catch (err) {
         console.error("Lỗi lưu thẻ:", err);
         customAlert("Không thể lưu thẻ. Vui lòng thử lại.", "❌");
@@ -14956,7 +14970,7 @@ async function showKanjiCollection(skipHash = false) {
     updateHeaderTitle("BỘ SƯU TẬP KANJI");
 
     const grid = document.getElementById('kcGridPage');
-    grid.innerHTML = '<div style="text-align:center; padding:50px; grid-column:1/-1;"><div class="spinner" style="margin:auto; border-top-color:#f59e0b;"></div><p style="color:#718096; margin-top:15px;">Đang quét não bộ của bạn...</p></div>';
+    grid.innerHTML = '<div style="text-align:center; padding:50px; grid-column:1/-1;"><div class="spinner" style="margin:auto; border-top-color:#f59e0b;"></div><p style="color:#718096; margin-top:15px;">Đang quét bộ não của bạn...</p></div>';
 
     try {
         // ==========================================
@@ -14983,114 +14997,22 @@ async function showKanjiCollection(skipHash = false) {
                 if (allKanjiData.length > 0) localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
             }
         }
-        // BƯỚC 2: TẢI TIẾN ĐỘ LIVE VÀ KỶ LỤC TỪ CLOUD (CHỐT FINAL)
-        // Tích hợp: Live Overrides Backup + Luật Tụt 1 Hạng + Bảo vệ thẻ đã xóa
+
         // ==========================================
-        
-        // 2.1. Lấy tiến độ thực tế hiện tại (Bổ sung thêm cột interval_count)
-        const { data: progressData, error: pErr } = await sb.from('progress')
-            .select(`
-                interval,
-                interval_count,
-                cards!inner ( front )
-            `)
-            .eq('user_id', currentUser.id);
-            
-        if (pErr) throw pErr;
-
-        // 2.2. Lấy Bản sao lưu Kanji trên Cloud (Supabase profiles)
-        const { data: profileData, error: profErr } = await sb.from('profiles')
-            .select('kanji_mastery')
-            .eq('id', currentUser.id)
-            .single();
-
-        let cloudArchiveMap = profileData?.kanji_mastery || {}; 
-        let liveMasteryMap = {}; 
-        let kanjiFailedMap = {}; // Cờ đánh dấu Kanji vừa bị làm Sai
-        let needsCloudUpdate = false; 
-
-        // 2.3. Quét tiến độ Live thực tế
-        if (progressData && progressData.length > 0) {
-            progressData.forEach(p => {
-                const interval = p.interval || 0;
-                const count = p.interval_count || 0;
-                if (interval <= 0) return; 
-
-                const frontText = p.cards.front || "";
-                const kMatches = frontText.match(/[\u4e00-\u9faf]/g) || [];
-                
-                kMatches.forEach(k => {
-                    // Lấy khoảng cách nhớ lớn nhất trong các thẻ hiện có
-                    if (!liveMasteryMap[k] || liveMasteryMap[k] < interval) {
-                        liveMasteryMap[k] = interval;
-                    }
-                    
-                    // Nếu thẻ chứa chữ này vừa bị làm SAI (count = 0) -> Bật cờ phạt
-                    if (count === 0) {
-                        kanjiFailedMap[k] = true;
-                    }
-                });
-            });
+        // BƯỚC 2: TẢI TIẾN ĐỘ LIVE TỪ CACHE / PROFILES (TRIỆT TIÊU TRUY VẤN THỪA)
+        // ==========================================
+        const cachedKanji = sessionStorage.getItem(`minddeck_kanji_cache_${currentUser.id}`);
+        if (cachedKanji) {
+            userKanjiMasteryMap = JSON.parse(cachedKanji);
+        } else {
+            const { data: profileData } = await sb.from('profiles')
+                .select('kanji_mastery')
+                .eq('id', currentUser.id)
+                .single();
+            userKanjiMasteryMap = profileData?.kanji_mastery || {};
+            sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
         }
 
-        // 2.4. CHIẾN THUẬT GỘP: BẢO VỆ THÀNH TÍCH & PHẠT "TỤT 1 HẠNG"
-        userKanjiMasteryMap = {}; 
-        
-        // Gộp danh sách Kanji từ cả Thực tế và Kỷ lục Cloud
-        const allKnownKanjis = new Set([...Object.keys(liveMasteryMap), ...Object.keys(cloudArchiveMap)]);
-
-        for (const kanji of allKnownKanjis) {
-            const liveInt = liveMasteryMap[kanji];
-            const archInt = cloudArchiveMap[kanji] || 0;
-
-            if (liveInt !== undefined) {
-                // TRƯỜNG HỢP A: Chữ này vẫn đang có trong kho thẻ hiện tại
-                if (kanjiFailedMap[kanji]) {
-                    // 🚨 User vừa làm SAI: THI HÀNH LUẬT TỤT 1 HẠNG (Dựa trên kỷ lục cũ archInt)
-                    let penalizedInt = 1;
-                    
-                    if (archInt > 45) {
-                        penalizedInt = 45; // Đang Xanh lá (>45) -> Tụt xuống đỉnh Xanh dương (45)
-                    } else if (archInt > 20) {
-                        penalizedInt = 20; // Đang Xanh dương (21-45) -> Tụt xuống đỉnh Cam (20)
-                    } else if (archInt > 6) {
-                        penalizedInt = 6;  // Đang Cam (7-20) -> Tụt xuống đỉnh Đỏ (6)
-                    } else {
-                        penalizedInt = 1;  // Đang Đỏ (1-6) -> Về đáy (1)
-                    }
-
-                    // Lấy mức phạt, nhưng nếu điểm Live tình cờ cao hơn thì vẫn giữ Live
-                    const finalVal = Math.max(liveInt, penalizedInt);
-                    userKanjiMasteryMap[kanji] = finalVal; 
-                    
-                    // Phát hiện sự thay đổi so với Cloud -> Cần cập nhật
-                    if (finalVal !== archInt) needsCloudUpdate = true;
-                    
-                } else {
-                    // 🌟 Làm Đúng / Đang nhớ tốt: BẢO VỆ THÀNH TÍCH CAO NHẤT
-                    const finalVal = Math.max(liveInt, archInt);
-                    userKanjiMasteryMap[kanji] = finalVal;
-                    
-                    if (finalVal !== archInt) needsCloudUpdate = true;
-                }
-            } else {
-                // TRƯỜNG HỢP B: Thẻ chứa chữ này đã bị XÓA khỏi kho
-                // -> LẤY DỮ LIỆU TỪ CLOUD ĐỂ KHÔNG MẤT KANJI TRONG BỘ SƯU TẬP
-                userKanjiMasteryMap[kanji] = archInt;
-            }
-        }
-
-        // 2.5. LƯU NGẦM LÊN CLOUD NẾU CÓ SỰ THAY ĐỔI
-        if (needsCloudUpdate) {
-            sb.from('profiles')
-              .update({ kanji_mastery: userKanjiMasteryMap })
-              .eq('id', currentUser.id)
-              .then(({error}) => {
-                  if (error) console.error("Lỗi đồng bộ Kanji Archive lên Cloud:", error);
-              });
-        }
-
-        // Tính toán thống kê để hiển thị
         let unlockedCount = Object.keys(userKanjiMasteryMap).length;
 
         // Cập nhật thống kê số lượng lên giao diện
@@ -16802,7 +16724,23 @@ async function handleSendChatMessage() {
     // Lưu lại mảng ảnh hiện tại để xử lý, sau đó làm trống mảng chờ
     const imagesToSend = [...pendingImages];
     pendingImages = []; 
-    
+    // Restricting Vercel payload size to prevent 413 error (Max 3MB for images)
+    let totalPayloadSize = 0;
+    imagesToSend.forEach(img => {
+        totalPayloadSize += img.length; // Độ dài chuỗi base64 tương đương số bytes dữ liệu thô
+    });
+    const maxPayloadLimit = 3 * 1024 * 1024; // Giới hạn 3MB an toàn
+
+    if (totalPayloadSize > maxPayloadLimit) {
+        const loader = document.getElementById('aiLoadingBubble');
+        if (loader) loader.remove();
+        
+        // Khôi phục lại mảng ảnh chờ để người dùng không bị mất ảnh đã chọn
+        pendingImages = [...imagesToSend];
+        renderImagePreviews();
+        
+        return customAlert("Tổng dung lượng các bức ảnh vượt quá giới hạn 3MB của AI.<br>Vui lòng gỡ bớt ảnh hoặc chụp màn hình nhỏ hơn trước khi gửi!", "⚠️ Ảnh quá nặng", "warning");
+    }
     // Làm sạch UI ngay lập tức
     textarea.value = '';
     textarea.style.height = window.innerWidth <= 600 ? '28px' : '50px'; // Xẹp xuống đúng chuẩn thiết bị
@@ -17251,6 +17189,7 @@ async function confirmSaveQuizToDeck() {
 
         closeModal('saveAIQuizModal');
         showToast("Đã thêm câu hỏi trắc nghiệm! ✨");
+        triggerSilentBackgroundSync(); 
     } catch (err) {
         console.error("Lỗi lưu quiz:", err);
         customAlert("Lỗi: " + err.message, "❌");
@@ -17671,7 +17610,7 @@ async function confirmBulkSaveKanji() {
         } else {
             showToast(`🎉 Đã thêm thành công ${filterResult.validCards.length} thẻ!`);
         }
-        
+        triggerSilentBackgroundSync();
     } catch (err) {
         console.error("Lỗi Bulk Save:", err);
         customAlert("Không thể lưu: " + err.message, "❌");
@@ -20130,11 +20069,15 @@ function exitStudySession() {
     sessionStorage.removeItem('minddeck_prev_mode');
     sessionStorage.removeItem('minddeck_virtual_cards');
 
+    // Chốt chặn 3: Lưu ngầm nốt các thẻ còn lại nếu thoát giữa chừng
+    if (isMasteryMapDirty) {
+        saveMasteryToCloudSilent();
+    }
+
     if (currentDeckName === 'GLOBAL_REVIEW') {
         clearAssessmentStateFromLocal(); 
     }
     clearBoostStateFromLocal();
-
     if (currentDeckName === 'GLOBAL_REVIEW') {
         showDashboard();
     } else {
@@ -20425,92 +20368,7 @@ async function saveJLPTGoal() {
 }
 
 // 3. Hàm tính toán và Render Lộ trình (Đọc từ SUPABASE + Chốt sổ đầu ngày)
-// HÀM ĐỒNG BỘ KANJI NGẦM (GIẢI QUYẾT LỖI ĐÓNG BĂNG TIẾN ĐỘ)
-// Đã nâng cấp vòng lặp Pagination chống nghẽn dữ liệu
-async function syncKanjiMastery() {
-    if (!currentUser) return 0;
-    
-    // 🟢 THÊM MỚI: KIỂM TRA CACHE TRONG SESSION STORAGE
-    const cachedKanji = sessionStorage.getItem(`minddeck_kanji_cache_${currentUser.id}`);
-    if (cachedKanji) {
-        userKanjiMasteryMap = JSON.parse(cachedKanji);
-        console.log("MindDeck: Load Kanji từ Session Cache (0 KB)");
-        return Object.keys(userKanjiMasteryMap).length; // Dừng hàm, trả về số lượng
-    }
 
-    try {
-        let allProgressData = [];
-        let isFetching = true;
-        let fromIndex = 0;
-        const step = 999;
-
-        while (isFetching) {
-            const { data } = await sb.from('progress')
-                .select('interval, interval_count, cards!inner(front)')
-                .eq('user_id', currentUser.id)
-                .range(fromIndex, fromIndex + step);
-                
-            if (data && data.length > 0) {
-                allProgressData = allProgressData.concat(data);
-                fromIndex += (step + 1);
-            }
-            if (!data || data.length <= step) isFetching = false;
-        }
-
-        const { data: profile } = await sb.from('profiles').select('kanji_mastery').eq('id', currentUser.id).single();
-        let cloudArchive = profile?.kanji_mastery || {};
-        let liveMap = {};
-        let failedMap = {};
-
-        if (allProgressData.length > 0) {
-            allProgressData.forEach(p => {
-                const intv = p.interval || 0;
-                const count = p.interval_count || 0;
-                if (intv <= 0) return;
-                
-                const kMatches = (p.cards.front || "").match(/[\u4e00-\u9faf]/g) || [];
-                kMatches.forEach(k => {
-                    if (!liveMap[k] || liveMap[k] < intv) liveMap[k] = intv;
-                    if (count === 0) failedMap[k] = true;
-                });
-            });
-        }
-
-        let finalMap = {};
-        let changed = false;
-        const allKeys = new Set([...Object.keys(liveMap), ...Object.keys(cloudArchive)]);
-        
-        for (const k of allKeys) {
-            const lVal = liveMap[k];
-            const cVal = cloudArchive[k] || 0;
-            if (lVal !== undefined) {
-                if (failedMap[k]) {
-                    let pen = cVal > 45 ? 45 : (cVal > 20 ? 20 : (cVal > 6 ? 6 : 1));
-                    finalMap[k] = Math.max(lVal, pen);
-                } else {
-                    finalMap[k] = Math.max(lVal, cVal);
-                }
-                if (finalMap[k] !== cVal) changed = true;
-            } else {
-                finalMap[k] = cVal;
-            }
-        }
-
-        if (changed) {
-            await sb.from('profiles').update({ kanji_mastery: finalMap }).eq('id', currentUser.id);
-        }
-        
-        userKanjiMasteryMap = finalMap; // Gán ra biến toàn cục
-        
-        // 🟢 THÊM MỚI: LƯU KẾT QUẢ VÀO SESSION STORAGE
-        sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-        
-        return Object.keys(finalMap).length;
-    } catch (e) {
-        console.error("Lỗi đồng bộ Kanji:", e);
-        return 0;
-    }
-}
 async function renderRoadmapWidget() {
     const zone = document.getElementById('jlptRoadmapZone');
     if (!currentUser) return;
@@ -21453,16 +21311,100 @@ async function saveAdminKanjiBuilder() {
 /*Hết ================= HỆ THỐNG ADMIN: QUẢN LÝ KANJI BUILDER ================= */
 // Hàm làm mới hoàn toàn kho Kanji Pokedex
 async function refreshKanjiCollection() {
-    showLoading("Đang tải dữ liệu mới nhất từ Cloud...");
+    showLoading("Đang quét tiến trình chuyên sâu để sửa lỗi dữ liệu...");
     allKanjiData = []; 
     localStorage.removeItem('minddeck_kanji_dict'); 
-    
-    // 🟢 Xóa Session Cache để ép Full Scan
     sessionStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
     
-    await showKanjiCollection(true); 
-    hideLoading();
-    showToast("✅ Đã cập nhật Bộ sưu tập Kanji!");
+    try {
+        // Truyền tham số true để ép hệ thống tải và tính toán lại toàn bộ progress thô
+        await syncKanjiMastery(true); 
+        await showKanjiCollection(true); 
+        showToast("✅ Đã đồng bộ và phục hồi tiến trình thành công!");
+    } catch (e) {
+        console.error(e);
+        customAlert("Lỗi khi đồng bộ: " + e.message, "❌");
+    } finally {
+        hideLoading();
+    }
+}
+
+async function syncKanjiMastery(force = false) {
+    if (!currentUser) return 0;
+    
+    // Nếu không ép buộc quét thô, dùng thẳng Cache để tiết kiệm tài nguyên
+    if (!force) {
+        const cachedKanji = sessionStorage.getItem(`minddeck_kanji_cache_${currentUser.id}`);
+        if (cachedKanji) {
+            userKanjiMasteryMap = JSON.parse(cachedKanji);
+            return Object.keys(userKanjiMasteryMap).length;
+        }
+    }
+
+    try {
+        let allProgressData = [];
+        let isFetching = true;
+        let fromIndex = 0;
+        const step = 999;
+
+        while (isFetching) {
+            const { data } = await sb.from('progress')
+                .select('interval, interval_count, cards!inner(front)')
+                .eq('user_id', currentUser.id)
+                .range(fromIndex, fromIndex + step);
+                
+            if (data && data.length > 0) {
+                allProgressData = allProgressData.concat(data);
+                fromIndex += (step + 1);
+            }
+            if (!data || data.length <= step) isFetching = false;
+        }
+
+        const { data: profile } = await sb.from('profiles').select('kanji_mastery').eq('id', currentUser.id).single();
+        let cloudArchive = profile?.kanji_mastery || {};
+        let liveMap = {};
+        let failedMap = {};
+
+        if (allProgressData.length > 0) {
+            allProgressData.forEach(p => {
+                const intv = p.interval || 0;
+                const count = p.interval_count || 0;
+                if (intv <= 0) return;
+                
+                const kMatches = (p.cards.front || "").match(/[\u4e00-\u9faf]/g) || [];
+                kMatches.forEach(k => {
+                    if (!liveMap[k] || liveMap[k] < intv) liveMap[k] = intv;
+                    if (count === 0) failedMap[k] = true;
+                });
+            });
+        }
+
+        let finalMap = {};
+        const allKeys = new Set([...Object.keys(liveMap), ...Object.keys(cloudArchive)]);
+        
+        for (const k of allKeys) {
+            const lVal = liveMap[k];
+            const cVal = cloudArchive[k] || 0;
+            if (lVal !== undefined) {
+                if (failedMap[k]) {
+                    let pen = cVal > 45 ? 45 : (cVal > 20 ? 20 : (cVal > 6 ? 6 : 1));
+                    finalMap[k] = Math.max(lVal, pen);
+                } else {
+                    finalMap[k] = Math.max(lVal, cVal);
+                }
+            } else {
+                finalMap[k] = cVal;
+            }
+        }
+
+        await sb.from('profiles').update({ kanji_mastery: finalMap }).eq('id', currentUser.id);
+        userKanjiMasteryMap = finalMap;
+        sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+        return Object.keys(finalMap).length;
+    } catch (e) {
+        console.error("Lỗi đồng bộ Kanji thô:", e);
+        return 0;
+    }
 }
 // Hàm làm mới hoàn toàn kho Ngữ Pháp
 async function refreshGrammarCollection() {
@@ -22782,7 +22724,28 @@ function exitShadowingTheater() {
     theaterApp.destroy();
 }
 /* =================HẾT HỆ THỐNG SHADOWING THEATER (OOP ARCHITECTURE) ================= */
+// Hàm lưu ngầm bản đồ Kanji/Ngữ pháp lên Cloud một lần duy nhất
+async function saveMasteryToCloudSilent() {
+    if (!currentUser || !isMasteryMapDirty) return;
+    isMasteryMapDirty = false; // Tắt cờ sớm để chống race condition khi bấm spam
+    try {
+        await sb.from('profiles').update({
+            kanji_mastery: userKanjiMasteryMap,
+            grammar_mastery: userGrammarMasteryMap
+        }).eq('id', currentUser.id);
+        console.log("MindDeck: Đã đồng bộ ngầm bản đồ não bộ lên Cloud thành công.");
+    } catch (e) {
+        console.error("MindDeck: Đồng bộ ngầm thất bại:", e);
+        isMasteryMapDirty = true; // Trả lại cờ nếu lưu lỗi để chờ lần sau lưu lại
+    }
+}
 
+// Chốt chặn 2: Đánh chặn sự kiện ẩn trình duyệt/quẹt tab trên di động để lưu ngầm
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && isMasteryMapDirty) {
+        saveMasteryToCloudSilent();
+    }
+});
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
