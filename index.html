@@ -8746,29 +8746,11 @@ async function loadDashboardData() {
             }
         }
         
-        // 2. TẢI BẢN ĐỒ NĂNG LỰC & MỤC TIÊU TỪ CLOUD (1 dòng duy nhất)
-        const { data: profData } = await sb.from('profiles')
-            .select('kanji_mastery, grammar_mastery, study_goal')
-            .eq('id', currentUser.id)
-            .single();
-
-        if (profData) {
-            userKanjiMasteryMap = profData.kanji_mastery || {};
-            userGrammarMasteryMap = profData.grammar_mastery || {};
-            currentUser.study_goal = profData.study_goal; // Lưu vào RAM để dùng nhanh
-
-            // Lưu toàn bộ vào LocalStorage
-            localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-            localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
-            if (profData.study_goal) {
-                localStorage.setItem(`minddeck_study_goal_${currentUser.id}`, JSON.stringify(profData.study_goal));
-            } else {
-                localStorage.removeItem(`minddeck_study_goal_${currentUser.id}`);
-            }
-            sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
-        }
+        // 2. 🟢 ĐÃ LOẠI BỎ TRUY VẤN PROFILES TRÙNG LẶP:
+        // Toàn bộ dữ liệu (bản đồ tiến độ, mục tiêu study_goal) đã được nạp an toàn
+        // từ bộ nhớ đệm RAM / LocalStorage cục bộ do Auth Listener thiết lập trước đó!
         
-        // 3. 🟢 THIẾT LẬP THỨ TỰ AWAIT CHUẨN XÁC CHỐNG TRANH CHẤP LUỒNG
+        // 3. THIẾT LẬP THỨ TỰ AWAIT CHUẨN XÁC CHỐNG TRANH CHẤP LUỒNG
         await autoCleanRemedialCards(); // Chạy ngầm dọn rác (Đã tối ưu 24h)
         await renderJLPTProgress();     // Phải hoàn thành tải từ điển Kanji trước...
         refreshDiscovery();             // ... thì hàm bốc thăm này mới chạy chuẩn xác!
@@ -9086,7 +9068,7 @@ sb.auth.onAuthStateChange(async (event, session) => {
         currentUser = session.user;
         const avatarImg = currentUser.user_metadata.avatar_url || currentUser.user_metadata.picture || '';
         
-        // Cập nhật thông tin vào cuối Menu
+        // Cập nhật thông tin định danh UI
         document.getElementById('sideMenuAvatar').innerHTML = avatarImg ? `<img src="${avatarImg}">` : '👤';
         document.getElementById('sideMenuName').innerText = currentUser.user_metadata.full_name;
         document.getElementById('sideMenuEmail').innerText = currentUser.email;
@@ -9095,9 +9077,27 @@ sb.auth.onAuthStateChange(async (event, session) => {
         headerSearch.classList.remove('hidden'); 
         globalMenuBtn.classList.remove('hidden');
 
-        // ==========================================
-        // 🚀 THIẾT LẬP SINGLE SESSION (REALTIME)
-        // ==========================================
+        // ===================================================
+        // 🚀 TIẾN TRÌNH KHỞI TẠO AN TOÀN TUYỆT ĐỐI (EDGE-CASE BLOCKING)
+        // ===================================================
+        
+        // 1. Kiểm tra xem thiết bị này đã từng lưu cache tiến trình chưa
+        const hasLocalCache = localStorage.getItem(`minddeck_kanji_cache_${currentUser.id}`);
+
+        // 2. Nạp ngay cache cục bộ (nếu có) để chuẩn bị biến trong RAM
+        loadLocalUserDataCache();
+
+        // 3. Khởi chạy tiến trình đồng bộ ngầm và lấy về Promise quản lý mạng
+        const cloudSyncPromise = syncUserDataWithCloud();
+
+        // 4. CHỐT CHẶN: Nếu máy mới tinh (KHÔNG có cache), ép khóa màn hình đợi tải xong
+        if (!hasLocalCache) {
+            showLoading("Đang thiết lập tiến trình học tập... Vui lòng đợi!");
+            await cloudSyncPromise; // Ép đợi Supabase trả về bản đồ tiến trình gốc
+            hideLoading();
+        }
+
+        // Thiết lập Single Session
         setupSingleSessionProtection();
 
         if (!isAppInitialized) {
@@ -22609,6 +22609,51 @@ document.addEventListener('visibilitychange', () => {
         saveMasteryToCloudSilent();
     }
 });
+// 1. Hàm nạp ngay tiến trình từ LocalStorage (Tốc độ 0ms - Tuyệt đối an toàn)
+function loadLocalUserDataCache() {
+    if (!currentUser) return;
+    const cachedKanji = localStorage.getItem(`minddeck_kanji_cache_${currentUser.id}`);
+    const cachedGrammar = localStorage.getItem(`minddeck_grammar_cache_${currentUser.id}`);
+    const cachedGoal = localStorage.getItem(`minddeck_study_goal_${currentUser.id}`);
+
+    userKanjiMasteryMap = cachedKanji ? JSON.parse(cachedKanji) : {};
+    userGrammarMasteryMap = cachedGrammar ? JSON.parse(cachedGrammar) : {};
+    currentUser.study_goal = cachedGoal ? JSON.parse(cachedGoal) : null;
+}
+
+// 2. Hàm chạy đồng bộ ngầm với Supabase để cập nhật bản mới nhất (Không chặn UI)
+async function syncUserDataWithCloud() {
+    if (!currentUser) return;
+    try {
+        const { data: profData, error } = await sb.from('profiles')
+            .select('kanji_mastery, grammar_mastery, study_goal')
+            .eq('id', currentUser.id)
+            .single();
+
+        if (!error && profData) {
+            userKanjiMasteryMap = profData.kanji_mastery || {};
+            userGrammarMasteryMap = profData.grammar_mastery || {};
+            currentUser.study_goal = profData.study_goal;
+
+            // Ghi đè lại cache mới nhất
+            localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+            localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+            if (profData.study_goal) {
+                localStorage.setItem(`minddeck_study_goal_${currentUser.id}`, JSON.stringify(profData.study_goal));
+            } else {
+                localStorage.removeItem(`minddeck_study_goal_${currentUser.id}`);
+            }
+            
+            // Vẽ lại widget tiến độ trên Dashboard nếu người dùng đang ở trang Dashboard
+            if (!document.getElementById('dashboardPage').classList.contains('hidden')) {
+                renderJLPTProgress();
+                renderRoadmapWidget();
+            }
+        }
+    } catch (e) {
+        console.error("Lỗi đồng bộ ngầm khởi tạo:", e);
+    }
+}
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
