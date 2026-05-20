@@ -17984,10 +17984,19 @@ let currentOpenPdfId = null; // Lưu ID của file đang mở trong Database
 // ================= HỆ THỐNG INDEXED DB (LƯU PDF OFFLINE) =================
 const PDF_DB_NAME = 'AlcoholPdfStore';
 const PDF_STORE_NAME = 'recent_pdfs';
-const MAX_RECENT_FILES = 5; // Chỉ giữ lại 5 file gần nhất để tránh đầy bộ nhớ máy
+const MAX_RECENT_FILES = 5;
+
+// 🟢 BIẾN TOÀN CỤC LƯU TRỮ KẾT NỐI DUY NHẤT (SINGLETON)
+let pdfDbInstance = null;
 
 function initPdfDB() {
     return new Promise((resolve, reject) => {
+        // Nếu đã có kết nối đang mở -> Tái sử dụng ngay, không mở thêm kết nối mới
+        if (pdfDbInstance) {
+            resolve(pdfDbInstance);
+            return;
+        }
+
         const request = indexedDB.open(PDF_DB_NAME, 1);
         request.onupgradeneeded = (e) => {
             const db = e.target.result;
@@ -17995,7 +18004,10 @@ function initPdfDB() {
                 db.createObjectStore(PDF_STORE_NAME, { keyPath: 'id' });
             }
         };
-        request.onsuccess = () => resolve(request.result);
+        request.onsuccess = (e) => {
+            pdfDbInstance = e.target.result; // Lưu trữ kết nối vào RAM
+            resolve(pdfDbInstance);
+        };
         request.onerror = () => reject(request.error);
     });
 }
@@ -18290,10 +18302,19 @@ function onPdfNextPage() {
 }
 
 function closePDFReader() {
-    pdfDoc = null;
+    // 🟢 GIẢI PHÓNG BỘ NHỚ WEB WORKER & WebAssembly CỦA PDF.JS
+    if (pdfDoc) {
+        try {
+            pdfDoc.destroy(); // Lệnh hủy chuyên sâu của PDF.js
+        } catch (e) {
+            console.warn("Không thể giải phóng WebWorker PDF:", e);
+        }
+        pdfDoc = null;
+    }
+
     pageNum = 1;
     isPdfAutoFit = true;
-    currentOpenPdfId = null; // Xóa id đang mở
+    currentOpenPdfId = null; 
     
     document.getElementById('pdfUploadState').classList.remove('hidden');
     document.getElementById('pdfReadState').classList.add('hidden');
@@ -18302,21 +18323,19 @@ function closePDFReader() {
         pdfCtx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height); 
     }
 
-    // --- BẮT ĐẦU FIX DỌN DẸP DRAWING PDF ---
+    // Dọn dẹp hệ thống vẽ ghi chú
     const drawCanvas = document.getElementById('pdfDrawCanvas');
     if (drawCanvas) {
         const dCtx = drawCanvas.getContext('2d');
-        dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height); // Xóa sạch nét vẽ
-        drawCanvas.classList.remove('drawing-mode', 'tool-eraser'); // Tắt chế độ vẽ
+        dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+        drawCanvas.classList.remove('drawing-mode', 'tool-eraser'); 
     }
     
-    // Reset lại trạng thái công cụ (Pen, Highlighter...)
     currentDrawTool = null;
     isDrawing = false;
     document.querySelectorAll('.draw-tool-btn').forEach(b => b.classList.remove('active'));
-    // --- KẾT THÚC FIX ---
     
-    loadRecentPdfsUI(); // Tải lại danh sách gần đây
+    loadRecentPdfsUI(); // Tải lại danh sách
 }
 // ================= TÍNH NĂNG NHẢY NHANH TRANG BẤT KỲ =================
 function promptPageJump() {
