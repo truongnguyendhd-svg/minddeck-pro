@@ -12556,7 +12556,6 @@ async function confirmRenameDeck() {
 // Hết================= CÁC HÀM XỬ LÝ DROPDOWN DECK MENU =================
 
 function showNewForm(type, skipHash = false) {
-    // Ép cứng kiểu tạo thẻ là Flashcard, bỏ qua 'quiz'
     const finalType = 'flashcard';
     if (!skipHash) window.location.hash = `new/${finalType}`;
 
@@ -12575,6 +12574,13 @@ function showNewForm(type, skipHash = false) {
     if (visibilitySelect) visibilitySelect.value = 'false';
 
     document.getElementById('btnDeleteInForm').classList.add('hidden'); 
+
+    // CẢI TIẾN: Giải phóng bộ nhớ Wanakana trước khi xóa DOM
+    if (typeof wanakana !== 'undefined' && container) {
+        container.querySelectorAll('.f-reading').forEach(input => {
+            try { wanakana.unbind(input); } catch (e) { console.warn(e); }
+        });
+    }
 
     container.innerHTML = ''; 
     addNewRow(); 
@@ -12968,7 +12974,6 @@ async function deleteSingleRow(id) {
     const row = document.getElementById(`row-${id}`);
     const dbId = row.getAttribute('data-db-id');
 
-    // Xác nhận trước khi xóa
     const ok = await showConfirm(
         "Xóa thẻ này?", 
         dbId ? "Thẻ này đã tồn tại trên hệ thống. Bạn cần nhấn 'Lưu tất cả' để hoàn tất việc xóa vĩnh viễn." : "Xóa thẻ này khỏi danh sách?", 
@@ -12976,22 +12981,19 @@ async function deleteSingleRow(id) {
     );
 
     if (ok) {
-        hasUnsavedChanges = true; // Báo hiệu có thay đổi chưa lưu
+        hasUnsavedChanges = true; 
         if (dbId) {
-            // 1. Đưa ID vào danh sách chờ xóa (Để hàm saveFullDeck xử lý)
             if (!cardsToDelete.includes(dbId)) {
                 cardsToDelete.push(dbId);
             }
-            
-            /* 
-               Lưu ý: Chúng ta KHÔNG gọi API xóa ở đây nữa. 
-               Việc xóa sẽ được thực hiện một lần duy nhất khi nhấn "Lưu tất cả".
-               Điều này giúp người dùng có thể "Hủy" (Cancel) nếu lỡ tay xóa nhầm 
-               bằng cách thoát trang mà không nhấn Save.
-            */
         }
 
-        // 2. Xóa hàng khỏi giao diện ngay lập tức để người dùng thấy kết quả
+        // CẢI TIẾN: Unbind Wanakana của input này trước khi xóa nút khỏi DOM
+        const readingInput = row.querySelector('.f-reading');
+        if (typeof wanakana !== 'undefined' && readingInput) {
+            try { wanakana.unbind(readingInput); } catch (e) { console.warn(e); }
+        }
+
         row.style.opacity = '0';
         row.style.transform = 'translateX(20px)';
         setTimeout(() => {
@@ -13081,6 +13083,14 @@ function cancelRowEdit(id) {
 
 function renderCardsToForm(cards, isEditMode = true) { 
     const container = document.getElementById('cardRowsContainer'); 
+    
+    // CẢI TIẾN: Giải phóng bộ nhớ Wanakana trước khi xóa DOM
+    if (typeof wanakana !== 'undefined' && container) {
+        container.querySelectorAll('.f-reading').forEach(input => {
+            try { wanakana.unbind(input); } catch (e) { console.warn(e); }
+        });
+    }
+
     container.innerHTML = ''; 
     rowCount = 0; 
     cardsToDelete = []; 
@@ -13090,11 +13100,8 @@ function renderCardsToForm(cards, isEditMode = true) {
     } else {
         cards.forEach(c => { 
             if (isEditMode) {
-                // Chế độ Sửa (Edit): Đẩy nguyên object c (có chứa c.id) vào
                 addNewRow(c); 
             } else { 
-                // Chế độ Sao chép (Copy): Chỉ lấy nội dung, KHÔNG lấy ID
-                // Điều này giúp App xem đây là thẻ mới hoàn toàn
                 addNewRow({ front: c.front, back: c.back, info: c.info }); 
             } 
         });
