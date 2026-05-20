@@ -9197,23 +9197,37 @@ async function openDeckSelection(m, skipHash = false) {
 
         // 🟢 SẮP XẾP: Ghim thẻ Yêu Thích lên đầu
         if (decks) {
-            // Cải tiến: Sử dụng so khớp chứa chuỗi không phân biệt hoa thường để tránh lỗi lệch ký tự
-            const getDeckPriorityWeight = (id) => {
-                if (!id) return 4;
-                const lowerId = id.toLowerCase();
-                if (lowerId.includes(':favorites')) return 1; // Thẻ Yêu Thích luôn ở đầu
-                if (lowerId.includes(':remedial')) return 2;  // Remedial thứ hai
-                if (lowerId.includes(':ai_vault')) return 3;  // AI_Vault thứ ba
-                return 4;                                     // Các bộ học phần khác
+            // Bộ lọc kép: So khớp cả ID lẫn Tên hiển thị sau khi lọc sạch ký tự đặc biệt
+            const getDeckPriorityWeight = (deckObj) => {
+                if (!deckObj || !deckObj.id) return 4;
+                
+                const lowerId = deckObj.id.toLowerCase();
+                const lowerName = getCleanName(deckObj.id).toLowerCase();
+                
+                // 1. Thẻ Yêu Thích (Độ ưu tiên 1)
+                if (lowerId.includes(':favorites') || lowerName.includes('yêu thích')) {
+                    return 1;
+                }
+                // 2. Thẻ Remedial (Độ ưu tiên 2)
+                if (lowerId.includes(':remedial') || lowerName.includes('remedial')) {
+                    return 2;
+                }
+                // 3. Thẻ AI_Vault (Độ ưu tiên 3)
+                if (lowerId.includes(':ai_vault') || lowerName.includes('ai_vault')) {
+                    return 3;
+                }
+                
+                return 4; // Học phần thông thường
             };
 
             decks.sort((a, b) => {
-                const weightA = getDeckPriorityWeight(a.id);
-                const weightB = getDeckPriorityWeight(b.id);
+                const weightA = getDeckPriorityWeight(a);
+                const weightB = getDeckPriorityWeight(b);
                 
                 if (weightA !== weightB) {
-                    return weightA - weightB; 
+                    return weightA - weightB; // Ép xếp theo trọng số ưu tiên trước (1 -> 2 -> 3)
                 }
+                // Nếu cùng nhóm ưu tiên hoặc cùng là thẻ thường thì mới xét sort_order
                 return (a.sort_order || 0) - (b.sort_order || 0);
             });
         }
