@@ -13678,6 +13678,7 @@ async function smartImportExcel() {
 /* ================= GAME KANJI BUILDER (LOGIC CORE) ================= */
 async function getKanjiBuilderData(targetKanji) {
     try {
+        // Lấy dữ liệu Kanji chính (Có thể gọi DB vì cần data chuẩn xác nhất)
         const { data: targetData, error: err1 } = await sb.from('kanji_builder')
             .select('*')
             .eq('kanji', targetKanji)
@@ -13686,19 +13687,29 @@ async function getKanjiBuilderData(targetKanji) {
         if (err1 || !targetData) return null; 
 
         const correctPieces = targetData.components;
-
-        const { data: allData } = await sb.from('kanji_builder')
-            .select('components')
-            .neq('kanji', targetKanji)
-            .limit(20);
-
         let noisePieces = [];
-        if (allData) {
-            allData.forEach(item => {
-                item.components.forEach(piece => {
-                    if (!correctPieces.includes(piece)) noisePieces.push(piece);
-                });
+
+        // 🟢 ĐÃ VÁ LỖI BĂNG THÔNG: Lấy gạch nhiễu trực tiếp từ RAM (allKanjiData) thay vì gọi DB
+        if (allKanjiData && allKanjiData.length > 0) {
+            // Trộn ngẫu nhiên RAM và lấy 20 chữ để trích xuất bộ thủ
+            const randomKanjis = [...allKanjiData].sort(() => 0.5 - Math.random()).slice(0, 20);
+            randomKanjis.forEach(item => {
+                if (item.components && Array.isArray(item.components)) {
+                    item.components.forEach(piece => {
+                        if (!correctPieces.includes(piece)) noisePieces.push(piece);
+                    });
+                }
             });
+        } else {
+            // Backup phòng hờ nếu RAM chưa tải
+            const { data: fallbackData } = await sb.from('kanji_builder').select('components').neq('kanji', targetKanji).limit(20);
+            if (fallbackData) {
+                fallbackData.forEach(item => {
+                    item.components.forEach(piece => {
+                        if (!correctPieces.includes(piece)) noisePieces.push(piece);
+                    });
+                });
+            }
         }
 
         // Tự động tính toán để tổng số mảnh ghép (Đúng + Nhiễu) LUÔN BẰNG 10 (Lưới 5x2 hoàn hảo)
@@ -13709,7 +13720,7 @@ async function getKanjiBuilderData(targetKanji) {
 
         return {
             kanji: targetData.kanji,
-            meaning: targetData.meaning,           // <--- ĐÃ BỔ SUNG LẤY NGHĨA TỪ DB CHUNG
+            meaning: targetData.meaning,
             hv: targetData.hv,
             mnemonics: targetData.mnemonics,
             structure: targetData.structure_type,
@@ -17749,8 +17760,22 @@ async function executeAutoGrammarGen() {
             showToast(`🎉 Thành công! Đã bơm ${validGrammars.length} ngữ pháp mới vào Database.`);
         }
 
-        // Refresh lại giao diện kho ngữ pháp
-        await refreshGrammarCollection();
+        // 🟢 ĐÃ VÁ LỖI BĂNG THÔNG: Bơm thẳng data mới vào RAM và vẽ lại lưới, KHÔNG CẦN tải lại toàn bộ DB
+        globalGrammarData = [...globalGrammarData, ...validGrammars];
+        
+        // Sắp xếp lại theo Level (N5 -> N1) cho chuẩn
+        globalGrammarData.sort((a, b) => {
+            if (a.level === b.level) return 0;
+            return a.level > b.level ? -1 : 1; 
+        });
+
+        // Cập nhật lại Ổ cứng cục bộ
+        localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
+        
+        // Vẽ lại màn hình ngay lập tức
+        if (!document.getElementById('grammarPage').classList.contains('hidden')) {
+            renderGrammarGrid(globalGrammarData);
+        }
 
     } catch (err) {
         hideLoading();
@@ -22099,8 +22124,8 @@ async function triggerSilentBackgroundSync() {
         sessionStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
         sessionStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
         
-        // 🟢 THÊM DÒNG NÀY: Xóa cache đám mây Tag dính kèm tài khoản
-        localStorage.removeItem(`minddeck_thematic_tags_cache_${currentUser.id}`);
+        // 🟢 ĐÃ VÁ LỖI BĂNG THÔNG: TUYỆT ĐỐI KHÔNG XÓA CACHE ĐÁM MÂY TAG Ở ĐÂY NỮA
+        // Mây tag sẽ được update cục bộ khi tạo mới, không cần tải lại toàn bộ DB.
 
         Promise.all([
             syncKanjiMastery(),
