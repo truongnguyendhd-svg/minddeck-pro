@@ -9111,6 +9111,13 @@ async function logout() {
 
 /* ================= 5. CORE ================= */
 async function openDeckSelection(m, skipHash = false) {
+    // 1. CHỐT CHẶN: Kiểm tra đăng nhập ngay lập tức để tiết kiệm tài nguyên mạng
+    if (!currentUser) {
+        const list = document.getElementById('deckList');
+        if (list) list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Vui lòng đăng nhập để xem nội dung.</p>';
+        return;
+    }
+
     // Cập nhật URL Hash để phân biệt có đang ở trong thư mục hay không
     if (!skipHash) {
         window.location.hash = currentFolderId ? `decks/${m}/${currentFolderId}` : `decks/${m}`;
@@ -9120,8 +9127,12 @@ async function openDeckSelection(m, skipHash = false) {
 
     // Phục hồi tên thư mục nếu ấn F5 hoặc ấn Back từ trình duyệt
     if (currentFolderId && !currentFolderName) {
-        const { data } = await sb.from('folders').select('name').eq('id', currentFolderId).single();
-        if (data) currentFolderName = data.name;
+        try {
+            const { data } = await sb.from('folders').select('name').eq('id', currentFolderId).single();
+            if (data) currentFolderName = data.name;
+        } catch (e) {
+            console.error("Lỗi khôi phục tên thư mục:", e);
+        }
     }
 
     const labels = { 'review': 'Ôn tập hôm nay', 'cram': 'Học căn bản', 'test': 'Luyện đề thi', 'boost': 'Boost Mode' };
@@ -9140,11 +9151,6 @@ async function openDeckSelection(m, skipHash = false) {
     const type = m === 'test' ? 'quiz' : 'flashcard';
 
     try {
-        if (!currentUser) {
-            list.innerHTML = '<p style="text-align:center; grid-column:1/-1">Vui lòng đăng nhập để xem nội dung.</p>';
-            return;
-        }
-
         // =================================================================
         // 1. TẢI THƯ MỤC (CHỈ HIỂN THỊ, KHÔNG CÓ NÚT XÓA Ở MÀN HỌC TẬP)
         // =================================================================
@@ -9164,7 +9170,6 @@ async function openDeckSelection(m, skipHash = false) {
                 });
 
                 validFolders.forEach(f => {
-                    // ĐÃ XÓA: Nút <button class="folder-delete-btn"> ở đây
                     foldersHTML += `
                         <div class="folder-card" style="--book-color: ${f.color || '#3b82f6'};" onclick="openFolder('${f.id}', '${escapeHTML(f.name)}')">
                             <span class="material-symbols-outlined folder-icon">menu_book</span>
@@ -9175,7 +9180,9 @@ async function openDeckSelection(m, skipHash = false) {
             }
         }
 
-        // 2. TẢI BỘ BÀI (Lọc theo folder_id hiện tại và Sắp xếp theo sort_order)
+        // =================================================================
+        // 2. TẢI BỘ BÀI
+        // =================================================================
         let deckQuery = sb.from('decks')
             .select(`*, profiles:owner_id (full_name, avatar_url)`)
             .eq('type', type)
@@ -9195,27 +9202,17 @@ async function openDeckSelection(m, skipHash = false) {
 
         list.innerHTML = foldersHTML; // Nhét thư mục vào trước (nếu có)
 
-        // 🟢 SẮP XẾP: Ghim thẻ Yêu Thích lên đầu
+        // 🟢 SẮP XẾP ƯU TIÊN VÀ GIỮ THỨ TỰ THỜI GIAN DATABASE CHUẨN XÁC
         if (decks) {
-            // Bộ lọc kép: So khớp cả ID lẫn Tên hiển thị sau khi lọc sạch ký tự đặc biệt
             const getDeckPriorityWeight = (deckObj) => {
                 if (!deckObj || !deckObj.id) return 4;
                 
                 const lowerId = deckObj.id.toLowerCase();
                 const lowerName = getCleanName(deckObj.id).toLowerCase();
                 
-                // 1. Thẻ Yêu Thích (Độ ưu tiên 1)
-                if (lowerId.includes(':favorites') || lowerName.includes('yêu thích')) {
-                    return 1;
-                }
-                // 2. Thẻ Remedial (Độ ưu tiên 2)
-                if (lowerId.includes(':remedial') || lowerName.includes('remedial')) {
-                    return 2;
-                }
-                // 3. Thẻ AI_Vault (Độ ưu tiên 3)
-                if (lowerId.includes(':ai_vault') || lowerName.includes('ai_vault')) {
-                    return 3;
-                }
+                if (lowerId.includes(':favorites') || lowerName.includes('yêu thích')) return 1;
+                if (lowerId.includes(':remedial') || lowerName.includes('remedial')) return 2;
+                if (lowerId.includes(':ai_vault') || lowerName.includes('ai_vault')) return 3;
                 
                 return 4; // Học phần thông thường
             };
@@ -9225,10 +9222,20 @@ async function openDeckSelection(m, skipHash = false) {
                 const weightB = getDeckPriorityWeight(b);
                 
                 if (weightA !== weightB) {
-                    return weightA - weightB; // Ép xếp theo trọng số ưu tiên trước (1 -> 2 -> 3)
+                    return weightA - weightB; // Ghim nhóm 1, 2, 3 lên đầu
                 }
-                // Nếu cùng nhóm ưu tiên hoặc cùng là thẻ thường thì mới xét sort_order
-                return (a.sort_order || 0) - (b.sort_order || 0);
+
+                // Nếu cùng nhóm ưu tiên, so sánh theo sort_order
+                const sortA = a.sort_order || 0;
+                const sortB = b.sort_order || 0;
+                if (sortA !== sortB) {
+                    return sortA - sortB;
+                }
+
+                // 🟢 TỐI ƯU: Nếu trùng sort_order, xếp theo thời gian created_at mới nhất lên đầu
+                const timeA = new Date(a.created_at || 0).getTime();
+                const timeB = new Date(b.created_at || 0).getTime();
+                return timeB - timeA; 
             });
         }
 
@@ -9237,8 +9244,8 @@ async function openDeckSelection(m, skipHash = false) {
             return;
         }
 
-        // HÀM RENDER THẺ BỘ BÀI (Chỉ dùng để Học, không hiển thị chức năng quản lý)
-        const renderCard = (d, targetContainer, index, totalLength) => {
+        // Render bộ bài ra màn hình
+        decks.forEach((d, i) => {
             const isOwner = d.owner_id === currentUser.id;
             const isFavoriteDeck = d.id.endsWith(':Favorites');
             const cleanName = isFavoriteDeck ? "Thẻ Yêu Thích ⭐" : escapeHTML(getCleanName(d.id));
@@ -9247,36 +9254,32 @@ async function openDeckSelection(m, skipHash = false) {
             card.className = 'deck-card';
             card.onclick = () => loadCards(d.id);
 
-            // 🟢 TÔ MÀU VÀNG CHO THẺ YÊU THÍCH
             if (isFavoriteDeck) {
                 card.style.background = '#fffbeb';
                 card.style.borderColor = '#f59e0b';
-                card.style.borderTop = '4px solid #f59e0b'; // Thêm vạch viền trên cho đồng bộ
+                card.style.borderTop = '4px solid #f59e0b';
             }
 
             const authorName = d.profiles?.full_name || 'Ẩn danh';
             const authorAvatar = d.profiles?.avatar_url || 'https://emojicdn.elk.sh/👤?size=40';
 
             card.innerHTML = `
-                <!-- ĐÃ XÓA deck-status-badge ĐỂ CHỐNG TRỒNG LÊN ICON THẺ -->
                 <div class="deck-title">${cleanName}</div>
                 <div class="deck-creator">
                     <img src="${authorAvatar}" class="creator-avatar-mini" onerror="this.src='https://emojicdn.elk.sh/👤?size=40'">
                     <span class="creator-name">${isOwner ? 'Tôi' : authorName}</span>
                 </div>
             `;
-            targetContainer.appendChild(card);
-        };
-
-        // Render ra danh sách
-        decks.forEach((d, i) => renderCard(d, list, i, decks.length));
+            list.appendChild(card);
+        });
 
     } catch (err) {
-        console.error("Lỗi:", err);
+        console.error("Lỗi tải bộ chọn học phần:", err);
         list.innerHTML = '<p style="text-align:center; color:#e53e3e; grid-column:1/-1">Lỗi kết nối dữ liệu.</p>';
     }
-        const titles = { 'review': 'Ôn tập hôm nay', 'cram': 'Học căn bản', 'test': 'Luyện đề thi', 'boost': 'Boost Mode' };
-updateHeaderTitle(titles[m] || "CHỌN HỌC PHẦN");
+
+    const titles = { 'review': 'Ôn tập hôm nay', 'cram': 'Học căn bản', 'test': 'Luyện đề thi', 'boost': 'Boost Mode' };
+    updateHeaderTitle(titles[m] || "CHỌN HỌC PHẦN");
 }
 
 // 1. Biến toàn cục giúp Safari KHÔNG THỂ XÓA luồng âm thanh
@@ -12280,9 +12283,23 @@ async function renderManageDeckList() {
         list.innerHTML = addCardHTML;
 
         if (decks) {
+            const getDeckPriorityWeight = (deckObj) => {
+                if (!deckObj || !deckObj.id) return 4;
+                const lowerId = deckObj.id.toLowerCase();
+                
+                if (lowerId.endsWith(':favorites')) return 1;
+                if (lowerId.endsWith(':remedial'))  return 2;
+                if (lowerId.endsWith(':ai_vault'))  return 3;
+                return 4;
+            };
+
             decks.sort((a, b) => {
-                if (a.id.endsWith(':Favorites')) return -1;
-                if (b.id.endsWith(':Favorites')) return 1;
+                const weightA = getDeckPriorityWeight(a);
+                const weightB = getDeckPriorityWeight(b);
+                
+                if (weightA !== weightB) {
+                    return weightA - weightB; // Ưu tiên ghim theo thứ tự 1 -> 2 -> 3
+                }
                 return (a.sort_order || 0) - (b.sort_order || 0);
             });
         }
