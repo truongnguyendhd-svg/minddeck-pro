@@ -9147,31 +9147,32 @@ sb.auth.onAuthStateChange(async (event, session) => {
         
         // 1. Kiểm tra xem thiết bị này đã từng lưu cache tiến trình chưa
         // ===================================================
-        // 🛡️ BỘ LỌC KIỂM ĐỊNH CACHE NGHIÊM NGẶT (STRICT CACHE VALIDATION)
+        // 🛡️ BỘ LỌC KIỂM ĐỊNH CACHE TOÀN DIỆN (COMPREHENSIVE CACHE VALIDATION)
         // ===================================================
+        const userId = currentUser.id;
         let hasLocalCache = false;
-        try {
-            const rawCache = localStorage.getItem(`minddeck_kanji_cache_${currentUser.id}`);
-            if (rawCache) {
-                const parsedCache = JSON.parse(rawCache);
-                
-                // 1. Kiểm tra phải là Object hợp lệ (Không null, không phải mảng)
-                if (parsedCache && typeof parsedCache === 'object' && !Array.isArray(parsedCache)) {
-                    
-                    // 2. CHỐT CHẶN VÀNG: Nếu Object rỗng {}, coi như KHÔNG CÓ CACHE. 
-                    // Ép buộc tải lại từ Cloud để bảo vệ user cũ bị mất data cục bộ.
-                    if (Object.keys(parsedCache).length > 0) {
-                        hasLocalCache = true;
-                    } else {
-                        console.warn("MindDeck: Cache cục bộ trống rỗng. Ép buộc tải lại từ Cloud để đề phòng mất dữ liệu.");
-                    }
-                }
-            }
-        } catch (e) {
-            console.error("MindDeck: Phát hiện Cache bị hỏng (Corrupted JSON). Hệ thống sẽ tự chữa lành từ Cloud.", e);
-            // Xóa ngay cái cache rác này đi cho sạch ổ cứng
-            localStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
-            hasLocalCache = false;
+        
+        // 1. Đọc và tự động dọn dẹp các cache nếu phát hiện bị hỏng (Sử dụng hàm safeGetLocalCache)
+        const cachedKanji = safeGetLocalCache(`minddeck_kanji_cache_${userId}`, null);
+        const cachedGrammar = safeGetLocalCache(`minddeck_grammar_cache_${userId}`, null);
+        
+        // Đối với Goal và Stats, cho phép null nếu người dùng chưa từng thiết lập
+        const cachedGoal = safeGetLocalCache(`minddeck_study_goal_${userId}`, null);
+        const cachedStats = safeGetLocalCache(`minddeck_daily_stats_${userId}`, null);
+        
+        // 2. CHỐT CHẶN CHẮC CHẮN: Chỉ kích hoạt Cooldown (hasLocalCache = true) khi:
+        // - Cả Kanji và Ngữ pháp đều KHÔNG BỊ HỎNG (không null)
+        // - Cả hai đều KHÔNG PHẢI LÀ OBJECT RỖNG {}
+        if (
+            cachedKanji && typeof cachedKanji === 'object' && Object.keys(cachedKanji).length > 0 &&
+            cachedGrammar && typeof cachedGrammar === 'object' && Object.keys(cachedGrammar).length > 0
+        ) {
+            hasLocalCache = true;
+            console.log("MindDeck: 🛡️ Cache toàn cục an toàn. Kích hoạt bộ lọc Cooldown 60s.");
+        } else {
+            // Nếu một trong hai bị hỏng/mất dữ liệu, ta ép hệ thống tải lại toàn bộ từ Cloud để "chữa lành"
+            console.warn("MindDeck: Phát hiện thiếu hụt tiến trình hoặc cache hỏng. Ép buộc đồng bộ từ Cloud để chữa lành...");
+            hasLocalCache = false; 
         }
 
         // 2. Nạp ngay cache cục bộ (nếu có) để chuẩn bị các biến tiến trình trong RAM
