@@ -19488,34 +19488,33 @@ async function processBatchAssessmentResults() {
 
 // HÀM MỚI: TỰ ĐỘNG ĐƯA THẺ SAI VÀO BỘ BÀI "HỔNG KIẾN THỨC"
 async function saveToRemedialDeck(wrongCardsArray) {
-    if (!currentUser) return;
+    if (!currentUser || !wrongCardsArray || wrongCardsArray.length === 0) return;
     const remedialDeckId = `${currentUser.id}:Remedial`;
 
     try {
-        // Kiểm tra và tạo bộ bài nếu chưa có
+        // 1. Kiểm tra và tạo bộ bài Remedial nếu chưa có
         const { data: deckCheck } = await sb.from('decks').select('id').eq('id', remedialDeckId).single();
         if (!deckCheck) {
             await sb.from('decks').insert([{
-                id: remedialDeckId, owner_id: currentUser.id, type: 'flashcard', is_public: false, sort_order: -9998
+                id: remedialDeckId, 
+                owner_id: currentUser.id, 
+                type: 'flashcard', 
+                is_public: false, 
+                sort_order: -9998
             }]);
         }
 
-        // Lấy thẻ hiện có để chống trùng
-        const { data: existingFavs } = await sb.from('cards').select('front').eq('deck_id', remedialDeckId);
-        const existingFronts = new Set(existingFavs ? existingFavs.map(c => c.front) : []);
+        // 2. Không lọc trùng: Đóng gói thẳng toàn bộ các thẻ làm sai thành mảng
+        const cardsToInsert = wrongCardsArray.map(c => ({
+            deck_id: remedialDeckId, 
+            front: c.front, 
+            back: c.back, 
+            info: c.info
+        }));
 
-        const cardsToInsert = [];
-        wrongCardsArray.forEach(c => {
-            if (!existingFronts.has(c.front)) {
-                cardsToInsert.push({
-                    deck_id: remedialDeckId, front: c.front, back: c.back, info: c.info
-                });
-            }
-        });
-
-        if (cardsToInsert.length > 0) {
-            await sb.from('cards').insert(cardsToInsert);
-        }
+        // 3. Đẩy thẳng lên Cloud bằng 1 lệnh duy nhất
+        await sb.from('cards').insert(cardsToInsert);
+        
     } catch (e) {
         console.error("Lỗi lưu thẻ Hổng kiến thức:", e);
     }
