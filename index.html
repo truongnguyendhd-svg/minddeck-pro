@@ -9239,27 +9239,54 @@ async function setupSingleSessionProtection() {
 
 // Cập nhật hàm thực thi đăng xuất cưỡng chế
 async function handleForcedLogout() {
-    showLoading("Tài khoản đang được kết nối từ thiết bị khác...");
+    // 1. KIỂM TRA TRẠNG THÁI ĐANG LÀM VIỆC DỞ DANG (ĐÓNG BĂNG GIAO DIỆN)
+    const hasAssessmentSave = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
+    const hasBoostSave = localStorage.getItem(`minddeck_boost_save_${currentUser.id}`);
     
-    // Vá khe hở cuối cùng: Dọn sạch mọi file Auto-save dở dang của máy bị đá văng
-    localStorage.removeItem(`minddeck_assessment_save_${currentUser.id}`);
-    localStorage.removeItem(`minddeck_boost_save_${currentUser.id}`);
-    
-    // 🟢 BỔ SUNG: Xóa mã phiên làm việc cá nhân của thiết bị bị đá
-    if (currentUser) {
-        localStorage.removeItem(`current_session_id_${currentUser.id}`);
+    if (hasUnsavedChanges || hasAssessmentSave || hasBoostSave) {
+        if (realtimeSessionChannel) {
+            sb.removeChannel(realtimeSessionChannel);
+            realtimeSessionChannel = null;
+        }
+
+        customAlert(
+            `Tài khoản của bạn vừa được kết nối ở một thiết bị khác.<br><br>
+            ⚠️ <b>HỆ THỐNG ĐÃ ĐÓNG BĂNG AN TOÀN:</b><br>
+            - Dữ liệu đang gõ dở hoặc bài Sát hạch của bạn <b>đã được giữ lại trong máy</b>.<br>
+            - Hãy bôi đen copy lại nội dung đang gõ (nếu có).<br><br>
+            Sau đó, hãy <b>F5 tải lại trang</b> để đăng nhập lại và đồng bộ tiếp tục.`,
+            "⚠️ XUNG ĐỘT PHIÊN ĐĂNG NHẬP",
+            "error"
+        );
+
+        window.saveFullDeck = () => customAlert("Phiên đăng nhập đã bị ngắt. Vui lòng copy văn bản và F5 để đăng nhập lại.", "❌");
+        return; 
     }
 
+    // 2. NẾU MÁY ĐANG RẢNH (TIẾN HÀNH ĐÁ VĂNG NHƯNG GIỮ LẠI CACHE HỌC TẬP)
+    showLoading("Tài khoản đang được kết nối từ thiết bị khác...");
+    
+    // Ngắt kênh lắng nghe Realtime
     if (realtimeSessionChannel) {
         sb.removeChannel(realtimeSessionChannel);
         realtimeSessionChannel = null;
     }
 
-    await sb.auth.signOut();
+    // 🟢 ĐÂY LÀ PHÉP MÀU TỐI ƯU CỦA BẠN:
+    // Tuyệt đối KHÔNG xóa các file cache học tập nặng (Kanji, Ngữ pháp, Học phần)
+    // Chỉ xóa duy nhất Session ID của máy này
+    if (currentUser) {
+        localStorage.removeItem(`current_session_id_${currentUser.id}`);
+    }
+
+    // Gọi lệnh signOut của Supabase để HỦY BỎ Token đăng nhập trên trình duyệt này
+    // Trình duyệt sẽ tự động mất quyền truy cập API của Supabase
+    await sb.auth.signOut(); 
+    
     hideLoading();
 
     customAlert(
-        "Tài khoản của bạn vừa đăng nhập ở một thiết bị hoặc trình duyệt khác. Thiết bị này đã tự động đăng xuất và dọn dẹp tiến trình để bảo vệ an toàn dữ liệu.",
+        "Tài khoản của bạn vừa đăng nhập ở một thiết bị khác. Thiết bị này đã tự động đăng xuất để bảo vệ quyền truy cập.",
         "⚠️ ĐĂNG NHẬP THIẾT BỊ KHÁC",
         "warning"
     );
@@ -9267,7 +9294,7 @@ async function handleForcedLogout() {
     setTimeout(() => {
         closeModal('customAlert');
         window.location.hash = '';
-        window.location.reload();
+        window.location.reload(); // Tải lại trang đưa về màn hình Login
     }, 4000);
 }
 async function login() { 
@@ -9293,27 +9320,40 @@ async function login() {
     }
 }
 async function logout() { 
+    // 1. KIỂM TRA DỮ LIỆU CHƯA LƯU TRƯỚC KHI ĐĂNG XUẤT
+    const hasAssessmentSave = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
+    const hasBoostSave = localStorage.getItem(`minddeck_boost_save_${currentUser.id}`);
+    
+    // Nếu đang tạo thẻ dở dang hoặc có game/sát hạch chưa đồng bộ
+    if (hasUnsavedChanges || hasAssessmentSave || hasBoostSave) {
+        const ok = await showConfirm(
+            "Cảnh báo mất dữ liệu",
+            "Bạn đang có tiến trình học hoặc thẻ bài chưa được lưu. Nếu đăng xuất bây giờ, các dữ liệu tạm này sẽ bị mất. Bạn vẫn muốn đăng xuất?",
+            "Vẫn đăng xuất",
+            "Ở lại"
+        );
+        if (!ok) return; // Hủy đăng xuất nếu người dùng đổi ý
+    }
+
+    // 2. TIẾN HÀNH ĐĂNG XUẤT VÀ DỌN RÁC
     showLoading("Đang đăng xuất..."); 
     if (currentUser) {
         const userId = currentUser.id;
         
-        // 1. Xóa tiến trình học tập cá nhân (Kanji & Ngữ pháp)
+        // Xóa tiến trình học tập cá nhân (Kanji & Ngữ pháp)
         localStorage.removeItem(`minddeck_kanji_cache_${userId}`);
         localStorage.removeItem(`minddeck_grammar_cache_${userId}`);
         
-        // 2. Xóa thông tin bổ sung, mục tiêu thi và danh sách học phần cache
+        // Xóa thông tin bổ sung, mục tiêu thi và danh sách học phần cache
         localStorage.removeItem(`minddeck_decks_cache_${userId}`);
         localStorage.removeItem(`minddeck_study_goal_${userId}`);
         
-        // 3. Xóa các tệp lưu nháp dở dang của game (Sát hạch & Boost Mode)
+        // Xóa các tệp lưu nháp dở dang của game (Sát hạch & Boost Mode)
         localStorage.removeItem(`minddeck_assessment_save_${userId}`);
         localStorage.removeItem(`minddeck_boost_save_${userId}`);
         
-        // 4. Xóa mã phiên làm việc duy nhất của thiết bị
+        // Xóa mã phiên làm việc duy nhất của thiết bị
         localStorage.removeItem(`current_session_id_${userId}`);
-        
-        // 🟢 TUYỆT ĐỐI KHÔNG xóa dữ liệu chốt sổ trên Cloud 
-        // để bảo toàn mốc chốt sổ đầu ngày khi người dùng đăng nhập lại.
     }
     
     await sb.auth.signOut(); 
