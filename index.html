@@ -20243,24 +20243,29 @@ async function renderRoadmapWidget() {
     if (!currentUser) return;
 
     try {
-        // Ưu tiên lấy study_goal từ RAM hoặc LocalStorage offline
+        // 1. ĐỌC MỤC TIÊU JLPT TỪ BỘ NHỚ RAM (Đã được kéo từ Cloud về khi đăng nhập)
         let goal = currentUser.study_goal;
         if (!goal) {
             const cachedGoal = localStorage.getItem(`minddeck_study_goal_${currentUser.id}`);
             if (cachedGoal) {
-                goal = JSON.parse(cachedGoal);
-                currentUser.study_goal = goal; // Nạp lại vào RAM
+                try {
+                    goal = JSON.parse(cachedGoal);
+                    currentUser.study_goal = goal; // Nạp lại vào RAM
+                } catch (e) {
+                    console.error("Lỗi parse goal cache:", e);
+                }
             }
         }
 
+        // Nếu người dùng hoàn toàn chưa từng lập mục tiêu
         if (!goal) {
             zone.innerHTML = `
-                <div class="roadmap-widget">
+                <div class="roadmap-widget" style="animation: fadeInChat 0.3s ease;">
                     <div class="roadmap-empty-state">
                         <span class="material-symbols-outlined" style="font-size: 48px; color: #a0aec0; margin-bottom: 10px;">calendar_month</span>
                         <h3 style="margin: 0 0 10px 0; color: #1d1d1f; font-size: 18px;">Bạn sẽ thi JLPT vào lúc nào?</h3>
                         <p style="margin: 0 0 20px 0; color: #718096; font-size: 14px;">Hãy thiết lập mục tiêu, hệ thống sẽ tự chia nhỏ số lượng Từ vựng / Ngữ pháp cần học mỗi ngày giúp bạn.</p>
-                        <button onclick="openJLPTGoalModal()" class="win11-btn-primary" style="padding: 12px 24px; font-size: 15px; display: inline-flex; align-items: center; gap: 8px;">
+                        <button onclick="openJLPTGoalModal()" class="win11-btn-primary" style="padding: 12px 24px; font-size: 15px; display: inline-flex; align-items: center; gap: 8px; border: none; border-radius: 6px;">
                             <span class="material-symbols-outlined" style="font-size: 18px;">flag</span> THIẾT LẬP MỤC TIÊU NGAY
                         </button>
                     </div>
@@ -20269,78 +20274,73 @@ async function renderRoadmapWidget() {
             return;
         }
 
+        // 2. TÍNH CHÍNH XÁC SỐ NGÀY CÒN LẠI (RESET GIỜ VỀ NỬA ĐÊM ĐỂ CHỐNG LỆCH PHÚT)
         const targetDate = new Date(goal.target_date);
         const today = new Date();
-        const diffTime = Math.abs(targetDate - today);
+        const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const targetMidnight = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+        const diffTime = targetMidnight - todayMidnight;
         const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         
-        if (daysLeft <= 0 || targetDate < today) {
-            zone.innerHTML = `<div class="roadmap-widget"><div class="roadmap-empty-state"><h3 style="color:#10b981;">🎉 Hôm nay là ngày thi JLPT! Chúc bạn làm bài tốt!</h3><button onclick="openJLPTGoalModal()" class="win11-btn-secondary" style="margin: 15px auto 0 auto;">Tạo lộ trình mới</button></div></div>`;
+        // Nếu đã đến ngày thi hoặc trôi qua
+        if (daysLeft <= 0) {
+            zone.innerHTML = `
+                <div class="roadmap-widget">
+                    <div class="roadmap-empty-state">
+                        <span class="material-symbols-outlined" style="font-size: 48px; color: #10b981; margin-bottom: 10px;">military_tech</span>
+                        <h3 style="color:#10b981; margin: 0 0 10px 0; font-size: 18px;">🎉 Hôm nay là ngày thi JLPT!</h3>
+                        <p style="margin: 0 0 20px 0; color: #4a5568; font-size: 14px;">Chúc bạn làm bài thi thật tốt và đạt kết quả cao!</p>
+                        <button onclick="openJLPTGoalModal()" class="win11-btn-secondary" style="margin: 0 auto; border-radius: 6px;">Lập lộ trình mới</button>
+                    </div>
+                </div>
+            `;
             return;
         }
 
         const quota = JLPT_QUOTA[goal.level];
-        
-        // --- 1. LẤY TỔNG SỐ LƯỢNG THỰC TẾ HIỆN TẠI ---
+        if (!quota) return;
+
+        // 3. TẢI TỔNG LƯỢNG TIẾN TRÌNH THỰC TẾ HIỆN TẠI (Dùng HEAD Request siêu nhẹ)
         const { count: vocabStudiedCount } = await sb.from('progress')
             .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
             .eq('user_id', currentUser.id)
             .eq('cards.decks.type', 'flashcard');
             
-        // 🟢 CẬP NHẬT: TIẾT KIỆM BĂNG THÔNG CHO DASHBOARD
-        // Nếu user vừa làm bài test xong, bỏ qua bước quét toàn bộ Kanji/Ngữ pháp (Giữ nguyên RAM)
-        const skipFullScan = sessionStorage.getItem(`minddeck_skip_full_scan_${currentUser.id}`);
-        let grammarCount = Object.keys(userGrammarMasteryMap).length; // Lấy từ RAM
-        let kanjiCount = Object.keys(userKanjiMasteryMap).length;     // Lấy từ RAM
+        const grammarCount = Object.keys(userGrammarMasteryMap).length;
+        const kanjiCount = Object.keys(userKanjiMasteryMap).length;
+
+        // 4. XỬ LÝ QUY HOẠCH CHỐT SỔ TỪ CLOUD (daily_stats)
+        const stats = currentUser.daily_stats || {};
         
-        if (skipFullScan === 'true') {
-            console.log("MindDeck: Bỏ qua Full Scan tiết kiệm băng thông!");
-            sessionStorage.removeItem(`minddeck_skip_full_scan_${currentUser.id}`); // Xóa cờ để lần F5 tiếp theo vẫn quét bình thường
-        } else {
-            // Nếu không có cờ (Vào app lần đầu, hoặc F5) -> Chạy quét toàn bộ
-            await calculateGrammarMastery(); 
-            grammarCount = Object.keys(userGrammarMasteryMap).length;
-            kanjiCount = await syncKanjiMastery();
+        // Định dạng YYYY-MM-DD theo múi giờ địa phương của thiết bị người dùng
+        const offset = today.getTimezoneOffset();
+        const localToday = new Date(today.getTime() - (offset * 60 * 1000));
+        const todayStr = localToday.toISOString().split('T')[0];
+
+        let snapshotVocab = vocabStudiedCount || 0;
+        let snapshotGrammar = grammarCount || 0;
+        let snapshotKanji = kanjiCount || 0;
+
+        // Nếu ngày chốt sổ trên Cloud trùng khớp với hôm nay -> Sử dụng mốc chốt đầu ngày
+        if (stats.last_snapshot_date === todayStr) {
+            snapshotVocab = stats.vocab_snapshot || 0;
+            snapshotGrammar = stats.grammar_snapshot || 0;
+            snapshotKanji = stats.kanji_snapshot || 0;
         }
 
-        // ========================================================
-        // 🟢 THUẬT TOÁN MỚI: CHỐT SỔ ĐẦU NGÀY (DAILY SNAPSHOT)
-        // ========================================================
-        const todayStr = new Date().toLocaleDateString();
-        let dailySnapshot = JSON.parse(localStorage.getItem(`minddeck_snapshot_${currentUser.id}`)) || {};
-        
-        // Nếu qua ngày mới, hoặc chưa có sổ -> Chốt sổ lưu lại số dư đầu ngày
-        if (dailySnapshot.date !== todayStr) {
-            
-            const prevVocab = dailySnapshot.vocab || 0;
-            const prevGrammar = dailySnapshot.grammar || 0;
-            const prevKanji = dailySnapshot.kanji || 0;
-        
-            dailySnapshot = {
-                date: todayStr,
-                // 🟢 ĐÃ SỬA: Dùng !vocabStudiedCount để bắt trọn cả lỗi trả về 0, null, hoặc undefined
-                vocab:   (!vocabStudiedCount && prevVocab > 0) ? prevVocab : (vocabStudiedCount || 0),
-                grammar: (!grammarCount && prevGrammar > 0)    ? prevGrammar : (grammarCount || 0),
-                kanji:   (!kanjiCount && prevKanji > 0)        ? prevKanji : (kanjiCount || 0)
-            };
-            localStorage.setItem(`minddeck_snapshot_${currentUser.id}`, JSON.stringify(dailySnapshot));
-        }
+        // 5. TÍNH MỤC TIÊU HÔM NAY (Mục tiêu = Lượng còn thiếu / Số ngày còn lại)
+        const targetVocabToday = Math.max(0, Math.ceil((quota.vocab - snapshotVocab) / daysLeft));
+        const targetGrammarToday = Math.max(0, Math.ceil((quota.grammar - snapshotGrammar) / daysLeft));
+        const targetKanjiToday = Math.max(0, Math.ceil((quota.kanji - snapshotKanji) / daysLeft));
 
-        // --- 2. TÍNH MỤC TIÊU CẦN LÀM TRONG HÔM NAY (Dựa trên số dư ĐẦU NGÀY) ---
-        const targetVocabToday = Math.max(0, Math.ceil((quota.vocab - dailySnapshot.vocab) / daysLeft));
-        const targetGrammarToday = Math.max(0, Math.ceil((quota.grammar - dailySnapshot.grammar) / daysLeft));
-        const targetKanjiToday = Math.max(0, Math.ceil((quota.kanji - dailySnapshot.kanji) / daysLeft));
+        // 6. TÍNH SỐ LƯỢNG ĐÃ HOÀN THÀNH TRONG NGÀY (Thực tế hiện tại - Mốc chốt sổ)
+        const doneVocabToday = Math.max(0, (vocabStudiedCount || 0) - snapshotVocab);
+        const doneGrammarToday = Math.max(0, grammarCount - snapshotGrammar);
+        const doneKanjiToday = Math.max(0, kanjiCount - snapshotKanji);
 
-        // --- 3. TÍNH TIẾN ĐỘ ĐÃ LÀM ĐƯỢC TRONG HÔM NAY ---
-        const doneVocabToday = Math.max(0, (vocabStudiedCount || 0) - dailySnapshot.vocab);
-        const doneGrammarToday = Math.max(0, (grammarCount || 0) - dailySnapshot.grammar);
-        const doneKanjiToday = Math.max(0, (kanjiCount || 0) - dailySnapshot.kanji);
-
-        // --- VẼ UI CHECKLIST (BẢN UPDATE CLICKABLE) ---
+        // 7. HÀM PHỤ TRỢ DỰNG CARD CHECKLIST
         const buildChecklistItem = (label, targetToday, doneToday, currentTotal, quotaTotal, type, targetLevel) => {
-            // Điều kiện hoàn thành: Làm đủ target hôm nay, HOẶC đã học max tổng quota
             const isDone = (targetToday > 0 && doneToday >= targetToday) || (currentTotal >= quotaTotal);
-            
             return `
                 <div class="checklist-item ${isDone ? 'done' : ''}" onclick="navigateFromRoadmap('${type}', '${targetLevel}')">
                     <div class="check-icon-box"><span class="material-symbols-outlined" style="font-size: 16px;">check</span></div>
@@ -20349,26 +20349,26 @@ async function renderRoadmapWidget() {
                         <p style="font-size: 12px; margin-bottom: 2px;">Hôm nay đã nạp: <b style="color: ${isDone ? '#10b981' : '#d97706'};">${doneToday} / ${targetToday}</b></p>
                         <p style="font-size: 11px; opacity: 0.7;">Tổng kết: ${currentTotal || 0} / ${quotaTotal}</p>
                     </div>
-                    <!-- Mũi tên điều hướng -->
+                    <!-- Mũi tên chỉ hướng điều hướng của Apple -->
                     <span class="material-symbols-outlined checklist-action-icon" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: #cbd5e0; transition: 0.2s; font-size: 24px;">chevron_right</span>
                 </div>
             `;
         };
 
+        // 8. ĐỔ TOÀN BỘ HTML RA GIAO DIỆN
         zone.innerHTML = `
-            <div class="roadmap-widget">
-                <div class="roadmap-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #e2e8f0; padding-bottom: 15px; margin-bottom: 20px;">
+            <div class="roadmap-widget" style="animation: fadeInChat 0.3s ease;">
+                <div class="roadmap-header">
                     
-                    <!-- CỘT TRÁI: Tiêu đề và Nút Đổi mục tiêu -->
+                    <!-- CỘT TRÁI: Tiêu đề & Nút đổi mục tiêu -->
                     <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px;">
-                        <div class="roadmap-title" style="margin: 0;">
+                        <div class="roadmap-title" style="margin: 0; font-size: 18px; font-weight: 900; color: #1d1d1f; display: flex; align-items: center; gap: 8px;">
                             <span class="material-symbols-outlined" style="color: #0067c0;">rocket_launch</span> LỘ TRÌNH ĐẾN ${goal.level}
                         </div>
                         
-                        <!-- Đã đổi thành Nút màu Xám nhạt, chữ xám, viền mảnh -->
                         <button onclick="openJLPTGoalModal()" style="
                             margin-left: 32px; 
-                            background: #f8fafc; 
+                            background: #f1f5f9; 
                             color: #64748b; 
                             border: 1px solid #e2e8f0; 
                             padding: 4px 12px; 
@@ -20380,12 +20380,12 @@ async function renderRoadmapWidget() {
                             gap: 4px; 
                             cursor: pointer; 
                             transition: all 0.2s ease;
-                        " onmouseover="this.style.background='#e2e8f0'; this.style.color='#1d1d1f';" onmouseout="this.style.background='#f8fafc'; this.style.color='#64748b';">
+                        " onmouseover="this.style.background='#e2e8f0'; this.style.color='#1d1d1f';" onmouseout="this.style.background='#f1f5f9'; this.style.color='#64748b';">
                             <span class="material-symbols-outlined" style="font-size: 14px;">edit</span> Đổi mục tiêu
                         </button>
                     </div>
 
-                    <!-- CỘT PHẢI: Vòng tròn đếm ngược -->
+                    <!-- CỘT PHẢI: Vòng tròn đếm ngược chuẩn Apple -->
                     <div style="
                         width: 75px; 
                         height: 75px; 
@@ -20397,38 +20397,49 @@ async function renderRoadmapWidget() {
                         align-items: center; 
                         justify-content: center; 
                         color: #c50f1f; 
-                        box-shadow: 0 4px 15px rgba(197, 15, 31, 0.15);
+                        box-shadow: 0 4px 15px rgba(197, 15, 31, 0.12);
                         animation: pulse-red 2s infinite;
                         flex-shrink: 0;
                     ">
-                        <span style="font-size: 10px; font-weight: 800; letter-spacing: 0.5px; opacity: 0.8; margin-bottom: -2px;">CÒN</span>
+                        <span style="font-size: 9px; font-weight: 800; letter-spacing: 0.5px; opacity: 0.8; margin-bottom: -2px;">CÒN</span>
                         <span style="font-size: 26px; font-weight: 900; line-height: 1;">${daysLeft}</span>
-                        <span style="font-size: 10px; font-weight: 800; letter-spacing: 0.5px; opacity: 0.8; margin-top: 1px;">NGÀY</span>
+                        <span style="font-size: 9px; font-weight: 800; letter-spacing: 0.5px; opacity: 0.8; margin-top: 1px;">NGÀY</span>
                     </div>
                 </div>
                 
-                <div style="font-size: 14px; color: #4a4a4a; margin-bottom: 15px; font-weight: 500;">Nhiệm vụ hôm nay của bạn:</div>
+                <div style="font-size: 14px; color: #4a5568; margin-bottom: 15px; font-weight: 700; text-align: left;">Nhiệm vụ hôm nay của bạn:</div>
                 
-                <!-- TRUYỀN THÊM LOẠI TASK (type) VÀ LEVEL JLPT VÀO HÀM RENDER -->
                 <div class="checklist-grid">
                     ${buildChecklistItem('Từ vựng', targetVocabToday, doneVocabToday, vocabStudiedCount, quota.vocab, 'vocab', goal.level)}
                     ${buildChecklistItem('Ngữ pháp', targetGrammarToday, doneGrammarToday, grammarCount, quota.grammar, 'grammar', goal.level)}
                     ${buildChecklistItem('Chữ Kanji', targetKanjiToday, doneKanjiToday, kanjiCount, quota.kanji, 'kanji', goal.level)}
                 </div>
                 
+                <!-- 9. PHẦN HIỂN THỊ NÚT BÀI HỌC ĐỌC HIỂU DOKKAI AI (Nếu chưa xong mục tiêu) -->
                 ${(targetVocabToday > 0 || targetGrammarToday > 0 || targetKanjiToday > 0) ? `
                     <div style="margin-top: 20px; border-top: 1px dashed #e2e8f0; padding-top: 15px;">
-                        <button onclick="generateDailyStoryWithAI()" class="btn-apple-glass-primary">
+                        <button onclick="generateDailyStoryWithAI()" class="btn-apple-glass-primary" style="width: 100%; border-radius: 50px;">
                             <span class="material-symbols-outlined" style="font-size: 22px; background: linear-gradient(135deg, #a8c0ff, #ff8a00, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> 
                             BÀI HỌC HÔM NAY
                         </button>
                     </div>
-                ` : `<div style="margin-top: 15px; text-align: center; color: #10b981; font-weight: 800;">🎉 Tuyệt vời! Bạn đã hoàn thành toàn bộ chỉ tiêu của ngày hôm nay. Hãy nghỉ ngơi hoặc ôn tập tự do nhé!</div>`}
+                ` : `
+                    <div style="margin-top: 20px; text-align: center; color: #10b981; font-weight: 800; font-size: 14px; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 12px; animation: popIn 0.3s ease;">
+                        🎉 Hoàn hảo! Bạn đã xuất sắc hoàn thành toàn bộ chỉ tiêu của ngày hôm nay. Hãy nghỉ ngơi nhé!
+                    </div>
+                `}
             </div>
         `;
     } catch (err) {
-        console.error("Lỗi Render Roadmap:", err);
-        zone.innerHTML = `<div style="color: #e53e3e; text-align: center; padding: 20px;">Lỗi tải dữ liệu lộ trình.</div>`;
+        console.error("Lỗi Render Lộ Trình:", err);
+        zone.innerHTML = `
+            <div class="roadmap-widget">
+                <div style="color: #e53e3e; text-align: center; padding: 20px; font-size: 14px; font-weight: 600;">
+                    <span class="material-symbols-outlined" style="font-size: 32px; display: block; margin-bottom: 8px;">error</span>
+                    Không thể hiển thị lộ trình học tập do lỗi kết nối mạng.
+                </div>
+            </div>
+        `;
     }
 }
 /* ================= HỆ THỐNG AI DAILY STORY (DOKKAI MODE) ================= */
@@ -22640,7 +22651,7 @@ async function syncUserDataWithCloud() {
     
     try {
         const { data: profData, error } = await sb.from('profiles')
-            .select('kanji_mastery, grammar_mastery, study_goal')
+            .select('kanji_mastery, grammar_mastery, study_goal, daily_stats')
             .eq('id', userId) // Sử dụng biến an toàn userId thay vì currentUser.id
             .single();
 
