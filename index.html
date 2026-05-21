@@ -14195,6 +14195,8 @@ function closeSideMenu() {
     document.getElementById('manageSideMenu').classList.remove('open');
     document.getElementById('sideMenuOverlay').classList.remove('show');
 }
+
+
 // TÍNH NĂNG 3: AUTO JLPT DECK
 function openAutoJLPTModal() {
     if (!currentUser) return customAlert("Vui lòng đăng nhập trước!", "⚠️");
@@ -14206,44 +14208,27 @@ async function generateAutoJLPTDeck() {
     const amount = parseInt(document.getElementById('autoJlptAmount').value);
     
     closeModal('autoJLPTModal');
-    showLoading(`Đang quét kho dữ liệu và bốc từ vựng ${level} mới...`);
+    showLoading(`Hệ thống đang quét và bốc từ vựng ${level} mới...`);
 
     try {
-        // 1. QUÉT KHO DỮ LIỆU CỦA USER: Lấy danh sách tất cả các từ đã học
-        const { data: userCards, error: userErr } = await sb.from('cards')
-            .select('front, decks!inner(owner_id)')
-            .eq('decks.owner_id', currentUser.id);
-            
-        if (userErr) throw userErr;
-        
-        // Tạo một Set (tập hợp) chứa các từ đã học để tra cứu siêu tốc
-        const existingWords = new Set(userCards ? userCards.map(c => c.front.trim()) : []);
+        // 1. GỌI RPC TRÊN SUPABASE ĐỂ LỌC VÀ LẤY TỪ VỰNG SIÊU TỐC
+        const { data: selectedWords, error: rpcErr } = await sb.rpc('generate_auto_jlpt_deck', {
+            p_user_id: currentUser.id,
+            p_level: level,
+            p_limit: amount
+        });
 
-        // 2. TẢI TỪ ĐIỂN TỪ HỆ THỐNG TOÀN CẦU
-        // Không dùng limit nữa, tải hết từ vựng của level đó về để lọc
-        const { data: dictWords, error: err1 } = await sb.from('dictionary')
-            .select('*')
-            .eq('level', level);
-            
-        if (err1) throw err1;
-        if (!dictWords || dictWords.length === 0) {
-            throw new Error(`Chưa có dữ liệu từ vựng cho cấp độ ${level}.`);
-        }
+        if (rpcErr) throw rpcErr;
 
-        // 3. LỌC THÔNG MINH: Chỉ giữ lại những từ CÓ TRONG TỪ ĐIỂN nhưng CHƯA CÓ TRONG KHO USER
-        const unlearnedWords = dictWords.filter(w => !existingWords.has(w.word.trim()));
-
-        if (unlearnedWords.length === 0) {
+        // 2. KIỂM TRA NẾU KHÔNG CÒN TỪ NÀO MỚI TRONG TỪ ĐIỂN
+        if (!selectedWords || selectedWords.length === 0) {
             hideLoading();
             return customAlert(`Tuyệt vời! Bạn đã nạp TOÀN BỘ từ vựng cấp độ ${level} có trong hệ thống vào các bộ bài của mình. Không còn từ mới nào để tạo thêm.`, "🎉 Hoàn tất cấp độ", "success");
         }
 
-        // 4. TRỘN VÀ CẮT ĐÚNG SỐ LƯỢNG YÊU CẦU
-        // Nếu số từ chưa học ít hơn số lượng yêu cầu (VD: xin 50 nhưng chỉ còn 20), thì lấy tối đa số còn lại
-        const finalAmount = Math.min(amount, unlearnedWords.length);
-        const selectedWords = unlearnedWords.sort(() => 0.5 - Math.random()).slice(0, finalAmount);
+        const finalAmount = selectedWords.length;
 
-        // 5. TẠO DECK VÀ ĐẨY LÊN DATABASE
+        // 3. TẠO BỘ BÀI MỚI (DECK) TRÊN DATABASE
         const deckName = `Bộ từ vựng ${level} (Tự động)`;
         const uniqueName = await generateUniqueDeckName(deckName, 'flashcard');
         const deckId = `${currentUser.id}:Auto_${level}_${Date.now()}`;
@@ -14256,12 +14241,17 @@ async function generateAutoJLPTDeck() {
         });
         if (err2) throw err2;
 
-        // Convert format
+        // 4. CHUYỂN ĐỔI ĐỊNH DẠNG TỪ ĐIỂN SANG ĐỊNH DẠNG FLASHCARD
         const cardsToInsert = selectedWords.map(wordObj => {
             const backPacked = `${wordObj.reading || ''}\n${wordObj.meaning || ''}`.trim();
             let infoArr = [];
-            if (wordObj.kanji_meaning) infoArr.push(`[HV] ${wordObj.kanji_meaning}`);
+            
+            if (wordObj.kanji_meaning) {
+                infoArr.push(`[HV] ${wordObj.kanji_meaning}`);
+            }
+            
             if (wordObj.example) {
+                // Bóc tách câu ví dụ nếu có dạng: Tiếng Nhật (Tiếng Việt)
                 const match = wordObj.example.match(/(.*?)[(（](.*?)[)）]/);
                 if (match) {
                     infoArr.push(`[EX1] ${match[1].trim()}`);
@@ -14270,6 +14260,7 @@ async function generateAutoJLPTDeck() {
                     infoArr.push(`[EX1] ${wordObj.example}`);
                 }
             }
+            
             return {
                 deck_id: deckId,
                 front: wordObj.word,
@@ -14278,25 +14269,28 @@ async function generateAutoJLPTDeck() {
             };
         });
 
-        // Insert Cards
+        // 5. ĐẨY CÁC THẺ (CARDS) LÊN DATABASE
         const { error: err3 } = await sb.from('cards').insert(cardsToInsert);
         if (err3) throw err3;
+
+        // 6. ĐỒNG BỘ NGẦM ĐỂ TÔ MÀU KANJI VÀ CẬP NHẬT GIAO DIỆN
         const allFronts = cardsToInsert.map(c => c.front).join('');
         triggerSilentBackgroundSync(allFronts);
         hideLoading();
         
-        // THÔNG BÁO THÔNG MINH DỰA TRÊN SỐ LƯỢNG TẠO ĐƯỢC
+        // 7. HIỂN THỊ THÔNG BÁO THÔNG MINH DỰA TRÊN SỐ LƯỢNG TẠO ĐƯỢC
         if (finalAmount < amount) {
             customAlert(`Hệ thống chỉ tìm thấy <b>${finalAmount}</b> từ vựng ${level} mới chưa từng có trong kho của bạn. Đã tạo thành công!`, "ℹ️ Thông báo", "success");
         } else {
             showToast(`🎉 Đã bốc thành công ${finalAmount} từ vựng mới tinh!`);
         }
         
-        // Render lại danh sách
+        // Render lại danh sách Bộ bài ngoài trang chủ
         showHome();
 
     } catch (e) {
         hideLoading();
+        console.error("Lỗi tạo bộ bài tự động:", e);
         customAlert("Lỗi tạo bộ bài: " + e.message, "❌");
     }
 }
@@ -15372,7 +15366,7 @@ window.toggleAIGeneratorZone = function() {
     }
 };
 
-// Hàm Vẽ đám mây Tag (Đã thêm: Màu ngẫu nhiên, bo góc 16px, ẩn dấu #)
+// Hàm Vẽ đám mây Tag (Bản nâng cấp tối ưu bằng RPC PostgreSQL)
 async function renderThematicTagCloud() {
     const zone = document.getElementById('thematicTagsZone');
     if (!currentUser) return;
@@ -15390,45 +15384,36 @@ async function renderThematicTagCloud() {
     }
 
     try {
-        console.log("MindDeck: Đang tính toán lại Đám mây Tag từ Cloud...");
-        const { data } = await sb.from('cards')
-            .select('info, decks!inner(owner_id)')
-            .eq('decks.owner_id', currentUser.id)
-            .like('info', '%[TAGS]%');
+        console.log("MindDeck: Đang tính toán lại Đám mây Tag bằng SQL RPC trên Cloud...");
+        
+        // 🟢 BƯỚC 2: GỌI HÀM RPC ĐỂ POSTGRES TỰ ĐẾM VÀ GỘP NHÓM (0 Byte lãng phí)
+        const { data: tagsData, error } = await sb.rpc('get_user_thematic_tags', {
+            p_user_id: currentUser.id
+        });
 
-        if (!data || data.length === 0) {
+        // Xử lý khi rỗng hoặc lỗi
+        if (error || !tagsData || tagsData.length === 0) {
+            if (error) console.error("Lỗi RPC lấy Tag:", error);
             zone.innerHTML = '<span style="color: rgba(0,0,0,0.3); font-size: 13px;">Bạn chưa có chủ đề nào. Hãy tạo một cái nhé!</span>';
             window.existingThematicTags = [];
             localStorage.removeItem(cacheKey);
             return;
         }
 
+        // Chuyển đổi dữ liệu JSON trả về từ DB sang format để dựng UI
         let tagCounts = {};
         let tagNames = {}; 
 
-        data.forEach(c => {
-            const info = c.info;
-            const match = info.match(/\[TAGS\](.*?)\n/); 
-            if (match && match[1]) {
-                const tagPairs = match[1].split(',').map(t => t.trim()).filter(Boolean);
-                tagPairs.forEach(pair => {
-                    const parts = pair.split('|').map(p => p.trim());
-                    if (parts.length > 0) {
-                        const rawTag = parts[0]; 
-                        const displayName = parts[1] || rawTag; 
-                        
-                        if (!tagCounts[rawTag]) {
-                            tagCounts[rawTag] = 0;
-                            tagNames[rawTag] = displayName;
-                        }
-                        tagCounts[rawTag]++;
-                    }
-                });
-            }
+        tagsData.forEach(item => {
+            tagCounts[item.tag] = item.count;
+            // Nếu phần hiển thị (display) bị rỗng, dùng luôn mã tag làm tên hiển thị
+            tagNames[item.tag] = item.display || item.tag;
         });
 
+        // Ghi vào RAM phục vụ chặn trùng lặp khi User tạo chủ đề mới
         window.existingThematicTags = Object.keys(tagCounts);
 
+        // Bảng màu Apple Pastel
         const appleColors = [
             { bg: '#3b82f6', text: '#ffffff' },
             { bg: '#10b981', text: '#ffffff' },
@@ -15445,6 +15430,8 @@ async function renderThematicTagCloud() {
         for (const [tag, count] of Object.entries(tagCounts)) {
             const theme = appleColors[colorIdx % appleColors.length];
             colorIdx++;
+            
+            // Xóa dấu # ở đầu để hiển thị đẹp hơn
             const cleanDisplayName = tagNames[tag].replace(/^#/, '').trim(); 
             
             html += `
@@ -15457,7 +15444,7 @@ async function renderThematicTagCloud() {
 
         zone.innerHTML = html;
 
-        // 🟢 BƯỚC 2: GHI ĐÈ KẾT QUẢ ĐÃ DỰNG VÀO LOCALSTORAGE
+        // 🟢 BƯỚC 3: GHI ĐÈ KẾT QUẢ ĐÃ DỰNG VÀO LOCALSTORAGE
         const cachePayload = {
             html: html,
             tagsArray: window.existingThematicTags
