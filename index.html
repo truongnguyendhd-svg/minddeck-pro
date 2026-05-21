@@ -9103,6 +9103,7 @@ sb.auth.onAuthStateChange(async (event, session) => {
         }
     }
 });
+// HÀM BẢO VỆ PHIÊN ĐĂNG NHẬP (ĐÃ TỐI ƯU BĂNG THÔNG ZERO-BLOAT)
 async function setupSingleSessionProtection() {
     if (!currentUser) return;
 
@@ -9114,28 +9115,31 @@ async function setupSingleSessionProtection() {
         localSessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         localStorage.setItem(sessionKey, localSessionId);
 
-        // Cập nhật mã phiên mới lên Supabase Cloud
-        await sb.from('profiles')
-            .update({ active_session_id: localSessionId })
-            .eq('id', currentUser.id);
+        // 🟢 ĐÃ FIX: Đẩy mã phiên lên bảng siêu nhẹ 'active_sessions' thay vì 'profiles'
+        await sb.from('active_sessions')
+            .upsert({ 
+                user_id: currentUser.id, 
+                session_id: localSessionId,
+                updated_at: new Date().toISOString()
+            });
     }
 
     // 2. Tránh đăng ký trùng lặp kênh lắng nghe
     if (realtimeSessionChannel) return;
 
-    // 3. Đăng ký kênh lắng nghe thay đổi thời gian thực trên dòng Profile của mình
-    realtimeSessionChannel = sb.channel(`public:profiles:id=eq.${currentUser.id}`)
+    // 3. 🟢 ĐÃ FIX: Lắng nghe trên bảng 'active_sessions'. 
+    // Payload mạng bây giờ cực kỳ nhỏ bé, không ảnh hưởng đến thuật toán SRS.
+    realtimeSessionChannel = sb.channel(`public:active_sessions:user_id=eq.${currentUser.id}`)
         .on(
             'postgres_changes',
             {
-                event: 'UPDATE',
+                event: '*', // Bắt cả sự kiện INSERT lẫn UPDATE
                 schema: 'public',
-                table: 'profiles',
-                filter: `id=eq.${currentUser.id}`
+                table: 'active_sessions',
+                filter: `user_id=eq.${currentUser.id}`
             },
             (payload) => {
-                const newActiveSessionId = payload.new.active_session_id;
-                const sessionKey = `current_session_id_${currentUser.id}`;
+                const newActiveSessionId = payload.new.session_id;
                 const myLocalSessionId = localStorage.getItem(sessionKey);
 
                 // Nếu mã phiên trên Cloud thay đổi và KHÔNG trùng với mã cục bộ của máy này
@@ -9146,7 +9150,6 @@ async function setupSingleSessionProtection() {
         )
         .subscribe();
 }
-
 // Cập nhật hàm thực thi đăng xuất cưỡng chế
 async function handleForcedLogout() {
     // 1. KIỂM TRA TRẠNG THÁI ĐANG LÀM VIỆC DỞ DANG (ĐÓNG BĂNG GIAO DIỆN)
