@@ -8535,31 +8535,58 @@ let isInlineListLoaded = false; // Cờ kiểm tra danh sách đã load chưa
 let isVirtualSession = false;
 let tempVirtualCards = []; // Cache RAM để nạp thẻ vào phiên học ảo
 /* ================= 3. UTILITIES ================= */
+/**
+ * Hàm đọc LocalStorage an toàn (Có chức năng tự chữa lành)
+ * @param {string} key - Tên khóa trong LocalStorage
+ * @param {any} fallbackValue - Giá trị trả về nếu cache bị rỗng hoặc hỏng (Mặc định là null)
+ */
+function safeGetLocalCache(key, fallbackValue = null) {
+    const rawData = localStorage.getItem(key);
+    if (!rawData) return fallbackValue;
+
+    try {
+        const parsed = JSON.parse(rawData);
+        return parsed;
+    } catch (e) {
+        console.warn(`MindDeck: Cache [${key}] bị hỏng dữ liệu. Đang tự động dọn rác và tải lại...`);
+        localStorage.removeItem(key); // Tự chữa lành: Xóa file rác
+        return fallbackValue;
+    }
+}
 // HÀM QUẢN LÝ CACHE DANH SÁCH BỘ BÀI (ĐÃ TỐI ƯU CHỐNG SPAM BĂNG THÔNG)
 async function getCachedDeckList(forceRefresh = false) {
     if (!currentUser) return [];
     const cacheKey = `minddeck_decks_cache_${currentUser.id}`;
     const syncKey = `minddeck_decks_last_sync_${currentUser.id}`; // 🟢 Key quản lý Cooldown
 
-    // 1. Nếu không ép tải lại, đọc thẳng từ ổ cứng
+    // 1. Nếu không ép tải lại, đọc thẳng từ ổ cứng (AN TOÀN)
     if (!forceRefresh) {
-        const cachedStr = localStorage.getItem(cacheKey);
-        if (cachedStr) return JSON.parse(cachedStr);
+        const cachedData = safeGetLocalCache(cacheKey, null);
+        // Kiểm tra thêm mảng hợp lệ, nếu cache hỏng nó sẽ tự lọt xuống bước 3 gọi API
+        if (cachedData && Array.isArray(cachedData)) {
+            return cachedData;
+        }
     }
 
     // 2. 🟢 CHỐT CHẶN BĂNG THÔNG: Nếu đang ép tải lại (SWR ngầm), kiểm tra xem đã qua 60 giây chưa?
     if (forceRefresh) {
         const lastSync = sessionStorage.getItem(syncKey);
         const now = Date.now();
+        
         // Nếu chưa qua 60 giây -> TỪ CHỐI GỌI API, dùng lại hàng cũ trong LocalStorage
         if (lastSync && (now - parseInt(lastSync)) < 60 * 1000) {
-            console.log("MindDeck: 🛡️ Chặn spam băng thông Deck List (Bỏ qua SWR ngầm)");
-            const cachedStr = localStorage.getItem(cacheKey);
-            return cachedStr ? JSON.parse(cachedStr) : [];
+            const cachedData = safeGetLocalCache(cacheKey, null);
+            
+            // BẢO HIỂM: Chỉ chặn gọi API nếu cache cục bộ CÒN SỐNG. 
+            // Nếu phát hiện cache hỏng, bắt buộc phải bỏ qua lệnh chặn 60s để cứu UI.
+            if (cachedData && Array.isArray(cachedData)) {
+                console.log("MindDeck: 🛡️ Chặn spam băng thông Deck List (Bỏ qua SWR ngầm)");
+                return cachedData;
+            }
         }
     }
 
-    // 3. Quá 60 giây hoặc chưa từng tải: Tiến hành gọi API Supabase
+    // 3. Quá 60 giây, chưa từng tải, HOẶC cache bị hỏng: Tiến hành gọi API Supabase
     try {
         const { data, error } = await sb.rpc('get_user_decks_v2', {
             p_user_id: currentUser.id,
