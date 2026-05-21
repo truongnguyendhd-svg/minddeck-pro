@@ -8692,6 +8692,7 @@ function showPage(p) {
 // -------------------------------------------------------------
 // HÀM HIỂN THỊ DASHBOARD VÀ KÍCH HOẠT QUÉT DỮ LIỆU
 function showDashboard(skipHash = false) { 
+    processOfflineQueue();
     if (!skipHash) window.location.hash = 'dashboard';
     editingDeckId = null;
     activeDeckId = null;
@@ -12101,14 +12102,14 @@ function shuffleQuiz() {
     showCard();
     showToast("Đã xáo trộn câu hỏi! 🔀");
 }
-let isSrsSubmitting = false; // 🟢 THÊM CỜ KHÓA SPAM CLICK
+let isSrsSubmitting = false;
 
 async function answerCurrent(q) {
-    if (isSrsSubmitting) return; // 🟢 CHỐT CHẶN: Đang gửi API thì chặn click tiếp theo
+    if (isSrsSubmitting) return; 
     const c = sessionCards[currentIndex];
 
     // ==========================================
-    // LOGIC 1: CHẾ ĐỘ NHỒI NHÉT 5 CẤP ĐỘ (CRAM) - KHÔNG DÙNG DATABASE
+    // LOGIC 1: CHẾ ĐỘ NHỒI NHÉT 5 CẤP ĐỘ (CRAM)
     // ==========================================
     if (mode === 'cram') {
         const isCorrect = (q >= 4); 
@@ -12130,16 +12131,15 @@ async function answerCurrent(q) {
     }
 
     // ==========================================
-    // LOGIC 2: CHẾ ĐỘ ÔN TẬP SRS (REVIEW) - CÓ DÙNG DATABASE & CACHE
+    // LOGIC 2: CHẾ ĐỘ ÔN TẬP SRS (OPTIMISTIC UI)
     // ==========================================
-    isSrsSubmitting = true; // 🟢 BẬT KHÓA
+    isSrsSubmitting = true; 
 
     let p = c.progress && c.progress.length > 0 
         ? c.progress.find(x => x.user_id === currentUser.id) 
         : null;
         
     if (!p) p = { ef: 2.5, interval: 1, interval_count: 0 };
-    
     let { ef, interval, interval_count } = p;
     
     if (q >= 2) { 
@@ -12159,60 +12159,58 @@ async function answerCurrent(q) {
     const payload = { 
         user_id: currentUser.id, 
         card_id: c.id, 
-        ef, 
-        interval, 
-        interval_count, 
+        ef, interval, interval_count, 
         due: due.toISOString() 
     };
     if (p && p.id) payload.id = p.id; 
 
+    // --- OPTIMISTIC UPDATE: CẬP NHẬT RAM & LOCALSTORAGE TRƯỚC ---
+    if (window.rawDeckCache) {
+        let cacheCard = window.rawDeckCache.find(x => x.id === c.id);
+        if (cacheCard) {
+            if (!cacheCard.progress) cacheCard.progress = [];
+            cacheCard.progress[0] = payload; 
+        }
+    }
+
+    const kMatches = c.front.match(/[\u4e00-\u9faf]/g) || [];
+    kMatches.forEach(k => {
+        let currentInt = userKanjiMasteryMap[k] || 0;
+        if (q < 2) { 
+            let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
+            userKanjiMasteryMap[k] = pen;
+        } else {
+            userKanjiMasteryMap[k] = Math.max(currentInt, interval);
+        }
+    });
+
+    if (globalGrammarData && globalGrammarData.length > 0) {
+        globalGrammarData.forEach(g => {
+            const cleanPoint = g.grammar_point.replace(/～/g, '');
+            if (c.front.includes(cleanPoint)) {
+                let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
+                if (q >= 2) userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
+            }
+        });
+    }
+
+    // 🟢 FIX 1: Lưu thẳng vào LocalStorage để chống mất dữ liệu khi F5
+    localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+    localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+    sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
+
+    // 🟢 FIX 2: CHUYỂN THẺ NGAY LẬP TỨC (Không chờ mạng)
+    nextCard();
+    isSrsSubmitting = false; // Mở khóa nút bấm ngay
+
+    // --- BACKGROUND SYNC: GỬI LÊN CLOUD NGẦM ---
     try {
         const { error } = await sb.from('progress').upsert(payload);
         if (error) throw error; 
-
-        if (window.rawDeckCache) {
-            let cacheCard = window.rawDeckCache.find(x => x.id === c.id);
-            if (cacheCard) {
-                if (!cacheCard.progress) cacheCard.progress = [];
-                cacheCard.progress[0] = payload; 
-            }
-        }
-
-        const kMatches = c.front.match(/[\u4e00-\u9faf]/g) || [];
-        kMatches.forEach(k => {
-            let currentInt = userKanjiMasteryMap[k] || 0;
-            if (q < 2) { 
-                let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
-                userKanjiMasteryMap[k] = pen;
-            } else {
-                userKanjiMasteryMap[k] = Math.max(currentInt, interval);
-            }
-        });
-
-        if (globalGrammarData && globalGrammarData.length > 0) {
-            globalGrammarData.forEach(g => {
-                const cleanPoint = g.grammar_point.replace(/～/g, '');
-                if (c.front.includes(cleanPoint)) {
-                    let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
-                    if (q >= 2) { 
-                        userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
-                    }
-                }
-            });
-        }
-
-// Lưu đè bản đồ cập nhật vào sessionStorage để các trang khác lấy nhanh
-                sessionStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-                sessionStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
-                sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
-
-                nextCard();
-
     } catch (err) {
-        console.error("Lỗi đồng bộ SRS:", err);
-        showToast("Lỗi kết nối! Tiến độ chưa được lưu. Thử lại sau 📶");
-    } finally {
-        isSrsSubmitting = false; // 🟢 MỞ KHÓA BẤT KỂ THÀNH CÔNG HAY THẤT BẠI
+        console.warn("Mất mạng! Đã đưa tiến trình vào Hàng đợi Offline.");
+        // Lưu vào hàng đợi Offline để đồng bộ lại khi có mạng
+        saveToOfflineQueue(payload);
     }
 }
 
@@ -19285,7 +19283,10 @@ function nextAssessmentCard() {
                 endAssessmentSession();
             }
         } else {
-            // 🟢 KẾT THÚC SÁT HẠCH: GỌI HÀM LƯU DATABASE HÀNG LOẠT
+            // 🟢 KẾT THÚC SÁT HẠCH
+            boostState.isReadyToSubmit = true; 
+            saveAssessmentStateToLocal(); // Lưu chốt chặn trước khi nộp
+            
             showLoading("Đang đồng bộ kết quả lên Cloud...");
             processBatchAssessmentResults();
         }
@@ -19387,25 +19388,31 @@ async function processBatchAssessmentResults() {
             hideLoading();
             console.error("Lỗi đồng bộ ngầm Sát hạch:", err);
             
-            // Hoàn tác trạng thái để cho phép nộp lại
+            // 1. Hoàn tác trạng thái trong RAM để chuẩn bị cho lần nộp sau
             sessionCards.forEach(card => card.isProcessed = false);
             boostState.passedCards = [];
             boostState.remedialCards = [];
             
-            // Báo lỗi cho người dùng bấm nộp lại
-            document.getElementById('boostQuestion').innerHTML = "⚠️ LỖI KẾT NỐI MẠNG";
-            document.getElementById('boostPrompt').innerText = "Cảnh báo";
-            document.getElementById('boostInteractiveZone').innerHTML = `
-                <div style="text-align: center; color: #64748b; margin-bottom: 20px; font-size: 15px;">
-                    Không thể gửi kết quả lên máy chủ. Vui lòng kiểm tra mạng và thử lại.
-                </div>
-                <button onclick="processBatchAssessmentResults()" class="win11-btn-primary" style="padding: 16px; font-size: 16px; width: 100%; border-radius: 12px; background: #c50f1f; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; box-shadow: 0 4px 15px rgba(197, 15, 31, 0.3);">
-                    <span class="material-symbols-outlined">wifi_protected_setup</span> BẤM VÀO ĐÂY ĐỂ NỘP LẠI
-                </button>
-            `;
-            document.getElementById('boostGiveUpZone').style.display = 'none';
+            // 2. HIỂN THỊ MODAL CỨU HỘ THÔNG MINH
+            const retry = await showConfirm(
+                "Mạng không ổn định 📶", 
+                "Đừng lo! Kết quả sát hạch đã được <b>lưu an toàn trên máy của bạn</b>.<br><br>Bạn muốn thử nộp lại ngay bây giờ, hay quay về Trang chủ (hệ thống sẽ nhắc bạn nộp lại sau)?", 
+                "Thử nộp lại", 
+                "Về Trang chủ"
+            );
 
-            return customAlert(`Lỗi kết nối. Vui lòng bấm nút Nộp lại trên màn hình!`, "❌ Thất bại");
+            // 3. XỬ LÝ LỰA CHỌN CỦA USER
+            if (retry) {
+                // Đệ quy: Tự gọi lại chính nó để nộp lại
+                showLoading("Đang thử kết nối lại...");
+                processBatchAssessmentResults(); 
+            } else {
+                // Giải thoát người dùng, cho về màn hình chính
+                // File save (isReadyToSubmit = true) VẪN CÒN NGUYÊN TRONG MÁY
+                document.getElementById('boostArea').classList.add('hidden');
+                showDashboard(); 
+                showToast("Đã tạm cất kết quả sát hạch. Nhớ nộp lại khi có mạng nhé! 💾");
+            }
         }
     }
 
@@ -21250,6 +21257,7 @@ function saveAssessmentStateToLocal() {
             sessionCards: sessionCards,
             boostState: boostState,
             currentIndex: currentIndex,
+            isReadyToSubmit: boostState.isReadyToSubmit || false, // 🟢 Bổ sung dòng này
             timestamp: Date.now()
         };
         localStorage.setItem(`minddeck_assessment_save_${currentUser.id}`, JSON.stringify(saveData));
@@ -21327,6 +21335,14 @@ window.handleGlobalReviewClick = async function() {
 async function resumeAssessmentFromLocal(data) {
     showLoading("Đang khôi phục phiên sát hạch...");
     try {
+        if (data.isReadyToSubmit) {
+            sessionCards = data.sessionCards;
+            boostState = data.boostState;
+            mode = 'assessment';
+            currentDeckName = 'GLOBAL_REVIEW';
+            showLoading("Đang nộp lại kết quả sát hạch bị gián đoạn do rớt mạng...");
+            return processBatchAssessmentResults(); // Nộp thẳng lên DB, bỏ qua UI
+        }
         // 1. Phục hồi dữ liệu RAM
         sessionCards = data.sessionCards;
         boostState = data.boostState;
@@ -22575,6 +22591,37 @@ async function syncUserDataWithCloud() {
             console.error("Lỗi đồng bộ ngầm khởi tạo:", e);
             throw e; 
         }
+    }
+}
+// --- HỆ THỐNG OFFLINE QUEUE ---
+function saveToOfflineQueue(payload) {
+    if (!currentUser) return;
+    const queueKey = `minddeck_offline_queue_${currentUser.id}`;
+    let queue = safeGetLocalCache(queueKey, [], 'array');
+    
+    // Xóa bản ghi cũ của chính thẻ này (nếu có) để đè bản mới nhất lên
+    queue = queue.filter(item => item.card_id !== payload.card_id);
+    queue.push(payload);
+    
+    localStorage.setItem(queueKey, JSON.stringify(queue));
+}
+
+async function processOfflineQueue() {
+    if (!currentUser) return;
+    const queueKey = `minddeck_offline_queue_${currentUser.id}`;
+    let queue = safeGetLocalCache(queueKey, [], 'array');
+    
+    if (queue.length === 0) return;
+
+    console.log(`MindDeck: Đang đẩy ${queue.length} thẻ từ hàng đợi Offline lên Cloud...`);
+    try {
+        const { error } = await sb.from('progress').upsert(queue);
+        if (error) throw error;
+        // Thành công thì xóa sạch hàng đợi
+        localStorage.removeItem(queueKey);
+        console.log("MindDeck: Đã đồng bộ hàng đợi Offline thành công!");
+    } catch (err) {
+        console.warn("Hàng đợi Offline thất bại, sẽ thử lại sau.", err);
     }
 }
 </script>
