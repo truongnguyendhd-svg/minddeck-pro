@@ -9103,7 +9103,33 @@ sb.auth.onAuthStateChange(async (event, session) => {
         // ===================================================
         
         // 1. Kiểm tra xem thiết bị này đã từng lưu cache tiến trình chưa
-        const hasLocalCache = localStorage.getItem(`minddeck_kanji_cache_${currentUser.id}`);
+        // ===================================================
+        // 🛡️ BỘ LỌC KIỂM ĐỊNH CACHE NGHIÊM NGẶT (STRICT CACHE VALIDATION)
+        // ===================================================
+        let hasLocalCache = false;
+        try {
+            const rawCache = localStorage.getItem(`minddeck_kanji_cache_${currentUser.id}`);
+            if (rawCache) {
+                const parsedCache = JSON.parse(rawCache);
+                
+                // 1. Kiểm tra phải là Object hợp lệ (Không null, không phải mảng)
+                if (parsedCache && typeof parsedCache === 'object' && !Array.isArray(parsedCache)) {
+                    
+                    // 2. CHỐT CHẶN VÀNG: Nếu Object rỗng {}, coi như KHÔNG CÓ CACHE. 
+                    // Ép buộc tải lại từ Cloud để bảo vệ user cũ bị mất data cục bộ.
+                    if (Object.keys(parsedCache).length > 0) {
+                        hasLocalCache = true;
+                    } else {
+                        console.warn("MindDeck: Cache cục bộ trống rỗng. Ép buộc tải lại từ Cloud để đề phòng mất dữ liệu.");
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("MindDeck: Phát hiện Cache bị hỏng (Corrupted JSON). Hệ thống sẽ tự chữa lành từ Cloud.", e);
+            // Xóa ngay cái cache rác này đi cho sạch ổ cứng
+            localStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
+            hasLocalCache = false;
+        }
 
         // 2. Nạp ngay cache cục bộ (nếu có) để chuẩn bị các biến tiến trình trong RAM
         loadLocalUserDataCache();
@@ -9115,7 +9141,8 @@ sb.auth.onAuthStateChange(async (event, session) => {
 
         let cloudSyncPromise = null;
 
-        if (lastSyncTime && (nowTime - parseInt(lastSyncTime)) < COOLDOWN_TIME) {
+        // CHỈ KÍCH HOẠT COOLDOWN CHỐNG SPAM KHI VÀ CHỈ KHI MÁY ĐÃ CÓ CACHE AN TOÀN
+        if (hasLocalCache && lastSyncTime && (nowTime - parseInt(lastSyncTime)) < COOLDOWN_TIME) {
             // ĐANG TRONG COOLDOWN: Chặn gọi mạng Supabase, sử dụng luôn cache cục bộ trên RAM
             console.log("MindDeck: Chặn spam F5 thành công! Sử dụng cache cục bộ an toàn (0 Request)");
             
@@ -22678,13 +22705,27 @@ function exitShadowingTheater() {
 // 1. Hàm nạp ngay tiến trình từ LocalStorage (Tốc độ 0ms - Tuyệt đối an toàn)
 function loadLocalUserDataCache() {
     if (!currentUser) return;
-    const cachedKanji = localStorage.getItem(`minddeck_kanji_cache_${currentUser.id}`);
-    const cachedGrammar = localStorage.getItem(`minddeck_grammar_cache_${currentUser.id}`);
-    const cachedGoal = localStorage.getItem(`minddeck_study_goal_${currentUser.id}`);
+    try {
+        const userId = currentUser.id;
+        const cachedKanji = localStorage.getItem(`minddeck_kanji_cache_${userId}`);
+        const cachedGrammar = localStorage.getItem(`minddeck_grammar_cache_${userId}`);
+        const cachedGoal = localStorage.getItem(`minddeck_study_goal_${userId}`);
+        const cachedStats = localStorage.getItem(`minddeck_daily_stats_${userId}`); // 🟢 THÊM MỚI
 
-    userKanjiMasteryMap = cachedKanji ? JSON.parse(cachedKanji) : {};
-    userGrammarMasteryMap = cachedGrammar ? JSON.parse(cachedGrammar) : {};
-    currentUser.study_goal = cachedGoal ? JSON.parse(cachedGoal) : null;
+        userKanjiMasteryMap = cachedKanji ? JSON.parse(cachedKanji) : {};
+        userGrammarMasteryMap = cachedGrammar ? JSON.parse(cachedGrammar) : {};
+        
+        // Gắn thẳng vào Object currentUser trong RAM
+        currentUser.study_goal = cachedGoal ? JSON.parse(cachedGoal) : null;
+        currentUser.daily_stats = cachedStats ? JSON.parse(cachedStats) : null; // 🟢 THÊM MỚI
+
+    } catch (e) {
+        console.error("MindDeck: Lỗi khi parse dữ liệu vào RAM, đặt về mặc định:", e);
+        userKanjiMasteryMap = {};
+        userGrammarMasteryMap = {};
+        currentUser.study_goal = null;
+        currentUser.daily_stats = null;
+    }
 }
 
 // 2. Hàm chạy đồng bộ ngầm với Supabase để cập nhật bản mới nhất (Cloud là chân lý tuyệt đối)
@@ -22714,6 +22755,7 @@ async function syncUserDataWithCloud() {
             // Chỉ gán mục tiêu học tập nếu đối tượng currentUser vẫn tồn tại thực tế
             if (currentUser) {
                 currentUser.study_goal = profData.study_goal;
+                currentUser.daily_stats = profData.daily_stats;
             }
 
             // Chốt chặn bảo hiểm nếu DB trống rỗng (Tài khoản mới tinh)
@@ -22729,11 +22771,17 @@ async function syncUserDataWithCloud() {
             // Ghi đè cứng vào ổ cứng cục bộ sử dụng biến an toàn userId
             localStorage.setItem(`minddeck_kanji_cache_${userId}`, JSON.stringify(userKanjiMasteryMap));
             localStorage.setItem(`minddeck_grammar_cache_${userId}`, JSON.stringify(userGrammarMasteryMap));
-            
+            // 🟢 LƯU GOAL VÀ STATS VÀO Ổ CỨNG
             if (profData.study_goal) {
                 localStorage.setItem(`minddeck_study_goal_${userId}`, JSON.stringify(profData.study_goal));
             } else {
                 localStorage.removeItem(`minddeck_study_goal_${userId}`);
+            }
+
+            if (profData.daily_stats) {
+                localStorage.setItem(`minddeck_daily_stats_${userId}`, JSON.stringify(profData.daily_stats));
+            } else {
+                localStorage.removeItem(`minddeck_daily_stats_${userId}`);
             }
             
             // Vẽ lại widget tiến độ trên Dashboard nếu người dùng đang ở trang Dashboard
