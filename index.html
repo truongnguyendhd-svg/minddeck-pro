@@ -12675,7 +12675,7 @@ async function deleteDeckFromDashboard(event, deckId, deckName) {
 
             showToast("🗑️ Đã xóa học phần thành công!");
             renderManageDeckList(); // Tải lại danh sách
-            triggerSilentBackgroundSync();
+            triggerSilentBackgroundSync(null, true);
         } catch (err) {
             customAlert("Lỗi xóa dữ liệu: " + err.message, "❌");
         } finally {
@@ -13138,7 +13138,7 @@ async function deleteCurrentDeck() {
         await sb.from('decks').delete().eq('id', editingDeckId); 
         hideLoading(); 
         showToast("Đã xóa học phần thành công! 🗑️"); 
-        
+        triggerSilentBackgroundSync(null, true);
         // ĐỔI THÀNH DÒNG NÀY ĐỂ VỀ TRANG QUẢN LÝ:
         showHome(); 
     }
@@ -14080,7 +14080,7 @@ async function saveQuickEdit() {
         }
 
         closeModal('quickEditModal');
-                triggerSilentBackgroundSync();
+                triggerSilentBackgroundSync(newFront);
         
         // 🟢 NẾU MODAL DANH SÁCH ĐANG MỞ -> TỰ ĐỘNG LOAD LẠI ĐỂ THẤY THẺ MỚI/THAY ĐỔI
         if (document.getElementById('studyOptionsModal').style.display === 'flex') {
@@ -14705,7 +14705,7 @@ async function confirmSaveWordToDeck() {
 
         closeModal('saveDictWordModal');
         showToast("Đã thêm vào học phần thành công! ✨");
-        triggerSilentBackgroundSync();
+        triggerSilentBackgroundSync(front);
     } catch (err) {
         console.error("Lỗi lưu thẻ:", err);
         customAlert("Không thể lưu thẻ. Vui lòng thử lại.", "❌");
@@ -17079,7 +17079,7 @@ async function confirmSaveQuizToDeck() {
 
         closeModal('saveAIQuizModal');
         showToast("Đã thêm câu hỏi trắc nghiệm! ✨");
-        triggerSilentBackgroundSync(); 
+        triggerSilentBackgroundSync(question);
     } catch (err) {
         console.error("Lỗi lưu quiz:", err);
         customAlert("Lỗi: " + err.message, "❌");
@@ -17482,7 +17482,8 @@ async function confirmBulkSaveKanji() {
         } else {
             showToast(`🎉 Đã thêm thành công ${filterResult.validCards.length} thẻ!`);
         }
-        triggerSilentBackgroundSync();
+        const allFronts = filterResult.validCards.map(c => c.front).join('');
+        triggerSilentBackgroundSync(allFronts);
     } catch (err) {
         console.error("Lỗi Bulk Save:", err);
         customAlert("Không thể lưu: " + err.message, "❌");
@@ -21753,7 +21754,7 @@ window.clearFavoriteDeck = async function(event, deckId) {
             
             // 4. Load lại giao diện (Thẻ sẽ tự động chuyển viền về màu xám vì đã trống)
             renderManageDeckList(); 
-            triggerSilentBackgroundSync();
+            triggerSilentBackgroundSync(null, true);
 
         } catch (err) {
             console.error("Lỗi xóa thẻ Yêu thích:", err);
@@ -22092,32 +22093,64 @@ document.addEventListener('click', (e) => {
     }
 });
 /* Hết================= GLOBAL MASTER CLICK HANDLER (TỐI ƯU HIỆU NĂNG - QUẢN LÝ TẤT CẢ DROPDOWN) ================= */
-// ================= HỆ THỐNG ĐỒNG BỘ NGẦM (SILENT BACKGROUND SYNC) =================
-// Hàm này chạy ngầm không có UI Loading, giúp dọn dẹp Ghost Data khi Xóa/Sửa thẻ
-async function triggerSilentBackgroundSync() {
+// ================= HỆ THỐNG ĐỒNG BỘ NGẦM (ĐÃ NÂNG CẤP RAM-FIRST) =================
+async function triggerSilentBackgroundSync(textToScan = null, isDestructive = false) {
     if (!currentUser) return;
-    console.log("MindDeck: Kích hoạt đồng bộ ngầm dọn dẹp Ghost Data...");
-    
-    try {
-        // 🟢 ĐÃ VÁ LỖI: Đổi thành localStorage để xóa đúng mục tiêu
-        localStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
-        localStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
-        localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
 
-        // (Giữ nguyên dòng này, không xóa cache tag)
-        // localStorage.removeItem(`minddeck_thematic_tags_cache_${currentUser.id}`);
+    // -----------------------------------------------------------
+    // TRƯỜNG HỢP 1: THAO TÁC THÊM/SỬA (XỬ LÝ HOÀN TOÀN BẰNG RAM - 0 BYTE CLOUD)
+    // -----------------------------------------------------------
+    if (textToScan && !isDestructive) {
+        console.log("MindDeck: Cập nhật RAM cục bộ, chặn gọi Cloud...");
+        let hasNewData = false;
 
-        Promise.all([
-            syncKanjiMastery(true),        // 🟢 Thêm true để ÉP quét lại Kanji
-            calculateGrammarMastery(true)  // 🟢 Đảm bảo hàm này bỏ qua cache cục bộ
-        ]).then(() => {
-            console.log("MindDeck: Dọn dẹp Ghost Data thành công!");
+        // 1. Quét Kanji
+        const kanjis = textToScan.match(/[\u4e00-\u9faf]/g) || [];
+        kanjis.forEach(k => {
+            if (userKanjiMasteryMap[k] === undefined) {
+                userKanjiMasteryMap[k] = 0; // Đưa vào trạng thái Chưa học (Màu xám)
+                hasNewKanji = true;
+            }
+        });
+
+        // 2. Lưu vào ổ cứng và update số lượng trên UI (Nếu có thay đổi)
+        if (hasNewData) {
+            localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+            
+            // Cập nhật số lượng Kanji trên Dashboard / Pokedex
+            const dashKanjiCount = document.getElementById('dashKanjiCount');
+            if (dashKanjiCount) dashKanjiCount.innerText = Object.keys(userKanjiMasteryMap).length;
+            
+            const kcMasteredCountPage = document.getElementById('kcMasteredCountPage');
+            if (kcMasteredCountPage) kcMasteredCountPage.innerText = Object.keys(userKanjiMasteryMap).length;
+            
+            renderJLPTProgress(); // Vẽ lại thanh ngang
+        }
+        return; // DỪNG LẠI TẠI ĐÂY! KHÔNG GỌI CLOUD!
+    }
+
+    // -----------------------------------------------------------
+    // TRƯỜNG HỢP 2: THAO TÁC XÓA LỚN (BẮT BUỘC GỌI CLOUD)
+    // -----------------------------------------------------------
+    // Khi xóa 1 bộ bài (Delete Deck) hoặc Dọn bộ yêu thích, ta không thể biết chính xác 
+    // chữ Kanji nào bị mất hoàn toàn, chữ nào vẫn còn ở bộ bài khác. 
+    // Do đó, ta BẮT BUỘC phải dọn rác và nhờ Supabase tính lại.
+    if (isDestructive) {
+        console.log("MindDeck: Dọn dẹp Ghost Data từ Cloud do thao tác Xóa...");
+        try {
+            localStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
+            localStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
+            localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
+
+            await Promise.all([
+                syncKanjiMastery(true),        
+                calculateGrammarMastery(true)  
+            ]);
+
             if (!document.getElementById('dashboardPage').classList.contains('hidden')) {
                 renderJLPTProgress();
             }
-        });
-    } catch (e) {
-        console.error("Lỗi đồng bộ ngầm:", e);
+        } catch (e) { console.error("Lỗi đồng bộ ngầm:", e); }
     }
 }
 // =================Hết HỆ THỐNG ĐỒNG BỘ NGẦM (SILENT BACKGROUND SYNC) =================
