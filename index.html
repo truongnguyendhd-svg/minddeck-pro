@@ -6396,20 +6396,6 @@ body.shadowing-mode #shadowingPage {
             <span class="material-symbols-outlined" style="color: #1e3a8a; font-size: 28px;">folder_open</span>
             <h3 style="margin: 0 !important; font-size: 20px !important; color: #1e3a8a !important; text-transform: none !important; letter-spacing: normal !important;">Chọn học phần</h3>
         </div>
-        
-        <!-- Khối hiển thị Đã học gần đây -->
-        <div id="recentDecksContainer" style="display: none;">
-            
-            <!-- Icon Đã học gần đây (Thay cho text cũ) -->
-            <div class="recent-icon-wrapper" data-tooltip="Vừa học gần đây">
-                <span class="material-symbols-outlined" style="font-size: 20px;">history</span>
-            </div>
-            
-            <div id="recentDeckList" class="deck-grid"></div>
-            
-            <!-- Đường ngăn cách mờ dần, ĐÃ BỎ text "Các học phần còn lại" -->
-            <div class="section-divider"></div>
-        </div>
 
         <!-- Khối hiển thị Tất cả -->
         <div id="deckList" class="deck-grid"></div>
@@ -8956,39 +8942,7 @@ async function loadDeckListIntoSelect(selectId, deckType) {
         selectEl.innerHTML = '<option value="">Lỗi tải dữ liệu.</option>';
     }
 }
-// Hàm lưu ID bộ bài đồng bộ lên Supabase Cloud
-async function saveRecentDeck(deckId) {
-    if (!currentUser) return;
 
-    try {
-        // 1. Lấy danh sách lịch sử hiện tại trên Database
-        const { data, error } = await sb
-            .from('profiles')
-            .select('recent_decks')
-            .eq('id', currentUser.id)
-            .single();
-
-        if (error) throw error;
-
-        // Nếu null thì tạo mảng rỗng
-        let recent = data.recent_decks || [];
-
-        // 2. Sắp xếp lại mảng: Xóa ID cũ (nếu trùng), đẩy ID này lên đầu
-        recent = recent.filter(id => id !== deckId);
-        recent.unshift(deckId);
-        
-        // Chỉ giữ lại tối đa 4 bộ bài gần nhất cho nhẹ Database và UI
-        if (recent.length > 4) recent.pop();
-
-        // 3. Cập nhật lại mảng mới lên Supabase
-        await sb.from('profiles')
-            .update({ recent_decks: recent })
-            .eq('id', currentUser.id);
-
-    } catch (err) {
-        console.error("Lỗi đồng bộ lịch sử học tập:", err);
-    }
-}
 // =====================================================================
 // GLOBAL MODAL SCROLL LOCK (TỰ ĐỘNG KHÓA CUỘN NỀN KHI MỞ BẤT KỲ MODAL NÀO)
 // =====================================================================
@@ -9711,7 +9665,6 @@ async function loadCards(d, skipHash = false) {
             
             cards = data;
             window.rawDeckCache[d] = JSON.parse(JSON.stringify(data)); // Backup vào RAM
-            saveRecentDeck(d); 
         }
 
         // 4. CẬP NHẬT BREADCRUMB ĐÚNG HỆ THỐNG MỚI (PHẲNG)
@@ -12636,12 +12589,6 @@ async function deleteDeckFromDashboard(event, deckId, deckName) {
             await sb.from('cards').delete().eq('deck_id', deckId);
             await sb.from('decks').delete().eq('id', deckId);
             
-            // Xóa thẻ khỏi lịch sử học gần đây trên Profile
-            const { data } = await sb.from('profiles').select('recent_decks').eq('id', currentUser.id).single();
-            if (data && data.recent_decks) {
-                const newRecent = data.recent_decks.filter(id => id !== deckId);
-                await sb.from('profiles').update({ recent_decks: newRecent }).eq('id', currentUser.id);
-            }
 
             showToast("🗑️ Đã xóa học phần thành công!");
             renderManageDeckList(); // Tải lại danh sách
@@ -12710,12 +12657,6 @@ async function confirmRenameDeck() {
         // 4. Chuyển TẤT CẢ thẻ từ bộ bài cũ sang bộ bài mới
         const { error: err3 } = await sb.from('cards').update({ deck_id: newDeckId }).eq('deck_id', oldId);
         if (err3) throw err3;
-
-        // 5. Cập nhật lịch sử "Học gần đây" trên Profile nếu có
-        const { data: profile } = await sb.from('profiles').select('recent_decks').eq('id', currentUser.id).single();
-        if (profile && profile.recent_decks) {
-            const newRecent = profile.recent_decks.map(id => id === oldId ? newDeckId : id);
-            await sb.from('profiles').update({ recent_decks: newRecent }).eq('id', currentUser.id);
         }
 
         // 6. Xóa bộ bài cũ đi
@@ -16786,14 +16727,10 @@ async function loadCustomDeckList(containerId, inputId, textId, optionsId, deckT
         const allDecks = await getCachedDeckList(false);
         const decks = allDecks.filter(d => d.type === deckType).slice(0, 50); // Chỉ lấy 50 bộ mới nhất cho gọn menu
 
-        // Vẫn phải lấy Recent History từ DB vì nó lưu riêng ở Profile
-        const { data: profile } = await sb.from('profiles').select('recent_decks').eq('id', currentUser.id).single();
-        const recentIds = (profile && profile.recent_decks) ? profile.recent_decks : [];
-
         let html = '';
         const iconName = deckType === 'quiz' ? 'quiz' : 'style';
 
-        // 🟢 GHIM LỰA CHỌN "TỰ ĐỘNG TẠO BỘ BÀI MỚI" LÊN ĐẦU TIÊN
+        // GHIM LỰA CHỌN "TỰ ĐỘNG TẠO BỘ BÀI MỚI" LÊN ĐẦU TIÊN
         html += `
             <div class="custom-option" style="background: #f0fdf4; border-bottom: 2px solid #bbf7d0; margin-bottom: 4px;" 
                  onclick="selectCustomOption('${containerId}', '${inputId}', '${textId}', '__AUTO_NEW_DECK__', '➕ Tạo bộ bài mới (Nhập tên)', 'add_circle')">
@@ -16802,30 +16739,16 @@ async function loadCustomDeckList(containerId, inputId, textId, optionsId, deckT
             </div>
         `;
 
-        const renderItem = (d) => {
-            const cleanName = getCleanName(d.id);
-            return `
-                <div class="custom-option" onclick="selectCustomOption('${containerId}', '${inputId}', '${textId}', '${d.id}', '${cleanName.replace(/'/g, "\\'")}', '${iconName}')">
-                    <span class="material-symbols-outlined">${iconName}</span>
-                    <span class="custom-option-text" title="${cleanName}">${cleanName}</span>
-                </div>
-            `;
-        };
-
         if (decks && decks.length > 0) {
-            // Phân nhóm "Học gần đây"
-            const recentDecks = decks.filter(d => recentIds.includes(d.id));
-            if (recentDecks.length > 0) {
-                html += `<div class="custom-optgroup">🕒 Học gần đây</div>`;
-                recentDecks.forEach(d => html += renderItem(d));
-            }
-
-            // Phân nhóm "Tất cả"
-            const otherDecks = decks.filter(d => !recentIds.includes(d.id));
-            if (otherDecks.length > 0) {
-                html += `<div class="custom-optgroup">📚 Tất cả bộ bài</div>`;
-                otherDecks.forEach(d => html += renderItem(d));
-            }
+            decks.forEach(d => {
+                const cleanName = getCleanName(d.id);
+                html += `
+                    <div class="custom-option" onclick="selectCustomOption('${containerId}', '${inputId}', '${textId}', '${d.id}', '${cleanName.replace(/'/g, "\\'")}', '${iconName}')">
+                        <span class="material-symbols-outlined">${iconName}</span>
+                        <span class="custom-option-text" title="${cleanName}">${cleanName}</span>
+                    </div>
+                `;
+            });
         }
 
         optionsEl.innerHTML = html;
