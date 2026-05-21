@@ -9266,7 +9266,7 @@ async function logout() {
     if (currentUser) {
         const userId = currentUser.id;
         
-        // 1. Xóa tiến trình học tập (Kanji & Ngữ pháp)
+        // 1. Xóa tiến trình học tập cá nhân (Kanji & Ngữ pháp)
         localStorage.removeItem(`minddeck_kanji_cache_${userId}`);
         localStorage.removeItem(`minddeck_grammar_cache_${userId}`);
         
@@ -9278,8 +9278,11 @@ async function logout() {
         localStorage.removeItem(`minddeck_assessment_save_${userId}`);
         localStorage.removeItem(`minddeck_boost_save_${userId}`);
         
-        // 4. Xóa mã phiên làm việc duy nhất
+        // 4. Xóa mã phiên làm việc duy nhất của thiết bị
         localStorage.removeItem(`current_session_id_${userId}`);
+        
+        // 🟢 TUYỆT ĐỐI KHÔNG xóa dữ liệu chốt sổ trên Cloud 
+        // để bảo toàn mốc chốt sổ đầu ngày khi người dùng đăng nhập lại.
     }
     
     await sb.auth.signOut(); 
@@ -17798,14 +17801,18 @@ function initPdfDB() {
 
 // Lưu file vào IndexedDB
 async function savePdfToOfflineStore(fileName, fileBlob, totalPages) {
+    if (!currentUser) return null;
+    const userId = currentUser.id; // Lấy ID của tài khoản hiện hành
+
     try {
         const db = await initPdfDB();
         const id = Date.now().toString(); 
         
         const newRecord = {
             id: id,
+            userId: userId, // 🟢 Khóa phân vùng: Định danh chủ sở hữu tệp tin
             name: fileName,
-            data: fileBlob, // 🟢 LƯU NGUYÊN BẢN BLOB/FILE VÀO ĐÂY
+            data: fileBlob,
             lastPage: 1,
             totalPages: totalPages,
             timestamp: Date.now()
@@ -17817,17 +17824,19 @@ async function savePdfToOfflineStore(fileName, fileBlob, totalPages) {
             
             const getAllReq = store.getAll();
             getAllReq.onsuccess = () => {
-                let records = getAllReq.result;
-                if (records.length >= MAX_RECENT_FILES) {
-                    // Xóa bớt file cũ nhất nếu vượt quá 5 file
-                    records.sort((a, b) => a.timestamp - b.timestamp);
-                    const excess = records.length - MAX_RECENT_FILES + 1;
+                let allRecords = getAllReq.result;
+                
+                // 🟢 Chỉ lọc các file thuộc về người dùng hiện tại để kiểm tra giới hạn 5 tệp
+                let userRecords = allRecords ? allRecords.filter(r => r.userId === userId) : [];
+                
+                if (userRecords.length >= MAX_RECENT_FILES) {
+                    userRecords.sort((a, b) => a.timestamp - b.timestamp);
+                    const excess = userRecords.length - MAX_RECENT_FILES + 1;
                     for (let i = 0; i < excess; i++) {
-                        store.delete(records[i].id);
+                        store.delete(userRecords[i].id);
                     }
                 }
                 
-                // Đẩy file mới vào
                 const putReq = store.put(newRecord);
                 putReq.onerror = (e) => console.error("Lỗi ghi IndexedDB:", e);
             };
@@ -17882,6 +17891,12 @@ async function loadRecentPdfsUI() {
     const listZone = document.getElementById('pdfRecentZone');
     const listEl = document.getElementById('pdfRecentList');
     
+    if (!currentUser) {
+        listZone.classList.add('hidden');
+        return;
+    }
+    const userId = currentUser.id;
+    
     try {
         const db = await initPdfDB();
         const tx = db.transaction(PDF_STORE_NAME, 'readonly');
@@ -17889,14 +17904,17 @@ async function loadRecentPdfsUI() {
         const req = store.getAll();
         
         req.onsuccess = () => {
-            let files = req.result;
+            let allFiles = req.result;
+            
+            // 🟢 Lọc danh sách: Chỉ lấy các tệp thuộc về người dùng đang đăng nhập
+            let files = allFiles ? allFiles.filter(f => f.userId === userId) : [];
+            
             if (!files || files.length === 0) {
                 listZone.classList.add('hidden');
                 return;
             }
             
             listZone.classList.remove('hidden');
-            // Sắp xếp mới nhất lên đầu
             files.sort((a, b) => b.timestamp - a.timestamp);
             
             listEl.innerHTML = files.map(f => `
@@ -17929,8 +17947,10 @@ async function deleteRecentPdf(event, id) {
 }
 
 // Mở file từ danh sách gần đây
-// Mở file từ danh sách gần đây
 async function openRecentPdf(id) {
+    if (!currentUser) return;
+    const userId = currentUser.id;
+
     showLoading("Đang nạp file từ bộ nhớ...");
     try {
         const db = await initPdfDB();
@@ -17939,11 +17959,15 @@ async function openRecentPdf(id) {
         
         req.onsuccess = async () => {
             const fileData = req.result;
-            if (!fileData) return hideLoading();
+            
+            // 🟢 RÀO CHẮN BẢO MẬT: Nếu file không tồn tại hoặc KHÔNG thuộc sở hữu của User hiện tại -> Chặn đứng
+            if (!fileData || fileData.userId !== userId) {
+                hideLoading();
+                return customAlert("Bạn không có quyền truy cập vào tài liệu này hoặc tệp tin đã bị xóa.", "⚠️ Cảnh báo bảo mật");
+            }
 
             currentOpenPdfId = fileData.id;
 
-            // 🟢 CHUYỂN NGƯỢC BLOB THÀNH ARRAY BUFFER ĐỂ PDF.JS ĐỌC
             const fileBlob = fileData.data;
             const arrayBuffer = await fileBlob.arrayBuffer();
             const typedarray = new Uint8Array(arrayBuffer);
