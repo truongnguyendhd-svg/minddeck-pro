@@ -12818,157 +12818,6 @@ async function saveNewDeckFromModal() {
     }
 }
 
-// ================= HÀM LƯU TỪNG THẺ ĐƠN LẺ =================
-async function saveSingleRow(id) {
-    // 1. KIỂM TRA BẢO MẬT
-    if (!currentUser || !currentUser.id) {
-        return customAlert("Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang!", "⚠️");
-    }
-
-    // 2. LẤY ELEMENT CỦA HÀNG ĐANG THAO TÁC
-    const row = document.getElementById(`row-${id}`);
-    if (!row) return; 
-
-    const dbId = row.getAttribute('data-db-id');
-    const tag = document.getElementById('nTag').value.trim();
-    const isPublic = document.getElementById('nVisibility').value === 'true';
-
-    if (!tag) return customAlert("Vui lòng nhập Tên bộ bài!", "⚠️");
-
-    // BIẾN LƯU TRỮ DỮ LIỆU CUỐI CÙNG TRƯỚC KHI ĐẨY LÊN DB
-    let finalFront = "";
-    let finalBack = "";
-    let finalInfo = "";
-
-    // 3. THU THẬP DỮ LIỆU ĐỊNH DẠNG THẺ (LUÔN LÀ FLASHCARD)
-    finalFront = row.querySelector('.f-front').value.trim();
-    const f_reading = row.querySelector('.f-reading').value.trim();
-    const f_meaning = row.querySelector('.f-meaning').value.trim();
-    
-    if (!finalFront || (!f_reading && !f_meaning)) {
-        return customAlert("Vui lòng điền đủ 'Từ vựng' và ít nhất 'Cách đọc' hoặc 'Ý nghĩa'!", "⚠️");
-    }
-
-    finalBack = `${f_reading}\n${f_meaning}`.trim();
-
-    const f_hv = row.querySelector('.f-hv').value.trim();
-    const f_ex1jp = row.querySelector('.f-ex1-jp').value.trim();
-    const f_ex1vn = row.querySelector('.f-ex1-vn').value.trim();
-    const f_ex2jp = row.querySelector('.f-ex2-jp').value.trim();
-    const f_ex2vn = row.querySelector('.f-ex2-vn').value.trim();
-
-    let infoArr = [];
-    if (f_hv) infoArr.push(`[HV] ${f_hv}`);
-    if (f_ex1jp) infoArr.push(`[EX1] ${f_ex1jp}`);
-    if (f_ex1vn) infoArr.push(`[VN1] ${f_ex1vn}`);
-    if (f_ex2jp) infoArr.push(`[EX2] ${f_ex2jp}`);
-    if (f_ex2vn) infoArr.push(`[VN2] ${f_ex2vn}`);
-    finalInfo = infoArr.join('\n');
-
-    // 4. NẾU LÀ TẠO MỚI HOẶC COPY (Chưa có editingDeckId) -> CHỈ LƯU NHÁP LÊN GIAO DIỆN
-    if (!editingDeckId) {
-        row.removeAttribute('data-is-dirty'); 
-        row.classList.add('readonly-mode'); 
-        row.querySelectorAll('.row-input').forEach(t => t.disabled = true);
-        
-        const btnEdit = row.querySelector('.btn-row-edit');
-        if (btnEdit) btnEdit.style.display = 'flex';
-        
-        const detailsEl = row.querySelector('.info-details');
-        if (detailsEl) detailsEl.removeAttribute('open');
-
-        showToast("Đã lưu nháp (Nhớ bấm 'Lưu bộ bài' trên cùng để hoàn tất) 📝");
-        return; 
-    }
-
-    // 5. NẾU ĐANG SỬA BỘ BÀI CŨ -> ĐẨY THẲNG LÊN DATABASE
-    showLoading("Đang cập nhật...");
-    try {
-        // Cập nhật thông tin bộ bài (Mặc định type: flashcard, folder_id: null)
-        const { error: deckError } = await sb.from('decks').upsert({ 
-            id: editingDeckId, 
-            owner_id: currentUser.id, 
-            type: 'flashcard', 
-            is_public: isPublic,
-            folder_id: null 
-        });
-        if (deckError) throw new Error("Lỗi lưu bộ bài: " + deckError.message);
-
-        // Lưu thẻ (Card)
-        const cardObj = { 
-            deck_id: editingDeckId, 
-            front: finalFront, 
-            back: finalBack, 
-            info: finalInfo 
-        };
-        if (dbId) cardObj.id = dbId; 
-        
-        const { data: savedCard, error: cardError } = await sb.from('cards').upsert(cardObj).select();
-        if (cardError) throw new Error("Lỗi lưu thẻ: " + cardError.message);
-
-        // 6. CẬP NHẬT GIAO DIỆN (UI)
-        if (!dbId && savedCard && savedCard.length > 0) {
-            row.setAttribute('data-db-id', savedCard[0].id); 
-        }
-        
-        row.removeAttribute('data-is-dirty'); 
-        row.classList.add('readonly-mode'); 
-        row.querySelectorAll('.row-input').forEach(t => t.disabled = true);
-        
-        const btnEdit = row.querySelector('.btn-row-edit');
-        if (btnEdit) btnEdit.style.display = 'flex';
-        
-        const detailsEl = row.querySelector('.info-details');
-        if (detailsEl) detailsEl.removeAttribute('open');
-
-        const editingRows = document.querySelectorAll('#cardRowsContainer .card-row:not(.readonly-mode)');
-        if (editingRows.length === 0) {
-            hasUnsavedChanges = false; 
-        }
-
-        hideLoading(); 
-        showToast("Đã cập nhật thẻ thành công! ✨");
-        triggerSilentBackgroundSync();
-
-    } catch (e) { 
-        hideLoading(); 
-        console.error("Lỗi saveSingleRow:", e);
-        customAlert("Lỗi: " + e.message, "❌"); 
-    }
-}
-
-async function deleteSingleRow(id) {
-    const row = document.getElementById(`row-${id}`);
-    const dbId = row.getAttribute('data-db-id');
-
-    const ok = await showConfirm(
-        "Xóa thẻ này?", 
-        dbId ? "Thẻ này đã tồn tại trên hệ thống. Bạn cần nhấn 'Lưu tất cả' để hoàn tất việc xóa vĩnh viễn." : "Xóa thẻ này khỏi danh sách?", 
-        "Xóa"
-    );
-
-    if (ok) {
-        hasUnsavedChanges = true; 
-        if (dbId) {
-            if (!cardsToDelete.includes(dbId)) {
-                cardsToDelete.push(dbId);
-            }
-        }
-
-        // CẢI TIẾN: Unbind Wanakana của input này trước khi xóa nút khỏi DOM
-        const readingInput = row.querySelector('.f-reading');
-        if (typeof wanakana !== 'undefined' && readingInput) {
-            try { wanakana.unbind(readingInput); } catch (e) { console.warn(e); }
-        }
-
-        row.style.opacity = '0';
-        row.style.transform = 'translateX(20px)';
-        setTimeout(() => {
-            row.remove();
-            showToast("Đã xóa thẻ khỏi danh sách tạm");
-        }, 300);
-    }
-}
 
 
 function showInfoModal() { 
@@ -13307,7 +13156,9 @@ async function smartImportExcel() {
             } else {
                 showToast(`🎉 Nhập thành công ${filterResult.validCards.length} thẻ!`);
             } 
-            triggerSilentBackgroundSync();
+            const allImportedFronts = filterResult.validCards.map(c => c.front).join('');
+            triggerSilentBackgroundSync(allImportedFronts);
+
         } catch(e) { 
             hideLoading(); 
             console.error(e);
@@ -13688,8 +13539,7 @@ async function deleteQuickCard() {
 
         closeModal('quickEditModal');
         showToast("Đã xóa thẻ khỏi bộ bài! 🗑️");
-        triggerSilentBackgroundSync();
-
+        triggerSilentBackgroundSync(null, true);
 
         // 3. Xóa khỏi mảng đang học tạm thời
         sessionCards.splice(currentIndex, 1);
@@ -14431,7 +14281,8 @@ async function generateAutoJLPTDeck() {
         // Insert Cards
         const { error: err3 } = await sb.from('cards').insert(cardsToInsert);
         if (err3) throw err3;
-
+        const allFronts = cardsToInsert.map(c => c.front).join('');
+        triggerSilentBackgroundSync(allFronts);
         hideLoading();
         
         // THÔNG BÁO THÔNG MINH DỰA TRÊN SỐ LƯỢNG TẠO ĐƯỢC
@@ -20341,7 +20192,8 @@ async function saveStoryAndStudy() {
         // 4.2. Lưu Các thẻ ĐÃ ĐƯỢC LỌC SẠCH
         const { error: cardsErr } = await sb.from('cards').insert(filterResult.validCards);
         if (cardsErr) throw cardsErr;
-
+        const allFronts = filterResult.validCards.map(c => c.front).join('');
+        triggerSilentBackgroundSync(allFronts);
         closeModal('aiStoryModal');
         currentGeneratedStoryData = null;
         
