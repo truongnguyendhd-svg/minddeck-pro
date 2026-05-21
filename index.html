@@ -8472,6 +8472,8 @@ let pendingModalReturn = null; // Cờ nhớ thông tin Modal để quay lại
 let isInlineListLoaded = false; // Cờ kiểm tra danh sách đã load chưa
 let isVirtualSession = false;
 let tempVirtualCards = []; // Cache RAM để nạp thẻ vào phiên học ảo
+let deckLoadedAt = null; // Lưu mốc thời gian tải bộ bài để chống ghi đè đa tab
+
 /* ================= 3. UTILITIES ================= */
 /**
  * Hàm đọc LocalStorage an toàn toàn diện (Đã tích hợp Lớp 1 & Lớp 2)
@@ -9574,6 +9576,14 @@ async function openEditDeck(event, deckId, skipHash = false) {
         const { data: cards, error: cardsError } = await sb.from('cards').select('*').eq('deck_id', deckId).order('id');
         if (cardsError) throw cardsError;
 
+        // 🟢 FIX LỖI MULTI-TAB: Lưu lại mốc thời gian cập nhật mới nhất của các thẻ
+        if (cards && cards.length > 0) {
+            // Lấy thời gian updated_at lớn nhất trong các thẻ
+            const maxTime = Math.max(...cards.map(c => new Date(c.updated_at || c.created_at || 0).getTime()));
+            deckLoadedAt = maxTime;
+        } else {
+            deckLoadedAt = Date.now();
+        }
         // 5. Cập nhật biến State
         mode = deck.type || 'flashcard';
 
@@ -12904,8 +12914,32 @@ async function saveFullDeck() {
     }
 
     // 5. Kiểm tra trùng lặp trên database
-    showLoading("Đang kiểm tra trùng lặp...");
+    showLoading("Đang kiểm tra trùng lặp và tính toàn vẹn dữ liệu...");
     try {
+        // 🟢 CHỐT CHẶN: KIỂM TRA GHI ĐÈ ĐA TAB (MULTI-TAB BLIND OVERWRITE)
+        if (editingDeckId && deckLoadedAt) {
+            const { data: latestCard } = await sb.from('cards')
+                .select('updated_at, created_at')
+                .eq('deck_id', editingDeckId)
+                .order('updated_at', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (latestCard) {
+                const dbLatestTime = new Date(latestCard.updated_at || latestCard.created_at).getTime();
+                // Cho phép sai số 1 giây (1000ms) do độ trễ mạng
+                if (dbLatestTime > deckLoadedAt + 1000) {
+                    hideLoading();
+                    if (btnSave) {
+                        btnSave.disabled = false;
+                        if (btnText) btnText.innerText = "Cập nhật";
+                        btnSave.style.opacity = "1";
+                        btnSave.style.cursor = "pointer";
+                    }
+                    return customAlert("Dữ liệu của bộ bài này vừa bị thay đổi ở một Tab hoặc thiết bị khác!<br><br>Vui lòng F5 tải lại trang để nhận dữ liệu mới nhất, tránh ghi đè làm mất thẻ.", "⚠️ Xung đột dữ liệu", "warning");
+                }
+            }
+        }
         if (cardsToProcess.length > 0) {
             const dupeCheck = await checkDuplicateCards(cardsToProcess);
             if (dupeCheck.hasDuplicate) {
@@ -19364,9 +19398,16 @@ async function processBatchAssessmentResults() {
 
     if (payloads.length > 0) {
         try {
-            // Bước 1: Chỉ lưu dữ liệu tiến trình thô lên Cloud
-            const { error } = await sb.from('progress').upsert(payloads);
-            if (error) throw error; 
+            // Bước 1: Chỉ lưu dữ liệu tiến trình thô lên Cloud thông qua RPC bảo mật
+            const mySessionId = localStorage.getItem(`current_session_id_${currentUser.id}`);
+            const { data: rpcData, error } = await sb.rpc('upsert_progress_safe', {
+                p_user_id: currentUser.id,
+                p_session_id: mySessionId,
+                p_payload: payloads
+            });
+            
+            if (error) throw error;
+            if (rpcData && rpcData.status === 'error') throw new Error(rpcData.message); 
 
             // Bước 2: Xóa file lưu nháp vì Supabase đã nhận bài thành công
             clearAssessmentStateFromLocal();
@@ -22615,8 +22656,25 @@ async function processOfflineQueue() {
 
     console.log(`MindDeck: Đang đẩy ${queue.length} thẻ từ hàng đợi Offline lên Cloud...`);
     try {
-        const { error } = await sb.from('progress').upsert(queue);
+        // Lấy mã Session của máy hiện tại
+        const mySessionId = localStorage.getItem(`current_session_id_${currentUser.id}`);
+
+        // 🟢 FIX LỖI: Gọi qua RPC Supabase để ép database kiểm tra Session ID
+        const { data, error } = await sb.rpc('upsert_progress_safe', {
+            p_user_id: currentUser.id,
+            p_session_id: mySessionId,
+            p_payload: queue
+        });
+
         if (error) throw error;
+
+        // Nếu Database ném ra lỗi Session Expired (Do máy này đã bị máy khác đá)
+        if (data && data.status === 'error' && data.message === 'SESSION_EXPIRED') {
+            console.error("MindDeck: Hàng đợi Offline bị từ chối do phiên đăng nhập đã hết hạn!");
+            localStorage.removeItem(queueKey); // Xóa rác, không cho đẩy lên nữa
+            return;
+        }
+
         // Thành công thì xóa sạch hàng đợi
         localStorage.removeItem(queueKey);
         console.log("MindDeck: Đã đồng bộ hàng đợi Offline thành công!");
