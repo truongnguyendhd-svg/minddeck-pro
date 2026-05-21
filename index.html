@@ -15031,14 +15031,17 @@ async function showGrammarVault(skipHash = false) {
     }
 }
 
-// Hàm Quét kho thẻ Flashcard (CHỈ DÙNG KHI BẤM NÚT SYNC THỦ CÔNG ĐỂ CHỮA LÀNH DỮ LIỆU)
+// =====================================================================
+// HÀM ĐỒNG BỘ TIẾN ĐỘ NGỮ PHÁP (CHUẨN KIẾN TRÚC DB TRIGGER)
+// Chức năng: Đọc trực tiếp grammar_mastery đã được Trigger tính sẵn từ profiles
+// =====================================================================
 async function calculateGrammarMastery(force = false) {
     if (!currentUser) return;
     
-    // 🟢 CHỐT CHẶN 1: Chụp lại ID cục bộ chống lỗi Null Reference khi người dùng đăng xuất nhanh
+    // 🟢 Chụp lại ID cục bộ chống lỗi Null Reference
     const userId = currentUser.id; 
     
-    // Nếu không ép buộc, mới dùng Cache
+    // 1. Nếu không ép buộc, dùng thẳng Cache LocalStorage (0 giây)
     if (!force) {
         const cachedGrammar = localStorage.getItem(`minddeck_grammar_cache_${userId}`);
         if (cachedGrammar) {
@@ -15047,110 +15050,28 @@ async function calculateGrammarMastery(force = false) {
         }
     }
 
-    userGrammarMasteryMap = {};     
     try {
-        // 2. Thử lấy bản lưu trữ từ bảng Profiles trên Supabase (mất 0.05s)
+        // 2. Kéo trực tiếp Object grammar_mastery từ Cloud
         const { data: profileData, error: profileErr } = await sb.from('profiles')
             .select('grammar_mastery')
             .eq('id', userId)
             .single();
 
-        // Kiểm tra nếu người dùng đã đăng xuất trong lúc chờ mạng phản hồi
+        if (profileErr) throw profileErr;
+
+        // 🟢 Chốt chặn bảo vệ: Nếu user đăng xuất giữa chừng khi chờ mạng thì hủy ngang
         if (!currentUser || currentUser.id !== userId) return;
 
-        if (!profileErr && profileData && profileData.grammar_mastery && Object.keys(profileData.grammar_mastery).length > 0) {
-            userGrammarMasteryMap = profileData.grammar_mastery;
-            localStorage.setItem(`minddeck_grammar_cache_${userId}`, JSON.stringify(userGrammarMasteryMap));
-            console.log("MindDeck: Phục hồi bản đồ Ngữ pháp thành công từ Profiles!");
-            return; // Thoát sớm, bảo vệ băng thông
-        }
-
-        // 3. Dự phòng (Fallback): Chỉ quét thô toàn bộ bảng progress khi profiles trống rỗng
-        console.log("MindDeck: Khởi động quét thô tiến trình Ngữ pháp...");
-        let allProgressData = [];
-        let isFetching = true;
-        let fromIndex = 0;
-        const step = 999; 
-
-        while (isFetching) {
-            const { data, error } = await sb.from('progress')
-                .select(`interval, cards!inner(front)`)
-                .eq('user_id', userId)
-                .range(fromIndex, fromIndex + step);
-                
-            if (error) break;
-            
-            // Kiểm tra an toàn trong vòng lặp tải dữ liệu phân đoạn
-            if (!currentUser || currentUser.id !== userId) return;
-            
-            if (data && data.length > 0) {
-                allProgressData = allProgressData.concat(data);
-                fromIndex += (step + 1);
-            }
-            if (!data || data.length <= step) isFetching = false;
-        }
-
-        // Kiểm tra an toàn sau khi hoàn tất vòng lặp tải dữ liệu
-        if (!currentUser || currentUser.id !== userId) return;
-
-        if (allProgressData.length === 0) return;
-
-        let userFlashcards = {};
-        allProgressData.forEach(p => {
-            const front = p.cards.front;
-            const interval = p.interval || 0;
-            if (!userFlashcards[front] || userFlashcards[front] < interval) {
-                userFlashcards[front] = interval;
-            }
-        });
-
-        if (globalGrammarData.length === 0) {
-            const cachedDict = localStorage.getItem('minddeck_grammar_dict');
-            if (cachedDict) {
-                globalGrammarData = JSON.parse(cachedDict);
-            } else {
-                const { data: gData } = await sb.from('grammar_dict').select('*');
-                
-                // Kiểm tra an toàn sau khi gọi danh mục từ điển
-                if (!currentUser || currentUser.id !== userId) return;
-
-                if (gData) {
-                    globalGrammarData = gData;
-                    localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
-                }
-            }
-        }
-
-        // Kiểm tra an toàn trước khi chạy thuật toán khớp mẫu
-        if (!currentUser || currentUser.id !== userId) return;
-
-        if (globalGrammarData.length > 0) {
-            globalGrammarData.forEach(g => {
-                const point = g.grammar_point;
-                const cleanPoint = point.replace(/～/g, ''); 
-
-                let maxInterval = 0;
-                for (const [frontText, interval] of Object.entries(userFlashcards)) {
-                    if (frontText.includes(cleanPoint)) {
-                        if (interval > maxInterval) maxInterval = interval;
-                    }
-                }
-                
-                if (maxInterval > 0) userGrammarMasteryMap[point] = maxInterval;
-            });
-        }
-        
-        // Kiểm tra an toàn lần cuối trước khi ghi nhận lên Database và LocalStorage
-        if (!currentUser || currentUser.id !== userId) return;
-
-        // Cập nhật lại lên Cloud để lần sau không bị quét thô nữa
-        await sb.from('profiles').update({ grammar_mastery: userGrammarMasteryMap }).eq('id', userId);
+        // 3. Đồng bộ RAM và LocalStorage
+        userGrammarMasteryMap = profileData?.grammar_mastery || {};
         localStorage.setItem(`minddeck_grammar_cache_${userId}`, JSON.stringify(userGrammarMasteryMap));
+        
+        console.log("MindDeck: Đã đồng bộ bản đồ Ngữ pháp từ Cloud thành công!");
 
     } catch (err) {
-        // Chỉ ghi nhận lỗi nếu người dùng thực sự vẫn đang đăng nhập
+        // Chỉ ghi nhận lỗi nếu tài khoản thực tế vẫn đang hoạt động
         if (currentUser && currentUser.id === userId) {
-            console.error("Lỗi khi quét tiến độ Ngữ pháp:", err);
+            console.error("MindDeck: Lỗi kéo dữ liệu Ngữ pháp từ Cloud:", err);
         }
     }
 }
@@ -21276,13 +21197,17 @@ async function refreshKanjiCollection() {
     }
 }
 
+// =====================================================================
+// HÀM ĐỒNG BỘ TIẾN ĐỘ KANJI (CHUẨN KIẾN TRÚC DB TRIGGER)
+// Chức năng: Đọc trực tiếp kanji_mastery đã được Trigger tính sẵn từ profiles
+// =====================================================================
 async function syncKanjiMastery(force = false) {
     if (!currentUser) return 0;
     
-    // 🟢 CHỐT CHẶN 1: Chụp lại ID cục bộ chống lỗi Null Reference khi có thay đổi trạng thái đăng nhập đột ngột
+    // 🟢 Chụp lại ID cục bộ chống lỗi Null Reference
     const userId = currentUser.id; 
 
-    // Nếu không ép buộc quét thô, dùng thẳng Cache để tiết kiệm tài nguyên
+    // 1. Nếu không ép buộc, dùng thẳng Cache LocalStorage (0 giây)
     if (!force) {
         const cachedKanji = localStorage.getItem(`minddeck_kanji_cache_${userId}`);
         if (cachedKanji) {
@@ -21292,99 +21217,28 @@ async function syncKanjiMastery(force = false) {
     }
 
     try {
-        let allProgressData = [];
-        let isFetching = true;
-        let fromIndex = 0;
-        const step = 999;
-
-        // Vòng lặp kéo dữ liệu theo từng cụm (batch) tránh quá tải mạng
-        while (isFetching) {
-            const { data, error } = await sb.from('progress')
-                .select('interval, interval_count, cards!inner(front)')
-                .eq('user_id', userId) // Sử dụng userId an toàn thay thế cho currentUser.id
-                .range(fromIndex, fromIndex + step);
-                
-            if (error) throw error;
-
-            // 🟢 CHỐT CHẶN 2: Kiểm tra trạng thái đăng nhập sau khi đợi API phản hồi
-            if (!currentUser || currentUser.id !== userId) return 0;
-
-            if (data && data.length > 0) {
-                allProgressData = allProgressData.concat(data);
-                fromIndex += (step + 1);
-            }
-            if (!data || data.length <= step) isFetching = false;
-        }
-
-        // Truy vấn dữ liệu lưu trữ đám mây cũ của Kanji
-        const { data: profile, error: profError } = await sb.from('profiles')
+        // 2. Kéo trực tiếp Object kanji_mastery từ Cloud (Mất ~0.05s, payload cực nhỏ)
+        // Tuyệt đối không quét bảng progress nữa vì Trigger DB đã làm thay!
+        const { data: profile, error } = await sb.from('profiles')
             .select('kanji_mastery')
-            .eq('id', userId) // Sử dụng userId
+            .eq('id', userId)
             .single();
 
-        if (profError) throw profError;
+        if (error) throw error;
 
-        // 🟢 CHỐT CHẶN 3: Kiểm tra trạng thái đăng nhập sau khi lấy hồ sơ cá nhân
+        // 🟢 Chốt chặn bảo vệ: Nếu user đăng xuất giữa chừng khi chờ mạng thì hủy ngang
         if (!currentUser || currentUser.id !== userId) return 0;
 
-        let cloudArchive = profile?.kanji_mastery || {};
-        let liveMap = {};
-        let failedMap = {};
-
-        // Bóc tách Kanji thực tế từ tiến trình học tập
-        if (allProgressData.length > 0) {
-            allProgressData.forEach(p => {
-                const intv = p.interval || 0;
-                const count = p.interval_count || 0;
-                if (intv <= 0) return;
-                
-                const kMatches = (p.cards.front || "").match(/[\u4e00-\u9faf]/g) || [];
-                kMatches.forEach(k => {
-                    if (!liveMap[k] || liveMap[k] < intv) liveMap[k] = intv;
-                    if (count === 0) failedMap[k] = true;
-                });
-            });
-        }
-
-        // Đồng bộ dữ liệu cũ và dữ liệu mới theo giải thuật giữ khoảng cách nhớ (interval) lớn nhất
-        let finalMap = {};
-        const allKeys = new Set([...Object.keys(liveMap), ...Object.keys(cloudArchive)]);
-        
-        for (const k of allKeys) {
-            const lVal = liveMap[k];
-            const cVal = cloudArchive[k] || 0;
-            if (lVal !== undefined) {
-                if (failedMap[k]) {
-                    let pen = cVal > 45 ? 45 : (cVal > 20 ? 20 : (cVal > 6 ? 6 : 1));
-                    finalMap[k] = Math.max(lVal, pen);
-                } else {
-                    finalMap[k] = Math.max(lVal, cVal);
-                }
-            } else {
-                finalMap[k] = cVal;
-            }
-        }
-
-        // Trước khi cập nhật dữ liệu đồng bộ lên database, kiểm tra trạng thái tài khoản
-        if (!currentUser || currentUser.id !== userId) return 0;
-
-        // Đẩy dữ liệu hợp nhất lên cơ sở dữ liệu Supabase
-        const { error: updateError } = await sb.from('profiles')
-            .update({ kanji_mastery: finalMap })
-            .eq('id', userId);
-
-        if (updateError) throw updateError;
-
-        // Cập nhật biến RAM và ghi đè an toàn vào LocalStorage
-        userKanjiMasteryMap = finalMap;
+        // 3. Đồng bộ RAM và LocalStorage
+        userKanjiMasteryMap = profile?.kanji_mastery || {};
         localStorage.setItem(`minddeck_kanji_cache_${userId}`, JSON.stringify(userKanjiMasteryMap));
         
-        return Object.keys(finalMap).length;
+        return Object.keys(userKanjiMasteryMap).length;
 
     } catch (e) {
-        // Chỉ ghi nhận lỗi nếu tài khoản thực tế vẫn đang hoạt động khớp với luồng xử lý
+        // Chỉ ghi nhận lỗi nếu tài khoản thực tế vẫn đang hoạt động
         if (currentUser && currentUser.id === userId) {
-            console.error("Lỗi đồng bộ Kanji thô:", e);
+            console.error("MindDeck: Lỗi kéo dữ liệu Kanji từ Cloud:", e);
         }
         return 0;
     }
