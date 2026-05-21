@@ -19459,18 +19459,16 @@ window.incrementPenalty = function() {
     }
 };
 
-// TÍNH ĐIỂM SRS, ĐẨY LÊN DATABASE & CẬP NHẬT CACHE CHỈ KHI THÀNH CÔNG
+// =========================================================================
+// 🟢 PHIÊN BẢN MỚI: CHỈ GỬI DATA THÔ - ĐỂ SQL TỰ ĐỘNG XỬ LÝ TOÀN BỘ
+// =========================================================================
 async function processBatchAssessmentResults() {
     if (isVirtualSession) {
         hideLoading();
         return endAssessmentSession(); 
     }
-    
-    // ❌ BỎ LỆNH XÓA FILE SAVE Ở ĐÂY (Xóa dòng clearAssessmentStateFromLocal() cũ đi)
 
     let payloads = [];
-    let tempMasteryUpdates = []; // Mảng tạm lưu các thay đổi kiến thức
-
     sessionCards.forEach(card => {
         if (card.isProcessed) return; 
         card.isProcessed = true;
@@ -19478,17 +19476,8 @@ async function processBatchAssessmentResults() {
         const penalty = card.penaltyPoints;
         const meaningFailed = card.isMeaningFailed;
         
-        // 1. Tính hệ số Quality (q)
-        let q = 0;
-        if (card.isFailed || meaningFailed || penalty >= 2) {
-            q = 0; 
-        } else if (penalty === 1) {
-            q = 3;                             
-        } else {
-            q = 5;                                               
-        }
+        let q = (card.isFailed || meaningFailed || penalty >= 2) ? 0 : (penalty === 1 ? 3 : 5);
 
-        // 2. Thuật toán SRS
         let p = card.progress && card.progress.length > 0 ? card.progress[0] : null;
         let ef = p ? p.ef : 2.5;
         let interval = p ? p.interval : 1;
@@ -19510,14 +19499,9 @@ async function processBatchAssessmentResults() {
         const due = new Date(); 
         due.setDate(due.getDate() + interval);
         
-        // Phân loại thẻ cho màn hình tổng kết
         if (q < 3) boostState.remedialCards.push(card);
         else boostState.passedCards.push(card);
 
-        // Lưu thông tin thay đổi vào hàng đợi tạm
-        tempMasteryUpdates.push({ front: card.front, q: q, newInterval: interval });
-
-        // Đóng gói payload gửi lên database
         let payload = { 
             user_id: currentUser.id, 
             card_id: card.id, 
@@ -19532,47 +19516,18 @@ async function processBatchAssessmentResults() {
 
     if (payloads.length > 0) {
         try {
-            // BƯỚC 1: GỬI LÊN CLOUD TRƯỚC
+            // Bước 1: Chỉ lưu dữ liệu tiến trình thô lên Cloud
             const { error } = await sb.from('progress').upsert(payloads);
-            if (error) throw error; // Nếu lỗi mạng, dừng ngay lập tức
+            if (error) throw error; 
 
-            // 🟢 FIX LỖI: CHỈ KHI LƯU SERVER THÀNH CÔNG THÌ MỚI XÓA FILE AUTO-SAVE
+            // Bước 2: Xóa file lưu nháp vì Supabase đã nhận bài thành công
             clearAssessmentStateFromLocal();
 
-            // BƯỚC 2: CẬP NHẬT RAM VÀ CACHE
-            tempMasteryUpdates.forEach(item => {
-                // Cập nhật Kanji Mastery trong RAM
-                const kMatches = item.front.match(/[\u4e00-\u9faf]/g) || [];
-                kMatches.forEach(k => {
-                    let currentInt = userKanjiMasteryMap[k] || 0;
-                    if (item.q < 3) { 
-                        let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
-                        userKanjiMasteryMap[k] = pen;
-                    } else {
-                        userKanjiMasteryMap[k] = Math.max(currentInt, item.newInterval);
-                    }
-                });
+            // Bước 3: Đợi 150ms để Trigger SQL dưới Supabase thực thi bóc tách xong
+            await new Promise(resolve => setTimeout(resolve, 150));
 
-                // Cập nhật Grammar Mastery trong RAM
-                if (globalGrammarData && globalGrammarData.length > 0) {
-                    globalGrammarData.forEach(g => {
-                        const cleanPoint = g.grammar_point.replace(/～/g, '');
-                        if (item.front.includes(cleanPoint) && item.q >= 3) {
-                            userGrammarMasteryMap[g.grammar_point] = Math.max(userGrammarMasteryMap[g.grammar_point] || 0, item.newInterval);
-                        }
-                    });
-                }
-            });
-
-            // 🟢 LƯU BẢN ĐỒ KANJI/GRAMMAR LÊN PROFILES ĐỂ DASHBOARD TẢI SIÊU TỐC VÀO NGÀY MAI
-            await sb.from('profiles').update({ 
-                kanji_mastery: userKanjiMasteryMap,
-                grammar_mastery: userGrammarMasteryMap 
-            }).eq('id', currentUser.id);
-
-            // Ghi bản RAM mới nhất vào LocalStorage thay vì SessionStorage
-            localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-            localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+            // Bước 4: Gọi đồng bộ kéo bản đồ chuẩn từ Cloud về ghi đè vào RAM & Ổ cứng cục bộ (SWR)
+            await syncUserDataWithCloud();
 
             // Lưu thẻ làm sai vào bộ bài Remedial
             if (boostState.remedialCards.length > 0) {
@@ -19583,18 +19538,19 @@ async function processBatchAssessmentResults() {
 
         } catch (err) {
             hideLoading();
-            console.error("Lỗi đồng bộ SRS:", err);
+            console.error("Lỗi đồng bộ ngầm Sát hạch:", err);
             
+            // Hoàn tác trạng thái để cho phép nộp lại
             sessionCards.forEach(card => card.isProcessed = false);
             boostState.passedCards = [];
             boostState.remedialCards = [];
             
-            // 🟢 VÁ LỖI MẮC KẸT: Render giao diện NỘP LẠI BÀI vào thẳng thẻ Game
+            // Báo lỗi cho người dùng bấm nộp lại
             document.getElementById('boostQuestion').innerHTML = "⚠️ LỖI KẾT NỐI MẠNG";
             document.getElementById('boostPrompt').innerText = "Cảnh báo";
             document.getElementById('boostInteractiveZone').innerHTML = `
                 <div style="text-align: center; color: #64748b; margin-bottom: 20px; font-size: 15px;">
-                    Hệ thống không thể nộp kết quả Sát hạch lên máy chủ. Vui lòng kiểm tra lại kết nối Wifi/4G và thử lại để không mất tiến độ.
+                    Không thể gửi kết quả lên máy chủ. Vui lòng kiểm tra mạng và thử lại.
                 </div>
                 <button onclick="processBatchAssessmentResults()" class="win11-btn-primary" style="padding: 16px; font-size: 16px; width: 100%; border-radius: 12px; background: #c50f1f; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; box-shadow: 0 4px 15px rgba(197, 15, 31, 0.3);">
                     <span class="material-symbols-outlined">wifi_protected_setup</span> BẤM VÀO ĐÂY ĐỂ NỘP LẠI
@@ -19602,7 +19558,7 @@ async function processBatchAssessmentResults() {
             `;
             document.getElementById('boostGiveUpZone').style.display = 'none';
 
-            return customAlert(`Lỗi mạng. Vui lòng kiểm tra Wifi/4G và bấm nút Nộp lại trên màn hình!`, "❌ Thất bại");
+            return customAlert(`Lỗi kết nối. Vui lòng bấm nút Nộp lại trên màn hình!`, "❌ Thất bại");
         }
     }
 
