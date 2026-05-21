@@ -18848,6 +18848,10 @@ async function processBatchAssessmentResults() {
     }
 
     let payloads = [];
+    
+    // 🟢 THÊM CỜ ĐÁNH DẤU CÓ SỰ THAY ĐỔI KANJI/NGỮ PHÁP TRONG RAM
+    let hasMasteryChanges = false;
+
     sessionCards.forEach(card => {
         if (card.isProcessed) return; 
         card.isProcessed = true;
@@ -18881,6 +18885,33 @@ async function processBatchAssessmentResults() {
         if (q < 3) boostState.remedialCards.push(card);
         else boostState.passedCards.push(card);
 
+        // ==============================================================
+        // 🚀 CẬP NHẬT TRỰC TIẾP KANJI VÀ NGỮ PHÁP VÀO RAM (OPTIMISTIC UI)
+        // ==============================================================
+        const kMatches = card.front.match(/[\u4e00-\u9faf]/g) || [];
+        kMatches.forEach(k => {
+            let currentInt = userKanjiMasteryMap[k] || 0;
+            if (q < 3) { 
+                let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
+                userKanjiMasteryMap[k] = pen;
+            } else {
+                userKanjiMasteryMap[k] = Math.max(currentInt, interval);
+            }
+            hasMasteryChanges = true;
+        });
+
+        if (globalGrammarData && globalGrammarData.length > 0) {
+            globalGrammarData.forEach(g => {
+                const cleanPoint = g.grammar_point.replace(/～/g, '');
+                if (card.front.includes(cleanPoint)) {
+                    let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
+                    if (q >= 3) userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
+                    hasMasteryChanges = true;
+                }
+            });
+        }
+        // ==============================================================
+
         let payload = { 
             user_id: currentUser.id, 
             card_id: card.id, 
@@ -18895,7 +18926,7 @@ async function processBatchAssessmentResults() {
 
     if (payloads.length > 0) {
         try {
-            // Bước 1: Chỉ lưu dữ liệu tiến trình thô lên Cloud thông qua RPC bảo mật
+            // Bước 1: Đẩy điểm lên Database (1 API call)
             const mySessionId = localStorage.getItem(`current_session_id_${currentUser.id}`);
             const { data: rpcData, error } = await sb.rpc('upsert_progress_safe', {
                 p_user_id: currentUser.id,
@@ -18906,32 +18937,32 @@ async function processBatchAssessmentResults() {
             if (error) throw error;
             if (rpcData && rpcData.status === 'error') throw new Error(rpcData.message); 
 
-            // Bước 2: Xóa file lưu nháp vì Supabase đã nhận bài thành công
+            // Bước 2: Xóa nháp
             clearAssessmentStateFromLocal();
 
-            // Bước 3: Đợi 150ms để Trigger SQL dưới Supabase thực thi bóc tách xong
-            await new Promise(resolve => setTimeout(resolve, 150));
+            // 🚀 BƯỚC 3: LƯU RAM VÀO Ổ CỨNG TRÌNH DUYỆT (THAY VÌ TẢI TỪ CLOUD)
+            if (hasMasteryChanges) {
+                localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+                localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+                
+                // Đánh dấu để trình duyệt biết data đang rất tươi mới
+                sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
+            }
 
-            // Bước 4: Gọi đồng bộ kéo bản đồ chuẩn từ Cloud về ghi đè vào RAM & Ổ cứng cục bộ (SWR)
-            await syncUserDataWithCloud();
-
-            // Lưu thẻ làm sai vào bộ bài Remedial
+            // Bước 4: Chuyển thẻ rớt vào bộ Remedial (Gọi ẩn)
             if (boostState.remedialCards.length > 0) {
                 await saveToRemedialDeck(boostState.remedialCards);
             }
-            
-            sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
 
         } catch (err) {
+            // ... (Phần logic xử lý lỗi và catch ở dưới giữ nguyên của bạn)
             hideLoading();
             console.error("Lỗi đồng bộ ngầm Sát hạch:", err);
             
-            // 1. Hoàn tác trạng thái trong RAM để chuẩn bị cho lần nộp sau
             sessionCards.forEach(card => card.isProcessed = false);
             boostState.passedCards = [];
             boostState.remedialCards = [];
             
-            // 2. HIỂN THỊ MODAL CỨU HỘ THÔNG MINH
             const retry = await showConfirm(
                 "Mạng không ổn định 📶", 
                 "Đừng lo! Kết quả sát hạch đã được <b>lưu an toàn trên máy của bạn</b>.<br><br>Bạn muốn thử nộp lại ngay bây giờ, hay quay về Trang chủ (hệ thống sẽ nhắc bạn nộp lại sau)?", 
@@ -18939,14 +18970,10 @@ async function processBatchAssessmentResults() {
                 "Về Trang chủ"
             );
 
-            // 3. XỬ LÝ LỰA CHỌN CỦA USER
             if (retry) {
-                // Đệ quy: Tự gọi lại chính nó để nộp lại
                 showLoading("Đang thử kết nối lại...");
                 processBatchAssessmentResults(); 
             } else {
-                // Giải thoát người dùng, cho về màn hình chính
-                // File save (isReadyToSubmit = true) VẪN CÒN NGUYÊN TRONG MÁY
                 document.getElementById('boostArea').classList.add('hidden');
                 showDashboard(); 
                 showToast("Đã tạm cất kết quả sát hạch. Nhớ nộp lại khi có mạng nhé! 💾");
