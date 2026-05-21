@@ -19541,7 +19541,7 @@ function executeExitBoost() {
         endBoostSession();
     }
 }
-/* ================= MÁY QUÉT TRÙNG LẶP (ANTI-DUPLICATE ENGINE) ================= */
+// ================= MÁY QUÉT TRÙNG LẶP (ANTI-DUPLICATE ENGINE) =================
 // Hàm này nhận vào mảng các thẻ chuẩn bị lưu. Trả về true nếu có trùng lặp.
 async function checkDuplicateCards(cardsArray) {
     if (!currentUser || !cardsArray || cardsArray.length === 0) return { hasDuplicate: false };
@@ -19560,20 +19560,31 @@ async function checkDuplicateCards(cardsArray) {
         return { hasDuplicate: true, words: Array.from(localDupes), type: 'local' };
     }
 
-    // 2. Kiểm tra trùng lặp TOÀN CẦU (Trên Database của User)
+    // 2. Kiểm tra trùng lặp TOÀN CẦU (Trên Database của User) - ĐÃ FIX LỖI BĂNG THÔNG
     try {
-        // Truy vấn bảng cards, JOIN với bảng decks để lọc đúng thẻ của currentUser
-        const { data, error } = await sb.from('cards')
-            .select('id, front, decks!inner(owner_id)')
-            .eq('decks.owner_id', currentUser.id)
-            .in('front', Array.from(uniqueFronts));
+        const frontsArray = Array.from(uniqueFronts);
+        const CHUNK_SIZE = 200; // Chia lô 200 từ/lần gọi để an toàn cho URL length
+        let allDbDupes = [];
 
-        if (error) throw error;
+        // Vòng lặp "băm nhỏ" mảng khổng lồ thành các request nhỏ và an toàn
+        for (let i = 0; i < frontsArray.length; i += CHUNK_SIZE) {
+            const chunk = frontsArray.slice(i, i + CHUNK_SIZE);
+            
+            const { data, error } = await sb.from('cards')
+                .select('id, front, decks!inner(owner_id)')
+                .eq('decks.owner_id', currentUser.id)
+                .in('front', chunk); // Quét từng lô nhỏ
 
-        if (data && data.length > 0) {
+            if (error) throw error;
+            if (data && data.length > 0) {
+                allDbDupes.push(...data); // Gom kết quả từ các lô lại
+            }
+        }
+
+        if (allDbDupes.length > 0) {
             // Lọc bỏ trường hợp "Đang Edit đúng cái thẻ đó" thì không tính là trùng
             const incomingIds = cardsArray.map(c => c.id).filter(Boolean);
-            const realDupes = data.filter(dbCard => !incomingIds.includes(dbCard.id));
+            const realDupes = allDbDupes.filter(dbCard => !incomingIds.includes(dbCard.id));
 
             if (realDupes.length > 0) {
                 const dupeWords = [...new Set(realDupes.map(d => d.front))];
@@ -19587,7 +19598,7 @@ async function checkDuplicateCards(cardsArray) {
 
     return { hasDuplicate: false };
 }
-// HÀM MỚI: Dành riêng cho Lưu hàng loạt (Lọc bỏ thẻ trùng và trả về mảng thẻ hợp lệ)
+// HÀM: Dành riêng cho Lưu hàng loạt (Lọc bỏ thẻ trùng và trả về mảng thẻ hợp lệ)
 async function filterDuplicateCardsForBulk(cardsArray) {
     if (!currentUser || !cardsArray || cardsArray.length === 0) {
         return { validCards: [], duplicateWords: [] };
@@ -19608,18 +19619,26 @@ async function filterDuplicateCardsForBulk(cardsArray) {
         }
     }
 
-    // 2. Quét Database xem có trùng với kho dữ liệu cũ không
+    // 2. Quét Database xem có trùng với kho dữ liệu cũ không - ĐÃ FIX LỖI BĂNG THÔNG
     try {
-        const { data, error } = await sb.from('cards')
-            .select('front, decks!inner(owner_id)')
-            .eq('decks.owner_id', currentUser.id)
-            .in('front', Array.from(uniqueFronts));
+        const frontsArray = Array.from(uniqueFronts);
+        const CHUNK_SIZE = 200; // Giới hạn 200 từ mỗi lô để tránh lỗi 414 URI Too Long
 
-        if (error) throw error;
+        // Vòng lặp băm nhỏ mảng
+        for (let i = 0; i < frontsArray.length; i += CHUNK_SIZE) {
+            const chunk = frontsArray.slice(i, i + CHUNK_SIZE);
 
-        // Nếu có trên Database -> Ghi nhận vào danh sách từ bị trùng
-        if (data && data.length > 0) {
-            data.forEach(dbCard => duplicateWords.add(dbCard.front));
+            const { data, error } = await sb.from('cards')
+                .select('front, decks!inner(owner_id)')
+                .eq('decks.owner_id', currentUser.id)
+                .in('front', chunk); // Quét từng lô
+
+            if (error) throw error;
+
+            // Nếu có trên Database -> Ghi nhận vào danh sách từ bị trùng
+            if (data && data.length > 0) {
+                data.forEach(dbCard => duplicateWords.add(dbCard.front));
+            }
         }
     } catch (err) {
         console.error("Lỗi khi quét lọc trùng lặp:", err);
