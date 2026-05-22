@@ -15551,13 +15551,14 @@ async function expandTagWithAI() {
     showLoading(`Đang lấy danh sách từ cũ để dặn AI không được tạo trùng...`);
 
     try {
-        // Bước A: Lấy danh sách các chữ cái mặt trước (front) đã có trong tag này
-        const { data: existingCards } = await sb.from('cards')
-            .select('front, decks!inner()')
-            .eq('decks.owner_id', currentUser.id)
-            .contains('tags', [tagCode]);
-            
-        const existingFronts = existingCards ? existingCards.map(c => c.front.trim()) : [];
+        // Bước A: Lấy mảng FLAT ARRAY các chữ cái mặt trước đã có trong tag này
+        const { data: existingFronts } = await sb.rpc('get_fronts_by_tag', {
+            p_user_id: currentUser.id,
+            p_tag: tagCode
+        });
+        
+        // Nếu không có data thì mảng rỗng, nếu có thì data đã là mảng string
+        if (!existingFronts) existingFronts = [];
         
         // 🟢 FIX LỖI "NGỘ ĐỘC PROMPT": Chỉ bốc ngẫu nhiên TỐI ĐA 30 TỪ để gửi cho AI (Thay vì gửi hàng trăm từ)
         const sampleFronts = existingFronts.sort(() => 0.5 - Math.random()).slice(0, 30);
@@ -20651,13 +20652,13 @@ async function refreshKanjiCollection() {
     showLoading("Đang kiểm tra từ điển Kanji mới...");
     
     try {
-        // 1. Kéo mảng CHỈ CHỨA CHỮ KANJI từ Cloud (Payload cực nhẹ, ~1-2KB cho 2000 chữ)
-        const { data: cloudKanjis, error: err1 } = await sb.from('kanji_builder').select('kanji');
+        // 1. Kéo mảng FLAT ARRAY chứa chữ Kanji (Payload siêu siêu nhẹ)
+        const { data: cloudKanjis, error: err1 } = await sb.rpc('get_all_kanji_flat');
         if (err1) throw err1;
 
-        // 2. So sánh với RAM hiện tại để tìm ra những chữ bị thiếu (Do Admin mới thêm)
+        // 2. So sánh với RAM hiện tại
         const localKanjiSet = new Set(allKanjiData.map(k => k.kanji));
-        const missingKanjis = cloudKanjis.filter(k => !localKanjiSet.has(k.kanji)).map(k => k.kanji);
+        const missingKanjis = cloudKanjis.filter(k => !localKanjiSet.has(k)); // cloudKanjis giờ đã là mảng thuần
 
         if (missingKanjis.length === 0) {
             // Đã đồng bộ tiến độ người dùng ở hàm showKanjiCollection mỗi khi mở trang rồi, 
@@ -20744,13 +20745,13 @@ async function refreshGrammarCollection() {
     showLoading("Đang kiểm tra ngữ pháp mới...");
     
     try {
-        // 1. Kéo mảng CHỈ CHỨA TÊN NGỮ PHÁP (Payload siêu nhẹ)
-        const { data: cloudGrammar, error: err1 } = await sb.from('grammar_dict').select('grammar_point');
+        // 1. Kéo mảng FLAT ARRAY CHỈ CHỨA TÊN NGỮ PHÁP
+        const { data: cloudGrammar, error: err1 } = await sb.rpc('get_all_grammar_points_flat');
         if (err1) throw err1;
 
         // 2. Tìm các ngữ pháp Admin vừa thêm
         const localGrammarSet = new Set(globalGrammarData.map(g => g.grammar_point));
-        const missingGrammars = cloudGrammar.filter(g => !localGrammarSet.has(g.grammar_point)).map(g => g.grammar_point);
+        const missingGrammars = cloudGrammar.filter(g => !localGrammarSet.has(g));
 
         if (missingGrammars.length === 0) {
             showToast("✅ Từ điển Ngữ pháp của bạn đã là bản mới nhất!");
@@ -21177,9 +21178,12 @@ window.saveKanjiCardsToFavorites = async function(btnElement) {
             }]);
         }
 
-        // 2. Tải danh sách thẻ hiện có trong Bộ Yêu Thích để CHỐNG TRÙNG LẶP
-        const { data: existingFavs } = await sb.from('cards').select('front').eq('deck_id', favDeckId);
-        const existingFronts = new Set(existingFavs ? existingFavs.map(c => c.front) : []);
+        // 2. Kéo FLAT ARRAY danh sách thẻ hiện có trong Bộ Yêu Thích để CHỐNG TRÙNG LẶP
+        const { data: existingFavs } = await sb.rpc('get_fronts_by_deck', {
+            p_user_id: currentUser.id,
+            p_deck_id: favDeckId
+        });
+        const existingFronts = new Set(existingFavs || []);
 
         // 3. Đóng gói payload chỉ với những thẻ CHƯA TỒN TẠI trong Bộ Yêu Thích
         const cardsToInsert = [];
