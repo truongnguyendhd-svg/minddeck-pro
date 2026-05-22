@@ -21543,19 +21543,47 @@ async function triggerSilentBackgroundSync(textToScan = null, isDestructive = fa
     // Khi xóa 1 bộ bài (Delete Deck) hoặc Dọn bộ yêu thích, ta không thể biết chính xác 
     // chữ Kanji nào bị mất hoàn toàn, chữ nào vẫn còn ở bộ bài khác. 
     // Do đó, ta BẮT BUỘC phải dọn rác và nhờ Supabase tính lại.
+    // -----------------------------------------------------------
+    // TRƯỜNG HỢP 2: THAO TÁC XÓA LỚN (BẮT BUỘC GỌI CLOUD NẾU ĐANG Ở TRANG THỐNG KÊ)
+    // -----------------------------------------------------------
     if (isDestructive) {
         console.log("MindDeck: Dọn dẹp Ghost Data từ Cloud do thao tác Xóa...");
         try {
+            // 1. Luôn luôn xóa cache cục bộ để đánh dấu dữ liệu cũ đã "hết hạn"
             localStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
             localStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
             localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
+            localStorage.removeItem(`minddeck_mastery_updated_${currentUser.id}`);
 
-            await syncAllMasteryFromCloud();
+            // 2. KIỂM TRA NGỮ CẢNH TRANG HIỆN TẠI (CONTEXT-AWARE FETCHING)
+            const isDashboard = !document.getElementById('dashboardPage').classList.contains('hidden');
+            const isKanjiPage = !document.getElementById('kanjiPage').classList.contains('hidden');
+            const isGrammarPage = !document.getElementById('grammarPage').classList.contains('hidden');
 
-            if (!document.getElementById('dashboardPage').classList.contains('hidden')) {
-                renderJLPTProgress();
+            if (isDashboard || isKanjiPage || isGrammarPage) {
+                // Chỉ kéo dữ liệu về NẾU màn hình hiện tại đang thực sự cần hiển thị nó
+                console.log("MindDeck: Trang hiện tại cần dữ liệu, đang kéo bản mới từ Cloud...");
+                await syncAllMasteryFromCloud();
+
+                // Vẽ lại giao diện tương ứng
+                if (isDashboard) {
+                    renderJLPTProgress();
+                    renderRoadmapWidget();
+                } else if (isKanjiPage) {
+                    renderKanjiCollectionGrid(currentKanjiFilter);
+                } else if (isGrammarPage) {
+                    renderGrammarGrid(globalGrammarData);
+                }
+            } else {
+                // 🟢 TỐI ƯU BĂNG THÔNG: Đang ở Kho học phần (Home) hoặc đang Học bài.
+                // KHÔNG CẦN KÉO DATA VỀ. Ép RAM về rỗng, khi nào User sang Dashboard thì hàm SWR sẽ tự kéo!
+                userKanjiMasteryMap = {};
+                userGrammarMasteryMap = {};
+                console.log("MindDeck: Đã xóa Cache. Hoãn việc kéo Cloud để tiết kiệm băng thông.");
             }
-        } catch (e) { console.error("Lỗi đồng bộ ngầm:", e); }
+        } catch (e) { 
+            console.error("Lỗi đồng bộ ngầm khi xóa:", e); 
+        }
     }
 }
 // =================Hết HỆ THỐNG ĐỒNG BỘ NGẦM (SILENT BACKGROUND SYNC) =================
