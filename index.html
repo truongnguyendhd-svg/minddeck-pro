@@ -8397,7 +8397,10 @@ let deckLoadedAt = null; // Lưu mốc thời gian tải bộ bài để chống
 let srsSyncTimer = null;
 let srsPendingQueue = [];
 let isSrsSubmitting = false;
-
+// Biến quản lý Cache Dashboard (SWR Cooldown)
+let lastDashboardSync = 0;
+let cachedDueCount = 0;
+let forceDashboardRefresh = true; // Mặc định bằng true để lần đầu tiên mở App chắc chắn sẽ tải
 /* ================= 3. UTILITIES ================= */
 /**
  * Hàm đọc LocalStorage an toàn toàn diện (Đã tích hợp Lớp 1 & Lớp 2)
@@ -8637,26 +8640,44 @@ function showDashboard(skipHash = false) {
 }
 
 // HÀM TRUY VẤN VÀ TÍNH TOÁN DỮ LIỆU TỪ SUPABASE (SIÊU TỐC ĐỘ MỚI)
+// TRƯỚC ĐÂY (Đoạn cũ cần xóa đi):
+// const now = new Date().toISOString();
+// const { count: dueCount, error: err1 } = await sb.from('progress')...
+// document.getElementById('dashDueCount').innerText = dueCount || 0;
+// const btnReview = document.getElementById('btnGlobalReview');
+// ...
+
+// THAY THÀNH: (Áp dụng SWR Cache)
 async function loadDashboardData() {
     if (!currentUser) return;
     showLoading("Đang tổng hợp dữ liệu...");
 
     try {
-        const now = new Date().toISOString();
+        const nowMs = Date.now();
+        const nowIso = new Date().toISOString();
 
-        // 1. LẤY SỐ THẺ TRỄ HẠN (HEAD Request - 0 byte payload)
-        const { count: dueCount, error: err1 } = await sb.from('progress')
-            .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
-            .eq('user_id', currentUser.id)
-            .eq('cards.decks.type', 'flashcard')
-            .lte('due', now);
+        // 1. LẤY SỐ THẺ TRỄ HẠN (CHỈ GỌI MẠNG KHI QUÁ 60S HOẶC BỊ ÉP LÀM MỚI)
+        if (forceDashboardRefresh || (nowMs - lastDashboardSync) > 60000) {
+            console.log("MindDeck: Cập nhật đếm thẻ trễ hạn từ Cloud...");
+            const { count: dueCount, error: err1 } = await sb.from('progress')
+                .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
+                .eq('user_id', currentUser.id)
+                .eq('cards.decks.type', 'flashcard')
+                .lte('due', nowIso);
+            
+            cachedDueCount = dueCount || 0;
+            lastDashboardSync = nowMs;
+            forceDashboardRefresh = false; // Tắt cờ sau khi đã tải xong
+        } else {
+            console.log("MindDeck: Sử dụng đếm thẻ trễ hạn từ RAM (Bỏ qua API)");
+        }
         
-        document.getElementById('dashDueCount').innerText = dueCount || 0;
+        document.getElementById('dashDueCount').innerText = cachedDueCount;
 
         const btnReview = document.getElementById('btnGlobalReview');
         if (btnReview) {
-            if (dueCount > 0) {
-                btnReview.innerHTML = `<span class="material-symbols-outlined" style="font-size: 20px;">psychology</span> ÔN TẬP TẤT CẢ (${dueCount})`;
+            if (cachedDueCount > 0) {
+                btnReview.innerHTML = `<span class="material-symbols-outlined" style="font-size: 20px;">psychology</span> ÔN TẬP TẤT CẢ (${cachedDueCount})`;
                 btnReview.disabled = false;
                 btnReview.style.opacity = '1';
                 btnReview.style.cursor = 'pointer';
@@ -8668,20 +8689,14 @@ async function loadDashboardData() {
             }
         }
         
-        // 2. 🟢 ĐÃ LOẠI BỎ TRUY VẤN PROFILES TRÙNG LẶP:
-        // Toàn bộ dữ liệu (bản đồ tiến độ, mục tiêu study_goal) đã được nạp an toàn
-        // từ bộ nhớ đệm RAM / LocalStorage cục bộ do Auth Listener thiết lập trước đó!
+        // 2. Tự động dọn rác và Vẽ biểu đồ (Giữ nguyên phần dưới của bạn)
+        await autoCleanRemedialCards(); 
         
-        // 3. THIẾT LẬP THỨ TỰ AWAIT CHUẨN XÁC CHỐNG TRANH CHẤP LUỒNG
-        await autoCleanRemedialCards(); // Chạy ngầm dọn rác (Đã tối ưu 24h)
-        
-        // 🟢 ĐÃ VÁ LỖI TRANH CHẤP LUỒNG: Cho phép Render JLPT và Roadmap chạy đồng thời vì chúng update DOM khác nhau
         await Promise.all([
             renderJLPTProgress(),
             renderRoadmapWidget()
         ]);
         
-        // Góc khám phá chứa hiệu ứng Flip lật bài (setTimeout) nên cho gọi cuối cùng (Hàm này giờ đã trả về Promise an toàn)
         refreshDiscovery();
 
     } catch (err) {
@@ -12017,6 +12032,7 @@ async function flushSrsQueue() {
             return;
         }
         console.log(`MindDeck: Đã đồng bộ lô ${payloadsToSend.length} thẻ SRS lên Cloud.`);
+        forceDashboardRefresh = true;
 
     } catch (err) {
         console.warn("Mất mạng! Đã đưa tiến trình vào Hàng đợi Offline.");
@@ -18772,6 +18788,7 @@ async function processBatchAssessmentResults() {
             if (boostState.remedialCards.length > 0) {
                 await saveToRemedialDeck(boostState.remedialCards);
             }
+            forceDashboardRefresh = true;
 
         } catch (err) {
             // ... (Phần logic xử lý lỗi và catch ở dưới giữ nguyên của bạn)
