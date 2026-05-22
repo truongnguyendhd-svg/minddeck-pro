@@ -9505,11 +9505,11 @@ async function loadCards(d, skipHash = false) {
             let fullCardsMap = new Map();
             
             if (top30Ids.length > 0) {
+                // 🟢 TỐI ƯU 1: Chỉ lấy back, info, tags và các cột cần thiết của progress
                 const { data: fullCards, error: fullErr } = await sb.from('cards')
-                    .select('*, progress(*)')
+                    .select('id, back, info, tags, progress(id, ef, interval, interval_count, test_result, due)')
                     .in('id', top30Ids)
                     .eq('progress.user_id', currentUser.id)
-                    // 🟢 VÁ LỖI: Ngăn chặn tải chồng chéo hàng trăm lịch sử
                     .order('due', { foreignTable: 'progress', ascending: false })
                     .limit(1, { foreignTable: 'progress' });
                     
@@ -9521,7 +9521,8 @@ async function loadCards(d, skipHash = false) {
             // 5. LẮP RÁP THÀNH MẢNG CARDS CUỐI CÙNG
             cards = filteredSkeleton.map(skel => {
                 if (fullCardsMap.has(skel.id)) {
-                    return { ...fullCardsMap.get(skel.id), isLoaded: true };
+                    // 🟢 TỐI ƯU 2: Dùng { ...skel, ...full } để giữ lại cột 'front' của bộ xương
+                    return { ...skel, ...fullCardsMap.get(skel.id), isLoaded: true };
                 }
                 return { ...skel, isLoaded: false }; // Đánh dấu chờ hàm showCard tải ngầm
             });
@@ -9687,22 +9688,27 @@ async function showCard() {
     if (c.isLoaded === false) {
         showLoading("Đang tải dữ liệu thẻ học...");
         try {
-            const { data, error } = await sb.from('cards').select('*, progress(*)').eq('id', c.id).single();
+            // 🟢 TỐI ƯU: Chỉ lấy các cột chưa có
+            const { data, error } = await sb.from('cards')
+                .select('id, back, info, tags, progress(id, ef, interval, interval_count, test_result, due)')
+                .eq('id', c.id)
+                .single();
             if (error) throw error;
             
-            // Đắp dữ liệu đầy đủ vào RAM đang học
-            sessionCards[currentIndex] = { ...data, isLoaded: true };
+            // 🟢 TỐI ƯU: Gộp data mới tải vào c (chứa thẻ front)
+            const fullCardData = { ...c, ...data, isLoaded: true };
+            sessionCards[currentIndex] = fullCardData;
             
-            // Đồng bộ ngược vào RAM cache toàn cục để lần sau không bị gọi lại
+            // Đồng bộ ngược vào RAM cache toàn cục
             if (window.rawDeckCache[currentDeckName]) {
-                window.rawDeckCache[currentDeckName][currentIndex] = { ...data, isLoaded: true };
+                window.rawDeckCache[currentDeckName][currentIndex] = fullCardData;
             }
             hideLoading();
         } catch (err) {
             hideLoading();
             console.error("Lỗi nạp thẻ trực tiếp:", err);
             showToast("Lỗi kết nối mạng, đang thử nạp lại câu này...");
-            return; // Ngắt luồng render để tránh crash giao diện do thiếu dữ liệu
+            return;
         }
     }
 
@@ -9727,12 +9733,10 @@ async function showCard() {
     if (idsToPrefetch.length > 0) {
         console.log(`[Prefetch] Đang tải ngầm ${idsToPrefetch.length} thẻ tiếp theo... 📥`);
         sb.from('cards')
-            // Cú pháp chọn lấy thẻ và bảng progress con
-            .select('*, progress(*)')
+            // 🟢 TỐI ƯU: Loại bỏ select('*')
+            .select('id, back, info, tags, progress(id, ef, interval, interval_count, test_result, due)')
             .in('id', idsToPrefetch)
-            // Lọc tiến độ đúng của user hiện tại (Để an toàn nếu RLS không bọc kỹ)
             .eq('progress.user_id', currentUser.id)
-            // 🟢 VÁ LỖI: Chỉ lấy 1 bản ghi tiến độ MỚI NHẤT của thẻ đó
             .order('due', { foreignTable: 'progress', ascending: false })
             .limit(1, { foreignTable: 'progress' }) 
             .then(({ data, error }) => {
@@ -9741,13 +9745,16 @@ async function showCard() {
                     indexesToPrefetch.forEach(idx => {
                         const targetId = sessionCards[idx].id;
                         if (dataMap.has(targetId)) {
-                            sessionCards[idx] = { ...dataMap.get(targetId), isLoaded: true };
+                            // 🟢 TỐI ƯU: Gộp dataMap vào thẻ cũ để giữ lại cột 'front'
+                            const mergedCard = { ...sessionCards[idx], ...dataMap.get(targetId), isLoaded: true };
+                            
+                            sessionCards[idx] = mergedCard;
                             if (window.rawDeckCache[currentDeckName]) {
-                                window.rawDeckCache[currentDeckName][idx] = { ...dataMap.get(targetId), isLoaded: true };
+                                window.rawDeckCache[currentDeckName][idx] = mergedCard;
                             }
                         }
                     });
-                    console.log(`[Prefetch] Đã đồng bộ ngầm thành công (Tối ưu payload) 🧠`);
+                    console.log(`[Prefetch] Đã đồng bộ ngầm thành công (Tối ưu payload cực độ) 🧠`);
                 }
             });
     }
