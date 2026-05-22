@@ -12087,51 +12087,75 @@ async function answerCurrent(q) {
 
 
     // ==========================================
-    // LOGIC 3: GOM NHÓM (BATCHING) & GỬI LÊN CLOUD NGẦM
+    // LOGIC 3: GOM NHÓM (BATCHING) & GỬI LÊN CLOUD NGẦM (ĐÃ TỐI ƯU)
     // ==========================================
     
     // Nhét thẻ vừa quẹt vào mảng chờ
     srsPendingQueue.push(payload);
 
-    // Hủy bỏ lệnh hẹn giờ cũ (Nếu người dùng đang quẹt liên tục)
+    // Hủy bỏ lệnh hẹn giờ cũ
     if (srsSyncTimer) clearTimeout(srsSyncTimer);
 
-    // Thiết lập hẹn giờ mới: Chỉ gửi khi người dùng ngừng quẹt trong 3 giây
-    srsSyncTimer = setTimeout(async () => {
-        if (srsPendingQueue.length === 0) return;
+    // 1. Gửi ngay lập tức nếu mảng chờ đã đạt 20 thẻ
+    if (srsPendingQueue.length >= 20) {
+        flushSrsQueue();
+    } else {
+        // 2. Hoặc gửi nếu người dùng ngừng thao tác trong 15 giây
+        srsSyncTimer = setTimeout(flushSrsQueue, 15000); 
+    }
+} // <-- DẤU NGOẶC ĐÓNG CỦA HÀM answerCurrent
+
+// ==========================================
+// HÀM BẮN DỮ LIỆU SRS THEO LÔ
+// ==========================================
+async function flushSrsQueue() {
+    if (srsPendingQueue.length === 0) return;
+    
+    // Copy mảng hiện tại và làm rỗng mảng chờ
+    const payloadsToSend = [...srsPendingQueue];
+    srsPendingQueue = [];
+
+    try {
+        const mySessionId = localStorage.getItem(`current_session_id_${currentUser.id}`);
+
+        // GỌI RPC 1 LẦN DUY NHẤT
+        const { data: rpcData, error } = await sb.rpc('upsert_progress_safe', {
+            p_user_id: currentUser.id,
+            p_session_id: mySessionId,
+            p_payload: payloadsToSend 
+        });
         
-        // Copy mảng hiện tại và làm rỗng mảng chờ để nhận lượt quẹt tiếp theo
-        const payloadsToSend = [...srsPendingQueue];
-        srsPendingQueue = [];
-
-        try {
-            // Kiểm tra Session chống đa thiết bị
-            const mySessionId = localStorage.getItem(`current_session_id_${currentUser.id}`);
-            
-            // GỌI RPC 1 LẦN DUY NHẤT VỚI MẢNG NHIỀU THẺ
-            const { data: rpcData, error } = await sb.rpc('upsert_progress_safe', {
-                p_user_id: currentUser.id,
-                p_session_id: mySessionId,
-                p_payload: payloadsToSend 
-            });
-            
-            if (error) throw error; 
-            
-            // Bị từ chối do khác Session -> Đừng lưu nữa, chờ cơ chế đá văng xử lý
-            if (rpcData && rpcData.status === 'error' && rpcData.message === 'SESSION_EXPIRED') {
-                console.warn("MindDeck: Lệnh SRS bị từ chối vì phiên đăng nhập đã chuyển sang máy khác.");
-                return;
-            }
-            
-            console.log(`MindDeck: Đã đồng bộ lô ${payloadsToSend.length} thẻ SRS lên Cloud.`);
-
-        } catch (err) {
-            console.warn("Mất mạng! Đã đưa tiến trình vào Hàng đợi Offline.");
-            // Vòng lặp ném các thẻ bị rớt mạng vào Offline Queue để gửi lại sau
-            payloadsToSend.forEach(p => saveToOfflineQueue(p));
+        if (error) throw error; 
+        
+        if (rpcData && rpcData.status === 'error' && rpcData.message === 'SESSION_EXPIRED') {
+            console.warn("MindDeck: Lệnh SRS bị từ chối vì phiên đăng nhập đã chuyển sang máy khác.");
+            return;
         }
-    }, 3000); // 3000ms = 3 giây trì hoãn
+        console.log(`MindDeck: Đã đồng bộ lô ${payloadsToSend.length} thẻ SRS lên Cloud.`);
+
+    } catch (err) {
+        console.warn("Mất mạng! Đã đưa tiến trình vào Hàng đợi Offline.");
+        // Tận dụng hàm có sẵn của bạn
+        payloadsToSend.forEach(p => saveToOfflineQueue(p));
+    }
 }
+
+// 3. XỬ LÝ KHI NGƯỜI DÙNG TẮT/CHUYỂN TAB (Tận dụng hoàn toàn tính năng có sẵn)
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === 'hidden') {
+        // KHI TẮT TAB HOẶC ẨN APP:
+        // Đổ ngay toàn bộ mảng chờ trên RAM vào Ổ cứng (Offline Queue của bạn)
+        // Việc lưu ổ cứng mất 1ms, trình duyệt không thể cản được.
+        if (srsPendingQueue.length > 0) {
+            srsPendingQueue.forEach(p => saveToOfflineQueue(p));
+            srsPendingQueue = []; // Dọn sạch RAM
+        }
+    } else if (document.visibilityState === 'visible') {
+        // KHI MỞ LẠI TAB HOẶC APP:
+        // Gọi thẳng hàm xử lý hàng đợi offline của bạn để nó tự động bắn lên Supabase
+        processOfflineQueue();
+    }
+});
 
 // --- CÁC HÀM HELPER CHO CRAM MODE ---
 function changeCramLevel() {
