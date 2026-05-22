@@ -8692,6 +8692,12 @@ async function loadDashboardData() {
     try {
         const nowMs = Date.now();
         const nowIso = new Date().toISOString();
+        // 🔄 CHỐT CHẶN TỰ CHỮA LÀNH (AUTO-REVALIDATE ON DEMAND)
+        // Nếu phát hiện RAM bị hết hạn do thao tác xóa trước đó, tự động kéo ngầm từ Cloud
+        if (userKanjiMasteryMap === null || userGrammarMasteryMap === null) {
+            console.log("MindDeck: Phát hiện dữ liệu tiến trình đã hết hạn. Đang đồng bộ lại...");
+            await syncAllMasteryFromCloud();
+        }
 
         // 1. LẤY SỐ THẺ TRỄ HẠN (CHỈ GỌI MẠNG KHI QUÁ 60S HOẶC BỊ ÉP LÀM MỚI)
         if (forceDashboardRefresh || (nowMs - lastDashboardSync) > 60000) {
@@ -14129,6 +14135,12 @@ async function showKanjiCollection(skipHash = false) {
     showPage('kanjiPage');
     updateBreadcrumb([{label: "Alcohol"}]); 
     updateHeaderTitle("BỘ SƯU TẬP KANJI");
+    // 🔄 CHỐT CHẶN TỰ CHỮA LÀNH
+    if (userKanjiMasteryMap === null) {
+        showLoading("Đang cập nhật lại bộ sưu tập...");
+        await syncAllMasteryFromCloud();
+        hideLoading();
+    }
 
     const grid = document.getElementById('kcGridPage');
     grid.innerHTML = '<div style="text-align:center; padding:50px; grid-column:1/-1;"><div class="spinner" style="margin:auto; border-top-color:#f59e0b;"></div><p style="color:#718096; margin-top:15px;">Đang quét bộ não của bạn...</p></div>';
@@ -14292,7 +14304,13 @@ async function showGrammarVault(skipHash = false) {
     updateHeaderTitle("BỘ SƯU TẬP NGỮ PHÁP"); 
     
     document.getElementById('grammarSearchInput').value = '';
-    
+    // 🔄 CHỐT CHẶN TỰ CHỮA LÀNH
+    if (userGrammarMasteryMap === null) {
+        showLoading("Đang cập nhật lại dữ liệu ngữ pháp...");
+        await calculateGrammarMastery(true); // Ép buộc nạp trực tiếp từ Cloud
+        hideLoading();
+    }
+
     // Check quyền Admin để hiện nút Auto Gen
     const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
     const autoGenBtn = document.getElementById('btnAdminAutoGenGrammar');
@@ -21514,10 +21532,10 @@ async function triggerSilentBackgroundSync(textToScan = null, isDestructive = fa
                 }
             } else {
                 // 🟢 TỐI ƯU BĂNG THÔNG: Đang ở Kho học phần (Home) hoặc đang Học bài.
-                // KHÔNG CẦN KÉO DATA VỀ. Ép RAM về rỗng, khi nào User sang Dashboard thì hàm SWR sẽ tự kéo!
-                userKanjiMasteryMap = {};
-                userGrammarMasteryMap = {};
-                console.log("MindDeck: Đã xóa Cache. Hoãn việc kéo Cloud để tiết kiệm băng thông.");
+                // Gán về null để đánh dấu trạng thái "Hết hạn/Chờ nạp lại" (Expired/Dirty State).
+                userKanjiMasteryMap = null;
+                userGrammarMasteryMap = null;
+                console.log("MindDeck: Đã xóa Cache & đặt RAM về null để chờ Revalidate khi cần.");
             }
         } catch (e) { 
             console.error("Lỗi đồng bộ ngầm khi xóa:", e); 
