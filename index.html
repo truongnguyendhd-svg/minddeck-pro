@@ -9038,37 +9038,49 @@ sb.auth.onAuthStateChange(async (event, session) => {
         }
     }
 });
-// HÀM BẢO VỆ PHIÊN ĐĂNG NHẬP (ĐÃ TỐI ƯU BĂNG THÔNG ZERO-BLOAT)
+// HÀM BẢO VỆ PHIÊN ĐĂNG NHẬP (ĐÃ TỐI ƯU ZERO-BLOAT & OFFLINE-WAKEUP)
 async function setupSingleSessionProtection() {
     if (!currentUser) return;
 
-    // 1. Tạo Session ID duy nhất theo User ID trên thiết bị hiện tại nếu chưa có
     const sessionKey = `current_session_id_${currentUser.id}`;
     let localSessionId = localStorage.getItem(sessionKey);
     
+    // 1. TẠO PHIÊN NẾU LÀ MÁY MỚI TINH
     if (!localSessionId) {
         localSessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         localStorage.setItem(sessionKey, localSessionId);
 
-        // 🟢 ĐÃ FIX: Đẩy mã phiên lên bảng siêu nhẹ 'active_sessions' thay vì 'profiles'
         await sb.from('active_sessions')
             .upsert({ 
                 user_id: currentUser.id, 
                 session_id: localSessionId,
                 updated_at: new Date().toISOString()
             });
+    } else {
+        // 2. 🟢 CHỐT CHẶN WAKE-UP: Quét tĩnh DB xem có bị đá văng lúc đang ngủ/ẩn Tab không?
+        try {
+            const { data: remoteSession } = await sb.from('active_sessions')
+                .select('session_id')
+                .eq('user_id', currentUser.id)
+                .single();
+                
+            if (remoteSession && remoteSession.session_id !== localSessionId) {
+                console.warn("MindDeck: Phát hiện Session bị chiếm quyền trong lúc Tab ngủ!");
+                return handleForcedLogout(); // Đá văng ngay lập tức
+            }
+        } catch (e) {
+            console.warn("Lỗi kiểm tra session tĩnh:", e);
+        }
     }
 
-    // 2. Tránh đăng ký trùng lặp kênh lắng nghe
+    // 3. ĐĂNG KÝ WEBSOCKET LẮNG NGHE REALTIME (Tránh đăng ký trùng lặp)
     if (realtimeSessionChannel) return;
 
-    // 3. 🟢 ĐÃ FIX: Lắng nghe trên bảng 'active_sessions'. 
-    // Payload mạng bây giờ cực kỳ nhỏ bé, không ảnh hưởng đến thuật toán SRS.
     realtimeSessionChannel = sb.channel(`public:active_sessions:user_id=eq.${currentUser.id}`)
         .on(
             'postgres_changes',
             {
-                event: '*', // Bắt cả sự kiện INSERT lẫn UPDATE
+                event: '*', // Bắt cả INSERT lẫn UPDATE
                 schema: 'public',
                 table: 'active_sessions',
                 filter: `user_id=eq.${currentUser.id}`
@@ -9077,7 +9089,7 @@ async function setupSingleSessionProtection() {
                 const newActiveSessionId = payload.new.session_id;
                 const myLocalSessionId = localStorage.getItem(sessionKey);
 
-                // Nếu mã phiên trên Cloud thay đổi và KHÔNG trùng với mã cục bộ của máy này
+                // Nếu mã phiên trên Cloud thay đổi và KHÔNG trùng với mã cục bộ
                 if (newActiveSessionId && myLocalSessionId && newActiveSessionId !== myLocalSessionId) {
                     handleForcedLogout();
                 }
@@ -12006,20 +12018,31 @@ async function flushSrsQueue() {
     }
 }
 
-// 3. XỬ LÝ KHI NGƯỜI DÙNG TẮT/CHUYỂN TAB (Tận dụng hoàn toàn tính năng có sẵn)
+// 3. XỬ LÝ KHI NGƯỜI DÙNG TẮT/CHUYỂN TAB (Offline Queue & Suspend WebSocket)
 document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === 'hidden') {
-        // KHI TẮT TAB HOẶC ẨN APP:
-        // Đổ ngay toàn bộ mảng chờ trên RAM vào Ổ cứng (Offline Queue của bạn)
-        // Việc lưu ổ cứng mất 1ms, trình duyệt không thể cản được.
+        // 1. KHI TẮT TAB HOẶC ẨN APP: Đổ mảng chờ vào Ổ cứng
         if (srsPendingQueue.length > 0) {
             srsPendingQueue.forEach(p => saveToOfflineQueue(p));
             srsPendingQueue = []; // Dọn sạch RAM
         }
+        
+        // 2. NGẮT DÒNG CHẢY NGẦM WEBSOCKET ĐỂ TIẾT KIỆM QUOTA
+        if (realtimeSessionChannel) {
+            sb.removeChannel(realtimeSessionChannel);
+            realtimeSessionChannel = null;
+            console.log("MindDeck: 💤 Tab ẩn, đã ngắt kết nối WebSocket.");
+        }
     } else if (document.visibilityState === 'visible') {
         // KHI MỞ LẠI TAB HOẶC APP:
-        // Gọi thẳng hàm xử lý hàng đợi offline của bạn để nó tự động bắn lên Supabase
+        // 1. Đẩy hàng đợi Offline lên Supabase
         processOfflineQueue();
+        
+        // 2. KHÔI PHỤC KẾT NỐI WEBSOCKET BẢO VỆ PHIÊN
+        if (currentUser) {
+            console.log("MindDeck: 🟢 Tab hiện, đang khôi phục bảo vệ phiên...");
+            setupSingleSessionProtection();
+        }
     }
 });
 
