@@ -9510,15 +9510,52 @@ async function loadCards(d, skipHash = false) {
             currentDeckName = d; 
             showLoading("Đang nạp dữ liệu...");
             
-            const { data, error } = await sb.from('cards')
-                .select('*, progress(*)')
+            // 1. CHỈ TẢI KHUNG XƯƠNG + TIẾN ĐỘ ĐỂ LỌC SRS (Siêu nhẹ, chỉ vài KB)
+            const { data: skeletonCards, error: skelErr } = await sb.from('cards')
+                .select('id, front, progress(due, test_result)') 
                 .eq('deck_id', d)
                 .eq('progress.user_id', currentUser.id); 
 
-            if (error) throw error;
+            if (skelErr) throw skelErr;
             
-            cards = data;
-            window.rawDeckCache[d] = JSON.parse(JSON.stringify(data)); // Backup vào RAM
+            let filteredSkeleton = skeletonCards;
+            
+            // 2. LỌC SRS TRÊN KHUNG XƯƠNG
+            if (mode === 'review') {
+                const now = new Date().toISOString();
+                filteredSkeleton = skeletonCards.filter(c => {
+                    const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
+                    return !p || p.due <= now;
+                });
+            }
+
+            // 3. XÁO TRỘN KHUNG XƯƠNG
+            filteredSkeleton.sort(() => Math.random() - 0.5);
+            
+            // 4. ĐẮP THỊT 30 THẺ ĐẦU TIÊN (HYDRATION)
+            const top30Ids = filteredSkeleton.slice(0, 30).map(c => c.id);
+            let fullCardsMap = new Map();
+            
+            if (top30Ids.length > 0) {
+                const { data: fullCards, error: fullErr } = await sb.from('cards')
+                    .select('*, progress(*)')
+                    .in('id', top30Ids)
+                    .eq('progress.user_id', currentUser.id);
+                    
+                if (!fullErr && fullCards) {
+                    fullCards.forEach(c => fullCardsMap.set(c.id, c));
+                }
+            }
+
+            // 5. LẮP RÁP THÀNH MẢNG CARDS CUỐI CÙNG
+            cards = filteredSkeleton.map(skel => {
+                if (fullCardsMap.has(skel.id)) {
+                    return { ...fullCardsMap.get(skel.id), isLoaded: true };
+                }
+                return { ...skel, isLoaded: false }; // Đánh dấu chờ hàm showCard tải ngầm
+            });
+
+            window.rawDeckCache[d] = JSON.parse(JSON.stringify(cards)); // Backup vào RAM
         }
 
         // 4. CẬP NHẬT BREADCRUMB ĐÚNG HỆ THỐNG MỚI (PHẲNG)
