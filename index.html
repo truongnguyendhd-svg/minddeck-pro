@@ -8365,6 +8365,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const KANJI_COMPONENTS_POOL = [
     '一', '丨', '丶', '丿', '乙', '亅', '二', '亠', '人', '儿', '入', '八', '冂', '冖', '冫', '几', '凵', '刀', '力', '勹', '匕', '匚', '十', '卜', '卩', '厂', '厶', '又', '口', '囗', '土', '士', '夂', '夕', '大', '女', '子', '宀', '寸', '小', '尸', '山', '川', '工', '己', '巾', '干', '幺', '广', '廴', '廾', '弋', '弓', '彡', '彳', '心', '戈', '戸', '手', '支', '攴', '文', '斗', '斤', '方', '无', '日', '曰', '月', '木', '欠', '止', '歹', '殳', '毋', '比', '毛', '氏', '气', '水', '火', '爪', '父', '爻', '爿', '片', '牙', '牛', '犬', '玉', '瓜', '瓦', '甘', '生', '用', '田', '疋', '疒', '癶', '白', '皮', '皿', '目', '矛', '矢', '石', '示', '禾', '穴', '立', '竹', '米', '糸', '缶', '网', '羊', '羽', '老', '而', '耒', '耳', '聿', '肉', '臣', '自', '至', '臼', '舌', '舟', '艮', '色', '艸', '虍', '虫', '血', '行', '衣', '襾', '見', '角', '言', '谷', '豆', '豕', '豸', '貝', '赤', '走', '足', '身', '車', '辛', '辰', '辵', '邑', '酉', '釆', '里', '金', '長', '門', '阜', '隶', '隹', '雨', '青', '非', '面', '革', '韋', '音', '頁', '風', '飛', '食', '首', '香', '馬', '骨', '高', '髟', '鬥', '鬼', '魚', '鳥', '鹿', '麥', '麻', '黃', '黑', '氵', '扌', '艹', '辶', '阝', '釒', '衤', '礻', '忄', '犭'
 ];
+const sessionBroadcast = new BroadcastChannel('alcohol_session_channel');
 /* ================= 2. STATE ================= */
 let boostState = { maxRounds: 10, currentRound: 1, correct: 0, wrong: 0, mode: '10', history: [] };
 let boostTimer = null;
@@ -8387,7 +8388,57 @@ let isSrsSubmitting = false;
 let lastDashboardSync = 0;
 let cachedDueCount = 0;
 let forceDashboardRefresh = true; // Mặc định bằng true để lần đầu tiên mở App chắc chắn sẽ tải
+let isTabLeader = false;      // Cờ đánh dấu Tab hiện tại có phải là Leader không
+let leaderTimeout = null;     // Bộ đếm thời gian chờ phản hồi bầu cử
+
 /* ================= 3. UTILITIES ================= */
+sessionBroadcast.onmessage = (event) => {
+    const { type } = event.data;
+
+    if (type === 'PING_LEADER') {
+        // Nếu mình đang là Leader và có Tab khác hỏi, trả lời ngay để bảo họ đứng im
+        if (isTabLeader) {
+            sessionBroadcast.postMessage({ type: 'PONG_LEADER' });
+        }
+    } 
+    else if (type === 'PONG_LEADER') {
+        // Có Leader phản hồi -> Mình tắt bộ đếm trở thành Leader, chuyển sang chế độ Chờ (Standby)
+        if (leaderTimeout) {
+            clearTimeout(leaderTimeout);
+            leaderTimeout = null;
+            console.log("MindDeck: Đã có Tab Leader hoạt động. Tab này sẽ chuyển sang chế độ Standby.");
+        }
+    } 
+    else if (type === 'FORCE_LOGOUT') {
+        // Nghe lệnh cưỡng chế đăng xuất từ Tab chính
+        handleForcedLogout();
+    } 
+    else if (type === 'LEADER_DEAD') {
+        // Cựu Leader đã bị đóng, bắt đầu bầu cử Leader mới
+        console.log("MindDeck: Cựu Leader đã đóng. Bắt đầu bầu cử Leader mới...");
+        startLeaderElection();
+    }
+};
+// Hàm bắt đầu quá trình bầu cử
+function startLeaderElection() {
+    if (realtimeSessionChannel) return; // Nếu đã có kết nối mạng thì bỏ qua
+
+    // Phát loa hỏi: "Có ai đang làm Leader không?"
+    sessionBroadcast.postMessage({ type: 'PING_LEADER' });
+
+    // Chờ 250ms, nếu không có ai trả lời (PONG_LEADER), tự phong mình làm Leader
+    leaderTimeout = setTimeout(() => {
+        becomeLeader();
+    }, 250);
+}
+
+// Hàm nhận chức danh Leader và thiết lập kết nối mạng
+function becomeLeader() {
+    isTabLeader = true;
+    leaderTimeout = null;
+    console.log("MindDeck: Tab này đã được bầu làm Leader. Đang kết nối mạng đến Supabase...");
+    establishRealtimeConnection();
+}
 /**
  * Hàm đọc LocalStorage an toàn toàn diện (Đã tích hợp Lớp 1 & Lớp 2)
  * @param {string} key - Tên khóa
@@ -9046,7 +9097,7 @@ async function setupSingleSessionProtection() {
     const sessionKey = `current_session_id_${currentUser.id}`;
     let localSessionId = localStorage.getItem(sessionKey);
     
-    // 1. TẠO PHIÊN NẾU LÀ MÁY MỚI TINH
+    // 1. TẠO PHIÊN NẾU LÀ MÁY MỚI TINH (Mọi tab đều được ghi đè phiên)
     if (!localSessionId) {
         localSessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         localStorage.setItem(sessionKey, localSessionId);
@@ -9058,7 +9109,7 @@ async function setupSingleSessionProtection() {
                 updated_at: new Date().toISOString()
             });
     } else {
-        // 2. 🟢 CHỐT CHẶN WAKE-UP: Quét tĩnh DB xem có bị đá văng lúc đang ngủ/ẩn Tab không?
+        // 2. CHỐT CHẶN WAKE-UP TĨNH: Chạy cực nhẹ khi khởi động Tab
         try {
             const { data: remoteSession } = await sb.from('active_sessions')
                 .select('session_id')
@@ -9066,38 +9117,55 @@ async function setupSingleSessionProtection() {
                 .single();
                 
             if (remoteSession && remoteSession.session_id !== localSessionId) {
-                console.warn("MindDeck: Phát hiện Session bị chiếm quyền trong lúc Tab ngủ!");
-                return handleForcedLogout(); // Đá văng ngay lập tức
+                console.warn("MindDeck: Phát hiện Session bị chiếm quyền!");
+                return handleForcedLogout(); 
             }
         } catch (e) {
             console.warn("Lỗi kiểm tra session tĩnh:", e);
         }
     }
 
-    // 3. ĐĂNG KÝ WEBSOCKET LẮNG NGHE REALTIME (Tránh đăng ký trùng lặp)
+    // 3. KÍCH HOẠT BẦU CỬ NỘI BỘ (Thay vì gọi trực tiếp mạng)
+    startLeaderElection();
+}
+function establishRealtimeConnection() {
     if (realtimeSessionChannel) return;
+
+    const sessionKey = `current_session_id_${currentUser.id}`;
+    const myLocalSessionId = localStorage.getItem(sessionKey);
 
     realtimeSessionChannel = sb.channel(`public:active_sessions:user_id=eq.${currentUser.id}`)
         .on(
             'postgres_changes',
             {
-                event: '*', // Bắt cả INSERT lẫn UPDATE
+                event: '*',
                 schema: 'public',
                 table: 'active_sessions',
                 filter: `user_id=eq.${currentUser.id}`
             },
             (payload) => {
                 const newActiveSessionId = payload.new.session_id;
-                const myLocalSessionId = localStorage.getItem(sessionKey);
 
-                // Nếu mã phiên trên Cloud thay đổi và KHÔNG trùng với mã cục bộ
                 if (newActiveSessionId && myLocalSessionId && newActiveSessionId !== myLocalSessionId) {
+                    // Leader phát lệnh đăng xuất đồng loạt cho các tab phụ
+                    sessionBroadcast.postMessage({ type: 'FORCE_LOGOUT' });
                     handleForcedLogout();
                 }
             }
         )
         .subscribe();
 }
+window.addEventListener('beforeunload', () => {
+    if (isTabLeader) {
+        // Hét lên cho các tab khác biết mình sắp đóng để họ bầu ra Leader mới
+        sessionBroadcast.postMessage({ type: 'LEADER_DEAD' });
+        
+        if (realtimeSessionChannel) {
+            sb.removeChannel(realtimeSessionChannel);
+            realtimeSessionChannel = null;
+        }
+    }
+});
 // Cập nhật hàm thực thi đăng xuất cưỡng chế
 async function handleForcedLogout() {
     // 1. KIỂM TRA TRẠNG THÁI ĐANG LÀM VIỆC DỞ DANG (ĐÓNG BĂNG GIAO DIỆN)
