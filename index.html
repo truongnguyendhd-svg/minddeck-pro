@@ -13285,32 +13285,21 @@ async function saveQuickEdit() {
             showToast("Đã thêm thẻ mới thành công! ✨");
             
         } else {
-            // 🟠 CHẾ ĐỘ SỬA THẺ: CẬP NHẬT ĐỒNG LOẠT (GLOBAL SYNC UPDATE)
+            // 🟠 CHẾ ĐỘ SỬA THẺ: CẬP NHẬT ĐỒNG LOẠT SIÊU TỐC (DÙNG POSTGRES RPC)
             const c = sessionCards[currentIndex];
             const originalFront = c.front; // Lấy mặt trước CŨ làm mỏ neo tìm kiếm
 
-            // BƯỚC A: Tìm TẤT CẢ các bản sao của thẻ này trong toàn bộ kho của User
-            const { data: matchingCards, error: matchErr } = await sb.from('cards')
-                .select('id, decks!inner()')
-                .eq('decks.owner_id', currentUser.id)
-                .eq('front', originalFront);
+            // BƯỚC A & B: GỌI 1 LỆNH DUY NHẤT LÊN DATABASE (0ms delay)
+            const { error: updateErr } = await sb.rpc('update_card_globally', {
+                p_user_id: currentUser.id,
+                p_old_front: originalFront,
+                p_new_front: newFront,
+                p_back: newBack,
+                p_info: newInfo,
+                p_tags: tagsArray
+            });
 
-            if (matchErr) throw matchErr;
-
-            // Lấy ra danh sách ID của các bản sao. Nếu vì lý do nào đó lỗi, thì lấy ID của chính thẻ hiện tại để backup
-            const idsToUpdate = (matchingCards && matchingCards.length > 0) 
-                ? matchingCards.map(mc => mc.id) 
-                : [c.id];
-
-            // BƯỚC B: Cập nhật đồng loạt nội dung cho toàn bộ các ID vừa tìm được (Không đụng chạm điểm SRS)
-            if (idsToUpdate.length > 0) {
-                const { error: updateErr } = await sb.from('cards')
-                    .update({ front: newFront, back: newBack, info: newInfo,
-                        tags: tagsArray })
-                    .in('id', idsToUpdate);
-                    
-                if (updateErr) throw updateErr;
-            }
+            if (updateErr) throw updateErr;
             
             // BƯỚC C: Cập nhật đồng loạt vào RAM CACHE của hệ thống
             sessionCards.forEach(card => {
@@ -13322,13 +13311,17 @@ async function saveQuickEdit() {
                 }
             });
             
+            // Fix Bug ngầm: rawDeckCache là Object (Map deckId -> Array), phải lặp qua các value của nó
             if (window.rawDeckCache) {
-                window.rawDeckCache.forEach(cacheCard => {
-                    if (cacheCard.front === originalFront) {
-                        cacheCard.front = newFront;
-                        cacheCard.back = newBack;
-                        cacheCard.info = newInfo;
-                    }
+                Object.values(window.rawDeckCache).forEach(deckCacheArray => {
+                    deckCacheArray.forEach(cacheCard => {
+                        if (cacheCard.front === originalFront) {
+                            cacheCard.front = newFront;
+                            cacheCard.back = newBack;
+                            cacheCard.info = newInfo;
+                            cacheCard.tags = tagsArray;
+                        }
+                    });
                 });
             }
 
@@ -13339,13 +13332,7 @@ async function saveQuickEdit() {
                 }
             }
 
-            // Thông báo hiển thị số lượng thẻ đã được sửa theo
-            if (idsToUpdate.length > 1) {
-                showToast(`✨ Đã sửa và đồng bộ ${idsToUpdate.length} thẻ trên hệ thống!`);
-            } else {
-                showToast("Đã cập nhật thẻ thành công! ✨");
-            }
-            
+            showToast("Đã cập nhật và đồng bộ thẻ thành công! ✨");
             if (!document.getElementById('reviewPage').classList.contains('hidden')) showCard(); 
         }
 
