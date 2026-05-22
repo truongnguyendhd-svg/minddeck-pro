@@ -9668,17 +9668,84 @@ function switchToBoostMode() {
     // Chỉ mở bảng chọn Game
     document.getElementById('boostIntroModal').style.display = 'flex';
 }
-function showCard() {
+async function showCard() {
     const c = sessionCards[currentIndex];
     if (!c) return; 
-    showBack = false; 
+
+    // =========================================================================
+    // 🚀 [MỚI] GIAI ĐOẠN A: NẠP CHỒNG THẺ KHẨN CẤP
+    // Chạy khi người dùng bấm chuyển câu quá nhanh mà tiến trình tải ngầm chưa kịp xong
+    // =========================================================================
+    if (c.isLoaded === false) {
+        showLoading("Đang tải dữ liệu thẻ học...");
+        try {
+            const { data, error } = await sb.from('cards').select('*, progress(*)').eq('id', c.id).single();
+            if (error) throw error;
+            
+            // Đắp dữ liệu đầy đủ vào RAM đang học
+            sessionCards[currentIndex] = { ...data, isLoaded: true };
+            
+            // Đồng bộ ngược vào RAM cache toàn cục để lần sau không bị gọi lại
+            if (window.rawDeckCache[currentDeckName]) {
+                window.rawDeckCache[currentDeckName][currentIndex] = { ...data, isLoaded: true };
+            }
+            hideLoading();
+        } catch (err) {
+            hideLoading();
+            console.error("Lỗi nạp thẻ trực tiếp:", err);
+            showToast("Lỗi kết nối mạng, đang thử nạp lại câu này...");
+            return; // Ngắt luồng render để tránh crash giao diện do thiếu dữ liệu
+        }
+    }
+
+    // =========================================================================
+    // 🚀 [MỚI] GIAI ĐOẠN B: TỰ ĐỘNG QUÉT VÀ TẢI NGẦM 15 CÂU TIẾP THEO (PREFETCH)
+    // Hệ thống âm thầm gọi DB chạy ngầm, tuyệt đối không dùng await để tránh đứng UI
+    // =========================================================================
+    const prefetchSize = 15; 
+    let idsToPrefetch = [];
+    let indexesToPrefetch = [];
+
+    for (let i = currentIndex + 1; i <= currentIndex + prefetchSize; i++) {
+        if (i < sessionCards.length) {
+            const nextCard = sessionCards[i];
+            if (nextCard.isLoaded === false) {
+                idsToPrefetch.push(nextCard.id);
+                indexesToPrefetch.push(i);
+            }
+        }
+    }
+
+    if (idsToPrefetch.length > 0) {
+        console.log(`[Prefetch] Đang tải ngầm ${idsToPrefetch.length} thẻ tiếp theo... 📥`);
+        sb.from('cards')
+            .select('*, progress(*)')
+            .in('id', idsToPrefetch)
+            .then(({ data, error }) => {
+                if (!error && data) {
+                    const dataMap = new Map(data.map(item => [item.id, item]));
+                    indexesToPrefetch.forEach(idx => {
+                        const targetId = sessionCards[idx].id;
+                        if (dataMap.has(targetId)) {
+                            sessionCards[idx] = { ...dataMap.get(targetId), isLoaded: true };
+                            if (window.rawDeckCache[currentDeckName]) {
+                                window.rawDeckCache[currentDeckName][idx] = { ...dataMap.get(targetId), isLoaded: true };
+                            }
+                        }
+                    });
+                    console.log(`[Prefetch] Đã đồng bộ ngầm thành công! 🧠`);
+                }
+            });
+    }
+    // =========================================================================
+
+    showBack = false; // Trả lại cờ trạng thái của code cũ
 
     const isTest = (mode === 'test');
     const isCram = (mode === 'cram');
     const isReview = (mode === 'review'); // <-- THÊM BIẾN NÀY ĐỂ NHẬN DIỆN SRS
     const isBoost = (mode === 'boost' || mode === 'assessment'); 
     const isRemedial = (mode === 'remedial'); 
-
     // --- BẬT/TẮT FULLSCREEN MODE (ẨN HEADER KHI CHƠI GAME HOẶC ÔN TẬP SRS) ---
     if (isBoost || isCram || isReview || isRemedial) { 
         document.body.classList.add('game-fullscreen-mode');
@@ -19098,11 +19165,11 @@ window.startRemedialReview = function() {
     document.querySelector('.study-header-row').style.display = 'flex';
     showCard();
 }
+// Dòng 2964: Cập nhật lại hàm toggleInlineDeckList
 async function toggleInlineDeckList() {
     const listContainer = document.getElementById('inlineDeckListContainer');
     const toggleIcon = document.getElementById('toggleListIcon');
 
-    // Đóng mở giao diện
     if (listContainer.style.display === 'block') {
         listContainer.style.display = 'none';
         toggleIcon.innerText = 'expand_more';
@@ -19112,116 +19179,181 @@ async function toggleInlineDeckList() {
     listContainer.style.display = 'block';
     toggleIcon.innerText = 'expand_less';
 
-    // Nếu đã load rồi thì không load lại
     if (isInlineListLoaded) return;
 
-    listContainer.innerHTML = '<div style="text-align:center; padding: 20px; color:#8c8c8c;"><div class="spinner" style="margin: 0 auto 10px auto; width: 24px; height: 24px;"></div>Đang tải danh sách...</div>';
+    listContainer.innerHTML = '<div style="text-align:center; padding: 20px; color:#8c8c8c;"><div class="spinner" style="margin: 0 auto 10px auto; width: 24px; height: 24px;"></div>Đang tối ưu danh sách...</div>';
 
     try {
-        const { data: cards, error } = await sb.from('cards').select('*').eq('deck_id', deckToStudyId).order('id', { ascending: true });
-        if (error) throw error;
-        
-        if (!cards || cards.length === 0) {
+        // QUERY 1: Tải bộ khung xương (chỉ lấy id, front) của TOÀN BỘ bộ bài
+        const { data: skeletonCards, error: err1 } = await sb.from('cards')
+            .select('id, front')
+            .eq('deck_id', deckToStudyId)
+            .order('id', { ascending: true });
+
+        if (err1) throw err1;
+
+        if (!skeletonCards || skeletonCards.length === 0) {
             listContainer.innerHTML = '<div style="text-align:center; padding: 15px; color:#c50f1f;">Bộ bài này chưa có thẻ nào!</div>';
             return;
         }
 
-        // 🟢 QUAN TRỌNG: Gắn thẻ vào biến toàn cục để Modal Quick Edit có thể đọc được
-        sessionCards = cards;
-        mode = pendingModalReturn.type === 'quiz' ? 'quiz' : 'flashcard';
+        // QUERY 2: Tải đầy đủ thông tin của 30 thẻ đầu tiên
+        const { data: fullCards, error: err2 } = await sb.from('cards')
+            .select('*, progress(*)')
+            .eq('deck_id', deckToStudyId)
+            .order('id', { ascending: true })
+            .limit(30);
 
-        let html = '';
+        if (err2) throw err2;
+
+        // GỘP DỮ LIỆU VÀO RAM CACHE
+        const fullCardsMap = new Map(fullCards.map(c => [c.id, c]));
         
-        // 🟢 1. THANH TÌM KIẾM CỤC BỘ (STICKY WIN 11) - ĐƯA LÊN ĐẦU TIÊN
-        html += `
-            <div style="position: sticky; top: -20px; margin-top: -20px; padding-top: 20px; background: #ffffff; padding-bottom: 12px; margin-bottom: 12px; z-index: 10;">
-                <div style="position: relative; display: flex; align-items: center;">
-                    <span class="material-symbols-outlined" style="position: absolute; left: 12px; color: #8c8c8c; font-size: 18px;">search</span>
-                    <input type="text" id="inlineDeckSearchInput" class="win11-input" placeholder="Tìm từ vựng, ý nghĩa trong bộ này..." style="padding-left: 38px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.03);" oninput="filterInlineDeckList()">
-                </div>
-            </div>
-        `;
-
-        // 🟢 2. NÚT THÊM THẺ NHANH - NẰM NGAY DƯỚI THANH TÌM KIẾM
-        html += `
-            <button onclick="openQuickAddCardModal()" class="win11-btn-secondary" style="width: 100%; justify-content: center; padding: 12px; margin-bottom: 12px; border: 2px dashed #0067c0; color: #0067c0; background: #f3f8fd; font-weight: 800;">
-                <span class="material-symbols-outlined" style="font-size: 20px;">add_circle</span> THÊM THẺ MỚI VÀO ĐÂY
-            </button>
-        `;
-
-        // 🟢 3. Bọc danh sách thẻ vào một container để dễ Lọc (Filter)
-        html += `<div id="inlineCardsWrapper">`;
-        cards.forEach((c, index) => {
-            const isQuiz = pendingModalReturn.type === 'quiz';
-            
-            // TẠO NÚT SỬA THẺ
-            const editBtnHtml = `
-                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e5e5e5; display: flex; justify-content: flex-start;">
-                    <button onclick="currentIndex = ${index}; openQuickEdit(event);" class="win11-btn-secondary" style="padding: 6px 12px; font-size: 13px; color: #0067c0; border-color: #bee3f8; background: #ebf8ff;">
-                        <span class="material-symbols-outlined" style="font-size: 16px;">edit</span> Sửa thẻ này
-                    </button>
-                </div>
-            `;
-
-            if (isQuiz) {
-                // UI CHO TRẮC NGHIỆM
-                let w1='', w2='', w3='';
-                if (c.info) {
-                    let opts = c.info.split('\n').map(o => o.trim()).filter(o => o && o !== c.back);
-                    w1 = opts[0] || ''; w2 = opts[1] || ''; w3 = opts[2] || '';
-                }
-                html += `
-                <div class="inline-card-item">
-                    <div class="inline-card-header" onclick="this.parentElement.classList.toggle('expanded')">
-                        <div style="font-weight: 600; color: #1a1a1a;">${index + 1}. ${escapeHTML(c.front)}</div>
-                        <span class="material-symbols-outlined toggle-icon">expand_more</span>
-                    </div>
-                    <div class="inline-card-body">
-                        <div style="color: #107c10; font-weight: 600; margin-bottom: 5px;">✓ ${escapeHTML(c.back)}</div>
-                        ${w1 ? `<div style="color: #c50f1f;">✗ ${escapeHTML(w1)}</div>` : ''}
-                        ${w2 ? `<div style="color: #c50f1f;">✗ ${escapeHTML(w2)}</div>` : ''}
-                        ${w3 ? `<div style="color: #c50f1f;">✗ ${escapeHTML(w3)}</div>` : ''}
-                        ${editBtnHtml}
-                    </div>
-                </div>`;
-            } else {
-                // UI CHO FLASHCARD
-                const parsed = parseCardData(c);
-                const safeFront = escapeHTML(parsed.front);
-                const safeMeaning = escapeHTML(parsed.meaning);
-                
-                html += `
-                <div class="inline-card-item">
-                    <div class="inline-card-header" onclick="this.parentElement.classList.toggle('expanded')">
-                        <div style="display: flex; gap: 10px; overflow: hidden; align-items: center;">
-                            <span style="font-weight: 700; color: #0067c0; width: 24px;">${index + 1}.</span>
-                            <span style="font-weight: 700; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeFront}</span>
-                            <span style="font-size: 13px; color: #8c8c8c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">- ${safeMeaning}</span>
-                        </div>
-                        <span class="material-symbols-outlined toggle-icon" style="flex-shrink:0;">expand_more</span>
-                    </div>
-                    <div class="inline-card-body">
-                        ${parsed.reading ? `<div style="margin-bottom: 6px;"><b>Đọc:</b> ${escapeHTML(parsed.reading)}</div>` : ''}
-                        <div style="margin-bottom: 6px;"><b>Nghĩa:</b> ${safeMeaning}</div>
-                        ${parsed.hv ? `<div style="margin-bottom: 6px; color: #c50f1f;"><b>Hán Việt:</b> [${escapeHTML(parsed.hv)}]</div>` : ''}
-                        ${parsed.exampleJP ? `
-                            <div style="margin-top: 10px; padding: 8px; background: #f3f8fd; border-left: 2px solid #0067c0; border-radius: 4px;">
-                                <div style="font-weight: 600; color: #1a1a1a;">${escapeHTML(parsed.exampleJP)}</div>
-                                <div style="font-size: 13px; color: #666666;">${escapeHTML(parsed.exampleVN)}</div>
-                            </div>
-                        ` : ''}
-                        ${editBtnHtml}
-                    </div>
-                </div>`;
+        sessionCards = skeletonCards.map(s => {
+            if (fullCardsMap.has(s.id)) {
+                return { ...fullCardsMap.get(s.id), isLoaded: true };
             }
+            return { ...s, isLoaded: false }; // Đánh dấu thẻ chưa được tải thịt
         });
-        
-        html += `</div>`; // Đóng inlineCardsWrapper
-        listContainer.innerHTML = html;
+
+        // Backup vào RAM Cache toàn cục của app
+        window.rawDeckCache[deckToStudyId] = JSON.parse(JSON.stringify(sessionCards));
+
+        // RENDER DANH SÁCH RA MODAL
+        renderInlineDeckListUI();
         isInlineListLoaded = true;
 
     } catch (err) {
-        listContainer.innerHTML = '<div style="text-align:center; padding: 15px; color:#c50f1f;">Lỗi tải dữ liệu thẻ.</div>';
+        console.error("Lỗi tối ưu danh sách:", err);
+        listContainer.innerHTML = '<div style="text-align:center; padding: 15px; color:#c50f1f;">Lỗi tải dữ liệu.</div>';
+    }
+}
+// Hàm vẽ giao diện phụ trợ cho toggleInlineDeckList
+function renderInlineDeckListUI() {
+    const listContainer = document.getElementById('inlineDeckListContainer');
+    const isQuiz = pendingModalReturn.type === 'quiz';
+    
+    let html = `
+        <div style="position: sticky; top: -20px; margin-top: -20px; padding-top: 20px; background: #ffffff; padding-bottom: 12px; margin-bottom: 12px; z-index: 10;">
+            <div style="position: relative; display: flex; align-items: center;">
+                <span class="material-symbols-outlined" style="position: absolute; left: 12px; color: #8c8c8c; font-size: 18px;">search</span>
+                <input type="text" id="inlineDeckSearchInput" class="win11-input" placeholder="Tìm kiếm nhanh tiêu đề..." style="padding-left: 38px; border-radius: 8px;" oninput="filterInlineDeckList()">
+            </div>
+        </div>
+        <button onclick="openQuickAddCardModal()" class="win11-btn-secondary" style="width: 100%; justify-content: center; padding: 12px; margin-bottom: 12px; border: 2px dashed #0067c0; color: #0067c0; background: #f3f8fd; font-weight: 800;">
+            <span class="material-symbols-outlined" style="font-size: 20px;">add_circle</span> THÊM THẺ MỚI VÀO ĐÂY
+        </button>
+        <div id="inlineCardsWrapper">
+    `;
+
+    sessionCards.forEach((c, index) => {
+        html += `
+            <div class="inline-card-item" id="inline-card-${c.id}">
+                <div class="inline-card-header" onclick="expandInlineCard(this, '${c.id}', ${index}, ${isQuiz})">
+                    <div style="display: flex; gap: 10px; overflow: hidden; align-items: center;">
+                        <span style="font-weight: 700; color: #0067c0; width: 24px;">${index + 1}.</span>
+                        <span style="font-weight: 700; color: #1a1a1a;">${escapeHTML(c.front)}</span>
+                    </div>
+                    <span class="material-symbols-outlined toggle-icon">expand_more</span>
+                </div>
+                <div class="inline-card-body" id="inline-body-${c.id}" style="display:none; padding:16px; border-top:1px solid #e5e5e5; background:#fff;">
+                    <!-- Nội dung sẽ nạp chồng vào đây -->
+                </div>
+            </div>
+        `;
+    });
+
+    html += `</div>`;
+    listContainer.innerHTML = html;
+}
+
+// Hàm xử lý mở rộng & tự động tải nốt dữ liệu nếu chưa có (Lazy Load)
+async function expandInlineCard(headerEl, cardId, index, isQuiz) {
+    const itemEl = headerEl.parentElement;
+    const bodyEl = document.getElementById(`inline-body-${cardId}`);
+    const toggleIcon = headerEl.querySelector('.toggle-icon');
+
+    if (itemEl.classList.contains('expanded')) {
+        itemEl.classList.remove('expanded');
+        bodyEl.style.display = 'none';
+        toggleIcon.innerText = 'expand_more';
+        return;
+    }
+
+    // Đóng các thẻ khác đang mở
+    document.querySelectorAll('.inline-card-item.expanded').forEach(el => {
+        el.classList.remove('expanded');
+        el.querySelector('.inline-card-body').style.display = 'none';
+        el.querySelector('.toggle-icon').innerText = 'expand_more';
+    });
+
+    itemEl.classList.add('expanded');
+    bodyEl.style.display = 'block';
+    toggleIcon.innerText = 'expand_less';
+
+    const card = sessionCards[index];
+
+    // NẾU THẺ CHƯA ĐƯỢC TẢI -> TIẾN HÀNH NẠP CHỒNG (HYDRATION)
+    if (!card.isLoaded) {
+        bodyEl.innerHTML = '<div style="display:flex; align-items:center; gap:8px; color:#8c8c8c;"><div class="spinner" style="width:14px; height:14px; border-width:2px; border-top-color:#0067c0;"></div>Đang tải chi tiết...</div>';
+        
+        try {
+            const { data, error } = await sb.from('cards').select('*, progress(*)').eq('id', cardId).single();
+            if (error) throw error;
+
+            // Đắp thịt vào RAM
+            sessionCards[index] = { ...data, isLoaded: true };
+            window.rawDeckCache[deckToStudyId][index] = { ...data, isLoaded: true }; // Đồng bộ cache cứng
+
+            // Vẽ nội dung thẻ
+            renderInlineCardBody(bodyEl, sessionCards[index], index, isQuiz);
+
+        } catch (err) {
+            bodyEl.innerHTML = '<span style="color:#e53e3e;">Lỗi tải dữ liệu.</span>';
+        }
+    } else {
+        // Đã có dữ liệu sẵn -> Chỉ việc vẽ
+        renderInlineCardBody(bodyEl, card, index, isQuiz);
+    }
+}
+
+// Hàm phụ trợ vẽ chi tiết ruột của thẻ trong danh sách
+function renderInlineCardBody(bodyEl, c, index, isQuiz) {
+    const editBtnHtml = `
+        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e5e5e5; display: flex; justify-content: flex-start;">
+            <button onclick="currentIndex = ${index}; openQuickEdit(event);" class="win11-btn-secondary" style="padding: 6px 12px; font-size: 13px; color: #0067c0; border-color: #bee3f8; background: #ebf8ff;">
+                <span class="material-symbols-outlined" style="font-size: 16px;">edit</span> Sửa thẻ này
+            </button>
+        </div>
+    `;
+
+    if (isQuiz) {
+        let w1='', w2='', w3='';
+        if (c.info) {
+            let opts = c.info.split('\n').map(o => o.trim()).filter(o => o && o !== c.back);
+            w1 = opts[0] || ''; w2 = opts[1] || ''; w3 = opts[2] || '';
+        }
+        bodyEl.innerHTML = `
+            <div style="color: #107c10; font-weight: 600; margin-bottom: 5px;">✓ ${escapeHTML(c.back)}</div>
+            ${w1 ? `<div style="color: #c50f1f;">✗ ${escapeHTML(w1)}</div>` : ''}
+            ${w2 ? `<div style="color: #c50f1f;">✗ ${escapeHTML(w2)}</div>` : ''}
+            ${w3 ? `<div style="color: #c50f1f;">✗ ${escapeHTML(w3)}</div>` : ''}
+            ${editBtnHtml}
+        `;
+    } else {
+        const parsed = parseCardData(c);
+        bodyEl.innerHTML = `
+            ${parsed.reading ? `<div style="margin-bottom: 6px;"><b>Đọc:</b> ${escapeHTML(parsed.reading)}</div>` : ''}
+            <div style="margin-bottom: 6px;"><b>Nghĩa:</b> ${escapeHTML(parsed.meaning)}</div>
+            ${parsed.hv ? `<div style="margin-bottom: 6px; color: #c50f1f;"><b>Hán Việt:</b> [${escapeHTML(parsed.hv)}]</div>` : ''}
+            ${parsed.exampleJP ? `
+                <div style="margin-top: 10px; padding: 8px; background: #f3f8fd; border-left: 2px solid #0067c0; border-radius: 4px;">
+                    <div style="font-weight: 600; color: #1a1a1a;">${escapeHTML(parsed.exampleJP)}</div>
+                    <div style="font-size: 13px; color: #666666;">${escapeHTML(parsed.exampleVN)}</div>
+                </div>
+            ` : ''}
+            ${editBtnHtml}
+        `;
     }
 }
 // HÀM LỌC TÌM KIẾM THẺ TRỰC TIẾP TRONG MODAL
