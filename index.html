@@ -8699,14 +8699,17 @@ async function loadDashboardData() {
             await syncAllMasteryFromCloud();
         }
 
-        // 1. LẤY SỐ THẺ TRỄ HẠN (CHỈ GỌI MẠNG KHI QUÁ 60S HOẶC BỊ ÉP LÀM MỚI)
+        // 1. LẤY SỐ THẺ TRỄ HẠN QUA HÀM RPC ĐÃ TỐI ƯU (TỐC ĐỘ < 5ms)
         if (forceDashboardRefresh || (nowMs - lastDashboardSync) > 60000) {
-            console.log("MindDeck: Cập nhật đếm thẻ trễ hạn từ Cloud...");
-            const { count: dueCount, error: err1 } = await sb.from('progress')
-                .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
-                .eq('user_id', currentUser.id)
-                .eq('cards.decks.type', 'flashcard')
-                .lte('due', nowIso);
+            console.log("MindDeck: Cập nhật đếm thẻ trễ hạn từ RPC Cloud...");
+            
+            const { data: dueCount, error: err1 } = await sb.rpc('get_due_cards_count', {
+                p_now: nowIso
+            });
+        
+            if (err1) {
+                console.error("Lỗi gọi RPC đếm thẻ trễ hạn:", err1);
+            }
             
             cachedDueCount = dueCount || 0;
             lastDashboardSync = nowMs;
