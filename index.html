@@ -4677,18 +4677,7 @@ body.modal-open-lock {
     -ms-overflow-style: none; scrollbar-width: none;
 }
 #quickDictModal .qd-results-container::-webkit-scrollbar { display: none; }
-/* Nút tìm trong kho thẻ (Local Search) */
-.qd-local-search-pill {
-    background: #f5f5f7;
-    border: 1px solid #e5e5ea;
-    color: #1d1d1f;
-    padding: 8px 16px;
-    border-radius: 50px;
-    font-size: 13px; font-weight: 600; cursor: pointer;
-    display: inline-flex; align-items: center; gap: 6px;
-    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-.qd-local-search-pill:hover { background: #e9e9eb; transform: translateY(-2px); }
+
 /* Banner Admin Hint */
 .qd-admin-hint {
     background: #f0f4ff; border: 1px solid #d0e0ff; padding: 10px 14px;
@@ -7724,9 +7713,6 @@ body.shadowing-mode #shadowingPage {
             
             <!-- BỌC CHUNG VÀO 1 KHỐI ĐỂ CUỘN CÙNG NHAU -->
             <div id="qdScrollableWrapper" style="flex: 1; overflow-y: auto; -ms-overflow-style: none; scrollbar-width: none;">
-                <!-- Vùng chứa nút tìm kiếm trong kho thẻ & banner admin -->
-                <div id="quickDictLocalActionZone" style="text-align: center; margin-bottom: 15px; min-height: 40px;"></div>
-                
                 <!-- Vùng chứa kết quả -->
                 <div id="quickDictResults" class="qd-results-container" style="overflow-y: visible !important; flex: none !important;">
                     <!-- JS sẽ bơm kết quả vào đây -->
@@ -13779,17 +13765,6 @@ async function searchQuickDictionary() {
     const resDiv = document.getElementById('quickDictResults');
     if (!input) return;
 
-    // Vẫn giữ lại Nút tìm kiếm trong kho thẻ của cá nhân
-    const localZone = document.getElementById('quickDictLocalActionZone');
-    if (localZone) {
-        localZone.innerHTML = `
-            <button class="qd-local-search-pill" onclick="searchLocalCards('${escapeHTML(input)}')">
-                <span class="material-symbols-outlined" style="font-size: 18px;">inventory_2</span> 
-                Tìm "${escapeHTML(input)}" trong kho thẻ của tôi
-            </button>
-        `;
-    }
-
     resDiv.innerHTML = '<div style="text-align:center; padding:30px; color:#718096;"><div class="spinner" style="margin: 0 auto 15px auto; width:30px; height:30px; border-top-color:#8b5cf6;"></div>Đang tra cứu trên Mazii...</div>';
     await executeHybridSearch(input, resDiv);
 }
@@ -13862,40 +13837,6 @@ async function executeHybridSearch(input, resDiv) {
     }
 }
 
-window.searchLocalCards = async function(keyword) {
-    if (!currentUser) return customAlert("Vui lòng đăng nhập!", "⚠️");
-    const localZone = document.getElementById('quickDictLocalActionZone');
-    localZone.innerHTML = '<div class="spinner" style="width: 20px; height: 20px; border-top-color: #3b82f6; margin: 0 auto;"></div>';
-    
-    try {
-        const escapedQuery = keyword.replace(/"/g, '""');
-        const searchPattern = `%${escapedQuery}%`;
-        const orConditions = `front.ilike."${searchPattern}",back.ilike."${searchPattern}",info.ilike."${searchPattern}"`;
-
-        const { data: cards, error } = await sb.from('cards')
-            .select('id, front, back, info, decks!inner()')
-            .eq('decks.owner_id', currentUser.id)
-            .or(orConditions)
-            .limit(100); // Bảo toàn giới hạn để chống quá tải
-
-        if (error) throw error;
-
-        if (cards && cards.length > 0) {
-            tempVirtualCards = cards; // Gán RAM
-            // Apple Glassmorphism Button - Đổi sự kiện onclick sang lưu thẻ
-            localZone.innerHTML = `
-                <button onclick="saveKanjiCardsToFavorites(this)" style="background: rgba(255, 255, 255, 0.85); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border: 1px solid rgba(0, 0, 0, 0.1); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); color: #1d1d1f; padding: 12px 24px; border-radius: 50px; font-size: 15px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);" onmouseover="this.style.transform='scale(1.05)'; this.style.background='#1d1d1f'; this.style.color='#fff';" onmouseout="this.style.transform='none'; this.style.background='rgba(255, 255, 255, 0.85)'; this.style.color='#1d1d1f';">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">sports_esports</span> LUYỆN TẬP ${cards.length} THẺ NÀY NGAY
-                </button>
-            `;
-        } else {
-            localZone.innerHTML = `<div style="font-size: 13px; color: #e53e3e; font-weight: 600; padding: 6px;">Không tìm thấy thẻ nào chứa "${escapeHTML(keyword)}" trong kho của bạn.</div>`;
-        }
-    } catch (err) {
-        console.error(err);
-        localZone.innerHTML = `<div style="font-size: 13px; color: #e53e3e;">Lỗi truy vấn dữ liệu từ kho thẻ.</div>`;
-    }
-};
 // HÀM MỞ MODAL VÀ ĐIỀN DỮ LIỆU
 async function openSaveDictWordModal(encWord, encReading, encMeaning, encKanji, encExample) {
     if (!currentUser) return customAlert("Vui lòng đăng nhập để lưu từ vựng!");
