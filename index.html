@@ -21619,10 +21619,7 @@ async function triggerSilentBackgroundSync(textToScan = null, isDestructive = fa
             localStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
             localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
 
-            await Promise.all([
-                syncKanjiMastery(true),        
-                calculateGrammarMastery(true)  
-            ]);
+            await syncAllMasteryFromCloud();
 
             if (!document.getElementById('dashboardPage').classList.contains('hidden')) {
                 renderJLPTProgress();
@@ -22305,6 +22302,26 @@ window.searchKanjiInDict = function(kanji) {
     // 4. Kích hoạt tính năng tìm kiếm (Mazii + Local)
     searchQuickDictionary();
 };
+// 🟢 HÀM ĐỒNG BỘ GỘP CHỐNG LÃNG PHÍ CONNECTION
+async function syncAllMasteryFromCloud() {
+    if (!currentUser) return;
+    try {
+        const { data, error } = await sb.from('profiles')
+            .select('kanji_mastery, grammar_mastery')
+            .eq('id', currentUser.id)
+            .single();
+            
+        if (error) throw error;
+        
+        userKanjiMasteryMap = data.kanji_mastery || {};
+        userGrammarMasteryMap = data.grammar_mastery || {};
+        
+        localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+        localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+    } catch (e) {
+        console.error("Lỗi đồng bộ gộp:", e);
+    }
+}
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
