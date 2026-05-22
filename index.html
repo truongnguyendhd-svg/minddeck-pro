@@ -14359,9 +14359,6 @@ function renderGrammarGrid(dataList) {
     let collectedCount = 0; // 🟢 Biến đếm số thẻ đã thu thập
 
     grid.innerHTML = dataList.map(g => {
-        // FIX LỖI: Mã hóa dấu nháy đơn do AI sinh ra để không làm gãy sự kiện onclick
-        const safeJSON = encodeURIComponent(JSON.stringify(g)).replace(/'/g, "%27");
-        
         let interval = userGrammarMasteryMap[g.grammar_point] || 0;
 
         // Nếu thẻ có interval > 0 nghĩa là đã thu thập vào bộ bài
@@ -14384,7 +14381,8 @@ function renderGrammarGrid(dataList) {
         }
 
         return `
-            <div class="grammar-card ${statusClass}" onclick="openGrammarDetail('${safeJSON}')">
+            <!-- 🟢 TỐI ƯU: Chỉ truyền ID vào hàm onclick thay vì JSON -->
+            <div class="grammar-card ${statusClass}" onclick="openGrammarDetail('${g.id}')">
                 <span class="g-card-level">${escapeHTML(g.level || 'N?')}</span>
                 <div class="g-card-point">${escapeHTML(g.grammar_point)}</div>
                 <div class="g-card-meaning" style="margin-bottom: 12px;">${escapeHTML(g.meaning)}</div>
@@ -14428,7 +14426,8 @@ async function loadGrammarData(level, btnElement = null) {
         // 🟢 BƯỚC 2: NẾU CACHE RỖNG, GỌI SUPABASE VÀ LƯU VÀO LOCALSTORAGE
         if (globalGrammarData.length === 0) {
             const { data, error } = await sb.from('grammar_dict')
-                .select('*')
+                // 🟢 TỐI ƯU BĂNG THÔNG: Chỉ tải Skeleton (Bỏ qua ví dụ, cấu trúc, note nặng)
+                .select('id, grammar_point, level, meaning') 
                 .order('level', { ascending: true });
             
             if (error) throw error;
@@ -14490,11 +14489,41 @@ function filterGrammarLocally() {
 let combinedGrammarDataForBulk = [];
 
 // 1. Cập nhật lại giao diện khi mở Modal Ngữ pháp
-function openGrammarDetail(encodedJSON) {
-    const g = JSON.parse(decodeURIComponent(encodedJSON));
-    currentGrammarObj = g; 
+async function openGrammarDetail(grammarId) {
+    // 1. Tìm thẻ ngữ pháp trong RAM
+    let g = globalGrammarData.find(x => x.id === grammarId);
+    if (!g) return;
 
-    // Đổ dữ liệu cơ bản
+    // 2. LAZY HYDRATION: Kiểm tra xem thẻ đã được tải "Thịt" (chi tiết) chưa?
+    // Bằng cách kiểm tra thuộc tính isLoaded (Giống hệt thuật toán Flashcard bạn đã làm)
+    if (g.isLoaded !== true) {
+        showLoading("Đang tải chi tiết ngữ pháp...");
+        try {
+            const { data, error } = await sb.from('grammar_dict')
+                .select('*') // Kéo toàn bộ ví dụ, cấu trúc, sắc thái
+                .eq('id', grammarId)
+                .single();
+
+            if (error) throw error;
+
+            // 🟢 Đắp dữ liệu mới tải về vào chính Object đang nằm trong RAM
+            Object.assign(g, data);
+            g.isLoaded = true; // Đánh dấu là đã đầy đủ thịt
+
+            // Ghi đè lại LocalStorage để lần sau vào web không cần tải lại thẻ này nữa (Cache trọn đời)
+            localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
+            
+        } catch (err) {
+            hideLoading();
+            console.error("Lỗi Lazy Load Ngữ pháp:", err);
+            return showToast("Lỗi kết nối khi tải chi tiết. Hãy thử lại!");
+        }
+        hideLoading();
+    }
+
+    currentGrammarObj = g; // Cập nhật biến toàn cục để AI Deep Dive sử dụng
+
+    // 3. Đổ dữ liệu vào Modal (Logic giữ nguyên)
     document.getElementById('gdLevel').innerText = g.level || 'N?';
     document.getElementById('gdPoint').innerText = g.grammar_point;
     document.getElementById('gdMeaning').innerText = g.meaning;
@@ -14524,7 +14553,7 @@ function openGrammarDetail(encodedJSON) {
     // RESET LẠI GIAO DIỆN NẾU TRƯỚC ĐÓ CÓ MỞ AI
     document.getElementById('gdAiExpansionZone').style.display = 'none';
     document.getElementById('gdAiExpansionZone').innerHTML = '';
-    document.getElementById('gdBasicActions').style.display = 'block'; // Đổi flex thành block cho nút dài
+    document.getElementById('gdBasicActions').style.display = 'block';
     document.querySelector('#grammarDetailModal .modal-content').style.maxWidth = '650px';
     
     // Reset nút AI
@@ -20706,9 +20735,9 @@ async function refreshGrammarCollection() {
         } else {
             document.getElementById('loadingText').innerText = `Đang tải ${missingGrammars.length} cấu trúc mới...`;
             
-            // 3. Tải Full Data của những cấu trúc mới
+            // 3. Tải Skeleton Data của những cấu trúc mới (Để đồng bộ với quy tắc Lazy Load)
             const { data: newGrammarData, error: err2 } = await sb.from('grammar_dict')
-                .select('*')
+                .select('id, grammar_point, level, meaning')
                 .in('grammar_point', missingGrammars);
                 
             if (err2) throw err2;
