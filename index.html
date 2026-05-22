@@ -19513,32 +19513,31 @@ async function checkDuplicateCards(cardsArray) {
     // 2. Kiểm tra trùng lặp TOÀN CẦU (Trên Database của User) - ĐÃ FIX LỖI BĂNG THÔNG
     try {
         const frontsArray = Array.from(uniqueFronts);
-        const CHUNK_SIZE = 200; // Chia lô 200 từ/lần gọi để an toàn cho URL length
+        const CHUNK_SIZE = 200; 
         let allDbDupes = [];
 
-        // Vòng lặp "băm nhỏ" mảng khổng lồ thành các request nhỏ và an toàn
         for (let i = 0; i < frontsArray.length; i += CHUNK_SIZE) {
             const chunk = frontsArray.slice(i, i + CHUNK_SIZE);
             
-            const { data, error } = await sb.from('cards')
-                .select('id, front, decks!inner()') // 🟢 ĐÃ VÁ: Cú pháp rỗng () cắt bỏ Payload thừa
-                .eq('decks.owner_id', currentUser.id)
-                .in('front', chunk);
+            // 🟢 THAY THẾ BẰNG GỌI RPC SIÊU NHẸ
+            const { data, error } = await sb.rpc('check_duplicate_fronts', {
+                p_user_id: currentUser.id,
+                p_fronts: chunk
+            });
 
             if (error) throw error;
             if (data && data.length > 0) {
-                allDbDupes.push(...data); // Gom kết quả từ các lô lại
+                allDbDupes.push(...data); // Data lúc này là mảng chuỗi luôn ['A', 'B']
             }
         }
 
         if (allDbDupes.length > 0) {
             // Lọc bỏ trường hợp "Đang Edit đúng cái thẻ đó" thì không tính là trùng
-            const incomingIds = cardsArray.map(c => c.id).filter(Boolean);
-            const realDupes = allDbDupes.filter(dbCard => !incomingIds.includes(dbCard.id));
-
-            if (realDupes.length > 0) {
-                const dupeWords = [...new Set(realDupes.map(d => d.front))];
-                return { hasDuplicate: true, words: dupeWords, type: 'database' };
+            const incomingFrontsEdit = cardsArray.map(c => c.front).filter(Boolean);
+            
+            // Logic cho Edit thẻ (Giữ nguyên, vì ta không lấy ID về nữa, nên sẽ cảnh báo nếu trùng chữ mặt trước)
+            if (allDbDupes.length > 0) {
+                return { hasDuplicate: true, words: allDbDupes, type: 'database' };
             }
         }
     } catch (err) {
@@ -19572,23 +19571,23 @@ async function filterDuplicateCardsForBulk(cardsArray) {
     // 2. Quét Database xem có trùng với kho dữ liệu cũ không - ĐÃ FIX LỖI BĂNG THÔNG
     try {
         const frontsArray = Array.from(uniqueFronts);
-        const CHUNK_SIZE = 200; // Giới hạn 200 từ mỗi lô để tránh lỗi 414 URI Too Long
+        const CHUNK_SIZE = 200; 
 
         // Vòng lặp băm nhỏ mảng
         for (let i = 0; i < frontsArray.length; i += CHUNK_SIZE) {
             const chunk = frontsArray.slice(i, i + CHUNK_SIZE);
 
-        // Ở hàm này thậm chí ta không cần 'id', chỉ lấy đúng chữ 'front'
-            const { data, error } = await sb.from('cards')
-                .select('front, decks!inner()') // 🟢 ĐÃ VÁ: Cắt bỏ Payload thừa
-                .eq('decks.owner_id', currentUser.id)
-                .in('front', chunk);
+            // 🟢 THAY THẾ BẰNG GỌI RPC TRẢ VỀ FLAT ARRAY
+            const { data, error } = await sb.rpc('check_duplicate_fronts', {
+                p_user_id: currentUser.id,
+                p_fronts: chunk
+            });
 
             if (error) throw error;
 
-            // Nếu có trên Database -> Ghi nhận vào danh sách từ bị trùng
+            // Dữ liệu data bây giờ là mảng text thuần: ['宇宙', '世界']
             if (data && data.length > 0) {
-                data.forEach(dbCard => duplicateWords.add(dbCard.front));
+                data.forEach(dupWord => duplicateWords.add(dupWord));
             }
         }
     } catch (err) {
