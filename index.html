@@ -12970,56 +12970,6 @@ async function smartImportExcel() {
 // Khai báo bộ nhớ cache chi tiết Kanji ngoài phạm vi hàm
 window.kanjiDetailCache = {}; 
 
-async function getKanjiBuilderData(targetKanji) {
-    // 1. Đọc ngay từ RAM Cache nếu chữ này đã từng được click xem trước đó
-    if (window.kanjiDetailCache[targetKanji]) {
-        console.log(`MindDeck: Đọc chi tiết Kanji [${targetKanji}] từ RAM Cache (0 Request) 🎯`);
-        return window.kanjiDetailCache[targetKanji];
-    }
-
-    try {
-        // 2. Chỉ gọi DB đúng 1 lần để lấy thông tin CỦA CHÍNH CHỮ ĐÓ
-        const { data: targetData, error: err1 } = await sb.from('kanji_builder')
-            .select('*')
-            .eq('kanji', targetKanji)
-            .single();
-
-        if (err1 || !targetData) return null; 
-
-        const correctPieces = targetData.components;
-
-        // 3. 🟢 GIẢI PHÁP TỐI ƯU CỦA BẠN: Lấy gạch nhiễu trực tiếp từ Mảng Hardcode
-        // Lọc bỏ đi những nét đúng (để tránh rác vô tình trùng với nét đúng)
-        const availableNoise = KANJI_COMPONENTS_POOL.filter(piece => !correctPieces.includes(piece));
-
-        // 4. Tính toán số lượng rác cần thiết (Giả sử tổng cộng cần 10 viên gạch)
-        const targetTotalPieces = 10;
-        const requiredNoiseCount = Math.max(0, targetTotalPieces - correctPieces.length);
-        
-        // Bốc ngẫu nhiên số lượng rác
-        const noisePieces = availableNoise.sort(() => 0.5 - Math.random()).slice(0, requiredNoiseCount);
-
-        const resultObj = {
-            kanji: targetData.kanji,
-            meaning: targetData.meaning,
-            hv: targetData.hv,
-            mnemonics: targetData.mnemonics,
-            structure: targetData.structure_type,
-            correctSequence: correctPieces,
-            // Trộn gạch đúng và rác lại với nhau
-            pool: [...correctPieces, ...noisePieces].sort(() => 0.5 - Math.random())
-        };
-
-        // 5. Đóng băng kết quả vào RAM Cache
-        window.kanjiDetailCache[targetKanji] = resultObj;
-
-        return resultObj;
-
-    } catch (err) {
-        console.error("Lỗi getKanjiBuilderData:", err);
-        return null;
-    }
-}
 /**
  * Tải hàng loạt dữ liệu Kanji để tối ưu hóa băng thông (Chống bão N+1 Request)
  * @param {Array<string>} kanjiArray - Danh sách các chữ Kanji cần lấy dữ liệu
