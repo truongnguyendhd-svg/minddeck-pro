@@ -13238,6 +13238,7 @@ async function saveQuickEdit() {
     // --- 2. GỬI LÊN SUPABASE ---
     showLoading(isQuickAddMode ? "Đang tạo thẻ mới..." : "Đang đồng bộ thay đổi...");
     try {
+        const tagsArray = extractTagsFromInfo(newInfo);
         if (isQuickAddMode) {
             // 🟢 CHẾ ĐỘ THÊM MỚI (GIỮ NGUYÊN)
             const dupeCheck = await checkDuplicateCards([{ front: newFront }]);
@@ -13248,7 +13249,8 @@ async function saveQuickEdit() {
 
             const { error } = await sb.from('cards').insert([{
                 deck_id: deckToStudyId,
-                front: newFront, back: newBack, info: newInfo
+                front: newFront, back: newBack, info: newInfo,
+                tags: tagsArray
             }]);
             if (error) throw error;
             showToast("Đã thêm thẻ mới thành công! ✨");
@@ -13274,7 +13276,8 @@ async function saveQuickEdit() {
             // BƯỚC B: Cập nhật đồng loạt nội dung cho toàn bộ các ID vừa tìm được (Không đụng chạm điểm SRS)
             if (idsToUpdate.length > 0) {
                 const { error: updateErr } = await sb.from('cards')
-                    .update({ front: newFront, back: newBack, info: newInfo })
+                    .update({ front: newFront, back: newBack, info: newInfo,
+                        tags: tagsArray })
                     .in('id', idsToUpdate);
                     
                 if (updateErr) throw updateErr;
@@ -13286,6 +13289,7 @@ async function saveQuickEdit() {
                     card.front = newFront;
                     card.back = newBack;
                     card.info = newInfo;
+                    card.tags = tagsArray;
                 }
             });
             
@@ -15372,14 +15376,23 @@ async function generateThematicDeckWithAI() {
         formattedCards.forEach(newCard => {
             if (existingFrontsMap[newCard.front]) {
                 let oldInfo = existingFrontsMap[newCard.front].info || "";
+                let currentTags = existingFrontsMap[newCard.front].tags || [];
                 if (!oldInfo.includes(newTag)) {
                     let updatedInfo = oldInfo.startsWith('[TAGS]') 
                         ? oldInfo.replace(/\[TAGS\]/, `[TAGS] ${newTag} | ${displayTagName} ,`) 
                         : `[TAGS] ${newTag} | ${displayTagName}\n${oldInfo}`;
-                    cardsToUpdate.push({ id: existingFrontsMap[newCard.front].id, info: updatedInfo });
+                    if (!currentTags.includes(newTag)) {
+                        currentTags.push(newTag);
+                    }
+                    cardsToUpdate.push({ id: existingFrontsMap[newCard.front].id, info: updatedInfo,
+                        tags: currentTags });
                 }
-            } else {
-                cardsToInsert.push({ ...newCard, deck_id: vaultDeckId });
+            } else {            
+                cardsToInsert.push({ 
+                    ...newCard, 
+                    deck_id: vaultDeckId,
+                    tags: [newTag] // Thêm cột tags cho thẻ mới tinh
+                });
             }
         });
 
@@ -15463,7 +15476,7 @@ async function startStudyFromTagModal() {
         const { data: cards, error } = await sb.from('cards')
             .select('*, decks!inner()')
             .eq('decks.owner_id', currentUser.id)
-            .like('info', `%${tagCode}%`);
+            .contains('tags', [tagCode]);
 
         if (error) throw error;
 
@@ -15493,7 +15506,7 @@ async function expandTagWithAI() {
         const { data: existingCards } = await sb.from('cards')
             .select('front, decks!inner()')
             .eq('decks.owner_id', currentUser.id)
-            .like('info', `%${tagCode}%`);
+            .contains('tags', [tagCode]);
             
         const existingFronts = existingCards ? existingCards.map(c => c.front.trim()) : [];
         
@@ -15557,16 +15570,28 @@ async function expandTagWithAI() {
         formattedCards.forEach(newCard => {
             if (existingFrontsMap[newCard.front]) {
                 let oldInfo = existingFrontsMap[newCard.front].info || "";
+                let currentTags = existingFrontsMap[newCard.front].tags || [];
                 // Chỉ Update nếu thẻ cũ chưa gắn cái Tag này
                 if (!oldInfo.includes(tagCode)) {
                     let updatedInfo = oldInfo.startsWith('[TAGS]') 
                         ? oldInfo.replace(/\[TAGS\]/, `[TAGS] ${tagCode} | ${displayName} ,`) 
                         : `[TAGS] ${tagCode} | ${displayName}\n${oldInfo}`;
-                    cardsToUpdate.push({ id: existingFrontsMap[newCard.front].id, info: updatedInfo });
+                    if (!currentTags.includes(tagCode)) {
+                        currentTags.push(tagCode);
+                    }
+                    cardsToUpdate.push({ 
+                        id: existingFrontsMap[newCard.front].id, 
+                        info: updatedInfo,
+                        tags: currentTags // Đồng bộ mảng tags
+                    });
                 }
             } else {
                 // Nếu chưa có trên DB -> Chuẩn bị Insert
-                cardsToInsert.push({ ...newCard, deck_id: vaultDeckId });
+                cardsToInsert.push({ 
+                    ...newCard, 
+                    deck_id: vaultDeckId,
+                    tags: [tagCode] // Đồng bộ tags cho thẻ mới tinh
+                });
             }
         });
 
@@ -15625,7 +15650,7 @@ async function deleteThematicTag() {
         const { data: cards, error: fetchErr } = await sb.from('cards')
             .select('id, info, decks!inner()')
             .eq('decks.owner_id', currentUser.id)
-            .like('info', `%${tagCode}%`);
+            .contains('tags', [tagCode]);
 
         if (fetchErr) throw fetchErr;
 
@@ -15641,6 +15666,7 @@ async function deleteThematicTag() {
         cards.forEach(c => {
             let infoLines = c.info.split('\n');
             let tagLineIndex = infoLines.findIndex(line => line.startsWith('[TAGS]'));
+            let currentTags = c.tags || [];
 
             if (tagLineIndex !== -1) {
                 let tagLine = infoLines[tagLineIndex].replace('[TAGS]', '').trim();
@@ -15661,11 +15687,13 @@ async function deleteThematicTag() {
                     // Nếu xóa xong mà trắng bóc, thì xóa luôn cái dòng [TAGS] đi cho sạch Database
                     infoLines.splice(tagLineIndex, 1);
                 }
+                const updatedTags = currentTags.filter(t => t !== tagCode);
 
                 // Gói lại để update
                 cardsToUpdate.push({
                     id: c.id,
-                    info: infoLines.join('\n')
+                    info: infoLines.join('\n'),
+                    tags: updatedTags // Đẩy mảng tags đã làm sạch vào payload cập nhật
                 });
             }
         });
@@ -22062,6 +22090,19 @@ async function processOfflineQueue() {
     } catch (err) {
         console.warn("Hàng đợi Offline thất bại, sẽ thử lại sau.", err);
     }
+}
+function extractTagsFromInfo(infoText) {
+    if (!infoText) return [];
+    // Tìm dòng chứa [TAGS]
+    const match = infoText.match(/\[TAGS\](.*?)(?:\n|$)/);
+    if (!match) return [];
+    // Tách bằng dấu phẩy và loại bỏ phần tên hiển thị phía sau dấu gạch đứng |
+    return match[1].split(',')
+        .map(t => {
+            const part = t.trim().split('|')[0].trim();
+            return part;
+        })
+        .filter(t => t.startsWith('#')); // Chỉ lấy chuỗi bắt đầu bằng dấu #
 }
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
