@@ -20652,20 +20652,46 @@ async function saveAdminKanjiBuilder() {
 /*Hết ================= HỆ THỐNG ADMIN: QUẢN LÝ KANJI BUILDER ================= */
 // Hàm làm mới hoàn toàn kho Kanji Pokedex
 async function refreshKanjiCollection() {
-    showLoading("Đang quét tiến trình chuyên sâu để sửa lỗi dữ liệu...");
-    allKanjiData = []; 
-    localStorage.removeItem('minddeck_kanji_dict'); 
-    localStorage.removeItem('minddeck_kanji_dict_completed'); // 🟢 THÊM LỆNH NÀY: Xoá cờ hoàn thành cũ
-    sessionStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
-
+    if (!currentUser) return;
+    showLoading("Đang kiểm tra từ điển Kanji mới...");
+    
     try {
-        // Truyền tham số true để ép hệ thống tải và tính toán lại toàn bộ progress thô
-        await syncKanjiMastery(true); 
-        await showKanjiCollection(true); 
-        showToast("✅ Đã đồng bộ và phục hồi tiến trình thành công!");
+        // 1. Kéo mảng CHỈ CHỨA CHỮ KANJI từ Cloud (Payload cực nhẹ, ~1-2KB cho 2000 chữ)
+        const { data: cloudKanjis, error: err1 } = await sb.from('kanji_builder').select('kanji');
+        if (err1) throw err1;
+
+        // 2. So sánh với RAM hiện tại để tìm ra những chữ bị thiếu (Do Admin mới thêm)
+        const localKanjiSet = new Set(allKanjiData.map(k => k.kanji));
+        const missingKanjis = cloudKanjis.filter(k => !localKanjiSet.has(k.kanji)).map(k => k.kanji);
+
+        if (missingKanjis.length === 0) {
+            // Đã đồng bộ tiến độ người dùng ở hàm showKanjiCollection mỗi khi mở trang rồi, 
+            // nên nếu không có chữ mới thì chỉ cần báo thành công
+            showToast("✅ Từ điển Kanji của bạn đã là bản mới nhất!");
+        } else {
+            document.getElementById('loadingText').innerText = `Đang tải ${missingKanjis.length} chữ Kanji mới...`;
+            
+            // 3. Chỉ tải Full Data của NHỮNG CHỮ MỚI THIẾU
+            const { data: newKanjiData, error: err2 } = await sb.from('kanji_builder')
+                .select('kanji, level')
+                .in('kanji', missingKanjis);
+                
+            if (err2) throw err2;
+
+            // 4. "Bơm" thêm chữ mới vào RAM và LocalStorage (Không làm mất dữ liệu cũ)
+            allKanjiData = [...allKanjiData, ...newKanjiData];
+            localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
+            
+            showToast(`🎉 Đã cập nhật thêm ${newKanjiData.length} chữ Kanji mới!`);
+        }
+
+        // 5. Cập nhật lại UI (Tiến trình SRS đã tự động gộp ở hàm showKanjiCollection)
+        await syncKanjiMastery(true); // Lấy lại điểm SRS mới nhất
+        renderKanjiCollectionGrid(currentKanjiFilter);
+
     } catch (e) {
         console.error(e);
-        customAlert("Lỗi khi đồng bộ: " + e.message, "❌");
+        customAlert("Lỗi khi kiểm tra cập nhật: " + e.message, "❌");
     } finally {
         hideLoading();
     }
@@ -20719,19 +20745,50 @@ async function syncKanjiMastery(force = false) {
 }
 // Hàm làm mới hoàn toàn kho Ngữ Pháp
 async function refreshGrammarCollection() {
-    showLoading("Đang tải dữ liệu mới nhất từ Cloud...");
+    if (!currentUser) return;
+    showLoading("Đang kiểm tra ngữ pháp mới...");
     
-    // 1. Xóa Cache Từ điển (Ổ cứng)
-    globalGrammarData = []; 
-    localStorage.removeItem('minddeck_grammar_dict'); 
-    
-    // 2. Xóa Cache Tiến độ (RAM)
-    userGrammarMasteryMap = {};
-    sessionStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
-    
-    await showGrammarVault(true); 
-    hideLoading();
-    showToast("✅ Đã cập nhật Bộ sưu tập Ngữ pháp!");
+    try {
+        // 1. Kéo mảng CHỈ CHỨA TÊN NGỮ PHÁP (Payload siêu nhẹ)
+        const { data: cloudGrammar, error: err1 } = await sb.from('grammar_dict').select('grammar_point');
+        if (err1) throw err1;
+
+        // 2. Tìm các ngữ pháp Admin vừa thêm
+        const localGrammarSet = new Set(globalGrammarData.map(g => g.grammar_point));
+        const missingGrammars = cloudGrammar.filter(g => !localGrammarSet.has(g.grammar_point)).map(g => g.grammar_point);
+
+        if (missingGrammars.length === 0) {
+            showToast("✅ Từ điển Ngữ pháp của bạn đã là bản mới nhất!");
+        } else {
+            document.getElementById('loadingText').innerText = `Đang tải ${missingGrammars.length} cấu trúc mới...`;
+            
+            // 3. Tải Full Data của những cấu trúc mới
+            const { data: newGrammarData, error: err2 } = await sb.from('grammar_dict')
+                .select('*')
+                .in('grammar_point', missingGrammars);
+                
+            if (err2) throw err2;
+
+            // 4. Trộn dữ liệu mới vào dữ liệu cũ
+            globalGrammarData = [...globalGrammarData, ...newGrammarData];
+            
+            // Sắp xếp lại từ N5 -> N1 cho chuẩn UI
+            globalGrammarData.sort((a, b) => (a.level > b.level ? -1 : 1));
+            
+            localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
+            showToast(`🎉 Đã nạp thêm ${newGrammarData.length} ngữ pháp mới!`);
+        }
+
+        // 5. Cập nhật lại UI và điểm số
+        await calculateGrammarMastery(true); 
+        renderGrammarGrid(globalGrammarData);
+
+    } catch (e) {
+        console.error(e);
+        customAlert("Lỗi khi cập nhật ngữ pháp: " + e.message, "❌");
+    } finally {
+        hideLoading();
+    }
 }
 // ================= HÀM LƯU THẺ YÊU THÍCH (BỎ QUA LỌC TRÙNG LẶP) =================
 window.addToFavorites = async function(event, btnElement) {
