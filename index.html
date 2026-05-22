@@ -22245,20 +22245,32 @@ window.searchKanjiInDict = function(kanji) {
 async function syncAllMasteryFromCloud() {
     if (!currentUser) return;
     try {
+        // Kiểm tra xem RAM đang thiếu cái nào thì chỉ SELECT đúng cột đó
+        let selectColumns = [];
+        if (userKanjiMasteryMap === null) selectColumns.push('kanji_mastery');
+        if (userGrammarMasteryMap === null) selectColumns.push('grammar_mastery');
+
+        if (selectColumns.length === 0) return; // Đã đầy đủ, không tải nữa
+
         const { data, error } = await sb.from('profiles')
-            .select('kanji_mastery, grammar_mastery')
+            .select(selectColumns.join(', '))
             .eq('id', currentUser.id)
             .single();
-            
+
         if (error) throw error;
-        
-        userKanjiMasteryMap = data.kanji_mastery || {};
-        userGrammarMasteryMap = data.grammar_mastery || {};
-        
-        localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-        localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+
+        // Cập nhật riêng lẻ từng cái vào RAM & LocalStorage
+        if (data.kanji_mastery !== undefined) {
+            userKanjiMasteryMap = data.kanji_mastery || {};
+            localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
+        }
+        if (data.grammar_mastery !== undefined) {
+            userGrammarMasteryMap = data.grammar_mastery || {};
+            localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+        }
+
     } catch (e) {
-        console.error("Lỗi đồng bộ gộp:", e);
+        console.error("Lỗi đồng bộ gộp tối ưu:", e);
     }
 }
 </script>
