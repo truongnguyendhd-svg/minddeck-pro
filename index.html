@@ -9488,7 +9488,7 @@ async function loadCards(d, skipHash = false) {
             // 3. XÁO TRỘN KHUNG XƯƠNG
             filteredSkeleton.sort(() => Math.random() - 0.5);
             
-            // 4. ĐẮP THỊT 30 THẸ ĐẦU TIÊN (HYDRATION)
+            // 4. ĐẮP THỊT 30 THẺ ĐẦU TIÊN (HYDRATION)
             const top30Ids = filteredSkeleton.slice(0, 30).map(c => c.id);
             let fullCardsMap = new Map();
             
@@ -9496,7 +9496,10 @@ async function loadCards(d, skipHash = false) {
                 const { data: fullCards, error: fullErr } = await sb.from('cards')
                     .select('*, progress(*)')
                     .in('id', top30Ids)
-                    .eq('progress.user_id', currentUser.id);
+                    .eq('progress.user_id', currentUser.id)
+                    // 🟢 VÁ LỖI: Ngăn chặn tải chồng chéo hàng trăm lịch sử
+                    .order('due', { foreignTable: 'progress', ascending: false })
+                    .limit(1, { foreignTable: 'progress' });
                     
                 if (!fullErr && fullCards) {
                     fullCards.forEach(c => fullCardsMap.set(c.id, c));
@@ -9712,9 +9715,14 @@ async function showCard() {
     if (idsToPrefetch.length > 0) {
         console.log(`[Prefetch] Đang tải ngầm ${idsToPrefetch.length} thẻ tiếp theo... 📥`);
         sb.from('cards')
+            // Cú pháp chọn lấy thẻ và bảng progress con
             .select('*, progress(*)')
             .in('id', idsToPrefetch)
-            .eq('progress.user_id', currentUser.id) // 🟢 VÁ LỖI DATA LEAK Ở ĐÂY
+            // Lọc tiến độ đúng của user hiện tại (Để an toàn nếu RLS không bọc kỹ)
+            .eq('progress.user_id', currentUser.id)
+            // 🟢 VÁ LỖI: Chỉ lấy 1 bản ghi tiến độ MỚI NHẤT của thẻ đó
+            .order('due', { foreignTable: 'progress', ascending: false })
+            .limit(1, { foreignTable: 'progress' }) 
             .then(({ data, error }) => {
                 if (!error && data) {
                     const dataMap = new Map(data.map(item => [item.id, item]));
@@ -9727,7 +9735,7 @@ async function showCard() {
                             }
                         }
                     });
-                    console.log(`[Prefetch] Đã đồng bộ ngầm thành công! 🧠`);
+                    console.log(`[Prefetch] Đã đồng bộ ngầm thành công (Tối ưu payload) 🧠`);
                 }
             });
     }
@@ -19123,8 +19131,13 @@ async function toggleInlineDeckList() {
         const { data: fullCards, error: err2 } = await sb.from('cards')
             .select('*, progress(*)')
             .eq('deck_id', deckToStudyId)
-            .order('id', { ascending: true })
-            .limit(30);
+            // 🟢 Đảm bảo tiến độ chỉ lấy của User này
+            .eq('progress.user_id', currentUser.id)
+            // 🟢 VÁ LỖI: Ép giới hạn 1 object progress cho mỗi card
+            .order('due', { foreignTable: 'progress', ascending: false })
+            .limit(1, { foreignTable: 'progress' })
+            .order('id', { ascending: true }) // Dòng này dành cho bảng cards (bảng cha)
+            .limit(30); // Dòng này dành cho bảng cards (bảng cha)
 
         if (err2) throw err2;
 
