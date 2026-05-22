@@ -8876,54 +8876,7 @@ function updateBreadcrumb(paths) {
     }
     bc.innerHTML = h;
 }
-async function loadDeckListIntoSelect(selectId, deckType) {
-    const selectEl = document.getElementById(selectId);
-    selectEl.innerHTML = '<option value="">Đang tải danh sách học phần...</option>';
 
-    try {
-        // 1. Lấy danh sách Deck theo loại (flashcard/quiz) của user hiện tại
-        const { data: decks, error } = await sb.from('decks')
-            .select('id')
-            .eq('type', deckType)
-            .eq('owner_id', currentUser.id);
-            
-        if (error) throw error;
-
-        // 2. Lấy danh sách ID các bộ bài vừa học từ Profile
-        const { data: profile } = await sb.from('profiles').select('recent_decks').eq('id', currentUser.id).single();
-        const recentIds = (profile && profile.recent_decks) ? profile.recent_decks : [];
-
-        if (!decks || decks.length === 0) {
-            selectEl.innerHTML = `<option value="">Bạn chưa có bộ bài ${deckType === 'quiz' ? 'Trắc nghiệm' : 'Flashcard'} nào.</option>`;
-            selectEl.disabled = true;
-            return;
-        }
-
-        selectEl.disabled = false;
-        let html = '<option value="">-- Chọn bộ bài đích --</option>';
-        
-        // 3. Phân nhóm "🕒 Học gần đây"
-        const recentDecks = decks.filter(d => recentIds.includes(d.id));
-        if (recentDecks.length > 0) {
-            html += `<optgroup label="🕒 Học gần đây">`;
-            recentDecks.forEach(d => html += `<option value="${d.id}">${getCleanName(d.id)}</option>`);
-            html += `</optgroup>`;
-        }
-
-        // 4. Phân nhóm "📚 Tất cả bộ bài"
-        const otherDecks = decks.filter(d => !recentIds.includes(d.id));
-        if (otherDecks.length > 0) {
-            html += `<optgroup label="📚 Tất cả bộ bài">`;
-            otherDecks.forEach(d => html += `<option value="${d.id}">${getCleanName(d.id)}</option>`);
-            html += `</optgroup>`;
-        }
-
-        selectEl.innerHTML = html;
-    } catch (err) {
-        console.error("Lỗi tải deck list:", err);
-        selectEl.innerHTML = '<option value="">Lỗi tải dữ liệu.</option>';
-    }
-}
 
 // =====================================================================
 // GLOBAL MODAL SCROLL LOCK (TỰ ĐỘNG KHÓA CUỘN NỀN KHI MỞ BẤT KỲ MODAL NÀO)
@@ -9376,7 +9329,10 @@ async function openCopyDeck(event, deckId) {
         if (deckErr || !deck) throw new Error("Không tìm thấy bộ bài gốc.");
 
         // 2. Tải toàn bộ các thẻ của bộ bài gốc về
-        const { data: cards, error: cardsErr } = await sb.from('cards').select('*').eq('deck_id', deckId);
+        const { data: cards, error: cardsErr } = await sb.from('cards')
+            .select('front, back, info, tags') // 🟢 Bỏ qua id, progress, created_at
+            .eq('deck_id', deckId);
+
         if (cardsErr) throw cardsErr;
 
         if (!cards || cards.length === 0) {
