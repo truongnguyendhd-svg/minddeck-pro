@@ -9448,12 +9448,16 @@ async function loadCards(d, skipHash = false) {
             currentDeckName = d; 
             showLoading("Đang nạp dữ liệu...");
             
-            // 1. CHỈ TẢI KHUNG XƯƠNG + TIẾN ĐỘ ĐỂ LỌC SRS (Siêu nhẹ, chỉ vài KB)
+            // 1. CHỈ TẢI KHUNG XƯƠNG + TIẾN ĐỘ ĐỂ LỌC SRS (Tối ưu Left Join để lấy cả thẻ chưa học)
             const { data: skeletonCards, error: skelErr } = await sb.from('cards')
-                .select('id, front, progress(due, test_result)') 
+                .select(`
+                    id, 
+                    front, 
+                    progress(due, test_result)
+                `) 
                 .eq('deck_id', d)
-                .eq('progress.user_id', currentUser.id); 
-
+                .eq('progress.user_id', currentUser.id)
+                .limit(1, { foreignTable: 'progress' }); // Khống chế tối đa 1 dòng tiến trình của user hiện tại
             if (skelErr) throw skelErr;
             
             let filteredSkeleton = skeletonCards;
@@ -19007,10 +19011,16 @@ async function toggleInlineDeckList() {
     listContainer.innerHTML = '<div style="text-align:center; padding: 20px; color:#8c8c8c;"><div class="spinner" style="margin: 0 auto 10px auto; width: 24px; height: 24px;"></div>Đang tối ưu danh sách...</div>';
 
     try {
-        // QUERY 1: Tải bộ khung xương (chỉ lấy id, front) của TOÀN BỘ bộ bài
+        // QUERY 1: Tải bộ khung xương kèm tiến độ được cô lập theo User ID hiện tại
         const { data: skeletonCards, error: err1 } = await sb.from('cards')
-            .select('id, front, progress(due)') // <--- Đã đồng bộ thêm due
+            .select(`
+                id, 
+                front, 
+                progress(due)
+            `) 
             .eq('deck_id', deckToStudyId)
+            .eq('progress.user_id', currentUser.id)  // 🛡️ CHỐT CHẶN BẢO MẬT: Chỉ lấy tiến trình của chính mình
+            .limit(1, { foreignTable: 'progress' })   // ⚡ TỐI ƯU BĂNG THÔNG: Chỉ lấy tối đa 1 bản ghi tiến trình
             .order('id', { ascending: true });
 
         if (err1) throw err1;
