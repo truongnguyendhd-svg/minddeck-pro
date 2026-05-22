@@ -19678,11 +19678,14 @@ async function renderRoadmapWidget() {
         const quota = JLPT_QUOTA[goal.level];
         if (!quota) return;
 
-        // 3. TẢI TỔNG LƯỢNG TIẾN TRÌNH THỰC TẾ HIỆN TẠI (Dùng HEAD Request siêu nhẹ)
-        const { count: vocabStudiedCount } = await sb.from('progress')
-            .select('*, cards!inner(decks!inner(type))', { count: 'exact', head: true })
-            .eq('user_id', currentUser.id)
-            .eq('cards.decks.type', 'flashcard');
+        // 3. TẢI TỔNG LƯỢNG TIẾN TRÌNH THỰC TẾ HIỆN TẠI (Qua RPC đã tối ưu Index)
+        const { data: vocabStudiedCount, error: countErr } = await sb.rpc('get_studied_flashcards_count', {
+            p_user_id: currentUser.id
+        });
+        
+        if (countErr) {
+            console.error("Lỗi đếm số lượng Flashcard đã học:", countErr);
+        }
             
         const grammarCount = Object.keys(userGrammarMasteryMap).length;
         const kanjiCount = Object.keys(userKanjiMasteryMap).length;
