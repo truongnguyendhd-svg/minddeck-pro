@@ -18385,38 +18385,31 @@ window.startGlobalReview = async function(skipHash = false) {
     try {
         const now = new Date().toISOString();
 
-        // 1. Lấy thẻ trễ hạn
-        const { data: dueProgress, error } = await sb.from('progress')
-            .select('*, cards!inner(*, decks!inner(type))') 
-            .eq('user_id', currentUser.id)
-            .eq('cards.decks.type', 'flashcard')            
-            .lte('due', now)
-            .order('due', { ascending: true }) 
-            .limit(15); // BATCHING: Ép cứng tối đa 15 thẻ
+        // 1. Lấy 15 thẻ trễ hạn thông qua hàm RPC siêu tốc
+        const { data: dueCards, error } = await sb.rpc('get_global_review_cards', {
+            p_user_id: currentUser.id,
+            p_now: now,
+            p_limit: 15
+        });
 
         if (error) throw error;
 
-        if (!dueProgress || dueProgress.length === 0) {
+        if (!dueCards || dueCards.length === 0) {
             hideLoading();
             return showToast("Tuyệt vời! Bạn không còn thẻ nào cần ôn hôm nay. 🎉");
         }
 
-        // 2. Chuyển đổi dữ liệu và gắn State riêng cho TỪNG THẺ
-        sessionCards = dueProgress.map(p => {
-            const cardData = p.cards;
-            const { cards, ...progressData } = p; 
-            
-            // Gắn ma trận 3 game và bộ đếm lỗi cho từng thẻ ngay từ đầu
-            const matrix = generateAspectMatrixForCard(cardData);
+        // 2. Gắn State riêng cho TỪNG THẺ (Code gọn hơn vì SQL đã bọc cấu trúc chuẩn)
+        sessionCards = dueCards.map(card => {
+            const matrix = generateAspectMatrixForCard(card);
             
             return {
-                ...cardData,
-                progress: [progressData],
+                ...card,
                 matrix: matrix,
                 penaltyPoints: 0,
                 isMeaningFailed: false,
-                isFailed: false, // Bị rớt (chịu thua/hết giờ)
-                isProcessed: false // Đã tính điểm và đẩy lên DB chưa
+                isFailed: false, 
+                isProcessed: false 
             };
         });
 
