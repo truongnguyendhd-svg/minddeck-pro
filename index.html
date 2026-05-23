@@ -18352,80 +18352,98 @@ async function renderJLPTProgress() {
 /* ================= HÀM XỬ LÝ GÓC KHÁM PHÁ (BỐC THĂM NGẪU NHIÊN) ================= */
 let lastDiscoveryData = null;
 
-function refreshDiscovery() {
-    return new Promise((resolve) => {
-        const card = document.getElementById('discoveryCard');
-        
-        // Kích hoạt hiệu ứng lật (ẩn đi)
-        card.classList.add('flip');
+// Khóa chống click spam
+let isDiscoverySpinning = false;
 
+function refreshDiscovery() {
+    if (isDiscoverySpinning) return Promise.resolve(); // Chống spam click trùng request
+    isDiscoverySpinning = true;
+
+    const card = document.getElementById('discoveryCard');
+    if (!card) {
+        isDiscoverySpinning = false;
+        return Promise.resolve();
+    }
+    
+    // 1. Kích hoạt hiệu ứng lật thẻ mượt mà
+    card.classList.add('flip');
+
+    return new Promise((resolve) => {
         setTimeout(async () => {
             try {
-                // Random 50/50: Khám phá Kanji hoặc Ngữ pháp
+                // Xác suất 50% ra Kanji, 50% ra Ngữ Pháp
                 const isKanji = Math.random() > 0.5;
-                
                 let html = '';
                 
-                if (isKanji && allKanjiData.length > 0) {
-                    // Bốc 1 Kanji ngẫu nhiên
-                    const randomKanji = allKanjiData[Math.floor(Math.random() * allKanjiData.length)].kanji;
+                // ==========================================
+                // PHÂN HỆ 1: KHÁM PHÁ KANJI (SỬ DỤNG MAZII)
+                // ==========================================
+                if (isKanji && allKanjiData && allKanjiData.length > 0) {
+                    // Bước A: Bốc 1 Kanji ngẫu nhiên làm hạt giống từ RAM (vẫn đúng level JLPT)
+                    const randomSeed = allKanjiData[Math.floor(Math.random() * allKanjiData.length)];
                     
-                    // Lấy chi tiết Kanji đó từ DB (Riêng khối này nhẹ nên cho phép gọi thẳng)
-                    const { data } = await sb.from('kanji_builder').select('*').eq('kanji', randomKanji).single();
+                    // Bước B: Gọi API Mazii lấy chi tiết (0 request Supabase)
+                    const data = await fetchMaziiKanjiDetail(randomSeed.kanji);
                     
                     if (data) {
+                        // Tạo tooltip hiển thị cách đọc On/Kun khi rê chuột vào
+                        const rawReadings = `Onyomi: ${data.onyomi || '---'}\\nKunyomi: ${data.kunyomi || '---'}`;
+                        
                         html = `
-                            <div class="discovery-badge" style="background: #fffaf0; color: #dd6b20; border: 1px solid #fbd38d;">Kanji trong ngày</div>
-                            <div style="font-size: 60px; font-weight: 900; color: #1d1d1f; line-height: 1.2;">${data.kanji}</div>
+                            <div class="discovery-badge" style="background: #fffaf0; color: #dd6b20; border: 1px solid #fbd38d;">Kanji trong ngày [${randomSeed.level}]</div>
+                            <div style="font-size: 60px; font-weight: 900; color: #1d1d1f; line-height: 1.2; cursor: help;" title="${rawReadings}">${data.kanji}</div>
                             <div style="font-size: 16px; font-weight: 700; color: #c50f1f; letter-spacing: 1px; margin: 5px 0;">[ ${data.hv} ]</div>
-                            <div style="font-size: 15px; color: #4a5568; font-weight: 500; margin-bottom: 20px;">${data.meaning}</div>
-                            <button onclick="showKanjiXRay(event, '${data.kanji}')" style="background: #1e3a8a; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-                                <span class="material-symbols-outlined" style="font-size: 16px;">troubleshoot</span> X-Ray
+                            <div style="font-size: 15px; color: #4a5568; font-weight: 500; margin-bottom: 20px; padding: 0 10px; text-align: center;">${data.meaning}</div>
+                            <button onclick="showKanjiXRay(event, '${data.kanji}')" style="background: #1d1d1f; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); margin: 0 auto;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">troubleshoot</span> Xem cách nhớ
                             </button>
                         `;
                     }
-                } else {
-                    // 🟢 ĐÃ VÁ LỖI BĂNG THÔNG: Kiểm tra LocalStorage trước khi gọi Cloud tải Kho Ngữ pháp
+                } 
+                // ==========================================
+                // PHÂN HỆ 2: KHÁM PHÁ NGỮ PHÁP (SỬ DỤNG CACHE RAM)
+                // ==========================================
+                else {
+                    // Nếu chưa có cache Ngữ pháp, nạp nhanh từ ổ cứng lên RAM
                     if (globalGrammarData.length === 0) {
                         const cachedDict = localStorage.getItem('minddeck_grammar_dict');
                         if (cachedDict) {
                             globalGrammarData = JSON.parse(cachedDict);
-                        } else {
-                            const { data: gData } = await sb.from('grammar_dict').select('*');
-                            if (gData) {
-                                globalGrammarData = gData;
-                                localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
-                            }
                         }
                     }
                     
                     if (globalGrammarData.length > 0) {
+                        // Bốc ngẫu nhiên 1 cấu trúc trong RAM (0 request Supabase)
                         const randomGrammar = globalGrammarData[Math.floor(Math.random() * globalGrammarData.length)];
-                        const safeJSON = encodeURIComponent(JSON.stringify(randomGrammar)).replace(/'/g, "%27");
-
+                        
                         html = `
-                            <div class="discovery-badge" style="background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;">Ngữ pháp trong ngày</div>
-                            <div style="font-size: 24px; font-weight: 900; color: #1d1d1f; line-height: 1.4; margin: 10px 0;">${randomGrammar.grammar_point}</div>
-                            <div style="font-size: 14px; color: #4a5568; font-weight: 500; margin-bottom: 20px; max-width: 80%;">${randomGrammar.meaning}</div>
-                            <button onclick="openGrammarDetail('${safeJSON}')" style="background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                            <div class="discovery-badge" style="background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;">Ngữ pháp trong ngày [${randomGrammar.level || 'N?'}]</div>
+                            <div style="font-size: 24px; font-weight: 900; color: #1d1d1f; line-height: 1.4; margin: 15px 0; font-family: 'Noto Sans JP', sans-serif;">${randomGrammar.grammar_point}</div>
+                            <div style="font-size: 14px; color: #4a5568; font-weight: 500; margin-bottom: 20px; max-width: 90%; text-align: center; margin-left: auto; margin-right: auto;">${randomGrammar.meaning}</div>
+                            <button onclick="openGrammarDetail('${randomGrammar.id}')" style="background: #1d1d1f; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); margin: 0 auto;">
                                 <span class="material-symbols-outlined" style="font-size: 16px;">menu_book</span> Xem chi tiết
                             </button>
                         `;
                     }
                 }
                 
-                if (!html) html = '<div style="color: #718096;">Chưa có dữ liệu để khám phá!</div>';
+                // Trường hợp ngoại lệ không có dữ liệu
+                if (!html) {
+                    html = '<div style="color: #718096; padding: 20px;">Nhấn nút xoay để bắt đầu quay thưởng!</div>';
+                }
                 
+                // Đổ dữ liệu vào giao diện và tắt hiệu ứng lật
                 card.innerHTML = html;
                 card.classList.remove('flip');
-                resolve();
-
+                
             } catch (e) {
-                console.error(e);
+                console.error("Lỗi nạp Góc khám phá:", e);
                 card.classList.remove('flip');
+            } finally {
+                isDiscoverySpinning = false; // Mở khóa nút bấm
                 resolve();
             }
-        }, 400); // Đợi 400ms cho animation úp thẻ hoàn tất rồi mới đổi nội dung
+        }, 400); // 400ms tương ứng thời gian CSS transition xoay lật thẻ
     });
 }
 
@@ -21680,6 +21698,38 @@ async function syncAllMasteryFromCloud() {
 
     } catch (e) {
         console.error("Lỗi đồng bộ gộp tối ưu:", e);
+    }
+}
+// 🟢 [TỐI ƯU HÓA MAZII]: Lấy chi tiết Kanji từ API public của Mazii (Miễn phí băng thông)
+async function fetchMaziiKanjiDetail(kanjiChar) {
+    try {
+        const response = await fetch('https://mazii.net/api/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                dict: 'javi',
+                type: 'kanji', // Gọi đúng phân hệ tra cứu Kanji của Mazii
+                query: kanjiChar
+            })
+        });
+        const data = await response.json();
+        
+        // Cấu trúc trả về của Mazii nằm trong mảng results hoặc result
+        const kList = data.results || data.result || [];
+        if (kList.length > 0) {
+            const k = kList[0];
+            return {
+                kanji: k.kanji || kanjiChar,
+                hv: k.hanviet ? k.hanviet.toUpperCase() : 'CHƯA CÓ',
+                meaning: k.mean || 'Chưa rõ nghĩa',
+                onyomi: k.on || '',
+                kunyomi: k.kun || ''
+            };
+        }
+        return null;
+    } catch (e) {
+        console.error("Lỗi khi kết nối Mazii Kanji API:", e);
+        return null;
     }
 }
 </script>
