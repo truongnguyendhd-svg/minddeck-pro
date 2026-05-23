@@ -9601,27 +9601,34 @@ async function showCard() {
     }
 
     // =========================================================================
-    // 🚀 [MỚI] GIAI ĐOẠN B: TỰ ĐỘNG QUÉT VÀ TẢI NGẦM 5 CÂU TIẾP THEO (PREFETCH)
+    // 🚀 [MỚI] GIAI ĐOẠN B: TỰ ĐỘNG QUÉT VÀ TẢI NGẦM THEO LÔ (BATCH PREFETCH)
     // =========================================================================
-    const prefetchSize = 5;
+    const prefetchBatchSize = 10; // 🟢 Tải một mẻ 10 thẻ thay vì lắt nhắt
+    const safeZone = 3;           // 🟢 Khi nào thẻ dự trữ còn <= 3 thì mới kích hoạt tải
+    
     let idsToPrefetch = [];
     let indexesToPrefetch = [];
+    let loadedCardsAhead = 0;
 
-    for (let i = currentIndex + 1; i <= currentIndex + prefetchSize; i++) {
-        if (i < sessionCards.length) {
-            const nextCard = sessionCards[i];
-            // 🛡️ CHỈ LẤY: Thẻ chưa tải VÀ chưa có Promise nào đang xử lý nó
-            if (nextCard.isLoaded === false && !prefetchPromises.has(nextCard.id)) {
-                idsToPrefetch.push(nextCard.id);
-                indexesToPrefetch.push(i);
-            }
+    // 1. Quét về phía trước để xem hàng đợi còn bao nhiêu thẻ ĐÃ TẢI SẴN
+    for (let i = currentIndex + 1; i < sessionCards.length; i++) {
+        if (sessionCards[i].isLoaded) {
+            loadedCardsAhead++;
+        } else if (!prefetchPromises.has(sessionCards[i].id)) {
+            // Nạp sẵn ID vào mảng chờ gộp
+            idsToPrefetch.push(sessionCards[i].id);
+            indexesToPrefetch.push(i);
         }
+        
+        // Nếu mảng chờ đã gom đủ 1 mẻ (10 thẻ) thì dừng quét
+        if (idsToPrefetch.length >= prefetchBatchSize) break;
     }
 
-    if (idsToPrefetch.length > 0) {
-        console.log(`[Prefetch] Đang tải ngầm ${idsToPrefetch.length} thẻ tiếp theo... 📥`);
+    // 2. CHỈ BẮN API KHI HÀNG ĐỢI SẮP CẠN VÀ CÓ THẺ CẦN TẢI
+    if (loadedCardsAhead <= safeZone && idsToPrefetch.length > 0) {
+        console.log(`[Prefetch] Hàng đợi sắp cạn. Đang tải ngầm lô ${idsToPrefetch.length} thẻ tiếp theo... 📥`);
         
-        // 1. Tạo Promise tải mảng thẻ
+        // Tạo Promise tải mảng thẻ
         const fetchPromise = sb.from('cards')
             .select('id, back, info, tags, progress(id, ef, interval, interval_count, test_result, due)')
             .in('id', idsToPrefetch)
@@ -9641,15 +9648,15 @@ async function showCard() {
                             }
                         }
                     });
-                    console.log(`[Prefetch] Đã đồng bộ ngầm thành công (Tối ưu payload cực độ) 🧠`);
+                    console.log(`[Prefetch] Đã đồng bộ ngầm lô ${idsToPrefetch.length} thẻ thành công 🧠`);
                 }
             })
             .finally(() => {
-                // 🔓 NHẢ KHÓA: Khi có phản hồi (thành công/thất bại), giải phóng các ID khỏi Map
+                // Nhả khóa
                 idsToPrefetch.forEach(id => prefetchPromises.delete(id));
             });
 
-        // 2. LƯU PROMISE VÀO MAP NGAY LẬP TỨC CHO TỪNG ID
+        // Lưu Promise vào Map
         idsToPrefetch.forEach(id => prefetchPromises.set(id, fetchPromise));
     }
     // =========================================================================
