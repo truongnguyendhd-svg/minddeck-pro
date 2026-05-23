@@ -11654,7 +11654,23 @@ async function answerCurrent(q) {
         srsSyncTimer = setTimeout(flushSrsQueue, 15000); 
     }
 } // <-- DẤU NGOẶC ĐÓNG CỦA HÀM answerCurrent
-
+// 🟢 [VÁ LỖI BĂNG THÔNG]: Hàm lấy duy nhất mốc thời gian mới nhất từ Cloud về Local
+async function syncLocalMasteryTimestamp(userId) {
+    if (!userId) return;
+    try {
+        const { data, error } = await sb.from('profiles')
+            .select('mastery_updated_at')
+            .eq('id', userId)
+            .single();
+            
+        if (!error && data && data.mastery_updated_at) {
+            localStorage.setItem(`minddeck_mastery_updated_${userId}`, data.mastery_updated_at);
+            console.log(`[MindDeck Bandwidth Save] Khóa trùng khớp. Đã đồng bộ timestamp: ${data.mastery_updated_at}`);
+        }
+    } catch (e) {
+        console.warn("MindDeck: Không thể cập nhật timestamp ngầm:", e);
+    }
+}
 // ==========================================
 // HÀM BẮN DỮ LIỆU SRS THEO LÔ
 // ==========================================
@@ -11687,6 +11703,10 @@ async function flushSrsQueue() {
         }
         console.log(`MindDeck: Đã đồng bộ lô ${payloadsToSend.length} thẻ SRS lên Cloud.`);
         forceDashboardRefresh = true;
+        // 🟢 [BẮT ĐẦU VÁ LỖI]: Gọi lấy timestamp mới nhất từ DB
+        // Do Trigger DB chạy bất đồng bộ cùng phiên commit, việc gọi ngay sau RPC đảm bảo lấy được mốc mới
+        await syncLocalMasteryTimestamp(currentUser.id);
+        // 🟢 [KẾT THÚC VÁ LỖI]
 
     } catch (err) {
         console.warn("Mất mạng! Đã đưa tiến trình vào Hàng đợi Offline.");
@@ -18146,6 +18166,9 @@ async function processBatchAssessmentResults() {
             
             if (error) throw error;
             if (rpcData && rpcData.status === 'error') throw new Error(rpcData.message); 
+            // 🟢 [BẮT ĐẦU VÁ LỖI]: Đồng bộ ngay timestamp mới nhất để bảo vệ cache cục bộ
+            await syncLocalMasteryTimestamp(currentUser.id);
+            // 🟢 [KẾT THÚC VÁ LỖI]
 
             // Bước 2: Xóa nháp
             clearAssessmentStateFromLocal();
