@@ -11792,7 +11792,7 @@ function showSearchResultDetail(encodedBack, encodedInfo) {
 }
 
 
-async function renderManageDeckList() {
+async function renderManageDeckList(preventBackgroundSync = false) {
     const list = document.getElementById('manageDeckList');
     if (!currentUser) return;
 
@@ -11973,13 +11973,14 @@ async function renderManageDeckList() {
     if (decks.length > 0) drawUI(decks);
 
     // 2. CHẠY NGẦM ĐỒNG BỘ VỚI CLOUD VÀ UPDATE UI NẾU CÓ THAY ĐỔI
-    getCachedDeckList(true).then(freshDecks => {
-        // Chỉ vẽ lại nếu dữ liệu Cloud thực sự có sự thay đổi (so sánh sâu chuỗi JSON)
-        if (JSON.stringify(decks) !== JSON.stringify(freshDecks)) {
-            console.log("MindDeck: Background sync phát hiện bộ bài mới, đang cập nhật UI...");
-            drawUI(freshDecks);
-        }
-    });
+    if (!preventBackgroundSync) {
+        getCachedDeckList(true).then(freshDecks => {
+            if (JSON.stringify(decks) !== JSON.stringify(freshDecks)) {
+                console.log("MindDeck: Background sync phát hiện bộ bài mới, đang cập nhật UI...");
+                drawUI(freshDecks);
+            }
+        });
+    }
 }
 // ================= CÁC HÀM XỬ LÝ DROPDOWN DECK MENU =================
 
@@ -12034,8 +12035,17 @@ async function toggleDeckVisibility(event, deckId, makePublic) {
         const { error } = await sb.from('decks').update({ is_public: makePublic }).eq('id', deckId);
         if (error) throw error;
         
+        // Cập nhật trực tiếp vào LocalStorage
+        const cacheKey = `minddeck_decks_cache_${currentUser.id}`;
+        let cachedDecks = JSON.parse(localStorage.getItem(cacheKey) || "[]");
+        let targetDeck = cachedDecks.find(d => d.id === deckId);
+        if (targetDeck) {
+            targetDeck.is_public = makePublic;
+            localStorage.setItem(cacheKey, JSON.stringify(cachedDecks));
+        }
+
         showToast(makePublic ? "🌐 Đã chuyển thành Công khai" : "🔒 Đã chuyển thành Riêng tư");
-        renderManageDeckList(); // Render lại để thấy thay đổi
+        renderManageDeckList(true); // Truyền true để CHẶN gọi mạng
     } catch (err) {
         customAlert("Lỗi: " + err.message, "❌");
         hideLoading();
@@ -12064,8 +12074,14 @@ async function deleteDeckFromDashboard(event, deckId, deckName) {
             await sb.from('decks').delete().eq('id', deckId);
             
 
+            // Cập nhật trực tiếp vào LocalStorage (Xóa mảng)
+            const cacheKey = `minddeck_decks_cache_${currentUser.id}`;
+            let cachedDecks = JSON.parse(localStorage.getItem(cacheKey) || "[]");
+            cachedDecks = cachedDecks.filter(d => d.id !== deckId);
+            localStorage.setItem(cacheKey, JSON.stringify(cachedDecks));
+
             showToast("🗑️ Đã xóa học phần thành công!");
-            renderManageDeckList(); // Tải lại danh sách
+            renderManageDeckList(true); // Truyền true để CHẶN gọi mạng
             triggerSilentBackgroundSync(null, true);
         } catch (err) {
             customAlert("Lỗi xóa dữ liệu: " + err.message, "❌");
@@ -12137,11 +12153,18 @@ async function confirmRenameDeck() {
         // 6. Xóa bộ bài cũ đi
         await sb.from('decks').delete().eq('id', oldId);
 
+        // Cập nhật trực tiếp ID mới vào LocalStorage
+        const cacheKey = `minddeck_decks_cache_${currentUser.id}`;
+        let cachedDecks = JSON.parse(localStorage.getItem(cacheKey) || "[]");
+        let oldDeckIndex = cachedDecks.findIndex(d => d.id === oldId);
+        if (oldDeckIndex !== -1) {
+            cachedDecks[oldDeckIndex].id = newDeckId;
+            localStorage.setItem(cacheKey, JSON.stringify(cachedDecks));
+        }
+
         closeModal('renameDeckModal');
         showToast("✨ Đã đổi tên thành công!");
-        
-        // Load lại giao diện
-        renderManageDeckList();
+        renderManageDeckList(true); // Truyền true để CHẶN gọi mạng
 
     } catch (err) {
         console.error("Lỗi đổi tên:", err);
@@ -12253,11 +12276,20 @@ async function saveNewDeckFromModal() {
         if (error) throw error;
 
         // Đóng modal khởi tạo học phần
+        // Cập nhật LocalStorage thêm bộ bài rỗng mới
+        const cacheKey = `minddeck_decks_cache_${currentUser.id}`;
+        let cachedDecks = JSON.parse(localStorage.getItem(cacheKey) || "[]");
+        cachedDecks.push({
+            id: deckId, owner_id: currentUser.id, type: 'flashcard', is_public: isPublic,
+            total_cards: 0, due_cards: 0, studied_cards: 0
+        });
+        localStorage.setItem(cacheKey, JSON.stringify(cachedDecks));
+
         closeModal('createDeckModal');
         showToast("🎉 Đã tạo học phần mới thành công!");
         
-        // Tải lại danh sách học phần ngay trên trang chủ
-        await renderManageDeckList();
+        await renderManageDeckList(true); // Truyền true để CHẶN gọi mạng
+
         
         // Tự động mở Modal Tuỳ chọn học của chính học phần vừa tạo
         openStudyOptionsModal(deckId, uniqueName, 'flashcard');
