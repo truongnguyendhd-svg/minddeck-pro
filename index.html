@@ -12960,11 +12960,23 @@ async function saveQuickEdit() {
         closeModal('quickEditModal');
                 triggerSilentBackgroundSync(newFront);
         
-        // 🟢 NẾU MODAL DANH SÁCH ĐANG MỞ -> TỰ ĐỘNG LOAD LẠI ĐỂ THẤY THẺ MỚI/THAY ĐỔI
+        // 🟢 NẾU MODAL DANH SÁCH ĐANG MỞ -> CẬP NHẬT TRỰC TIẾP LÊN DOM (KHÔNG GỌI API)
         if (document.getElementById('studyOptionsModal').style.display === 'flex') {
-            isInlineListLoaded = false;
-            document.getElementById('inlineDeckListContainer').style.display = 'none';
-            toggleInlineDeckList();
+            // Lấy thẻ hiện tại đang sửa (Lúc này RAM đã được cập nhật bản mới nhất rồi)
+            const currentCard = sessionCards[currentIndex];
+            
+            // 1. Cập nhật Tiêu đề thẻ (Mặt trước) trên thanh Accordion
+            const headerTextEl = document.querySelector(`#inline-card-${currentCard.id} .inline-card-header span:nth-child(2)`);
+            if (headerTextEl) {
+                headerTextEl.innerText = newFront; // Sửa chữ trực tiếp
+            }
+            
+            // 2. Vẽ lại phần ruột bên trong (Nghĩa, Hán Việt, Ví dụ...)
+            const bodyEl = document.getElementById(`inline-body-${currentCard.id}`);
+            if (bodyEl) {
+                // Tái sử dụng hàm vẽ ruột thẻ đã có sẵn của bạn
+                renderInlineCardBody(bodyEl, currentCard, currentIndex);
+            }
         }
         
     } catch (err) {
@@ -13004,11 +13016,19 @@ async function deleteQuickCard() {
             window.rawDeckCache = window.rawDeckCache.filter(card => card.id !== c.id);
         }
 
-        // Nếu Modal Danh sách thẻ đang mở (inline list) -> Load lại
+        // Nếu Modal Danh sách thẻ đang mở (inline list) -> XÓA TRỰC TIẾP TRÊN DOM
         if (document.getElementById('studyOptionsModal').style.display === 'flex') {
-            isInlineListLoaded = false;
-            document.getElementById('inlineDeckListContainer').style.display = 'none';
-            toggleInlineDeckList();
+            // 1. Xóa bay thẻ HTML đó khỏi màn hình
+            const cardItemEl = document.getElementById(`inline-card-${c.id}`);
+            if (cardItemEl) {
+                cardItemEl.remove();
+            }
+            
+            // 2. Đánh lại số thứ tự cho đẹp (Ví dụ xóa thẻ số 3 thì thẻ 4,5 sẽ tự động lùi lên thành 3,4)
+            const allHeaders = document.querySelectorAll('#inlineCardsWrapper .inline-card-header span:nth-child(1)');
+            allHeaders.forEach((span, i) => {
+                span.innerText = `${i + 1}.`; // Cập nhật lại số đếm
+            });
         }
 
         // 4. XỬ LÝ CHUYỂN THẺ AN TOÀN TRÊN GIAO DIỆN
