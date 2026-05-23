@@ -13603,81 +13603,63 @@ async function generateAutoJLPTDeck() {
     showLoading(`Hệ thống đang quét và bốc từ vựng ${level} mới...`);
 
     try {
-        // 1. GỌI RPC TRÊN SUPABASE ĐỂ LỌC VÀ LẤY TỪ VỰNG SIÊU TỐC
-        const { data: selectedWords, error: rpcErr } = await sb.rpc('generate_auto_jlpt_deck', {
+        // 1. TẠO TÊN BỘ BÀI VÀ THIẾT LẬP ID ĐỘC BẢN CHỐNG TRÙNG LẶP
+        const deckName = `Bộ từ vựng ${level} (Tự động)`;
+        const uniqueName = await generateUniqueDeckName(deckName, 'flashcard');
+        const deckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
+
+        // 2. KHỞI TẠO VỎ BỘ BÀI TRÊN CLOUD (CHƯA CÓ THẺ BÊN TRONG)
+        const { error: deckErr } = await sb.from('decks').insert({
+            id: deckId,
+            owner_id: currentUser.id,
+            type: 'flashcard',
+            is_public: false
+        });
+        if (deckErr) throw deckErr;
+
+        // 3. 🚀 GỌI RPC: SQL TỰ LÀM HẾT (BĂNG THÔNG = 0 BYTES)
+        const { data: finalAmount, error: rpcErr } = await sb.rpc('generate_auto_jlpt_deck_direct', {
             p_user_id: currentUser.id,
+            p_deck_id: deckId,
             p_level: level,
             p_limit: amount
         });
 
         if (rpcErr) throw rpcErr;
 
-        // 2. KIỂM TRA NẾU KHÔNG CÒN TỪ NÀO MỚI TRONG TỪ ĐIỂN
-        if (!selectedWords || selectedWords.length === 0) {
+        // 4. CHỐT CHẶN CỨU HỘ: NẾU KHÔNG CÓ THẺ MỚI (Trùng lặp 100% với kho bài cũ)
+        if (!finalAmount || finalAmount === 0) {
+            // Tự dọn rác vỏ bộ bài rỗng
+            await sb.from('decks').delete().eq('id', deckId); 
+            localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
+            
             hideLoading();
-            return customAlert(`Tuyệt vời! Bạn đã nạp TOÀN BỘ từ vựng cấp độ ${level} có trong hệ thống vào các bộ bài của mình. Không còn từ mới nào để tạo thêm.`, "🎉 Hoàn tất cấp độ", "success");
+            return customAlert(
+                `Bạn đã nạp TOÀN BỘ từ vựng cấp độ ${level} có trong hệ thống vào các bộ bài của mình.<br><br>Không còn từ mới nào để tạo thêm!`, 
+                "🎉 Hoàn tất cấp độ", 
+                "success"
+            );
         }
 
-        const finalAmount = selectedWords.length;
+        // 🟢 ĐÃ XÓA BƯỚC ĐỒNG BỘ KANJI THỪA THÃI Ở ĐÂY!
+        // Dữ liệu sẽ tự động đồng bộ khi người dùng bắt đầu học thẻ.
 
-        // 3. TẠO BỘ BÀI MỚI (DECK) TRÊN DATABASE
-        const deckName = `Bộ từ vựng ${level} (Tự động)`;
-        const uniqueName = await generateUniqueDeckName(deckName, 'flashcard');
-        const deckId = `${currentUser.id}:Auto_${level}_${Date.now()}`;
-
-        const { error: err2 } = await sb.from('decks').insert({
-            id: deckId,
-            owner_id: currentUser.id,
-            type: 'flashcard',
-            is_public: false
-        });
-        if (err2) throw err2;
-
-        // 4. CHUYỂN ĐỔI ĐỊNH DẠNG TỪ ĐIỂN SANG ĐỊNH DẠNG FLASHCARD
-        const cardsToInsert = selectedWords.map(wordObj => {
-            const backPacked = `${wordObj.reading || ''}\n${wordObj.meaning || ''}`.trim();
-            let infoArr = [];
-            
-            if (wordObj.kanji_meaning) {
-                infoArr.push(`[HV] ${wordObj.kanji_meaning}`);
-            }
-            
-            if (wordObj.example) {
-                // Bóc tách câu ví dụ nếu có dạng: Tiếng Nhật (Tiếng Việt)
-                const match = wordObj.example.match(/(.*?)[(（](.*?)[)）]/);
-                if (match) {
-                    infoArr.push(`[EX1] ${match[1].trim()}`);
-                    infoArr.push(`[VN1] ${match[2].trim()}`);
-                } else {
-                    infoArr.push(`[EX1] ${wordObj.example}`);
-                }
-            }
-            
-            return {
-                deck_id: deckId,
-                front: wordObj.word,
-                back: backPacked,
-                info: infoArr.join('\n')
-            };
-        });
-
-        // 5. ĐẨY CÁC THẺ (CARDS) LÊN DATABASE
-        const { error: err3 } = await sb.from('cards').insert(cardsToInsert);
-        if (err3) throw err3;
-
-        // 6. ĐỒNG BỘ NGẦM ĐỂ TÔ MÀU KANJI VÀ CẬP NHẬT GIAO DIỆN
-        const allFronts = cardsToInsert.map(c => c.front).join('');
-        triggerSilentBackgroundSync(allFronts);
+        // Xóa cache danh sách bộ bài cũ để nạp mảng mới
+        localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
         hideLoading();
-        
-        // 7. HIỂN THỊ THÔNG BÁO THÔNG MINH DỰA TRÊN SỐ LƯỢNG TẠO ĐƯỢC
+
+        // 5. HIỂN THỊ THÔNG BÁO THEO SỐ LƯỢNG THỰC TẾ ĐH ĐÃ CHÈN
         if (finalAmount < amount) {
-            customAlert(`Hệ thống chỉ tìm thấy <b>${finalAmount}</b> từ vựng ${level} mới chưa từng có trong kho của bạn. Đã tạo thành công!`, "ℹ️ Thông báo", "success");
+            customAlert(
+                `Hệ thống chỉ tìm thấy <b>${finalAmount}</b> từ vựng ${level} mới tinh chưa từng có trong kho của bạn. Đã đóng gói thành công!`, 
+                "ℹ️ Thông báo", 
+                "success"
+            );
         } else {
             showToast(`🎉 Đã bốc thành công ${finalAmount} từ vựng mới tinh!`);
         }
-        
-        // Render lại danh sách Bộ bài ngoài trang chủ
+
+        // Quay về trang chủ
         showHome();
 
     } catch (e) {
