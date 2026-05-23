@@ -9270,37 +9270,25 @@ function startStudyFromManage(selectedMode) {
 }
 
 
-// ================= HÀM NHÂN BẢN BỘ BÀI TỨC THÌ (TÍCH HỢP CHỐNG TRÙNG LẶP) =================
+// ================= HÀM NHÂN BẢN BỘ BÀI TỨC THÌ (ZERO-BANDWIDTH & ANTI-DUPE) =================
 async function openCopyDeck(event, deckId) {
     if (event) event.stopPropagation();
     if (!currentUser) return customAlert("Vui lòng đăng nhập để sao chép bộ bài!", "⚠️");
 
-    showLoading("Đang phân tích dữ liệu bộ bài...");
+    showLoading("Đang thiết lập bộ bài mới...");
 
     try {
-        // Chỉ select 'id' để xác minh sự tồn tại của bộ bài gốc (Tối ưu hóa băng thông)
+        // 1. Chỉ check xem bộ bài gốc còn tồn tại không (chỉ lấy ID cho nhẹ)
         const { data: deck, error: deckErr } = await sb.from('decks').select('id').eq('id', deckId).single();
         if (deckErr || !deck) throw new Error("Không tìm thấy bộ bài gốc.");
 
-        // Lấy danh sách toàn bộ thẻ từ bộ bài gốc
-        const { data: cards, error: cardsErr } = await sb.from('cards')
-            .select('front, back, info, tags')
-            .eq('deck_id', deckId);
-
-        if (cardsErr) throw cardsErr;
-        if (!cards || cards.length === 0) {
-            hideLoading();
-            return customAlert("Bộ bài gốc trống, không có thẻ để sao chép!", "⚠️");
-        }
-
-        document.getElementById('loadingText').innerText = "Đang khởi tạo bộ bài mới...";
         const originalName = getCleanName(deckId);
         
-        // Tạo tên không trùng lặp, mặc định loại bộ bài là 'flashcard'
+        // Tạo tên không trùng lặp
         const uniqueName = await generateUniqueDeckName(originalName + " (Copy)", 'flashcard');
         const newDeckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
 
-        // 1. Tạo bộ bài mới trên Server, mặc định loại type là 'flashcard'
+        // 2. Tạo bộ bài mới (vỏ rỗng) trên Server
         const { error: insertDeckErr } = await sb.from('decks').insert([{
             id: newDeckId, 
             owner_id: currentUser.id, 
@@ -9309,22 +9297,15 @@ async function openCopyDeck(event, deckId) {
         }]);
         if (insertDeckErr) throw insertDeckErr;
 
-        document.getElementById('loadingText').innerText = "Đang sao chép và lọc thẻ trùng lặp...";
+        document.getElementById('loadingText').innerText = "Đang sao chép và lọc thẻ trùng lặp trên Cloud...";
 
-        // 2. Đóng gói dữ liệu gửi cho RPC thực thi gộp hàng loạt
-        const cardsToProcess = cards.map(c => ({
-            deck_id: newDeckId, 
-            front: c.front, 
-            back: c.back, 
-            info: c.info, 
-            tags: c.tags || []
-        }));
-
-        // 3. GỌI DB XỬ LÝ (Sử dụng RPC để chạy 1 lệnh duy nhất ở backend)
-        const { data: dbResult, error: rpcErr } = await sb.rpc('bulk_insert_cards_safe', {
+        // 3. GỌI DB XỬ LÝ: Không truyền mảng data, chỉ truyền ID để Database tự copy và lọc trùng
+        const { data: dbResult, error: rpcErr } = await sb.rpc('clone_deck_with_dedupe', {
             p_user_id: currentUser.id, 
-            p_cards: cardsToProcess
+            p_source_deck_id: deckId,
+            p_new_deck_id: newDeckId
         });
+        
         if (rpcErr) throw rpcErr;
 
         // 4. Nếu toàn bộ thẻ đều bị trùng lặp -> Thu hồi (Xóa) bộ bài rỗng vừa tạo để dọn rác
@@ -9336,11 +9317,11 @@ async function openCopyDeck(event, deckId) {
             return customAlert(`Không thể nhân bản. Toàn bộ <b>${dbResult.duplicate_words.length}</b> từ vựng đều đã tồn tại trong kho của bạn:<br><span style="color:#d97706; font-size:13px; font-weight:600; display:inline-block; margin-top:5px;">${dupesPreview} ${moreStr}</span>`, "⚠️ Trùng lặp hoàn toàn", "warning");
         }
 
-        // Làm sạch bộ nhớ cache danh sách bộ bài cục bộ
+        // 5. Làm sạch bộ nhớ cache danh sách bộ bài cục bộ
         localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
         hideLoading();
 
-        // Hiển thị kết quả bóc tách trùng lặp thành công
+        // 6. Hiển thị kết quả bóc tách trùng lặp y như logic cũ của bạn
         if (dbResult.duplicate_words.length > 0) {
             const skippedWords = dbResult.duplicate_words.slice(0, 3).join(', ');
             const moreStr = dbResult.duplicate_words.length > 3 ? `... và ${dbResult.duplicate_words.length - 3} từ khác` : '';
