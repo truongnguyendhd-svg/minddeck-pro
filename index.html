@@ -18375,9 +18375,6 @@ function refreshDiscovery() {
                 const isKanji = Math.random() > 0.5;
                 let html = '';
                 
-                // ===================================================
-                // PHÂN HỆ KANJI: SỬ DỤNG HẠT GIỐNG RAM + MAZII DETAIL
-                // ===================================================
                 if (isKanji && allKanjiData && allKanjiData.length > 0) {
                     const randomSeed = allKanjiData[Math.floor(Math.random() * allKanjiData.length)];
                     const data = await fetchMaziiKanjiDetail(randomSeed.kanji);
@@ -18385,7 +18382,12 @@ function refreshDiscovery() {
                     if (data) {
                         const rawReadings = `Onyomi: ${data.onyomi || '---'}\\nKunyomi: ${data.kunyomi || '---'}`;
                         
-                        // Khung hiển thị từ ghép minh họa (Chỉ hiện nếu Mazii có dữ liệu từ ghép)
+                        // 🧠 THUẬT TOÁN CHỐNG LẶP TỪ LỚP 2:
+                        // Chỉ hiển thị dòng nghĩa nếu nó khác hoàn toàn với chữ Hán Việt để tránh lặp từ vô nghĩa
+                        const showMeaningHTML = (data.meaning && data.meaning.toUpperCase() !== data.hv)
+                            ? `<div style="font-size: 15px; color: #4a5568; font-weight: 500; margin-bottom: 15px; padding: 0 10px; text-align: center;">${data.meaning}</div>`
+                            : '<div style="margin-bottom: 10px;"></div>'; // Khoảng giãn nhỏ thay thế nếu ẩn nghĩa
+
                         const compoundHTML = data.compoundWord 
                             ? `<div style="background: #f8fafc; border: 1px dashed #cbd5e0; padding: 10px; border-radius: 10px; font-size: 13px; color: #4a5568; margin-bottom: 20px; width: 100%; box-sizing: border-box; text-align: center;">
                                  <span style="font-weight: 800; color: #0067c0; font-size: 11px; display: block; margin-bottom: 4px; letter-spacing: 0.5px;">TỪ GHÉP MINH HỌA</span>
@@ -18397,9 +18399,9 @@ function refreshDiscovery() {
                             <div class="discovery-badge" style="background: #fffaf0; color: #dd6b20; border: 1px solid #fbd38d;">Kanji trong ngày [${randomSeed.level}]</div>
                             <div style="font-size: 60px; font-weight: 900; color: #1d1d1f; line-height: 1.2; cursor: help;" title="${rawReadings}">${data.kanji}</div>
                             <div style="font-size: 16px; font-weight: 700; color: #c50f1f; letter-spacing: 1px; margin: 5px 0;">[ ${data.hv} ]</div>
-                            <div style="font-size: 15px; color: #4a5568; font-weight: 500; margin-bottom: 15px; padding: 0 10px; text-align: center;">${data.meaning}</div>
                             
-                            ${compoundHTML} <!-- Chèn khung từ ghép minh họa vào đây -->
+                            ${showMeaningHTML} <!-- Chỉ hiện nghĩa nếu không trùng với Hán Việt -->
+                            ${compoundHTML}
                             
                             <button onclick="showKanjiXRay(event, '${data.kanji}')" style="background: #1d1d1f; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); margin: 0 auto;">
                                 <span class="material-symbols-outlined" style="font-size: 16px;">troubleshoot</span> Xem cách nhớ
@@ -18407,9 +18409,6 @@ function refreshDiscovery() {
                         `;
                     }
                 } 
-                // ===================================================
-                // PHÂN HỆ NGỮ PHÁP: SỬ DỤNG HOÀN TOÀN BỘ ĐỆM RAM
-                // ===================================================
                 else {
                     if (globalGrammarData.length === 0) {
                         const cachedDict = localStorage.getItem('minddeck_grammar_dict');
@@ -18449,6 +18448,7 @@ function refreshDiscovery() {
         }, 400);
     });
 }
+
 
 // MÀN HÌNH TỔNG KẾT PHASE 2
 function endAssessmentSession() {
@@ -21724,7 +21724,7 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             let hv = (k.hanviet || '').trim().toUpperCase();
             let meaning = (k.mean || '').trim();
             
-            // 🧠 THUẬT TOÁN TỰ SỬA LỖI (SELF-HEALING PARSER):
+            // 🧠 THUẬT TOÁN TỰ SỬA LỖI 1 (Bóc tách ngoặc đơn):
             const bracketMatch = meaning.match(/^(.*?)\s*[\(（](.*?)[\)）]/);
             
             if (bracketMatch) {
@@ -21733,14 +21733,24 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 }
                 meaning = bracketMatch[2].trim();
             } else {
-                // SỬA LỖI RỖNG NGHĨA: Giữ nguyên nghĩa cũ, tách từ đầu làm Hán Việt
                 if (!hv && meaning) {
                     const firstWord = meaning.split(/[\s,，、]/)[0].toUpperCase();
                     hv = firstWord;
                 }
             }
 
-            // 🟢 [NÂNG CẤP THEO Ý KIẾN USER]: Bóc từ ghép minh họa từ Mazii để làm rõ nghĩa Kanji
+            // 🧠 THUẬT TOÁN CHỐNG LẶP TỪ LỚP 1 (Lược bỏ tiền tố trùng Hán Việt):
+            // Nếu meaning bắt đầu bằng chính từ Hán Việt (Ví dụ: "đoạt, cướp lấy" -> chỉ giữ lại "cướp lấy")
+            if (hv && meaning) {
+                const hvLower = hv.toLowerCase();
+                // Khởi tạo regex tìm từ Hán Việt đứng đầu kèm dấu phân tách
+                const regexPrefix = new RegExp(`^${hvLower}\\s*[,，、;；\\-\\s]+`, 'i');
+                if (regexPrefix.test(meaning)) {
+                    meaning = meaning.replace(regexPrefix, '').trim();
+                }
+            }
+
+            // Bóc từ ghép minh họa từ Mazii
             let compoundWord = "";
             const examples = k.compounds || k.examples || k.example || [];
             if (examples.length > 0) {
@@ -21757,7 +21767,7 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 kanji: k.kanji || kanjiChar,
                 hv: hv || 'CHƯA CÓ',
                 meaning: meaning || 'Chưa rõ nghĩa',
-                compoundWord: compoundWord, // Trả từ ghép về để hiển thị trên UI
+                compoundWord: compoundWord,
                 onyomi: k.on || '',
                 kunyomi: k.kun || ''
             };
@@ -21768,6 +21778,7 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
         return null;
     }
 }
+
 
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
