@@ -8238,7 +8238,6 @@ let deckToStudyId = null;
 let pendingModalReturn = null; // Cờ nhớ thông tin Modal để quay lại
 let isInlineListLoaded = false; // Cờ kiểm tra danh sách đã load chưa
 let isVirtualSession = false;
-let tempVirtualCards = []; // Cache RAM để nạp thẻ vào phiên học ảo
 let deckLoadedAt = null; // Lưu mốc thời gian tải bộ bài để chống ghi đè đa tab
 let srsSyncTimer = null;
 let srsPendingQueue = [];
@@ -18668,7 +18667,6 @@ function exitStudySession() {
     if (typeof prefetchPromises !== 'undefined') prefetchPromises.clear();
     // 2. Dọn dẹp cờ trạng thái của phiên học ảo (AI Thematic)
     isVirtualSession = false; 
-    tempVirtualCards = [];
     sessionStorage.removeItem('minddeck_virtual_cards');
     
     // 🟢 VÁ LỖI: TUYỆT ĐỐI KHÔNG XÓA `window.rawDeckCache`.
@@ -20373,82 +20371,7 @@ async function updateCardInfo(card, newInfoString) {
 }
 /* Hết================= HỆ THỐNG AI CHO INFO MODAL (MNEMONIC & EXAMPLES) ================= */
 
-// ================= HÀM LƯU NHỮNG THẺ VỪA QUÉT ĐƯỢC VÀO BỘ YÊU THÍCH =================
-window.saveKanjiCardsToFavorites = async function(btnElement) {
-    if (!currentUser || !tempVirtualCards || tempVirtualCards.length === 0) return;
 
-    // Lưu lại HTML gốc để đề phòng lỗi
-    const originalHTML = btnElement.innerHTML;
-    
-    // Đổi UI sang trạng thái Đang tải
-    btnElement.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#fff;margin-right:8px;"></div> Đang lưu...';
-    btnElement.disabled = true;
-
-    const favDeckId = `${currentUser.id}:Favorites`;
-
-    try {
-        // 1. Kiểm tra và tạo Bộ Yêu Thích nếu chưa có
-        const { data: deckCheck } = await sb.from('decks').select('id').eq('id', favDeckId).single();
-        if (!deckCheck) {
-            await sb.from('decks').insert([{
-                id: favDeckId,
-                owner_id: currentUser.id,
-                type: 'flashcard',
-                is_public: false,
-                sort_order: -9999
-            }]);
-        }
-
-        // 2. Kéo FLAT ARRAY danh sách thẻ hiện có trong Bộ Yêu Thích để CHỐNG TRÙNG LẶP
-        const { data: existingFavs } = await sb.rpc('get_fronts_by_deck', {
-            p_user_id: currentUser.id,
-            p_deck_id: favDeckId
-        });
-        const existingFronts = new Set(existingFavs || []);
-
-        // 3. Đóng gói payload chỉ với những thẻ CHƯA TỒN TẠI trong Bộ Yêu Thích
-        const cardsToInsert = [];
-        tempVirtualCards.forEach(c => {
-            if (!existingFronts.has(c.front)) {
-                cardsToInsert.push({
-                    deck_id: favDeckId,
-                    front: c.front,
-                    back: c.back,
-                    info: c.info
-                });
-            }
-        });
-
-        // 4. Bơm lên Supabase
-        if (cardsToInsert.length > 0) {
-            const { error } = await sb.from('cards').insert(cardsToInsert);
-            if (error) throw error;
-        }
-
-        // 5. Cập nhật UI Nút bấm thành công (Thành màu vàng cam, chữ trắng)
-        btnElement.style.background = '#f59e0b';
-        btnElement.style.color = '#ffffff';
-        btnElement.style.borderColor = 'transparent';
-        btnElement.style.boxShadow = '0 4px 10px rgba(245, 158, 11, 0.2)';
-        btnElement.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">star</span> Hãy vào bộ thẻ yêu thích để luyện tập';
-        
-        // Hủy bỏ sự kiện hover và click để nút đứng im đẹp mắt
-        btnElement.onmouseover = null;
-        btnElement.onmouseout = null;
-        btnElement.onclick = null; 
-        btnElement.style.cursor = 'default';
-
-        showToast("⭐ Đã đưa các thẻ này vào bộ Yêu Thích!");
-
-    } catch (err) {
-        console.error("Lỗi khi đưa thẻ vào Yêu Thích:", err);
-        // Trả lại trạng thái cũ nếu lỗi
-        btnElement.innerHTML = originalHTML;
-        btnElement.disabled = false;
-        customAlert("Không thể lưu vào Yêu thích: " + err.message, "❌");
-    }
-};
-// hết================= HÀM LƯU NHỮNG THẺ KANJI VỪA QUÉT ĐƯỢC VÀO BỘ YÊU THÍCH =================
 // ================= HÀM DỌN SẠCH BỘ THẺ YÊU THÍCH =================
 window.clearFavoriteDeck = async function(event, deckId) {
     event.preventDefault();
