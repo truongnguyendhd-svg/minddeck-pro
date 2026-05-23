@@ -12111,39 +12111,28 @@ async function confirmRenameDeck() {
     const cleanOldName = getCleanName(oldId);
 
     if (!newName) return customAlert("Tên bộ bài không được để trống!", "⚠️");
-    if (newName === cleanOldName) return closeModal('renameDeckModal'); // Không đổi gì cả
+    if (newName === cleanOldName) return closeModal('renameDeckModal');
 
     showLoading("Đang đổi tên bộ bài...");
     try {
-        // 1. Lấy toàn bộ thông tin của bộ bài cũ (để giữ nguyên type, public, folder)
-        const { data: oldDeck, error: err1 } = await sb.from('decks').select('*').eq('id', oldId).single();
+        const { data: oldDeck, error: err1 } = await sb.from('decks').select('type, is_public').eq('id', oldId).single();
         if (err1 || !oldDeck) throw new Error("Không tìm thấy bộ bài gốc.");
 
-        // 2. Tạo ID mới với tên mới (Chống trùng lặp)
         const uniqueName = await generateUniqueDeckName(newName, oldDeck.type);
         const newDeckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
 
-        // 3. Tạo bộ bài mới y hệt bộ bài cũ
-        const { error: err2 } = await sb.from('decks').insert({
-            id: newDeckId,
-            owner_id: currentUser.id,
-            type: oldDeck.type,
-            is_public: oldDeck.is_public,
-            folder_id: oldDeck.folder_id,
-            sort_order: oldDeck.sort_order
+        // 🟢 GỌI 1 RPC DUY NHẤT - AN TOÀN TUYỆT ĐỐI KHÔNG SỢ RỚT MẠNG
+        const { error: rpcErr } = await sb.rpc('rename_deck_transaction', {
+            p_old_id: oldId,
+            p_new_id: newDeckId,
+            p_owner_id: currentUser.id,
+            p_type: oldDeck.type,
+            p_is_public: oldDeck.is_public
         });
-        if (err2) throw err2;
+        
+        if (rpcErr) throw rpcErr;
 
-        // 4. Chuyển TẤT CẢ thẻ từ bộ bài cũ sang bộ bài mới
-        const { error: err3 } = await sb.from('cards').update({ deck_id: newDeckId }).eq('deck_id', oldId);
-        if (err3) throw err3;
-
-        // 🟢 ĐÃ VÁ: Đã dọn sạch dấu ngoặc nhọn "}" dư thừa tại đây!
-
-        // 6. Xóa bộ bài cũ đi
-        await sb.from('decks').delete().eq('id', oldId);
-
-        // Cập nhật trực tiếp ID mới vào LocalStorage
+        // Cập nhật RAM & LocalStorage
         const cacheKey = `minddeck_decks_cache_${currentUser.id}`;
         let cachedDecks = JSON.parse(localStorage.getItem(cacheKey) || "[]");
         let oldDeckIndex = cachedDecks.findIndex(d => d.id === oldId);
@@ -12154,7 +12143,7 @@ async function confirmRenameDeck() {
 
         closeModal('renameDeckModal');
         showToast("✨ Đã đổi tên thành công!");
-        renderManageDeckList(true); // Truyền true để CHẶN gọi mạng
+        renderManageDeckList(true); 
 
     } catch (err) {
         console.error("Lỗi đổi tên:", err);
