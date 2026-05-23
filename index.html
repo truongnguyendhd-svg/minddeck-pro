@@ -21319,10 +21319,15 @@ function loadLocalUserDataCache() {
     if (!currentUser) return;
     const userId = currentUser.id;
 
-    // Ép kiểu 'object' cho các Mastery Map và Goal/Stats
+    // 1. Nạp tiến trình SRS hiện tại
     userKanjiMasteryMap = safeGetLocalCache(`minddeck_kanji_cache_${userId}`, {}, 'object');
     userGrammarMasteryMap = safeGetLocalCache(`minddeck_grammar_cache_${userId}`, {}, 'object');
     
+    // 2. Nạp TIẾN TRÌNH KỶ LỤC CÁ NHÂN (🟢 ĐÃ SỬA LỖI TRÙNG KEY)
+    currentUser.kanji_peaks = safeGetLocalCache(`minddeck_kanji_peaks_cache_${userId}`, {}, 'object'); 
+    currentUser.grammar_peaks = safeGetLocalCache(`minddeck_grammar_peaks_cache_${userId}`, {}, 'object');
+    
+    // 3. Nạp mục tiêu và thống kê chốt sổ ngày
     currentUser.study_goal = safeGetLocalCache(`minddeck_study_goal_${userId}`, null, 'object');
     currentUser.daily_stats = safeGetLocalCache(`minddeck_daily_stats_${userId}`, null, 'object');
 }
@@ -21330,99 +21335,105 @@ function loadLocalUserDataCache() {
 // 2. Hàm chạy đồng bộ ngầm với Supabase để cập nhật bản mới nhất (Cloud là chân lý tuyệt đối)
 async function syncUserDataWithCloud() {
     if (!currentUser) return;
-    
-    // 🟢 CHỐT CHẶN 1: Chụp lại ID cục bộ để chống lỗi Null Reference sau các lệnh await
     const userId = currentUser.id; 
     
     try {
-        // 1. CHỈ TẢI METADATA SIÊU NHẸ (Chỉ tốn vài chục bytes thay vì hàng trăm KB)
-        const { data: metaData, error: metaErr } = await sb.from('profiles')
-            .select('mastery_updated_at, study_goal, daily_stats')
-            .eq('id', userId)
-            .single();
+        const lastSyncTime = localStorage.getItem(`minddeck_delta_sync_time_${userId}`);
 
-        if (metaErr) throw metaErr;
-
-        // Chốt chặn nếu người dùng đăng xuất trong lúc chờ phản hồi từ Cloud
-        if (!currentUser || currentUser.id !== userId) return;
-
-        let profData = { ...metaData };
-        const localUpdateTime = localStorage.getItem(`minddeck_mastery_updated_${userId}`);
-
-        // 2. SO SÁNH THỜI GIAN: Chỉ kéo mảng JSONB nặng nề nếu Cloud có mốc thời gian mới hơn
-        if (!metaData.mastery_updated_at || metaData.mastery_updated_at !== localUpdateTime) {
-            console.log("MindDeck: Phát hiện tiến trình mới trên Cloud, tiến hành nạp JSONB...");
-            
-            const { data: heavyData, error: heavyErr } = await sb.from('profiles')
-                .select('kanji_mastery, grammar_mastery')
+        // =========================================================================
+        // TRƯỜNG HỢP 1: TẢI HOÀN TOÀN (FULL SYNC) - CHỈ CHẠY LẦN ĐẦU ĐĂNG NHẬP MÁY MỚI
+        // =========================================================================
+        if (!lastSyncTime) {
+            console.log("MindDeck: 🆕 Thiết lập thiết bị mới. Đang tải trọn gói dữ liệu ban đầu...");
+            const { data: profile, error } = await sb.from('profiles')
+                .select('kanji_mastery, grammar_mastery, kanji_peaks, grammar_peaks, study_goal, daily_stats')
                 .eq('id', userId)
                 .single();
-                
-            if (heavyErr) throw heavyErr;
-            if (!currentUser || currentUser.id !== userId) return;
 
-            profData.kanji_mastery = heavyData.kanji_mastery;
-            profData.grammar_mastery = heavyData.grammar_mastery;
+            if (error) throw error;
 
-            // Cập nhật lại mốc thời gian cục bộ dưới trình duyệt
-            if (metaData.mastery_updated_at) {
-                localStorage.setItem(`minddeck_mastery_updated_${userId}`, metaData.mastery_updated_at);
-            }
+            userKanjiMasteryMap = profile.kanji_mastery || {};
+            userGrammarMasteryMap = profile.grammar_mastery || {};
+            currentUser.kanji_peaks = profile.kanji_peaks || {};
+            currentUser.grammar_peaks = profile.grammar_peaks || {};
+            currentUser.study_goal = profile.study_goal;
+            currentUser.daily_stats = profile.daily_stats;
+
+            // Lưu dấu thời gian hiện tại làm mốc đồng bộ tiếp theo
+            localStorage.setItem(`minddeck_delta_sync_time_${userId}`, new Date().toISOString());
+            saveAllToLocalStorage(userId);
+            renderActivePage();
+            return;
+        }
+
+        // =========================================================================
+        // TRƯỜNG HỢP 2: ĐỒNG BỘ GIA TĂNG VI SẠI (DELTA SYNC) - SIÊU BĂNG THÔNG 0.05 KB
+        // Chỉ kéo đúng các dòng thay đổi kể từ lần cuối cùng tải trang
+        // =========================================================================
+        console.log(`MindDeck: 📡 Đang dò tìm biến động kể từ mốc: ${lastSyncTime}`);
+        
+        // 1. Quét bảng nhật ký biến động
+        const { data: deltas, error: deltaErr } = await sb.from('user_mastery_changes')
+            .select('type, key, current_val, peak_val, updated_at')
+            .eq('user_id', userId)
+            .gt('updated_at', lastSyncTime)
+            .order('updated_at', { ascending: true });
+
+        if (deltaErr) throw deltaErr;
+
+        // 2. Nếu có biến động -> Tiến hành "đắp" (merge) gia tăng vào RAM
+        if (deltas && deltas.length > 0) {
+            console.log(`MindDeck: ☄️ Phát hiện ${deltas.length} chữ có thay đổi. Tiến hành cập nhật vi sai...`);
+            
+            deltas.forEach(d => {
+                if (d.type === 'kanji') {
+                    // Cập nhật hoặc xóa (nếu điểm = 0)
+                    if (d.current_val === 0) delete userKanjiMasteryMap[d.key];
+                    else userKanjiMasteryMap[d.key] = d.current_val;
+                    
+                    currentUser.kanji_peaks[d.key] = d.peak_val;
+                } else if (d.type === 'grammar') {
+                    if (d.current_val === 0) delete userGrammarMasteryMap[d.key];
+                    else userGrammarMasteryMap[d.key] = d.current_val;
+
+                    currentUser.grammar_peaks[d.key] = d.peak_val;
+                }
+            });
+
+            // Ghi nhận mốc thời gian của dòng biến động cuối cùng vừa tải về
+            const newestTime = deltas[deltas.length - 1].updated_at;
+            localStorage.setItem(`minddeck_delta_sync_time_${userId}`, newestTime);
+            
+            // Lưu đè cache ổ cứng
+            saveAllToLocalStorage(userId);
+            renderActivePage();
+            showToast(`🔄 Đã đồng bộ vi sai ${deltas.length} mục mới!`);
         } else {
-            console.log("MindDeck: Dữ liệu JSONB Mastery trùng khớp (Sử dụng Cache, tối ưu 100% băng thông tải).");
-            // Khôi phục mảng từ ổ cứng nạp thẳng vào RAM
-            const cachedKanji = localStorage.getItem(`minddeck_kanji_cache_${userId}`);
-            const cachedGrammar = localStorage.getItem(`minddeck_grammar_cache_${userId}`);
-            profData.kanji_mastery = cachedKanji ? JSON.parse(cachedKanji) : {};
-            profData.grammar_mastery = cachedGrammar ? JSON.parse(cachedGrammar) : {};
+            console.log("MindDeck: 🛡️ Không có biến động mới. Data đạt trạng thái tối ưu tuyệt đối.");
         }
 
-        // 3. ĐỒNG BỘ DỮ LIỆU VÀO RAM VÀ LOCAL STORAGE (Bảo toàn logic vận hành cũ của bạn)
-        if (profData) {
-            userKanjiMasteryMap = profData.kanji_mastery || {};
-            userGrammarMasteryMap = profData.grammar_mastery || {};
-            
-            if (currentUser) {
-                currentUser.study_goal = profData.study_goal;
-                currentUser.daily_stats = profData.daily_stats;
-            }
-
-            // Chốt chặn bảo hiểm tài khoản mới tinh
-            if (Object.keys(userKanjiMasteryMap).length === 0) {
-                console.log("MindDeck: Dữ liệu Cloud trống, quét thô...");
-                await syncKanjiMastery(true);
-                await calculateGrammarMastery(true);
-                if (!currentUser || currentUser.id !== userId) return;
-            }
-
-            // Ghi đè cache cứng lên LocalStorage
-            localStorage.setItem(`minddeck_kanji_cache_${userId}`, JSON.stringify(userKanjiMasteryMap));
-            localStorage.setItem(`minddeck_grammar_cache_${userId}`, JSON.stringify(userGrammarMasteryMap));
-            
-            if (profData.study_goal) {
-                localStorage.setItem(`minddeck_study_goal_${userId}`, JSON.stringify(profData.study_goal));
-            } else {
-                localStorage.removeItem(`minddeck_study_goal_${userId}`);
-            }
-
-            if (profData.daily_stats) {
-                localStorage.setItem(`minddeck_daily_stats_${userId}`, JSON.stringify(profData.daily_stats));
-            } else {
-                localStorage.removeItem(`minddeck_daily_stats_${userId}`);
-            }
-            
-            // Vẽ lại biểu đồ tiến trình trên Dashboard
-            if (!document.getElementById('dashboardPage').classList.contains('hidden')) {
-                renderJLPTProgress();
-                renderRoadmapWidget();
-            }
-        }
     } catch (e) {
-        // Chỉ ghi nhận lỗi ra console nếu người dùng thực sự vẫn đang đăng nhập
-        if (currentUser && currentUser.id === userId) {
-            console.error("Lỗi đồng bộ ngầm khởi tạo:", e);
-            throw e; 
-        }
+        console.error("Lỗi đồng bộ vi sai:", e);
+    }
+}
+
+// Hàm phụ trợ lưu dữ liệu
+function saveAllToLocalStorage(userId) {
+    localStorage.setItem(`minddeck_kanji_cache_${userId}`, JSON.stringify(userKanjiMasteryMap));
+    localStorage.setItem(`minddeck_grammar_cache_${userId}`, JSON.stringify(userGrammarMasteryMap));
+    localStorage.setItem(`minddeck_kanji_peaks_cache_${userId}`, JSON.stringify(currentUser.kanji_peaks));
+    localStorage.setItem(`minddeck_grammar_peaks_cache_${userId}`, JSON.stringify(currentUser.grammar_peaks));
+}
+
+// Hàm phụ trợ render lại trang đang mở
+function renderActivePage() {
+    if (!document.getElementById('dashboardPage').classList.contains('hidden')) {
+        renderJLPTProgress();
+        renderRoadmapWidget();
+    } else if (!document.getElementById('kanjiPage').classList.contains('hidden')) {
+        renderKanjiCollectionGrid(currentKanjiFilter);
+    } else if (!document.getElementById('grammarPage').classList.contains('hidden')) {
+        renderGrammarGrid(globalGrammarData);
     }
 }
 // --- HỆ THỐNG OFFLINE QUEUE ---
