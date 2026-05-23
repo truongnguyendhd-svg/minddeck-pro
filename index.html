@@ -13026,12 +13026,9 @@ async function saveQuickEdit() {
         hideLoading();
     }
 }
-
 async function deleteQuickCard() {
-    // 1. CHỈ CHẶN KHI ĐANG CHƠI GAME HOẶC ĐANG SÁT HẠCH (VÌ GAME ĐANG CHẠY)
-    // Đã gỡ bỏ 'remedial' khỏi danh sách cấm, cho phép xóa thoải mái khi đang xem lại!
     if (mode === 'boost' || mode === 'assessment') {
-        return customAlert("Không thể xóa thẻ khi game đang chạy. Hãy đợi chơi xong màn này hoặc ra ngoài để xóa nhé!", "⚠️");
+        return customAlert("Không thể xóa thẻ khi game đang chạy. Hãy thoát ra ngoài để xóa nhé!", "⚠️");
     }
 
     const c = sessionCards[currentIndex];
@@ -13040,49 +13037,47 @@ async function deleteQuickCard() {
 
     showLoading("Đang xóa thẻ...");
     try {
-        // 2. Xóa vĩnh viễn trên Supabase
+        // 1. Gửi lệnh xóa thẻ vĩnh viễn trên Supabase
         const { error } = await sb.from('cards').delete().eq('id', c.id);
         if (error) throw error;
 
         closeModal('quickEditModal');
         showToast("Đã xóa thẻ khỏi bộ bài! 🗑️");
-        triggerSilentBackgroundSync(null, true);
 
-        // 3. Xóa khỏi mảng đang học tạm thời
+        // ❌ ĐÃ XÓA DÒNG NÀY: triggerSilentBackgroundSync(null, true); 
+        // (Chặn đứng việc xóa cache và gọi tải lại JSONB khổng lồ)
+
+        // 2. CẬP NHẬT TRỰC TIẾP TRÊN RAM (OPTIMISTIC UPDATE)
+        // Xóa khỏi mảng đang học tạm thời
         sessionCards.splice(currentIndex, 1);
 
-        // 🟢 FIX LỖI BÓNG MA: Xóa luôn khỏi RAM Cache nếu có để chống F5
-        if (window.rawDeckCache && window.rawDeckCache.length > 0) {
-            window.rawDeckCache = window.rawDeckCache.filter(card => card.id !== c.id);
+        // Xóa luôn khỏi RAM Cache bộ bài để chống lỗi khi F5
+        if (window.rawDeckCache && window.rawDeckCache[currentDeckName]) {
+            window.rawDeckCache[currentDeckName] = window.rawDeckCache[currentDeckName].filter(card => card.id !== c.id);
         }
 
-        // Nếu Modal Danh sách thẻ đang mở (inline list) -> XÓA TRỰC TIẾP TRÊN DOM
+        // 3. Nếu Modal Danh sách thẻ đang mở (inline list) -> XÓA TRỰC TIẾP TRÊN DOM
         if (document.getElementById('studyOptionsModal').style.display === 'flex') {
-            // 1. Xóa bay thẻ HTML đó khỏi màn hình
             const cardItemEl = document.getElementById(`inline-card-${c.id}`);
-            if (cardItemEl) {
-                cardItemEl.remove();
-            }
+            if (cardItemEl) cardItemEl.remove();
             
-            // 2. Đánh lại số thứ tự cho đẹp (Ví dụ xóa thẻ số 3 thì thẻ 4,5 sẽ tự động lùi lên thành 3,4)
+            // Đánh lại số thứ tự trên UI
             const allHeaders = document.querySelectorAll('#inlineCardsWrapper .inline-card-header span:nth-child(1)');
             allHeaders.forEach((span, i) => {
-                span.innerText = `${i + 1}.`; // Cập nhật lại số đếm
+                span.innerText = `${i + 1}.`;
             });
         }
 
         // 4. XỬ LÝ CHUYỂN THẺ AN TOÀN TRÊN GIAO DIỆN
         if (!document.getElementById('reviewPage').classList.contains('hidden')) {
             if (sessionCards.length === 0) {
-                // Nếu xóa trúng cái thẻ cuối cùng trong mảng Remedial/Học cơ bản
                 customAlert("Bạn đã xóa thẻ cuối cùng của danh sách.", "ℹ️");
-                exitStudySession(); // Tự động thoát sạch sẽ về trang chủ
+                exitStudySession(); // Thoát về trang chủ
             } else {
-                // Nếu thẻ bị xóa nằm ở cuối danh sách, lùi index lại 1 bước để không bị lỗi màn hình trắng
                 if (currentIndex >= sessionCards.length) {
                     currentIndex = sessionCards.length - 1;
                 }
-                showCard(); // Render lại thẻ tiếp theo thế chỗ vào vị trí vừa xóa
+                showCard(); // Hiển thị thẻ tiếp theo
             }
         }
     } catch (err) {
