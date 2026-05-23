@@ -18358,7 +18358,7 @@ let isDiscoverySpinning = false;
 window.kanjiDetailCache = window.kanjiDetailCache || {};
 
 function refreshDiscovery() {
-    if (isDiscoverySpinning) return Promise.resolve(); // Chốt chặn chống spam click liên tục
+    if (isDiscoverySpinning) return Promise.resolve();
     isDiscoverySpinning = true;
 
     const card = document.getElementById('discoveryCard');
@@ -18367,7 +18367,6 @@ function refreshDiscovery() {
         return Promise.resolve();
     }
     
-    // Kích hoạt hiệu ứng lật thẻ
     card.classList.add('flip');
 
     return new Promise((resolve) => {
@@ -18380,20 +18379,28 @@ function refreshDiscovery() {
                 // PHÂN HỆ KANJI: SỬ DỤNG HẠT GIỐNG RAM + MAZII DETAIL
                 // ===================================================
                 if (isKanji && allKanjiData && allKanjiData.length > 0) {
-                    // Chọn ngẫu nhiên 1 Kanji làm hạt giống (giữ đúng bộ lọc JLPT)
                     const randomSeed = allKanjiData[Math.floor(Math.random() * allKanjiData.length)];
-                    
-                    // Gọi API Mazii để lấy chi tiết (0 request Supabase)
                     const data = await fetchMaziiKanjiDetail(randomSeed.kanji);
                     
                     if (data) {
                         const rawReadings = `Onyomi: ${data.onyomi || '---'}\\nKunyomi: ${data.kunyomi || '---'}`;
                         
+                        // Khung hiển thị từ ghép minh họa (Chỉ hiện nếu Mazii có dữ liệu từ ghép)
+                        const compoundHTML = data.compoundWord 
+                            ? `<div style="background: #f8fafc; border: 1px dashed #cbd5e0; padding: 10px; border-radius: 10px; font-size: 13px; color: #4a5568; margin-bottom: 20px; width: 100%; box-sizing: border-box; text-align: center;">
+                                 <span style="font-weight: 800; color: #0067c0; font-size: 11px; display: block; margin-bottom: 4px; letter-spacing: 0.5px;">TỪ GHÉP MINH HỌA</span>
+                                 <b style="color: #1d1d1f; font-family: 'Noto Sans JP', sans-serif; font-size: 14px;">${escapeHTML(data.compoundWord)}</b>
+                               </div>`
+                            : '';
+
                         html = `
                             <div class="discovery-badge" style="background: #fffaf0; color: #dd6b20; border: 1px solid #fbd38d;">Kanji trong ngày [${randomSeed.level}]</div>
                             <div style="font-size: 60px; font-weight: 900; color: #1d1d1f; line-height: 1.2; cursor: help;" title="${rawReadings}">${data.kanji}</div>
                             <div style="font-size: 16px; font-weight: 700; color: #c50f1f; letter-spacing: 1px; margin: 5px 0;">[ ${data.hv} ]</div>
-                            <div style="font-size: 15px; color: #4a5568; font-weight: 500; margin-bottom: 20px; padding: 0 10px; text-align: center;">${data.meaning}</div>
+                            <div style="font-size: 15px; color: #4a5568; font-weight: 500; margin-bottom: 15px; padding: 0 10px; text-align: center;">${data.meaning}</div>
+                            
+                            ${compoundHTML} <!-- Chèn khung từ ghép minh họa vào đây -->
+                            
                             <button onclick="showKanjiXRay(event, '${data.kanji}')" style="background: #1d1d1f; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); margin: 0 auto;">
                                 <span class="material-symbols-outlined" style="font-size: 16px;">troubleshoot</span> Xem cách nhớ
                             </button>
@@ -18430,19 +18437,18 @@ function refreshDiscovery() {
                 }
                 
                 card.innerHTML = html;
-                card.classList.remove('flip'); // Hoàn tất xoay lật
+                card.classList.remove('flip');
                 
             } catch (e) {
                 console.error("Lỗi xử lý bốc thăm ngẫu nhiên:", e);
                 card.classList.remove('flip');
             } finally {
-                isDiscoverySpinning = false; // Mở khóa nút bấm
+                isDiscoverySpinning = false;
                 resolve();
             }
-        }, 400); // 400ms phù hợp với CSS transition lật thẻ
+        }, 400);
     });
 }
-
 
 // MÀN HÌNH TỔNG KẾT PHASE 2
 function endAssessmentSession() {
@@ -21719,21 +21725,31 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             let meaning = (k.mean || '').trim();
             
             // 🧠 THUẬT TOÁN TỰ SỬA LỖI (SELF-HEALING PARSER):
-            // Bóc tách nếu Mazii trả về dạng: "chi (chi thể, tay chân, bành trướng)"
             const bracketMatch = meaning.match(/^(.*?)\s*[\(（](.*?)[\)）]/);
             
             if (bracketMatch) {
-                // Nếu trường 'hanviet' trống, lấy phần ngoài ngoặc đơn làm Hán Việt
                 if (!hv) {
                     hv = bracketMatch[1].trim().toUpperCase();
                 }
-                // Nghĩa thực sự là phần nằm trong ngoặc đơn
                 meaning = bracketMatch[2].trim();
             } else {
-                // Nếu không có ngoặc đơn nhưng 'hanviet' rỗng còn 'mean' có chữ (Ví dụ: mean = "chi")
+                // SỬA LỖI RỖNG NGHĨA: Giữ nguyên nghĩa cũ, tách từ đầu làm Hán Việt
                 if (!hv && meaning) {
-                    hv = meaning.toUpperCase();
-                    meaning = "Chưa rõ nghĩa chi tiết";
+                    const firstWord = meaning.split(/[\s,，、]/)[0].toUpperCase();
+                    hv = firstWord;
+                }
+            }
+
+            // 🟢 [NÂNG CẤP THEO Ý KIẾN USER]: Bóc từ ghép minh họa từ Mazii để làm rõ nghĩa Kanji
+            let compoundWord = "";
+            const examples = k.compounds || k.examples || k.example || [];
+            if (examples.length > 0) {
+                const ex = examples[0];
+                const exWord = ex.w || ex.word || ex.kanji || "";
+                const exPhonetic = ex.p || ex.phonetic || ex.reading || "";
+                const exMean = ex.m || ex.mean || ex.meaning || "";
+                if (exWord && exMean) {
+                    compoundWord = `${exWord} (${exPhonetic}) — ${exMean}`;
                 }
             }
 
@@ -21741,6 +21757,7 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 kanji: k.kanji || kanjiChar,
                 hv: hv || 'CHƯA CÓ',
                 meaning: meaning || 'Chưa rõ nghĩa',
+                compoundWord: compoundWord, // Trả từ ghép về để hiển thị trên UI
                 onyomi: k.on || '',
                 kunyomi: k.kun || ''
             };
@@ -21751,6 +21768,7 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
         return null;
     }
 }
+
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
