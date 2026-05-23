@@ -9121,39 +9121,41 @@ async function login() {
     }
 }
 async function logout() { 
-    // 1. KIỂM TRA DỮ LIỆU CHƯA LƯU TRƯỚC KHI ĐĂNG XUẤT
     const hasAssessmentSave = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
     const hasBoostSave = localStorage.getItem(`minddeck_boost_save_${currentUser.id}`);
     
-    // Nếu đang tạo thẻ dở dang hoặc có game/sát hạch chưa đồng bộ
     if (hasUnsavedChanges || hasAssessmentSave || hasBoostSave) {
         const ok = await showConfirm(
             "Cảnh báo mất dữ liệu",
-            "Bạn đang có tiến trình học hoặc thẻ bài chưa được lưu. Nếu đăng xuất bây giờ, các dữ liệu tạm này sẽ bị mất. Bạn vẫn muốn đăng xuất?",
+            "Bạn đang có tiến trình học chưa được lưu. Bạn vẫn muốn đăng xuất?",
             "Vẫn đăng xuất",
             "Ở lại"
         );
-        if (!ok) return; // Hủy đăng xuất nếu người dùng đổi ý
+        if (!ok) return; 
     }
 
-    // 2. TIẾN HÀNH ĐĂNG XUẤT VÀ DỌN RÁC
     showLoading("Đang đăng xuất..."); 
     if (currentUser) {
         const userId = currentUser.id;
         
-        // Xóa tiến trình học tập cá nhân (Kanji & Ngữ pháp)
+        // 1. Xóa mảng tiến trình SRS hiện tại
         localStorage.removeItem(`minddeck_kanji_cache_${userId}`);
         localStorage.removeItem(`minddeck_grammar_cache_${userId}`);
         
-        // Xóa thông tin bổ sung, mục tiêu thi và danh sách học phần cache
+        // 2. XÓA MẢNG TIẾN TRÌNH KỶ LỤC CÁ NHÂN (Mới thêm)
+        localStorage.removeItem(`minddeck_kanji_peaks_cache_${userId}`);
+        localStorage.removeItem(`minddeck_grammar_peaks_cache_${userId}`);
+        
+        // 3. XÓA MỐC THỜI GIAN ĐỒNG BỘ VI SAI (Mới thêm - để ép người sau phải Full Sync)
+        localStorage.removeItem(`minddeck_delta_sync_time_${userId}`);
+        localStorage.removeItem(`minddeck_mastery_updated_${userId}`);
+        
+        // 4. Xóa các mục tiêu thi, cache bộ bài và nháp game dở dang
         localStorage.removeItem(`minddeck_decks_cache_${userId}`);
         localStorage.removeItem(`minddeck_study_goal_${userId}`);
-        
-        // Xóa các tệp lưu nháp dở dang của game (Sát hạch & Boost Mode)
+        localStorage.removeItem(`minddeck_daily_stats_${userId}`);
         localStorage.removeItem(`minddeck_assessment_save_${userId}`);
         localStorage.removeItem(`minddeck_boost_save_${userId}`);
-        
-        // Xóa mã phiên làm việc duy nhất của thiết bị
         localStorage.removeItem(`current_session_id_${userId}`);
     }
     
@@ -20790,42 +20792,37 @@ async function triggerSilentBackgroundSync(textToScan = null, isDestructive = fa
     // TRƯỜNG HỢP 2: THAO TÁC XÓA LỚN (BẮT BUỘC GỌI CLOUD NẾU ĐANG Ở TRANG THỐNG KÊ)
     // -----------------------------------------------------------
     if (isDestructive) {
-        console.log("MindDeck: Dọn dẹp Ghost Data từ Cloud do thao tác Xóa...");
+        console.log("MindDeck: 🗑️ Phát hiện thao tác Xóa lớn. Đang dọn Cache để chuẩn bị tái đồng bộ...");
         try {
-            // 1. Luôn luôn xóa cache cục bộ để đánh dấu dữ liệu cũ đã "hết hạn"
-            localStorage.removeItem(`minddeck_kanji_cache_${currentUser.id}`);
-            localStorage.removeItem(`minddeck_grammar_cache_${currentUser.id}`);
-            localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
-            localStorage.removeItem(`minddeck_mastery_updated_${currentUser.id}`);
+            // 1. Xóa mảng cache tiến trình hiện tại
+            localStorage.removeItem(`minddeck_kanji_cache_${userId}`);
+            localStorage.removeItem(`minddeck_grammar_cache_${userId}`);
+            
+            // 2. XÓA MẢNG CACHE KỶ LỤC CÁ NHÂN
+            localStorage.removeItem(`minddeck_kanji_peaks_cache_${userId}`);
+            localStorage.removeItem(`minddeck_grammar_peaks_cache_${userId}`);
+            
+            // 3. XÓA KHÓA ĐỒNG BỘ THỜI GIAN (Ép trình duyệt phải chạy Full Sync ở lần tiếp theo)
+            localStorage.removeItem(`minddeck_delta_sync_time_${userId}`);
+            localStorage.removeItem(`minddeck_mastery_updated_${userId}`);
+            
+            // Xóa cache danh sách bộ bài
+            localStorage.removeItem(`minddeck_decks_cache_${userId}`);
 
-            // 2. KIỂM TRA NGỮ CẢNH TRANG HIỆN TẠI (CONTEXT-AWARE FETCHING)
+            // 4. Kích hoạt đồng bộ lại ngay lập tức nếu đang ở trang Thống kê/Pokedex
             const isDashboard = !document.getElementById('dashboardPage').classList.contains('hidden');
             const isKanjiPage = !document.getElementById('kanjiPage').classList.contains('hidden');
             const isGrammarPage = !document.getElementById('grammarPage').classList.contains('hidden');
 
             if (isDashboard || isKanjiPage || isGrammarPage) {
-                // Chỉ kéo dữ liệu về NẾU màn hình hiện tại đang thực sự cần hiển thị nó
-                console.log("MindDeck: Trang hiện tại cần dữ liệu, đang kéo bản mới từ Cloud...");
-                await syncAllMasteryFromCloud();
-
-                // Vẽ lại giao diện tương ứng
-                if (isDashboard) {
-                    renderJLPTProgress();
-                    renderRoadmapWidget();
-                } else if (isKanjiPage) {
-                    renderKanjiCollectionGrid(currentKanjiFilter);
-                } else if (isGrammarPage) {
-                    renderGrammarGrid(globalGrammarData);
-                }
+                await syncUserDataWithCloud(); // Chạy lại gộp
             } else {
-                // 🟢 TỐI ƯU BĂNG THÔNG: Đang ở Kho học phần (Home) hoặc đang Học bài.
-                // Gán về null để đánh dấu trạng thái "Hết hạn/Chờ nạp lại" (Expired/Dirty State).
+                // Đặt RAM về null để chờ người dùng bấm chuyển trang sẽ tự nạp sau
                 userKanjiMasteryMap = null;
                 userGrammarMasteryMap = null;
-                console.log("MindDeck: Đã xóa Cache & đặt RAM về null để chờ Revalidate khi cần.");
             }
         } catch (e) { 
-            console.error("Lỗi đồng bộ ngầm khi xóa:", e); 
+            console.error("Lỗi dọn rác hệ thống ngầm:", e); 
         }
     }
 }
