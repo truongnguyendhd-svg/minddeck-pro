@@ -13773,7 +13773,6 @@ async function showKanjiCollection(skipHash = false) {
 }
 
 function renderKanjiCollectionGrid(levelFilter, btnElement = null) {
-    // Nếu có người bấm nút Filter, đổi màu nút đó
     if (btnElement) {
         document.querySelectorAll('#kanjiFilterBar .grammar-pill').forEach(el => el.classList.remove('active'));
         btnElement.classList.add('active');
@@ -13781,34 +13780,46 @@ function renderKanjiCollectionGrid(levelFilter, btnElement = null) {
     }
 
     const grid = document.getElementById('kcGridPage');
-    
-    // Lọc data theo Level JLPT
     let displayList = allKanjiData;
     if (currentKanjiFilter !== 'ALL') {
         displayList = allKanjiData.filter(k => k.level === currentKanjiFilter);
     }
 
     if (displayList.length === 0) {
-        grid.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#a0aec0; padding:30px;">Chưa có dữ liệu cho cấp độ này.</p>';
+        grid.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#a0aec0; padding:30px;">Chưa có dữ liệu.</p>';
         return;
     }
 
-    // Render HTML
+    // Đọc cả 2 bảng từ RAM Cache
+    const activeMap = userKanjiMasteryMap || {};
+    const peaksMap = currentUser.kanji_peaks || {}; // 🟢 ĐỌC BẢNG KỶ LỤC
+
     grid.innerHTML = displayList.map(item => {
-        // Kiểm tra xem Kanji này có khoảng cách nhớ (interval) lớn nhất là bao nhiêu
-        const maxInterval = userKanjiMasteryMap[item.kanji] || 0;
+        const kanji = item.kanji;
         
-        let stateClass = 'lvl-locked'; // Mặc định chưa học
+        // 1. THẮP SÁNG THEO ĐIỂM KỶ LỤC (Chữ sẽ không bao giờ bị tối đi khi xóa thẻ)
+        const peakInterval = peaksMap[kanji] || 0; 
+        const currentInterval = activeMap[kanji] || 0; // Điểm thực tế hiện tại
         
-        if (maxInterval > 0) {
-            if (maxInterval <= 6) stateClass = 'lvl-new';             // 1-6 ngày: Mới học (Đỏ)
-            else if (maxInterval <= 20) stateClass = 'lvl-learning';  // 7-20 ngày: Đang nhớ (Cam)
-            else if (maxInterval <= 45) stateClass = 'lvl-familiar';  // 21-45 ngày: Khá thuộc (Xanh dương)
-            else stateClass = 'lvl-mastered';                         // > 45 ngày: Thuộc lòng (Xanh lá phát sáng)
+        let stateClass = 'lvl-locked'; 
+        if (peakInterval > 0) {
+            if (peakInterval <= 6) stateClass = 'lvl-new';             
+            else if (peakInterval <= 20) stateClass = 'lvl-learning';  
+            else if (peakInterval <= 45) stateClass = 'lvl-familiar';  
+            else stateClass = 'lvl-mastered';                         
         }
         
-        // Mọi Kanji đều cho phép bấm xem X-Ray (trừ khi chưa có data phân tích, nhưng vì lấy từ kanji_builder nên chắc chắn có)
-        return `<div class="kc-cell ${stateClass}" onclick="showKanjiXRay(event, '${item.kanji}')" title="${item.kanji}\nTrí nhớ dài hạn: ${maxInterval} ngày">${item.kanji}</div>`;
+        // 2. TẠO TOOLTIP TRỰC QUAN KHI HOVER
+        const tooltipText = peakInterval > 0 
+            ? `${kanji} \\n🏆 Kỷ lục: ${peakInterval} ngày\\n⚡ Hiện tại: ${currentInterval} ngày`
+            : `${kanji} \\n🔒 Chưa kích hoạt`;
+
+        return `
+            <div class="kc-cell ${stateClass}" 
+                 onclick="showKanjiXRay(event, '${kanji}')" 
+                 title="${tooltipText}">
+                 ${kanji}
+            </div>`;
     }).join('');
 }
 function updateHeaderTitle(title) {
