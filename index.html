@@ -18354,9 +18354,11 @@ let lastDiscoveryData = null;
 
 // Khóa chống click spam
 let isDiscoverySpinning = false;
+// Cờ lưu trữ kho Kanji detail nếu bạn muốn lưu tạm vào RAM tránh gọi lại Mazii trùng
+window.kanjiDetailCache = window.kanjiDetailCache || {};
 
 function refreshDiscovery() {
-    if (isDiscoverySpinning) return Promise.resolve(); // Chống spam click trùng request
+    if (isDiscoverySpinning) return Promise.resolve(); // Chốt chặn chống spam click liên tục
     isDiscoverySpinning = true;
 
     const card = document.getElementById('discoveryCard');
@@ -18365,28 +18367,26 @@ function refreshDiscovery() {
         return Promise.resolve();
     }
     
-    // 1. Kích hoạt hiệu ứng lật thẻ mượt mà
+    // Kích hoạt hiệu ứng lật thẻ
     card.classList.add('flip');
 
     return new Promise((resolve) => {
         setTimeout(async () => {
             try {
-                // Xác suất 50% ra Kanji, 50% ra Ngữ Pháp
                 const isKanji = Math.random() > 0.5;
                 let html = '';
                 
-                // ==========================================
-                // PHÂN HỆ 1: KHÁM PHÁ KANJI (SỬ DỤNG MAZII)
-                // ==========================================
+                // ===================================================
+                // PHÂN HỆ KANJI: SỬ DỤNG HẠT GIỐNG RAM + MAZII DETAIL
+                // ===================================================
                 if (isKanji && allKanjiData && allKanjiData.length > 0) {
-                    // Bước A: Bốc 1 Kanji ngẫu nhiên làm hạt giống từ RAM (vẫn đúng level JLPT)
+                    // Chọn ngẫu nhiên 1 Kanji làm hạt giống (giữ đúng bộ lọc JLPT)
                     const randomSeed = allKanjiData[Math.floor(Math.random() * allKanjiData.length)];
                     
-                    // Bước B: Gọi API Mazii lấy chi tiết (0 request Supabase)
+                    // Gọi API Mazii để lấy chi tiết (0 request Supabase)
                     const data = await fetchMaziiKanjiDetail(randomSeed.kanji);
                     
                     if (data) {
-                        // Tạo tooltip hiển thị cách đọc On/Kun khi rê chuột vào
                         const rawReadings = `Onyomi: ${data.onyomi || '---'}\\nKunyomi: ${data.kunyomi || '---'}`;
                         
                         html = `
@@ -18400,11 +18400,10 @@ function refreshDiscovery() {
                         `;
                     }
                 } 
-                // ==========================================
-                // PHÂN HỆ 2: KHÁM PHÁ NGỮ PHÁP (SỬ DỤNG CACHE RAM)
-                // ==========================================
+                // ===================================================
+                // PHÂN HỆ NGỮ PHÁP: SỬ DỤNG HOÀN TOÀN BỘ ĐỆM RAM
+                // ===================================================
                 else {
-                    // Nếu chưa có cache Ngữ pháp, nạp nhanh từ ổ cứng lên RAM
                     if (globalGrammarData.length === 0) {
                         const cachedDict = localStorage.getItem('minddeck_grammar_dict');
                         if (cachedDict) {
@@ -18413,7 +18412,6 @@ function refreshDiscovery() {
                     }
                     
                     if (globalGrammarData.length > 0) {
-                        // Bốc ngẫu nhiên 1 cấu trúc trong RAM (0 request Supabase)
                         const randomGrammar = globalGrammarData[Math.floor(Math.random() * globalGrammarData.length)];
                         
                         html = `
@@ -18427,25 +18425,24 @@ function refreshDiscovery() {
                     }
                 }
                 
-                // Trường hợp ngoại lệ không có dữ liệu
                 if (!html) {
-                    html = '<div style="color: #718096; padding: 20px;">Nhấn nút xoay để bắt đầu quay thưởng!</div>';
+                    html = '<div style="color: #718096; padding: 20px;">Không thể tải dữ liệu bốc thăm.</div>';
                 }
                 
-                // Đổ dữ liệu vào giao diện và tắt hiệu ứng lật
                 card.innerHTML = html;
-                card.classList.remove('flip');
+                card.classList.remove('flip'); // Hoàn tất xoay lật
                 
             } catch (e) {
-                console.error("Lỗi nạp Góc khám phá:", e);
+                console.error("Lỗi xử lý bốc thăm ngẫu nhiên:", e);
                 card.classList.remove('flip');
             } finally {
                 isDiscoverySpinning = false; // Mở khóa nút bấm
                 resolve();
             }
-        }, 400); // 400ms tương ứng thời gian CSS transition xoay lật thẻ
+        }, 400); // 400ms phù hợp với CSS transition lật thẻ
     });
 }
+
 
 // MÀN HÌNH TỔNG KẾT PHASE 2
 function endAssessmentSession() {
@@ -21708,27 +21705,49 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 dict: 'javi',
-                type: 'kanji', // Gọi đúng phân hệ tra cứu Kanji của Mazii
+                type: 'kanji',
                 query: kanjiChar
             })
         });
         const data = await response.json();
         
-        // Cấu trúc trả về của Mazii nằm trong mảng results hoặc result
         const kList = data.results || data.result || [];
         if (kList.length > 0) {
             const k = kList[0];
+            
+            let hv = (k.hanviet || '').trim().toUpperCase();
+            let meaning = (k.mean || '').trim();
+            
+            // 🧠 THUẬT TOÁN TỰ SỬA LỖI (SELF-HEALING PARSER):
+            // Bóc tách nếu Mazii trả về dạng: "chi (chi thể, tay chân, bành trướng)"
+            const bracketMatch = meaning.match(/^(.*?)\s*[\(（](.*?)[\)）]/);
+            
+            if (bracketMatch) {
+                // Nếu trường 'hanviet' trống, lấy phần ngoài ngoặc đơn làm Hán Việt
+                if (!hv) {
+                    hv = bracketMatch[1].trim().toUpperCase();
+                }
+                // Nghĩa thực sự là phần nằm trong ngoặc đơn
+                meaning = bracketMatch[2].trim();
+            } else {
+                // Nếu không có ngoặc đơn nhưng 'hanviet' rỗng còn 'mean' có chữ (Ví dụ: mean = "chi")
+                if (!hv && meaning) {
+                    hv = meaning.toUpperCase();
+                    meaning = "Chưa rõ nghĩa chi tiết";
+                }
+            }
+
             return {
                 kanji: k.kanji || kanjiChar,
-                hv: k.hanviet ? k.hanviet.toUpperCase() : 'CHƯA CÓ',
-                meaning: k.mean || 'Chưa rõ nghĩa',
+                hv: hv || 'CHƯA CÓ',
+                meaning: meaning || 'Chưa rõ nghĩa',
                 onyomi: k.on || '',
                 kunyomi: k.kun || ''
             };
         }
         return null;
     } catch (e) {
-        console.error("Lỗi khi kết nối Mazii Kanji API:", e);
+        console.error("Lỗi kết nối Mazii Kanji API:", e);
         return null;
     }
 }
