@@ -11677,10 +11677,8 @@ async function syncLocalMasteryTimestamp(userId) {
 async function flushSrsQueue() {
     if (srsPendingQueue.length === 0) return;
     
-    // Copy mảng hiện tại và làm rỗng mảng chờ
     const payloadsToSend = [...srsPendingQueue];
     srsPendingQueue = [];
-    // Thực hiện TRƯỚC KHI gọi API để bảo vệ dữ liệu nếu lỡ mất mạng
     localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
     localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
     sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
@@ -11688,7 +11686,7 @@ async function flushSrsQueue() {
     try {
         const mySessionId = localStorage.getItem(`current_session_id_${currentUser.id}`);
 
-        // GỌI RPC 1 LẦN DUY NHẤT
+        // Gọi RPC gộp dữ liệu
         const { data: rpcData, error } = await sb.rpc('upsert_progress_safe', {
             p_user_id: currentUser.id,
             p_session_id: mySessionId,
@@ -11701,16 +11699,18 @@ async function flushSrsQueue() {
             console.warn("MindDeck: Lệnh SRS bị từ chối vì phiên đăng nhập đã chuyển sang máy khác.");
             return;
         }
+
         console.log(`MindDeck: Đã đồng bộ lô ${payloadsToSend.length} thẻ SRS lên Cloud.`);
         forceDashboardRefresh = true;
-        // 🟢 [BẮT ĐẦU VÁ LỖI]: Gọi lấy timestamp mới nhất từ DB
-        // Do Trigger DB chạy bất đồng bộ cùng phiên commit, việc gọi ngay sau RPC đảm bảo lấy được mốc mới
-        await syncLocalMasteryTimestamp(currentUser.id);
-        // 🟢 [KẾT THÚC VÁ LỖI]
+
+        // 🟢 TỐI ƯU HOÀN HẢO: Lưu trực tiếp Timestamp vừa nhận từ RPC, giảm 1 Request!
+        if (rpcData && rpcData.new_timestamp) {
+            localStorage.setItem(`minddeck_mastery_updated_${currentUser.id}`, rpcData.new_timestamp);
+            console.log(`[Zero-Bloat Sync] Đã cập nhật Timestamp: ${rpcData.new_timestamp}`);
+        }
 
     } catch (err) {
         console.warn("Mất mạng! Đã đưa tiến trình vào Hàng đợi Offline.");
-        // Tận dụng hàm có sẵn của bạn
         payloadsToSend.forEach(p => saveToOfflineQueue(p));
     }
 }
@@ -18136,8 +18136,9 @@ async function processBatchAssessmentResults() {
 
     if (payloads.length > 0) {
         try {
-            // Bước 1: Đẩy điểm lên Database (1 API call)
             const mySessionId = localStorage.getItem(`current_session_id_${currentUser.id}`);
+            
+            // Gọi RPC
             const { data: rpcData, error } = await sb.rpc('upsert_progress_safe', {
                 p_user_id: currentUser.id,
                 p_session_id: mySessionId,
@@ -18146,27 +18147,27 @@ async function processBatchAssessmentResults() {
             
             if (error) throw error;
             if (rpcData && rpcData.status === 'error') throw new Error(rpcData.message); 
-            // 🟢 [BẮT ĐẦU VÁ LỖI]: Đồng bộ ngay timestamp mới nhất để bảo vệ cache cục bộ
-            await syncLocalMasteryTimestamp(currentUser.id);
-            // 🟢 [KẾT THÚC VÁ LỖI]
 
-            // Bước 2: Xóa nháp
+            // Giải phóng nháp Sát hạch
             clearAssessmentStateFromLocal();
 
-            // 🚀 BƯỚC 3: LƯU RAM VÀO Ổ CỨNG TRÌNH DUYỆT (THAY VÌ TẢI TỪ CLOUD)
+            // Lưu RAM Cache cục bộ
             if (hasMasteryChanges) {
                 localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
                 localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
-                
-                // Đánh dấu để trình duyệt biết data đang rất tươi mới
                 sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
             }
 
-            // Bước 4: Chuyển thẻ rớt vào bộ Remedial (Gọi ẩn)
             if (boostState.remedialCards.length > 0) {
                 await saveToRemedialDeck(boostState.remedialCards);
             }
             forceDashboardRefresh = true;
+
+            // 🟢 TỐI ƯU HOÀN HẢO: Đồng bộ Timestamp Sát hạch không tốn mạng phụ
+            if (rpcData && rpcData.new_timestamp) {
+                localStorage.setItem(`minddeck_mastery_updated_${currentUser.id}`, rpcData.new_timestamp);
+                console.log(`[Zero-Bloat Sát hạch] Đã cập nhật Timestamp: ${rpcData.new_timestamp}`);
+            }
 
         } catch (err) {
             // ... (Phần logic xử lý lỗi và catch ở dưới giữ nguyên của bạn)
