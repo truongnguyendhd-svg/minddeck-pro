@@ -16471,7 +16471,9 @@ let isPdfAutoFit = true;
 let pdfCanvas = null;
 let pdfCtx = null;
 let currentOpenPdfId = null; // Lưu ID của file đang mở trong Database
-
+let cachedPdfBase64 = null;
+let cachedPdfPageNum = null;
+let isPdfCanvasDirty = true; // Cờ theo dõi: Bật true khi lật trang hoặc vẽ thêm nét
 // ================= HỆ THỐNG INDEXED DB (LƯU PDF OFFLINE) =================
 const PDF_DB_NAME = 'AlcoholPdfStore';
 const PDF_STORE_NAME = 'recent_pdfs';
@@ -16737,6 +16739,7 @@ async function loadPdfIntoViewer(typedarray, startPage) {
 
 function renderPage(num) {
     pageRendering = true;
+    isPdfCanvasDirty = true;
     // --- Gộp logic resize Draw Canvas vào đây ---
     setTimeout(() => {
         const drawCanvas = document.getElementById('pdfDrawCanvas');
@@ -16827,7 +16830,10 @@ function closePDFReader() {
     pageNum = 1;
     isPdfAutoFit = true;
     currentOpenPdfId = null; 
-    
+    cachedPdfBase64 = null;
+    cachedPdfPageNum = null;
+    isPdfCanvasDirty = true;
+
     document.getElementById('pdfUploadState').classList.remove('hidden');
     document.getElementById('pdfReadState').classList.add('hidden');
     
@@ -16912,11 +16918,18 @@ function togglePdfAiMenu(e) {
 
 // ================= HỆ THỐNG SMART PDF AI (TUTOR, EXTRACT, TRANSLATE) =================
 
-// 1. HÀM CHỤP ẢNH TRANG PDF (CANVAS TO BASE64)
+// 1. HÀM CHỤP ẢNH TRANG PDF (CANVAS TO BASE64 - ĐÃ TÍCH HỢP CACHING)
 function getPdfPageAsBase64() {
     const pCanvas = document.getElementById('pdfCanvas');
     if (!pCanvas) return null;
 
+    // 🟢 CHỐT CHẶN BĂNG THÔNG: NẾU TRANG KHÔNG CÓ GÌ THAY ĐỔI -> TRẢ VỀ ẢNH TỪ RAM NGAY
+    if (cachedPdfBase64 && cachedPdfPageNum === pageNum && !isPdfCanvasDirty) {
+        console.log("MindDeck: 🛡️ Sử dụng lại ảnh PDF từ RAM (Tiết kiệm CPU và Băng thông nén)");
+        return cachedPdfBase64;
+    }
+
+    console.log("MindDeck: 📸 Render và nén ảnh PDF mới...");
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = pCanvas.width;
     tempCanvas.height = pCanvas.height;
@@ -16929,8 +16942,10 @@ function getPdfPageAsBase64() {
     const drawCanvas = document.getElementById('pdfDrawCanvas');
     if (drawCanvas) tCtx.drawImage(drawCanvas, 0, 0); 
 
-    // 🟢 THÊM BƯỚC NÉN ẢNH (SCALE DOWN) TRƯỚC KHI XUẤT BASE64
+    // NÉN ẢNH (SCALE DOWN) TRƯỚC KHI XUẤT BASE64
     const MAX_WIDTH = 1200;
+    let finalBase64 = null;
+
     if (tempCanvas.width > MAX_WIDTH) {
         const scale = MAX_WIDTH / tempCanvas.width;
         const scaledCanvas = document.createElement('canvas');
@@ -16938,10 +16953,17 @@ function getPdfPageAsBase64() {
         scaledCanvas.height = tempCanvas.height * scale;
         const sCtx = scaledCanvas.getContext('2d');
         sCtx.drawImage(tempCanvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
-        return scaledCanvas.toDataURL('image/webp', 0.6); // Dùng 0.6 là đủ nét cho AI đọc
+        finalBase64 = scaledCanvas.toDataURL('image/webp', 0.6); // Chất lượng 60%
+    } else {
+        finalBase64 = tempCanvas.toDataURL('image/webp', 0.6);
     }
 
-    return tempCanvas.toDataURL('image/webp', 0.6);
+    // 🟢 LƯU VÀO CACHE TRƯỚC KHI TRẢ VỀ
+    cachedPdfBase64 = finalBase64;
+    cachedPdfPageNum = pageNum;
+    isPdfCanvasDirty = false; // Xóa cờ "Bẩn"
+
+    return finalBase64;
 }
 
 // 2. HÀM XỬ LÝ CHÍNH (TRIGGER AI)
@@ -17592,6 +17614,7 @@ function stopDrawing() {
     if (!isDrawing) return;
     isDrawing = false;
     dCtx.closePath();
+    isPdfCanvasDirty = true;
 }
 
 drawCanvas.addEventListener('mousedown', startDrawing);
