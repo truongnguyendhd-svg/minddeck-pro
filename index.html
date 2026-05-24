@@ -21817,12 +21817,13 @@ async function syncAllMasteryFromCloud() {
 }
 // 🟢 [TỐI ƯU HÓA MAZII]: Lấy chi tiết Kanji từ API public của Mazii (Miễn phí băng thông)
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    // 🟢 CHỐT CHẶN BĂNG THÔNG: Nếu đã tra rồi thì lấy thẳng từ RAM
+    // 1. CHỐT CHẶN BĂNG THÔNG: Kiểm tra sự tồn tại trong bộ đệm RAM trước khi gọi mạng
     window.kanjiDetailCache = window.kanjiDetailCache || {};
     if (window.kanjiDetailCache[`mazii_${kanjiChar}`]) {
         console.log(`MindDeck: Đọc Kanji [${kanjiChar}] từ Mazii Cache 🎯`);
         return window.kanjiDetailCache[`mazii_${kanjiChar}`];
     }
+    
     try {
         const response = await fetch('https://mazii.net/api/search', {
             method: 'POST',
@@ -21834,17 +21835,17 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             })
         });
         const data = await response.json();
-        
+
         const kList = data.results || data.result || [];
         if (kList.length > 0) {
             const k = kList[0];
-            
+
             let hv = (k.hanviet || '').trim().toUpperCase();
             let meaning = (k.mean || '').trim();
-            
+
             // 🧠 THUẬT TOÁN TỰ SỬA LỖI 1 (Bóc tách ngoặc đơn):
             const bracketMatch = meaning.match(/^(.*?)\s*[\(（](.*?)[\)）]/);
-            
+
             if (bracketMatch) {
                 if (!hv) {
                     hv = bracketMatch[1].trim().toUpperCase();
@@ -21858,10 +21859,8 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             }
 
             // 🧠 THUẬT TOÁN CHỐNG LẶP TỪ LỚP 1 (Lược bỏ tiền tố trùng Hán Việt):
-            // Nếu meaning bắt đầu bằng chính từ Hán Việt (Ví dụ: "đoạt, cướp lấy" -> chỉ giữ lại "cướp lấy")
             if (hv && meaning) {
                 const hvLower = hv.toLowerCase();
-                // Khởi tạo regex tìm từ Hán Việt đứng đầu kèm dấu phân tách
                 const regexPrefix = new RegExp(`^${hvLower}\\s*[,，、;；\\-\\s]+`, 'i');
                 if (regexPrefix.test(meaning)) {
                     meaning = meaning.replace(regexPrefix, '').trim();
@@ -21881,7 +21880,11 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 }
             }
 
-            return {
+            // ================================================================
+            // KHẮC PHỤC LỖI TẠI ĐÂY:
+            // 1. Khai báo hằng số `result` chứa dữ liệu sạch đã bóc tách
+            // ================================================================
+            const result = {
                 kanji: k.kanji || kanjiChar,
                 hv: hv || 'CHƯA CÓ',
                 meaning: meaning || 'Chưa rõ nghĩa',
@@ -21889,8 +21892,11 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 onyomi: k.on || '',
                 kunyomi: k.kun || ''
             };
-            // 🟢 LƯU VÀO CACHE TRƯỚC KHI TRẢ VỀ
+
+            // 2. Lưu trữ trực tiếp đối tượng này vào Cache hệ thống trên RAM
             window.kanjiDetailCache[`mazii_${kanjiChar}`] = result;
+
+            // 3. Thực hiện trả về kết quả
             return result;
         }
         return null;
