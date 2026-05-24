@@ -13670,18 +13670,27 @@ let userKanjiMasteryMap = {}; // Lưu object: { '日': 15, '月': 5, '学': 60..
 let currentKanjiFilter = 'ALL'; // Lưu bộ lọc hiện tại
 // HÀM TẢI TỪ ĐIỂN KANJI AN TOÀN (VƯỢT RÀO 1000 ROW CỦA SUPABASE)
 async function ensureKanjiDictLoaded() {
-    // 1. Đã có trong RAM -> Bỏ qua
+    // 1. Đã có trong RAM -> Tiến hành lọc trùng bảo vệ RAM và bỏ qua
     if (allKanjiData.length > 0) {
         allKanjiData = deduplicateKanjiList(allKanjiData);
         return true;
     }
 
-    // 2. Đã tải Full 100% trong LocalStorage -> Bốc lên RAM
+    // 2. Đã tải Full 100% trong LocalStorage -> Bốc lên RAM và tự chữa lành nếu cache cũ có trùng lặp
     const isCompleted = localStorage.getItem('minddeck_kanji_dict_completed') === 'true';
     const cachedDict = localStorage.getItem('minddeck_kanji_dict');
     
     if (isCompleted && cachedDict) {
-        allKanjiData = deduplicateKanjiList(JSON.parse(cachedDict));
+        const rawList = JSON.parse(cachedDict);
+        const cleanList = deduplicateKanjiList(rawList);
+        
+        // Nếu phát hiện cache cũ bị trùng (độ dài lệch nhau), tự động ghi đè bản sạch để sửa lỗi vĩnh viễn
+        if (rawList.length !== cleanList.length) {
+            console.log(`MindDeck: Phát hiện và tự động sửa chữa ${rawList.length - cleanList.length} lỗi trùng lặp trong cache.`);
+            localStorage.setItem('minddeck_kanji_dict', JSON.stringify(cleanList));
+        }
+        
+        allKanjiData = cleanList;
         return true;
     }
 
@@ -13697,7 +13706,7 @@ async function ensureKanjiDictLoaded() {
         const { data: kData, error: kErr } = await sb.from('kanji_builder')
             .select('kanji, level')
             .order('level', { ascending: true })
-            .order('kanji', { ascending: true }) // 🌟 THÊM DÒNG NÀY: Đảm bảo thứ tự ghim cứng tuyệt đối, chống trùng lặp phân trang
+            .order('kanji', { ascending: true }) // Sử dụng sắp xếp ổn định phía Cloud
             .range(fromIndex, fromIndex + step);
         
         if (kErr) throw kErr;
@@ -13705,18 +13714,16 @@ async function ensureKanjiDictLoaded() {
         if (kData && kData.length > 0) {
             allKanjiData = allKanjiData.concat(kData);
             allKanjiData = deduplicateKanjiList(allKanjiData);
-            fromIndex = allKanjiData.length; // Cập nhật chỉ mục dựa trên độ dài thực tế sau khi lọc trùng
-            // Lưu tạm đề phòng rớt mạng giữa chừng
+            fromIndex = allKanjiData.length; 
+            
             localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
         }
 
-        // Đã hết dữ liệu trên DB
         if (!kData || kData.length <= step) {
             isFetching = false;
         }
     }
 
-    // Đánh dấu hoàn tất
     if (allKanjiData.length > 0) {
         localStorage.setItem('minddeck_kanji_dict_completed', 'true');
     }
