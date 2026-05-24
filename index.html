@@ -8820,8 +8820,13 @@ function updateBreadcrumb(paths) {
 
 
 /* ================= 4. AUTH ================= */
+// =========================================================================
+// 🚀 HỆ THỐNG KHỞI TẠO VÀ BẢO VỆ LUỒNG CHẠY (APP BOOTSTRAPPER)
+// =========================================================================
 let realtimeSessionChannel = null; // Quản lý kênh lắng nghe Realtime chống trùng lặp
-sb.auth.onAuthStateChange(async (event, session) => {
+let isInitRunning = false; // Khóa chống Xung đột (Mutex Lock) khi OAuth bắn nhiều sự kiện
+
+sb.auth.onAuthStateChange((event, session) => { 
     const headerSearch = document.getElementById('headerSearch');
     const globalMenuBtn = document.getElementById('globalMenuBtn');
     const sideMenuUserSection = document.getElementById('sideMenuUserSection');
@@ -8832,109 +8837,26 @@ sb.auth.onAuthStateChange(async (event, session) => {
         
         // Cập nhật thông tin định danh UI
         document.getElementById('sideMenuAvatar').innerHTML = avatarImg ? `<img src="${avatarImg}">` : '👤';
-        document.getElementById('sideMenuName').innerText = currentUser.user_metadata.full_name;
+        const fullName = currentUser.user_metadata.full_name || currentUser.user_metadata.name || "Bạn";
+        document.getElementById('sideMenuName').innerText = fullName;
         document.getElementById('sideMenuEmail').innerText = currentUser.email;
         sideMenuUserSection.style.display = 'block';
 
         headerSearch.classList.remove('hidden'); 
         globalMenuBtn.classList.remove('hidden');
 
-        // ===================================================
-        // 🚀 TIẾN TRÌNH KHỞI TẠO AN TOÀN TUYỆT ĐỐI (EDGE-CASE BLOCKING)
-        // ===================================================
-        
-        // 1. Kiểm tra xem thiết bị này đã từng lưu cache tiến trình chưa
-        // ===================================================
-        // 🛡️ BỘ LỌC KIỂM ĐỊNH CACHE TOÀN DIỆN (COMPREHENSIVE CACHE VALIDATION)
-        // ===================================================
-        const userId = currentUser.id;
-        let hasLocalCache = false;
-        
-        // 1. Đọc và tự động dọn dẹp các cache nếu phát hiện bị hỏng (Sử dụng hàm safeGetLocalCache)
-        const cachedKanji = safeGetLocalCache(`minddeck_kanji_cache_${userId}`, null);
-        const cachedGrammar = safeGetLocalCache(`minddeck_grammar_cache_${userId}`, null);
-        
-        // Đối với Goal và Stats, cho phép null nếu người dùng chưa từng thiết lập
-        const cachedGoal = safeGetLocalCache(`minddeck_study_goal_${userId}`, null);
-        const cachedStats = safeGetLocalCache(`minddeck_daily_stats_${userId}`, null);
-        
-        // 2. CHỐT CHẶN CHẮC CHẮN: Chỉ kích hoạt Cooldown (hasLocalCache = true) khi:
-        // - Cả Kanji và Ngữ pháp đều KHÔNG BỊ HỎNG (không null)
-        // - Cả hai đều KHÔNG PHẢI LÀ OBJECT RỖNG {}
-        if (
-            cachedKanji && typeof cachedKanji === 'object' && Object.keys(cachedKanji).length > 0 &&
-            cachedGrammar && typeof cachedGrammar === 'object' && Object.keys(cachedGrammar).length > 0
-        ) {
-            hasLocalCache = true;
-            console.log("MindDeck: 🛡️ Cache toàn cục an toàn. Kích hoạt bộ lọc Cooldown 60s.");
-        } else {
-            // Nếu một trong hai bị hỏng/mất dữ liệu, ta ép hệ thống tải lại toàn bộ từ Cloud để "chữa lành"
-            console.warn("MindDeck: Phát hiện thiếu hụt tiến trình hoặc cache hỏng. Ép buộc đồng bộ từ Cloud để chữa lành...");
-            hasLocalCache = false; 
+        // 🟢 Kích hoạt bộ khởi tạo an toàn (Chỉ chạy 1 lần duy nhất)
+        if (!isInitRunning && !isAppInitialized) {
+            runAppInitialization();
         }
-
-        // 2. Nạp ngay cache cục bộ (nếu có) để chuẩn bị các biến tiến trình trong RAM
-        loadLocalUserDataCache();
-
-        // 3. 🟢 KHỞI CHẠY CHỐT CHẶN CHỐNG SPAM F5 (TTL Cooldown)
-        const lastSyncTime = sessionStorage.getItem(`minddeck_last_sync_time_${currentUser.id}`);
-        const nowTime = Date.now();
-        const COOLDOWN_TIME = 60 * 1000; // Bảo hộ chặn gọi mạng trong vòng 60 giây
-
-        // 🟢 BẢN VÁ LỖI CỐT LÕI: TÁCH BIỆT LOGIC VÀ KHÔNG DÙNG PROMISE BỊ LỠ NHỊP NỮA
-        // NẾU CÓ CACHE AN TOÀN VÀ ĐANG TRONG THỜI GIAN COOLDOWN (Chặn mạng)
-        if (hasLocalCache && lastSyncTime && (nowTime - parseInt(lastSyncTime)) < COOLDOWN_TIME) {
-            console.log("MindDeck: Chặn spam F5 thành công! Sử dụng cache cục bộ an toàn (0 Request)");
-            
-            // Vẽ lại biểu đồ từ bộ nhớ đệm cực nhanh để tránh giật lag hiển thị
-            if (!document.getElementById('dashboardPage').classList.contains('hidden')) {
-                renderJLPTProgress();
-                renderRoadmapWidget();
-            }
-        } 
-        // NẾU HẾT COOLDOWN HOẶC LÀ MÁY MỚI (BẮT BUỘC PHẢI TẢI DATA)
-        else {
-            sessionStorage.setItem(`minddeck_last_sync_time_${currentUser.id}`, nowTime.toString());
-            
-            // 🟢 Nếu là máy mới tinh/Rỗng Cache -> Ép bật Loading chờ đồng bộ xong mới cho dùng App
-            if (!hasLocalCache) {
-                showLoading("Đang thiết lập tiến trình học tập... Vui lòng đợi!");
-                try {
-                    await syncUserDataWithCloud(); // 👈 Ép đợi ở đây
-                } catch (err) {
-                    // 🚨 KHÓA TỬ THẦN: Nếu mất mạng lúc kéo data
-                    hideLoading();
-                    document.body.innerHTML = `
-                        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center; padding: 20px; font-family: 'Noto Sans JP', sans-serif;">
-                            <span class="material-symbols-outlined" style="font-size: 60px; color: #e53e3e; margin-bottom: 20px;">wifi_off</span>
-                            <h2 style="color: #1a1a1a;">Lỗi đồng bộ dữ liệu</h2>
-                            <p style="color: #4a4a4a;">Máy của bạn không có bộ nhớ đệm, và hệ thống không thể tải dữ liệu từ Cloud do kết nối mạng không ổn định.<br>Để bảo vệ an toàn cho dữ liệu của bạn, hệ thống tạm thời bị khóa.</p>
-                            <button onclick="window.location.reload()" style="padding: 12px 24px; background: #0067c0; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: margin-top: 20px;">TẢI LẠI TRANG</button>
-                        </div>`;
-                    return; // Dừng hoàn toàn
-                }
-                hideLoading(); // 👈 Đồng bộ xong thì cất Loading đi
-            } 
-            // 🟢 Nếu có Cache an toàn rồi nhưng Hết thời gian Cooldown -> Chỉ việc tải ngầm (Không hiện Loading)
-            else {
-                syncUserDataWithCloud(); // Tải ngầm, không cần await
-            }
-        }
-
-        // Thiết lập Single Session
-        setupSingleSessionProtection();
         
-        if (!isAppInitialized) {
-            handleRoute(); 
-            isAppInitialized = true;
-        } 
     } else {
         // Hủy kênh lắng nghe Realtime khi đăng xuất để tránh rò rỉ bộ nhớ (Memory Leak)
         if (realtimeSessionChannel) {
             sb.removeChannel(realtimeSessionChannel);
             realtimeSessionChannel = null;
         }
-
+        
         // Dọn sạch mã phiên làm việc duy nhất của thiết bị
         if (currentUser) {
             localStorage.removeItem(`current_session_id_${currentUser.id}`);
@@ -8953,6 +8875,57 @@ sb.auth.onAuthStateChange(async (event, session) => {
         }
     }
 });
+
+// 🟢 HÀM KHỞI TẠO ĐỘC LẬP (ĐẢM BẢO KHÔNG BAO GIỜ KẸT LOADING)
+async function runAppInitialization() {
+    isInitRunning = true; // Sập khóa cửa, không cho sự kiện khác chạy xen vào
+    showLoading("Đang thiết lập tiến trình học tập... Vui lòng đợi!");
+
+    try {
+        // 1. Nạp cache từ RAM
+        loadLocalUserDataCache();
+
+        // 2. Kiểm duyệt độ an toàn của RAM (Chống RAM hỏng/Rỗng)
+        const isRamSafe = 
+            userKanjiMasteryMap && Object.keys(userKanjiMasteryMap).length > 0 &&
+            userGrammarMasteryMap && Object.keys(userGrammarMasteryMap).length > 0;
+
+        const lastSyncTime = sessionStorage.getItem(`minddeck_last_sync_time_${currentUser.id}`);
+        const nowTime = Date.now();
+        const COOLDOWN_TIME = 60 * 1000;
+
+        // 3. Quyết định chiến lược Tải dữ liệu
+        if (isRamSafe && lastSyncTime && (nowTime - parseInt(lastSyncTime)) < COOLDOWN_TIME) {
+            console.log("MindDeck: Dùng cache, bỏ qua Cloud Sync để tiết kiệm mạng.");
+        } else {
+            console.log("MindDeck: Cần đồng bộ Cloud (Tải toàn bộ hoặc Vi sai)...");
+            await syncUserDataWithCloud(); 
+            sessionStorage.setItem(`minddeck_last_sync_time_${currentUser.id}`, nowTime.toString());
+        }
+
+        // 4. Thiết lập bảo mật & Điều hướng
+        setupSingleSessionProtection();
+        
+        handleRoute(); 
+        isAppInitialized = true;
+
+    } catch (error) {
+        // 🚨 NẾU CÓ BẤT KỲ LỖI NÀO, nó sẽ rớt xuống đây và in ra màn hình!
+        console.error("Lỗi nghiêm trọng khi khởi tạo ứng dụng:", error);
+        
+        document.body.innerHTML = `
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center; padding: 20px; font-family: 'Noto Sans JP', sans-serif; background: #fff;">
+                <span class="material-symbols-outlined" style="font-size: 60px; color: #e53e3e; margin-bottom: 20px;">error</span>
+                <h2 style="color: #1a1a1a;">Gặp sự cố khi nạp dữ liệu</h2>
+                <p style="color: #4a4a4a;">Hệ thống gặp lỗi: <b>${error.message || "Không xác định"}</b>.<br>Vui lòng F5 (Tải lại trang) hoặc kiểm tra lại kết nối mạng.</p>
+                <button onclick="window.location.reload()" style="padding: 12px 24px; background: #0067c0; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 20px;">TẢI LẠI TRANG</button>
+            </div>`;
+    } finally {
+        // 🟢 BỆ ĐỠ RƠI: Dù thành công hay thất bại, bắt buộc phải tắt cái màn hình Loading đi
+        hideLoading();
+        isInitRunning = false; // Mở khóa
+    }
+}
 // HÀM BẢO VỆ PHIÊN ĐĂNG NHẬP (ĐÃ TỐI ƯU ZERO-BLOAT & OFFLINE-WAKEUP)
 // 1. KHAI BÁO BIẾN COOLDOWN TOÀN CỤC (Đặt ngay trên hàm)
 let lastSessionCheckTime = 0;
