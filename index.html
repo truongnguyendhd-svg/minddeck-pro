@@ -13671,19 +13671,22 @@ let currentKanjiFilter = 'ALL'; // Lưu bộ lọc hiện tại
 // HÀM TẢI TỪ ĐIỂN KANJI AN TOÀN (VƯỢT RÀO 1000 ROW CỦA SUPABASE)
 async function ensureKanjiDictLoaded() {
     // 1. Đã có trong RAM -> Bỏ qua
-    if (allKanjiData.length > 0) return true;
+    if (allKanjiData.length > 0) {
+        allKanjiData = deduplicateKanjiList(allKanjiData);
+        return true;
+    }
 
     // 2. Đã tải Full 100% trong LocalStorage -> Bốc lên RAM
     const isCompleted = localStorage.getItem('minddeck_kanji_dict_completed') === 'true';
     const cachedDict = localStorage.getItem('minddeck_kanji_dict');
     
     if (isCompleted && cachedDict) {
-        allKanjiData = JSON.parse(cachedDict);
+        allKanjiData = deduplicateKanjiList(JSON.parse(cachedDict));
         return true;
     }
 
     // 3. Nếu chưa có hoặc tải dở dang -> Dùng vòng lặp kéo nối tiếp từ Cloud
-    allKanjiData = cachedDict ? JSON.parse(cachedDict) : [];
+    allKanjiData = cachedDict ? deduplicateKanjiList(JSON.parse(cachedDict)) : [];
     let isFetching = true;
     let fromIndex = allKanjiData.length;
     const step = 999; 
@@ -13693,14 +13696,16 @@ async function ensureKanjiDictLoaded() {
     while (isFetching) {
         const { data: kData, error: kErr } = await sb.from('kanji_builder')
             .select('kanji, level')
-            .order('level')
+            .order('level', { ascending: true })
+            .order('kanji', { ascending: true }) // 🌟 THÊM DÒNG NÀY: Đảm bảo thứ tự ghim cứng tuyệt đối, chống trùng lặp phân trang
             .range(fromIndex, fromIndex + step);
         
         if (kErr) throw kErr;
 
         if (kData && kData.length > 0) {
             allKanjiData = allKanjiData.concat(kData);
-            fromIndex += (step + 1); 
+            allKanjiData = deduplicateKanjiList(allKanjiData);
+            fromIndex = allKanjiData.length; // Cập nhật chỉ mục dựa trên độ dài thực tế sau khi lọc trùng
             // Lưu tạm đề phòng rớt mạng giữa chừng
             localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
         }
@@ -13787,21 +13792,39 @@ function renderKanjiCollectionGrid(levelFilter, btnElement = null) {
         displayList = allKanjiData.filter(k => k.level === currentKanjiFilter);
     }
 
+    // Tính toán thống kê động theo danh sách đang hiển thị
+    const activeMap = userKanjiMasteryMap || {};
+    const peaksMap = currentUser.kanji_peaks || {};
+
+    // Đếm số lượng chữ đã tiếp xúc trong danh sách đang được lọc
+    let unlockedCount = displayList.filter(item => {
+        const peakInterval = peaksMap[item.kanji] || 0;
+        const currentInterval = activeMap[item.kanji] || 0;
+        return peakInterval > 0 || currentInterval > 0;
+    }).length;
+
+    // Cập nhật lên giao diện thống kê của trang
+    document.getElementById('kcMasteredCountPage').innerText = unlockedCount;
+    document.getElementById('kcTotalCountPage').innerText = displayList.length;
+
+    const dashKanjiCount = document.getElementById('dashKanjiCount');
+    if (dashKanjiCount) {
+        // Trên Dashboard chính vẫn hiển thị tổng số Kanji đã thuộc toàn cục
+        const totalUnlockedOverall = Object.values(activeMap).filter(interval => interval > 0).length;
+        dashKanjiCount.innerText = totalUnlockedOverall;
+    }
+
     if (displayList.length === 0) {
         grid.innerHTML = '<p style="text-align:center; grid-column:1/-1; color:#a0aec0; padding:30px;">Chưa có dữ liệu.</p>';
         return;
     }
 
-    // Đọc cả 2 bảng từ RAM Cache
-    const activeMap = userKanjiMasteryMap || {};
-    const peaksMap = currentUser.kanji_peaks || {}; // 🟢 ĐỌC BẢNG KỶ LỤC
-
     grid.innerHTML = displayList.map(item => {
         const kanji = item.kanji;
         
-        // 1. THẮP SÁNG THEO ĐIỂM KỶ LỤC (Chữ sẽ không bao giờ bị tối đi khi xóa thẻ)
+        // THẮP SÁNG THEO ĐIỂM KỶ LỤC
         const peakInterval = peaksMap[kanji] || 0; 
-        const currentInterval = activeMap[kanji] || 0; // Điểm thực tế hiện tại
+        const currentInterval = activeMap[kanji] || 0; 
         
         let stateClass = 'lvl-locked'; 
         if (peakInterval > 0) {
@@ -13811,7 +13834,6 @@ function renderKanjiCollectionGrid(levelFilter, btnElement = null) {
             else stateClass = 'lvl-mastered';                         
         }
         
-        // 2. TẠO TOOLTIP TRỰC QUAN KHI HOVER
         const tooltipText = peakInterval > 0 
             ? `${kanji} \\n🏆 Kỷ lục: ${peakInterval} ngày\\n⚡ Hiện tại: ${currentInterval} ngày`
             : `${kanji} \\n🔒 Chưa kích hoạt`;
@@ -21632,7 +21654,16 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
         return null;
     }
 }
-
+function deduplicateKanjiList(list) {
+    if (!Array.isArray(list)) return [];
+    const seen = new Set();
+    return list.filter(item => {
+        if (!item || !item.kanji) return false;
+        const duplicate = seen.has(item.kanji);
+        seen.add(item.kanji);
+        return !duplicate;
+    });
+}
 
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
