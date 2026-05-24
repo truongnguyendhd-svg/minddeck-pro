@@ -8241,7 +8241,8 @@ let isSrsSubmitting = false;
 // Biến quản lý Cache Dashboard (SWR Cooldown)
 let lastDashboardSync = 0;
 let cachedDueCount = 0;
-let forceDashboardRefresh = true; // Mặc định bằng true để lần đầu tiên mở App chắc chắn sẽ tải
+let cachedVocabStudiedCount = 0; // 🟢 THÊM MỚI: Biến cache lưu trữ lượng Flashcard đã học
+let forceDashboardRefresh = true; // Mặc định bằng true
 let isTabLeader = false;      // Cờ đánh dấu Tab hiện tại có phải là Leader không
 let leaderTimeout = null;     // Bộ đếm thời gian chờ phản hồi bầu cử
 
@@ -8583,23 +8584,26 @@ async function loadDashboardData() {
             await syncAllMasteryFromCloud();
         }
 
-        // 1. LẤY SỐ THẺ TRỄ HẠN QUA HÀM RPC ĐÃ TỐI ƯU (TỐC ĐỘ < 5ms)
+        // 1. LẤY SỐ THẺ TRỄ HẠN VÀ SỐ THẺ ĐÃ HỌC QUA HÀM RPC (CHẠY SONG SONG)
         if (forceDashboardRefresh || (nowMs - lastDashboardSync) > 60000) {
-            console.log("MindDeck: Cập nhật đếm thẻ trễ hạn từ RPC Cloud...");
+            console.log("MindDeck: Cập nhật dữ liệu Dashboard từ RPC Cloud...");
             
-            const { data: dueCount, error: err1 } = await sb.rpc('get_due_cards_count', {
-                p_now: nowIso
-            });
+            // 🟢 TỐI ƯU: Chạy 2 API cùng lúc giúp giảm một nửa thời gian chờ mạng
+            const [dueRes, vocabRes] = await Promise.all([
+                sb.rpc('get_due_cards_count', { p_now: nowIso }),
+                sb.rpc('get_studied_flashcards_count', { p_user_id: currentUser.id })
+            ]);
         
-            if (err1) {
-                console.error("Lỗi gọi RPC đếm thẻ trễ hạn:", err1);
-            }
+            if (dueRes.error) console.error("Lỗi gọi RPC đếm thẻ trễ hạn:", dueRes.error);
+            if (vocabRes.error) console.error("Lỗi gọi RPC đếm flashcard đã học:", vocabRes.error);
             
-            cachedDueCount = dueCount || 0;
+            cachedDueCount = dueRes.data || 0;
+            cachedVocabStudiedCount = vocabRes.data || 0; // 🟢 Cập nhật vào RAM
+            
             lastDashboardSync = nowMs;
             forceDashboardRefresh = false; // Tắt cờ sau khi đã tải xong
         } else {
-            console.log("MindDeck: Sử dụng đếm thẻ trễ hạn từ RAM (Bỏ qua API)");
+            console.log("MindDeck: Sử dụng dữ liệu Dashboard từ RAM (Bỏ qua API)");
         }
         
         document.getElementById('dashDueCount').innerText = cachedDueCount;
@@ -12097,6 +12101,8 @@ async function deleteDeckFromDashboard(event, deckId, deckName) {
 
             showToast("🗑️ Đã xóa học phần thành công!");
             renderManageDeckList(true); // Truyền true để CHẶN gọi mạng
+            forceDashboardRefresh = true;
+
             triggerSilentBackgroundSync(null, true);
         } catch (err) {
             customAlert("Lỗi xóa dữ liệu: " + err.message, "❌");
@@ -13045,6 +13051,8 @@ async function deleteQuickCard() {
 
         closeModal('quickEditModal');
         showToast("Đã xóa thẻ khỏi bộ bài! 🗑️");
+        forceDashboardRefresh = true;
+
 
         // ❌ ĐÃ XÓA DÒNG NÀY: triggerSilentBackgroundSync(null, true); 
         // (Chặn đứng việc xóa cache và gọi tải lại JSONB khổng lồ)
@@ -19272,14 +19280,8 @@ async function renderRoadmapWidget() {
         const quota = JLPT_QUOTA[goal.level];
         if (!quota) return;
 
-        // 3. TẢI TỔNG LƯỢNG TIẾN TRÌNH THỰC TẾ HIỆN TẠI (Qua RPC đã tối ưu Index)
-        const { data: vocabStudiedCount, error: countErr } = await sb.rpc('get_studied_flashcards_count', {
-            p_user_id: currentUser.id
-        });
-        
-        if (countErr) {
-            console.error("Lỗi đếm số lượng Flashcard đã học:", countErr);
-        }
+        // 3. TẢI TỔNG LƯỢNG TIẾN TRÌNH THỰC TẾ HIỆN TẠI (Lấy từ RAM Cache, tốn 0 byte mạng)
+        const vocabStudiedCount = cachedVocabStudiedCount;
             
         const grammarCount = Object.keys(userGrammarMasteryMap).length;
         const kanjiCount = Object.keys(userKanjiMasteryMap).length;
@@ -19707,7 +19709,7 @@ async function saveStoryAndStudy() {
         
         closeModal('aiStoryModal');
         currentGeneratedStoryData = null;
-        renderRoadmapWidget(); 
+        forceDashboardRefresh = true;
         hideLoading();
 
         window.scrollTo({ top: 0, behavior: 'instant' });
