@@ -21534,16 +21534,21 @@ async function syncUserDataWithCloud() {
     try {
         const lastSyncTime = localStorage.getItem(`minddeck_delta_sync_time_${userId}`);
 
-        if (!lastSyncTime) {
-            console.log("MindDeck: 🆕 Thiết lập thiết bị mới. Đang tải trọn gói dữ liệu ban đầu...");
+        // 🟢 BẢN VÁ LỖI CỐT LÕI (CHỐT CHẶN BẢO VỆ RAM):
+        // Nếu RAM rỗng (Do máy mới, clear cache), BẮT BUỘC phải tải Full Data
+        // Không được phép chạy Delta Sync trên một Object Null.
+        const isRamEmpty = !userKanjiMasteryMap || !userGrammarMasteryMap || !currentUser.kanji_peaks || !currentUser.grammar_peaks;
+
+        // TRƯỜNG HỢP 1: TẢI HOÀN TOÀN (FULL SYNC)
+        if (!lastSyncTime || isRamEmpty) {
+            console.log("MindDeck: 🆕 RAM rỗng hoặc thiết bị mới. Bắt buộc tải trọn gói dữ liệu ban đầu...");
             const { data: profile, error } = await sb.from('profiles')
                 .select('kanji_mastery, grammar_mastery, kanji_peaks, grammar_peaks, study_goal, daily_stats')
                 .eq('id', userId)
                 .single();
 
             if (error) {
-                // 🟢 BẢN VÁ LỖI: Nếu là User mới tinh (Lỗi PGRST116: Không tìm thấy dòng)
-                // Hệ thống tự động khởi tạo dữ liệu rỗng để App chạy tiếp mượt mà
+                // Xử lý an toàn cho tài khoản mới tinh chưa có dữ liệu trên DB
                 if (error.code === 'PGRST116') {
                     console.log("MindDeck: Tài khoản mới, đang khởi tạo dữ liệu rỗng...");
                     userKanjiMasteryMap = {};
@@ -21553,10 +21558,9 @@ async function syncUserDataWithCloud() {
                     currentUser.study_goal = null;
                     currentUser.daily_stats = null;
                 } else {
-                    throw error; // Nếu là lỗi mất mạng thì ném ra ngoài
+                    throw error;
                 }
             } else {
-                // Nếu User cũ có data thì nạp bình thường
                 userKanjiMasteryMap = profile.kanji_mastery || {};
                 userGrammarMasteryMap = profile.grammar_mastery || {};
                 currentUser.kanji_peaks = profile.kanji_peaks || {};
@@ -21565,15 +21569,14 @@ async function syncUserDataWithCloud() {
                 currentUser.daily_stats = profile.daily_stats;
             }
 
-            // Lưu dấu thời gian hiện tại làm mốc đồng bộ tiếp theo
             localStorage.setItem(`minddeck_delta_sync_time_${userId}`, new Date().toISOString());
             saveAllToLocalStorage(userId);
             renderActivePage();
-            return;
+            return; // 👈 Thoát hàm ngay, không chạy xuống Delta Sync nữa
         }
 
         // =========================================================================
-        // TRƯỜNG HỢP 2: ĐỒNG BỘ GIA TĂNG VI SẠI (DELTA SYNC) - SIÊU BĂNG THÔNG 0.05 KB
+        // TRƯỜNG HỢP 2: ĐỒNG BỘ GIA TĂNG VI SẠI (DELTA SYNC) - SIÊU BĂNG THÔNG
         // =========================================================================
         console.log(`MindDeck: 📡 Đang dò tìm biến động kể từ mốc: ${lastSyncTime}`);
         
@@ -21587,27 +21590,34 @@ async function syncUserDataWithCloud() {
 
         if (deltas && deltas.length > 0) {
             console.log(`MindDeck: ☄️ Phát hiện ${deltas.length} chữ có thay đổi. Tiến hành cập nhật vi sai...`);
+            
             deltas.forEach(d => {
                 if (d.type === 'kanji') {
                     if (d.current_val === 0) delete userKanjiMasteryMap[d.key];
                     else userKanjiMasteryMap[d.key] = d.current_val;
+                    
                     currentUser.kanji_peaks[d.key] = d.peak_val;
                 } else if (d.type === 'grammar') {
                     if (d.current_val === 0) delete userGrammarMasteryMap[d.key];
                     else userGrammarMasteryMap[d.key] = d.current_val;
+
                     currentUser.grammar_peaks[d.key] = d.peak_val;
                 }
             });
 
             const newestTime = deltas[deltas.length - 1].updated_at;
             localStorage.setItem(`minddeck_delta_sync_time_${userId}`, newestTime);
+            
             saveAllToLocalStorage(userId);
             renderActivePage();
+            // showToast(`🔄 Đã đồng bộ vi sai ${deltas.length} mục mới!`); // (Có thể bật lại nếu muốn)
+        } else {
+            console.log("MindDeck: 🛡️ Không có biến động mới. Data đạt trạng thái tối ưu tuyệt đối.");
         }
 
     } catch (e) {
-        console.error("Lỗi đồng bộ vi sai:", e);
-        throw e; // 🟢 QUAN TRỌNG: Phải ném lỗi ra để bộ phận chặn lỗi ở ngoài cùng bắt được và hiển thị màn hình đỏ thay vì kẹt loading
+        console.error("Lỗi đồng bộ dữ liệu:", e);
+        throw e; // Ném lỗi ra để màn hình đỏ bắt được thay vì kẹt vòng quay
     }
 }
 
