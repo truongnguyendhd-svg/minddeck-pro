@@ -16240,6 +16240,9 @@ function openAdminGrammarModal(encodedJSON) {
     document.getElementById('adminGrammarModal').style.display = 'flex';
 }
 
+// =====================================================================
+// ADMIN: LƯU NGỮ PHÁP MỚI VÀ ĐỒNG BỘ CACHE THÔNG MINH (ZERO-BANDWIDTH)
+// =====================================================================
 async function saveAdminGrammar() {
     const point = document.getElementById('agmPoint').value.trim();
     const meaning = document.getElementById('agmMeaning').value.trim();
@@ -16258,6 +16261,7 @@ async function saveAdminGrammar() {
     showLoading("Đang kiểm tra dữ liệu và lưu...");
 
     try {
+        // 1. Quét chống trùng lặp trên Cloud
         const { data: existingGrammar, error: checkErr } = await sb.from('grammar_dict')
             .select('id, level')
             .eq('grammar_point', point);
@@ -16272,23 +16276,53 @@ async function saveAdminGrammar() {
             );
         }
 
-        const { error: insertErr } = await sb.from('grammar_dict').insert([{
-            grammar_point: point,
-            meaning: meaning,
-            level: level,
-            structure: structure,
-            nuance: nuance,
-            ex1_jp: ex1_jp,
-            ex1_vn: ex1_vn,
-            ex2_jp: ex2_jp,
-            ex2_vn: ex2_vn
-        }]);
+        // 2. Insert và YÊU CẦU TRẢ VỀ BẢN GHI VỪA TẠO (.select().single())
+        const { data: newRecord, error: insertErr } = await sb.from('grammar_dict')
+            .insert([{
+                grammar_point: point,
+                meaning: meaning,
+                level: level,
+                structure: structure,
+                nuance: nuance,
+                ex1_jp: ex1_jp,
+                ex1_vn: ex1_vn,
+                ex2_jp: ex2_jp,
+                ex2_vn: ex2_vn
+            }])
+            .select() // Lấy lại toàn bộ Data vừa được Database cấp ID
+            .single();
 
         if (insertErr) throw insertErr;
 
-        // Xóa cache của Ngữ pháp để chuẩn bị nạp lại dữ liệu mới nhất
-        await dbOps.clear(STORE_GRAMMAR);
-        globalGrammarData = [];
+        // 3. ĐỒNG BỘ CỤC BỘ (Tuyệt đối KHÔNG xóa dbOps.clear nữa)
+        if (newRecord) {
+            // Đánh dấu thẻ này đã có đủ data chi tiết để hàm mở Modal không cần tải lại
+            newRecord.isLoaded = true; 
+
+            // Nhét thẳng bản ghi mới tinh vào IndexedDB
+            await dbOps.put(STORE_GRAMMAR, newRecord);
+            
+            // Nhét vào RAM hệ thống đang chạy
+            globalGrammarData.push(newRecord);
+            
+            // Sắp xếp lại RAM cho chuẩn Level (N1 -> N5)
+            globalGrammarData.sort((a, b) => (a.level > b.level ? -1 : 1));
+
+            // 4. KIỂM TRA UI: Nếu đang đứng ở trang Ngữ Pháp thì vẽ lại màn hình ngay
+            const grammarPage = document.getElementById('grammarPage');
+            if (grammarPage && !grammarPage.classList.contains('hidden')) {
+                // Xác định xem người dùng đang lọc ở tab nào (N1, N2 hay Tất cả)
+                const activePill = document.querySelector('#grammarFilterBar .grammar-pill.active');
+                const currentFilter = activePill ? activePill.innerText.trim() : 'ALL';
+                
+                let displayData = globalGrammarData;
+                if (currentFilter !== 'ALL' && currentFilter !== 'Tất cả') {
+                    displayData = globalGrammarData.filter(g => g.level === currentFilter);
+                }
+                // Vẽ lại giao diện
+                renderGrammarGrid(displayData);
+            }
+        }
 
         closeModal('adminGrammarModal');
         showToast("✅ Đã thêm Ngữ pháp vào Hệ thống Toàn cầu!");
