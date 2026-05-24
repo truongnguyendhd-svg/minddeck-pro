@@ -20792,9 +20792,10 @@ document.addEventListener('click', (e) => {
     }
 });
 /* Hết================= GLOBAL MASTER CLICK HANDLER (TỐI ƯU HIỆU NĂNG - QUẢN LÝ TẤT CẢ DROPDOWN) ================= */
-// ================= HỆ THỐNG ĐỒNG BỘ NGẦM (ĐÃ NÂNG CẤP RAM-FIRST) =================
+/* ================= HỆ THỐNG ĐỒNG BỘ NGẦM (SILENT BACKGROUND SYNC) ================= */
 async function triggerSilentBackgroundSync(textToScan = null, isDestructive = false) {
     if (!currentUser) return;
+    const userId = currentUser.id; // 🟢 SỬA LỖI 1: Định nghĩa userId ở cấp độ hàm để toàn bộ các khối bên dưới đều sử dụng được
 
     // -----------------------------------------------------------
     // TRƯỜNG HỢP 1: THAO TÁC THÊM/SỬA (XỬ LÝ HOÀN TOÀN BẰNG RAM - 0 BYTE CLOUD)
@@ -20808,65 +20809,66 @@ async function triggerSilentBackgroundSync(textToScan = null, isDestructive = fa
         kanjis.forEach(k => {
             if (userKanjiMasteryMap[k] === undefined) {
                 userKanjiMasteryMap[k] = 0; // Đưa vào trạng thái Chưa học (Màu xám)
-                hasNewKanji = true;
+                hasNewData = true; // 🟢 SỬA LỖI 2: Đổi từ biến chưa khai báo "hasNewKanji" sang biến chuẩn "hasNewData"
             }
         });
 
         // 2. Lưu vào ổ cứng và update số lượng trên UI (Nếu có thay đổi)
         if (hasNewData) {
-            localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-            
-            // Cập nhật số lượng Kanji trên Dashboard / Pokedex
+            localStorage.setItem(`minddeck_kanji_cache_${userId}`, JSON.stringify(userKanjiMasteryMap));
+
+            // 🟢 TỐI ƯU SỐ ĐẾM: Chỉ đếm các chữ thực tế đã tiếp xúc (interval > 0) 
+            // giống như quy tắc hiển thị trên Pokedex, không đếm gộp cả chữ có interval = 0.
+            const unlockedCount = Object.values(userKanjiMasteryMap).filter(interval => interval > 0).length;
+
+            // Cập nhật số lượng Kanji hiển thị trên Dashboard
             const dashKanjiCount = document.getElementById('dashKanjiCount');
-            if (dashKanjiCount) dashKanjiCount.innerText = Object.keys(userKanjiMasteryMap).length;
-            
+            if (dashKanjiCount) dashKanjiCount.innerText = unlockedCount;
+
+            // Cập nhật số lượng trên trang bộ sưu tập Kanji (Pokedex)
             const kcMasteredCountPage = document.getElementById('kcMasteredCountPage');
-            if (kcMasteredCountPage) kcMasteredCountPage.innerText = Object.keys(userKanjiMasteryMap).length;
-            
-            renderJLPTProgress(); // Vẽ lại thanh ngang
+            if (kcMasteredCountPage) kcMasteredCountPage.innerText = unlockedCount;
+
+            renderJLPTProgress(); // Vẽ lại thanh tiến trình JLPT
         }
         return; // DỪNG LẠI TẠI ĐÂY! KHÔNG GỌI CLOUD!
     }
 
-    // -----------------------------------------------------------
-    // TRƯỜNG HỢP 2: THAO TÁC XÓA LỚN (BẮT BUỘC GỌI CLOUD)
-    // -----------------------------------------------------------
-    // Khi xóa 1 bộ bài (Delete Deck) hoặc Dọn bộ yêu thích, ta không thể biết chính xác 
-    // chữ Kanji nào bị mất hoàn toàn, chữ nào vẫn còn ở bộ bài khác. 
-    // Do đó, ta BẮT BUỘC phải dọn rác và nhờ Supabase tính lại.
     // -----------------------------------------------------------
     // TRƯỜNG HỢP 2: THAO TÁC XÓA LỚN (BẮT BUỘC GỌI CLOUD NẾU ĐANG Ở TRANG THỐNG KÊ)
     // -----------------------------------------------------------
     if (isDestructive) {
         console.log("MindDeck: 🗑️ Phát hiện thao tác Xóa lớn. Đang dọn Cache để chuẩn bị tái đồng bộ...");
         try {
-            // 1. Xóa mảng cache tiến trình hiện tại
+            // 1. Xóa mảng cache tiến trình hiện tại dưới Local
             localStorage.removeItem(`minddeck_kanji_cache_${userId}`);
             localStorage.removeItem(`minddeck_grammar_cache_${userId}`);
-            
-            // 2. XÓA MẢNG CACHE KỶ LỤC CÁ NHÂN
+
+            // 2. Xóa mảng cache kỷ lục cá nhân
             localStorage.removeItem(`minddeck_kanji_peaks_cache_${userId}`);
             localStorage.removeItem(`minddeck_grammar_peaks_cache_${userId}`);
-            
-            // 3. XÓA KHÓA ĐỒNG BỘ THỜI GIAN (Ép trình duyệt phải chạy Full Sync ở lần tiếp theo)
-            localStorage.removeItem(`minddeck_delta_sync_time_${userId}`);            
+
+            // 3. Xóa các khóa lưu dấu thời gian cũ để buộc thiết bị phải đồng bộ mới ở chu kỳ sau
+            localStorage.removeItem(`minddeck_delta_sync_time_${userId}`);
+            localStorage.removeItem(`minddeck_mastery_updated_${userId}`);
+
             // Xóa cache danh sách bộ bài
             localStorage.removeItem(`minddeck_decks_cache_${userId}`);
 
-            // 4. Kích hoạt đồng bộ lại ngay lập tức nếu đang ở trang Thống kê/Pokedex
+            // 4. Kích hoạt đồng bộ lại ngay lập tức nếu đang mở các trang hiển thị dữ liệu trực quan
             const isDashboard = !document.getElementById('dashboardPage').classList.contains('hidden');
             const isKanjiPage = !document.getElementById('kanjiPage').classList.contains('hidden');
             const isGrammarPage = !document.getElementById('grammarPage').classList.contains('hidden');
 
             if (isDashboard || isKanjiPage || isGrammarPage) {
-                await syncUserDataWithCloud(); // Chạy lại gộp
+                await syncUserDataWithCloud(); // Tải lại toàn bộ dữ liệu sạch
             } else {
                 // Đặt RAM về null để chờ người dùng bấm chuyển trang sẽ tự nạp sau
                 userKanjiMasteryMap = null;
                 userGrammarMasteryMap = null;
             }
-        } catch (e) { 
-            console.error("Lỗi dọn rác hệ thống ngầm:", e); 
+        } catch (e) {
+            console.error("Lỗi dọn rác hệ thống ngầm:", e);
         }
     }
 }
