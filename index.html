@@ -8390,11 +8390,16 @@ function sanitizeTagName(tag) {
 }
 // HÀM MỚI: Tự động đánh số (1), (2) nếu tên bộ bài đã tồn tại
 async function generateUniqueDeckName(baseName, deckType) {
-    // 1. Lấy danh sách tên tất cả bộ bài hiện có của User
-    const { data } = await sb.from('decks').select('id').eq('owner_id', currentUser.id).eq('type', deckType);
-    const existingNames = data ? data.map(d => getCleanName(d.id)) : [];
+    // Đọc thẳng từ RAM/Local Cache (0 byte băng thông mạng, 0ms delay)
+    const cacheKey = `minddeck_decks_cache_${currentUser.id}`;
+    const cachedDecks = JSON.parse(localStorage.getItem(cacheKey) || "[]");
+    
+    // Lọc ra danh sách tên
+    const existingNames = cachedDecks
+        .filter(d => d.type === deckType)
+        .map(d => getCleanName(d.id));
 
-    // 2. Vòng lặp kiểm tra trùng lặp
+    // Vòng lặp kiểm tra trùng lặp
     let finalName = baseName;
     let counter = 1;
     while (existingNames.includes(finalName)) {
@@ -21700,6 +21705,12 @@ async function syncAllMasteryFromCloud() {
 }
 // 🟢 [TỐI ƯU HÓA MAZII]: Lấy chi tiết Kanji từ API public của Mazii (Miễn phí băng thông)
 async function fetchMaziiKanjiDetail(kanjiChar) {
+    // 🟢 CHỐT CHẶN BĂNG THÔNG: Nếu đã tra rồi thì lấy thẳng từ RAM
+    window.kanjiDetailCache = window.kanjiDetailCache || {};
+    if (window.kanjiDetailCache[`mazii_${kanjiChar}`]) {
+        console.log(`MindDeck: Đọc Kanji [${kanjiChar}] từ Mazii Cache 🎯`);
+        return window.kanjiDetailCache[`mazii_${kanjiChar}`];
+    }
     try {
         const response = await fetch('https://mazii.net/api/search', {
             method: 'POST',
@@ -21766,6 +21777,9 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 onyomi: k.on || '',
                 kunyomi: k.kun || ''
             };
+            // 🟢 LƯU VÀO CACHE TRƯỚC KHI TRẢ VỀ
+            window.kanjiDetailCache[`mazii_${kanjiChar}`] = result;
+            return result;
         }
         return null;
     } catch (e) {
