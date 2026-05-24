@@ -13669,56 +13669,49 @@ let currentKanjiFilter = 'ALL'; // Lưu bộ lọc hiện tại
 let isKanjiLoadingPromise = null; // 🌟 THÊM KHÓA TOÀN CỤC CHỐNG RACE CONDITION
 // HÀM TẢI TỪ ĐIỂN KANJI AN TOÀN (VƯỢT RÀO 1000 ROW CỦA SUPABASE)
 async function ensureKanjiDictLoaded() {
-    // 1. Đã có sẵn dữ liệu sạch trong RAM -> Trả về ngay
     if (allKanjiData.length > 0) {
         allKanjiData = deduplicateKanjiList(allKanjiData);
         return true;
     }
 
-    // 2. Đang có luồng khác tải dở dang -> Cùng đợi chung một Promise, không gửi thêm request
     if (isKanjiLoadingPromise) {
-        console.log("MindDeck: 🔒 Phát hiện tải Kanji đồng thời. Dùng chung luồng tránh Race Condition.");
         return isKanjiLoadingPromise;
     }
 
-    // 3. Khởi tạo khóa luồng bằng một chuỗi Async tự thực thi (IIFE)
     isKanjiLoadingPromise = (async () => {
         try {
             const isCompleted = localStorage.getItem('minddeck_kanji_dict_completed') === 'true';
-            const cachedDict = localStorage.getItem('minddeck_kanji_dict');
             
-            if (isCompleted && cachedDict) {
-                const rawList = JSON.parse(cachedDict);
-                const cleanList = deduplicateKanjiList(rawList);
-                if (rawList.length !== cleanList.length) {
-                    localStorage.setItem('minddeck_kanji_dict', JSON.stringify(cleanList));
-                }
-                allKanjiData = cleanList;
+            // Đọc dữ liệu từ IndexedDB thay vì LocalStorage
+            let localKanjis = await dbOps.getAll(STORE_KANJI);
+
+            if (isCompleted && localKanjis && localKanjis.length > 0) {
+                allKanjiData = deduplicateKanjiList(localKanjis);
                 return true;
             }
 
-            allKanjiData = cachedDict ? deduplicateKanjiList(JSON.parse(cachedDict)) : [];
-            let isFetching = true;
+            allKanjiData = deduplicateKanjiList(localKanjis);
             let fromIndex = allKanjiData.length;
             const step = 999;
+            let isFetching = true;
 
-            console.log(`MindDeck: Đang tải từ điển Kanji từ chỉ mục ${fromIndex}...`);
+            console.log(`MindDeck: Đang nạp dữ liệu Kanji từ chỉ mục ${fromIndex} từ Cloud...`);
 
             while (isFetching) {
                 const { data: kData, error: kErr } = await sb.from('kanji_builder')
                     .select('kanji, level')
                     .order('level', { ascending: true })
-                    .order('kanji', { ascending: true }) // Sắp xếp ổn định
+                    .order('kanji', { ascending: true })
                     .range(fromIndex, fromIndex + step);
                 
                 if (kErr) throw kErr;
 
                 if (kData && kData.length > 0) {
+                    // Lưu trực tiếp mẻ dữ liệu vào IndexedDB
+                    await dbOps.putBatch(STORE_KANJI, kData);
                     allKanjiData = allKanjiData.concat(kData);
                     allKanjiData = deduplicateKanjiList(allKanjiData);
                     fromIndex = allKanjiData.length;
-                    
-                    localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
                 }
 
                 if (!kData || kData.length <= step) {
@@ -13730,8 +13723,11 @@ async function ensureKanjiDictLoaded() {
                 localStorage.setItem('minddeck_kanji_dict_completed', 'true');
             }
             return true;
+        } catch (err) {
+            console.error("Lỗi đồng bộ Kanji sang IndexedDB:", err);
+            if (allKanjiData.length > 0) return true;
+            throw err;
         } finally {
-            // Mở khóa luồng sau khi hoàn thành (bất kể thành công hay thất bại)
             isKanjiLoadingPromise = null;
         }
     })();
@@ -14053,42 +14049,38 @@ async function loadGrammarData(level, btnElement = null) {
     grid.innerHTML = '<div style="text-align:center; padding:50px; grid-column:1/-1;"><div class="spinner" style="margin:auto; border-top-color:#1d1d1f;"></div><p style="color:#718096; margin-top:15px;">Đang nạp dữ liệu ngữ pháp...</p></div>';
 
     try {
-        // 🟢 BƯỚC 1: KIỂM TRA LOCALSTORAGE TRƯỚC (CHỈ KHI CHỌN ALL MỚI DÙNG CACHE)
-        if (level === 'ALL' && globalGrammarData.length === 0) {
-            const cachedDict = localStorage.getItem('minddeck_grammar_dict');
-            if (cachedDict) {
-                globalGrammarData = deduplicateGrammarList(JSON.parse(cachedDict));
-                console.log("MindDeck: Load Từ điển Ngữ pháp sạch từ LocalStorage");
+        // 1. Đọc dữ liệu tĩnh từ IndexedDB
+        if (globalGrammarData.length === 0) {
+            const localGrammars = await dbOps.readAll ? await dbOps.getAll(STORE_GRAMMAR) : await dbOps.getAll(STORE_GRAMMAR);
+            if (localGrammars && localGrammars.length > 0) {
+                globalGrammarData = deduplicateGrammarList(localGrammars);
             }
         }
 
-        // 🟢 BƯỚC 2: KHÓA CHỐNG TRÙNG LẶP KHI TẢI TỪ DATABASE (RACE CONDITION PREVENTION)
+        // 2. Nếu trống, tải từ Cloud và lưu trực tiếp vào IndexedDB
         if (globalGrammarData.length === 0) {
             if (isGrammarLoadingPromise) {
-                // Nếu đang có luồng khác tải, cùng đợi chung Promise đó
                 await isGrammarLoadingPromise;
             } else {
-                // Khởi tạo luồng tải và khóa lại
                 isGrammarLoadingPromise = (async () => {
                     const { data, error } = await sb.from('grammar_dict')
                         .select('id, grammar_point, level, meaning') 
                         .order('level', { ascending: true })
-                        .order('grammar_point', { ascending: true }); // Sắp xếp ổn định theo bảng chữ cái
+                        .order('grammar_point', { ascending: true });
                     
                     if (error) throw error;
                     globalGrammarData = deduplicateGrammarList(data || []); 
                     
                     if (globalGrammarData.length > 0) {
-                        localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
+                        await dbOps.putBatch(STORE_GRAMMAR, globalGrammarData);
                     }
                 })();
                 
                 await isGrammarLoadingPromise;
-                isGrammarLoadingPromise = null; // Mở khóa sau khi hoàn tất
+                isGrammarLoadingPromise = null;
             }
         }
 
-        // Lọc dữ liệu theo level nếu cần
         let displayData = globalGrammarData;
         if (level !== 'ALL') {
             displayData = globalGrammarData.filter(g => g.level === level);
@@ -14098,11 +14090,10 @@ async function loadGrammarData(level, btnElement = null) {
         renderGrammarGrid(displayData);
 
     } catch (err) {
-        console.error("Lỗi tải Grammar Dict:", err);
+        console.error("Lỗi nạp kho Ngữ pháp:", err);
         grid.innerHTML = '<p style="color:#e53e3e; text-align:center; grid-column:1/-1;">Lỗi tải dữ liệu!</p>';
     }
 }
-
 
 // Chức năng tìm kiếm Live (Không gọi API, lọc thẳng trên RAM)
 function filterGrammarLocally() {
@@ -16255,24 +16246,20 @@ async function saveAdminGrammar() {
     showLoading("Đang kiểm tra dữ liệu và lưu...");
 
     try {
-        // 1. KIỂM TRA TRÙNG LẶP (DUPLICATE CHECK)
-        // Query xem trong bảng grammar_dict đã có ngữ pháp này chưa
         const { data: existingGrammar, error: checkErr } = await sb.from('grammar_dict')
             .select('id, level')
             .eq('grammar_point', point);
 
         if (checkErr) throw checkErr;
 
-        // Nếu mảng trả về có dữ liệu -> Đã tồn tại
         if (existingGrammar && existingGrammar.length > 0) {
             hideLoading();
             return customAlert(
-                `Ngữ pháp <b style="color:#10b981; font-size:20px;">${escapeHTML(point)}</b> đã tồn tại trong Hệ thống toàn cầu (Cấp độ: ${existingGrammar[0].level}).<br><br>Vui lòng kiểm tra lại!`, 
+                `Ngữ pháp <b style="color:#10b981; font-size:20px;">${escapeHTML(point)}</b> đã tồn tại trong Hệ thống toàn cầu (Cấp độ: ${existingGrammar[0].level}).`, 
                 "⚠️"
             );
         }
 
-        // 2. INSERT VÀO DATABASE NẾU CHƯA TỒN TẠI
         const { error: insertErr } = await sb.from('grammar_dict').insert([{
             grammar_point: point,
             meaning: meaning,
@@ -16287,9 +16274,9 @@ async function saveAdminGrammar() {
 
         if (insertErr) throw insertErr;
 
-        // 3. XÓA CACHE RAM (Để lần sau user vào trang Bộ Sưu Tập Ngữ Pháp sẽ load bản mới nhất)
+        // Xóa cache của Ngữ pháp để chuẩn bị nạp lại dữ liệu mới nhất
+        await dbOps.clear(STORE_GRAMMAR);
         globalGrammarData = [];
-        localStorage.removeItem('minddeck_grammar_dict');
 
         closeModal('adminGrammarModal');
         showToast("✅ Đã thêm Ngữ pháp vào Hệ thống Toàn cầu!");
@@ -16315,16 +16302,15 @@ async function executeAutoGrammarGen() {
     showLoading(`AI đang tạo ${amount} ngữ pháp ${level}... Vui lòng đợi!`);
 
     try {
-        // --- CHỐT CHẶN 1 (SOFT FILTER): Lấy danh sách đang có để cấm AI tạo lại ---
-        const existingPoints = globalGrammarData
+        const localGrammars = await dbOps.getAll(STORE_GRAMMAR);
+        const existingPoints = localGrammars
             .filter(g => g.level === level)
-            .map(g => g.grammar_point.replace(/～/g, '')); // Xóa dấu ~ để AI dễ hiểu
+            .map(g => g.grammar_point.replace(/～/g, ''));
             
         const avoidStr = existingPoints.length > 0 
             ? `\nTUYỆT ĐỐI KHÔNG TẠO LẠI CÁC CẤU TRÚC SAU: [${existingPoints.join(', ')}]` 
             : "";
 
-        // Prompt ép chuẩn JSON và ÉP NGẮN GỌN
         const prompt = `Bạn là chuyên gia biên soạn giáo trình JLPT.
         Hãy tạo ra ${amount} cấu trúc ngữ pháp thuộc cấp độ ${level}. ${avoidStr}
         
@@ -16349,35 +16335,22 @@ async function executeAutoGrammarGen() {
         ]`;
 
         let aiResponse = await callGeminiAI(prompt);
-        // Làm sạch rác Markdown (nếu có)
         aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
         
-        let generatedData;
-        try {
-            generatedData = JSON.parse(aiResponse);
-        } catch (jsonError) {
-            hideLoading();
-            console.error("Raw AI Response:", aiResponse);
-            return customAlert(`Lỗi: AI tạo dữ liệu quá dài nên bị cắt cụt giữa chừng.<br>Hãy thử giảm số lượng xuống 10 cấu trúc/lần.`, "⚠️ AI bị ngắt quãng");
-        }
+        let generatedData = JSON.parse(aiResponse);
 
         if (!Array.isArray(generatedData) || generatedData.length === 0) {
             throw new Error("AI trả về sai format mảng.");
         }
 
-        // --- CHỐT CHẶN 2 (HARD FILTER): Lọc cứng bằng JS trước khi lên Database ---
-        document.getElementById('loadingText').innerText = "Đang kiểm tra trùng lặp và lưu Database...";
-        
-        // Mảng chứa các ngữ pháp đã tồn tại trong toàn bộ DB (tránh rủi ro)
-        const allExistingPoints = globalGrammarData.map(g => g.grammar_point.replace(/～/g, '').trim());
-        
+        const allExistingPoints = localGrammars.map(g => g.grammar_point.replace(/～/g, '').trim());
         const validGrammars = [];
         const duplicatePoints = [];
 
         generatedData.forEach(item => {
             const cleanPoint = item.point.replace(/～/g, '').trim();
             if (allExistingPoints.includes(cleanPoint)) {
-                duplicatePoints.push(item.point); // Bị trùng
+                duplicatePoints.push(item.point);
             } else {
                 validGrammars.push({
                     grammar_point: item.point,
@@ -16393,19 +16366,16 @@ async function executeAutoGrammarGen() {
             }
         });
 
-        // Nếu tất cả đều trùng
         if (validGrammars.length === 0) {
             hideLoading();
             return customAlert(`Toàn bộ ${duplicatePoints.length} cấu trúc AI tạo ra đều ĐÃ CÓ trong hệ thống. Vui lòng thử lại!`, "⚠️ Trùng lặp hoàn toàn");
         }
 
-        // Insert vào Supabase
         const { error: insertErr } = await sb.from('grammar_dict').insert(validGrammars);
         if (insertErr) throw insertErr;
 
         hideLoading();
 
-        // Hiện thông báo chi tiết
         if (duplicatePoints.length > 0) {
             customAlert(`
                 🎉 <b>Đã tạo và lưu thành công:</b> ${validGrammars.length} cấu trúc mới.<br><br>
@@ -16416,19 +16386,18 @@ async function executeAutoGrammarGen() {
             showToast(`🎉 Thành công! Đã bơm ${validGrammars.length} ngữ pháp mới vào Database.`);
         }
 
-        // 🟢 ĐÃ VÁ LỖI BĂNG THÔNG: Bơm thẳng data mới vào RAM và vẽ lại lưới, KHÔNG CẦN tải lại toàn bộ DB
-        globalGrammarData = [...globalGrammarData, ...validGrammars];
-        
-        // Sắp xếp lại theo Level (N5 -> N1) cho chuẩn
-        globalGrammarData.sort((a, b) => {
-            if (a.level === b.level) return 0;
-            return a.level > b.level ? -1 : 1; 
-        });
+        // Đồng bộ dữ liệu mẻ mới trực tiếp xuống IndexedDB cục bộ
+        const lightNewData = validGrammars.map(g => ({
+            id: g.id,
+            grammar_point: g.grammar_point,
+            level: g.level,
+            meaning: g.meaning
+        }));
+        await dbOps.putBatch(STORE_GRAMMAR, lightNewData);
 
-        // Cập nhật lại Ổ cứng cục bộ
-        localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
-        
-        // Vẽ lại màn hình ngay lập tức
+        globalGrammarData = deduplicateGrammarList([...localGrammars, ...lightNewData]);
+        globalGrammarData.sort((a, b) => (a.level > b.level ? -1 : 1));
+
         if (!document.getElementById('grammarPage').classList.contains('hidden')) {
             renderGrammarGrid(globalGrammarData);
         }
@@ -16455,35 +16424,134 @@ let cachedPdfBase64 = null;
 let cachedPdfPageNum = null;
 let isPdfCanvasDirty = true; // Cờ theo dõi: Bật true khi lật trang hoặc vẽ thêm nét
 // ================= HỆ THỐNG INDEXED DB (LƯU PDF OFFLINE) =================
-const PDF_DB_NAME = 'AlcoholPdfStore';
-const PDF_STORE_NAME = 'recent_pdfs';
-const MAX_RECENT_FILES = 5;
+// =========================================================================
+// HỆ THỐNG CƠ SỞ DỮ LIỆU CỤC BỘ HỢP NHẤT (INDEXEDDB ENGINE)
+// =========================================================================
+const APP_DB_NAME = 'AlcoholPdfStore'; // Giữ nguyên tên để tương thích ngược
+const STORE_PDF = 'recent_pdfs';
+const STORE_KANJI = 'kanji_dict';
+const STORE_GRAMMAR = 'grammar_dict';
 
-// 🟢 BIẾN TOÀN CỤC LƯU TRỮ KẾT NỐI DUY NHẤT (SINGLETON)
-let pdfDbInstance = null;
+let appDbInstance = null;
 
-function initPdfDB() {
+/**
+ * Khởi tạo cơ sở dữ liệu cục bộ (Phiên bản 2)
+ */
+function initAppDB() {
     return new Promise((resolve, reject) => {
-        // Nếu đã có kết nối đang mở -> Tái sử dụng ngay, không mở thêm kết nối mới
-        if (pdfDbInstance) {
-            resolve(pdfDbInstance);
+        if (appDbInstance) {
+            resolve(appDbInstance);
             return;
         }
 
-        const request = indexedDB.open(PDF_DB_NAME, 1);
+        const request = indexedDB.open(APP_DB_NAME, 2); // Nâng cấp lên Version 2
+
         request.onupgradeneeded = (e) => {
             const db = e.target.result;
-            if (!db.objectStoreNames.contains(PDF_STORE_NAME)) {
-                db.createObjectStore(PDF_STORE_NAME, { keyPath: 'id' });
+            
+            // Bảo toàn Store PDF cũ nếu đã tồn tại
+            if (!db.objectStoreNames.contains(STORE_PDF)) {
+                db.createObjectStore(STORE_PDF, { keyPath: 'id' });
+            }
+            // Tạo mới Store chứa từ điển Kanji
+            if (!db.objectStoreNames.contains(STORE_KANJI)) {
+                db.createObjectStore(STORE_KANJI, { keyPath: 'kanji' });
+            }
+            // Tạo mới Store chứa từ điển Ngữ pháp
+            if (!db.objectStoreNames.contains(STORE_GRAMMAR)) {
+                db.createObjectStore(STORE_GRAMMAR, { keyPath: 'id' });
             }
         };
+
         request.onsuccess = (e) => {
-            pdfDbInstance = e.target.result; // Lưu trữ kết nối vào RAM
-            resolve(pdfDbInstance);
+            appDbInstance = e.target.result;
+            resolve(appDbInstance);
         };
-        request.onerror = () => reject(request.error);
+
+        request.onerror = () => {
+            reject(request.error);
+        };
     });
 }
+
+// Định nghĩa Alias để bảo toàn khả năng tương thích với các hàm PDF cũ trong file nguồn
+const initPdfDB = initAppDB;
+
+/**
+ * Trình điều phối tác vụ (Database Operations Helper)
+ */
+const dbOps = {
+    /**
+     * Lấy toàn bộ dữ liệu từ một Object Store
+     */
+    async getAll(storeName) {
+        const db = await initAppDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(storeName, 'readonly');
+            const store = tx.objectStore(storeName);
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
+        });
+    },
+
+    /**
+     * Ghi đè đơn lẻ một bản ghi
+     */
+    async put(storeName, item) {
+        const db = await initAppDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(storeName, 'readwrite');
+            const store = tx.objectStore(storeName);
+            const req = store.put(item);
+            req.onsuccess = () => resolve(true);
+            req.onerror = () => reject(req.error);
+        });
+    },
+
+    /**
+     * Ghi đè hàng loạt bản ghi (Bulk Write) tối ưu hóa Transaction
+     */
+    async putBatch(storeName, items) {
+        if (!items || items.length === 0) return true;
+        const db = await initAppDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(storeName, 'readwrite');
+            const store = tx.objectStore(storeName);
+            items.forEach(item => store.put(item));
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => reject(tx.error);
+        });
+    },
+
+    /**
+     * Xóa một bản ghi theo khóa chính
+     */
+    async delete(storeName, key) {
+        const db = await initAppDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(storeName, 'readwrite');
+            const store = tx.objectStore(storeName);
+            const req = store.delete(key);
+            req.onsuccess = () => resolve(true);
+            req.onerror = () => reject(req.error);
+        });
+    },
+
+    /**
+     * Dọn sạch toàn bộ dữ liệu của một Store
+     */
+    async clear(storeName) {
+        const db = await initAppDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(storeName, 'readwrite');
+            const store = tx.objectStore(storeName);
+            const req = store.clear();
+            req.onsuccess = () => resolve(true);
+            req.onerror = () => reject(req.error);
+        });
+    }
+};
 
 // Lưu file vào IndexedDB
 async function savePdfToOfflineStore(fileName, fileBlob, totalPages) {
@@ -19581,7 +19649,7 @@ window.editAdminKanji = function(encodedData) {
 };
 
 // 2. HÀM XÓA KANJI KHỎI DATABASE
-window.deleteAdminKanji = async function(kanji) {
+async function deleteAdminKanji(kanji) {
     const ok = await showConfirm(
         "Xóa chữ này?", 
         `Bạn có chắc chắn muốn xóa toàn bộ dữ liệu phân tích của chữ <b>"${kanji}"</b> khỏi Hệ thống toàn cầu?`, 
@@ -19594,14 +19662,15 @@ window.deleteAdminKanji = async function(kanji) {
         const { error } = await sb.from('kanji_builder').delete().eq('kanji', kanji);
         if (error) throw error;
 
+        // Xóa khỏi IndexedDB cục bộ
+        await dbOps.delete(STORE_KANJI, kanji);
+
         // Xóa khỏi Cache RAM
         allKanjiData = allKanjiData.filter(k => k.kanji !== kanji);
-        localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
 
         closeModal('xrayModal');
         showToast("🗑️ Đã xóa Kanji khỏi hệ thống!");
 
-        // Nếu người dùng đang mở trang Pokedex, render lại lưới để chữ đó biến mất/về màu xám
         if (!document.getElementById('kanjiPage').classList.contains('hidden')) {
             renderKanjiCollectionGrid(currentKanjiFilter);
         }
@@ -19612,7 +19681,7 @@ window.deleteAdminKanji = async function(kanji) {
     } finally {
         hideLoading();
     }
-};
+}
 /* Hết================= HÀM XỬ LÝ SỬA/XÓA TOÀN BỘ KANJI (DÀNH CHO ADMIN) ================= */
 
 // ================= HÀM XỬ LÝ SHADOWING DOJO (VOICE) =================
@@ -19878,7 +19947,6 @@ async function saveAdminKanjiBuilder() {
         return customAlert("Vui lòng điền đủ Hán Việt, Ý nghĩa và Cấu tạo!", "⚠️");
     }
 
-    // Biến chuỗi phẩy thành Mảng (Array)
     const componentsArray = componentsStr.split(',').map(s => s.trim()).filter(Boolean);
 
     showLoading("Đang nạp Kanji vào Database...");
@@ -19896,19 +19964,21 @@ async function saveAdminKanjiBuilder() {
         const { error } = await sb.from('kanji_builder').upsert(payload);
         if (error) throw error;
 
-        // Cập nhật lại Cache RAM để UI Pokedex không bị lỗi
+        // Cập nhật dữ liệu trong IndexedDB cục bộ
+        await dbOps.put(STORE_KANJI, { kanji: payload.kanji, level: payload.level });
+
+        // Cập nhật RAM Cache
         const existingIndex = allKanjiData.findIndex(k => k.kanji === kanji);
         if (existingIndex !== -1) {
-            allKanjiData[existingIndex] = payload;
+            allKanjiData[existingIndex] = { kanji: payload.kanji, level: payload.level };
         } else {
-            allKanjiData.push(payload);
+            allKanjiData.push({ kanji: payload.kanji, level: payload.level });
         }
-        localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
+
         closeModal('adminKanjiBuilderModal');
         hideLoading();
         showToast("✅ Đã đưa Kanji vào hệ thống thành công!");
 
-        // 🔥 MA THUẬT: Tự động bật Modal X-Ray lên ngay lập tức để khoe thành quả
         showKanjiXRay(new Event('click'), kanji);
 
     } catch (e) {
@@ -19924,46 +19994,44 @@ async function refreshKanjiCollection() {
     showLoading("Đang kiểm tra từ điển Kanji mới...");
     
     try {
-        // 1. Kéo mảng FLAT ARRAY chứa chữ Kanji (Payload siêu siêu nhẹ)
         const { data: cloudKanjis, error: err1 } = await sb.rpc('get_all_kanji_flat');
         if (err1) throw err1;
 
-        // 2. So sánh với RAM hiện tại
-        const localKanjiSet = new Set(allKanjiData.map(k => k.kanji));
-        const missingKanjis = cloudKanjis.filter(k => !localKanjiSet.has(k)); // cloudKanjis giờ đã là mảng thuần
+        const localKanjis = await dbOps.getAll(STORE_KANJI);
+        const localKanjiSet = new Set(localKanjis.map(k => k.kanji));
+        const missingKanjis = cloudKanjis.filter(k => !localKanjiSet.has(k));
 
         if (missingKanjis.length === 0) {
-            // Đã đồng bộ tiến độ người dùng ở hàm showKanjiCollection mỗi khi mở trang rồi, 
-            // nên nếu không có chữ mới thì chỉ cần báo thành công
             showToast("✅ Từ điển Kanji của bạn đã là bản mới nhất!");
         } else {
             document.getElementById('loadingText').innerText = `Đang tải ${missingKanjis.length} chữ Kanji mới...`;
             
-            // 3. Chỉ tải Full Data của NHỮNG CHỮ MỚI THIẾU
             const { data: newKanjiData, error: err2 } = await sb.from('kanji_builder')
                 .select('kanji, level')
                 .in('kanji', missingKanjis);
                 
             if (err2) throw err2;
 
-            // 4. "Bơm" thêm chữ mới vào RAM và LocalStorage (Không làm mất dữ liệu cũ)
-            allKanjiData = [...allKanjiData, ...newKanjiData];
-            localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
+            // Lưu dữ liệu gia tăng xuống IndexedDB
+            await dbOps.putBatch(STORE_KANJI, newKanjiData);
+            
+            // Cập nhật bộ nhớ đệm RAM
+            allKanjiData = deduplicateKanjiList([...localKanjis, ...newKanjiData]);
             
             showToast(`🎉 Đã cập nhật thêm ${newKanjiData.length} chữ Kanji mới!`);
         }
 
-        // 5. Cập nhật lại UI (Tiến trình SRS đã tự động gộp ở hàm showKanjiCollection)
-        await syncKanjiMastery(true); // Lấy lại điểm SRS mới nhất
+        await syncKanjiMastery(true); 
         renderKanjiCollectionGrid(currentKanjiFilter);
 
     } catch (e) {
-        console.error(e);
+        console.error("Lỗi cập nhật hệ thống Kanji:", e);
         customAlert("Lỗi khi kiểm tra cập nhật: " + e.message, "❌");
     } finally {
         hideLoading();
     }
 }
+
 
 // =====================================================================
 // HÀM ĐỒNG BỘ TIẾN ĐỘ KANJI (CHUẨN KIẾN TRÚC DB TRIGGER)
@@ -20017,12 +20085,11 @@ async function refreshGrammarCollection() {
     showLoading("Đang kiểm tra ngữ pháp mới...");
     
     try {
-        // 1. Kéo mảng FLAT ARRAY CHỈ CHỨA TÊN NGỮ PHÁP
         const { data: cloudGrammar, error: err1 } = await sb.rpc('get_all_grammar_points_flat');
         if (err1) throw err1;
 
-        // 2. Tìm các ngữ pháp Admin vừa thêm
-        const localGrammarSet = new Set(globalGrammarData.map(g => g.grammar_point));
+        const localGrammars = await dbOps.getAll(STORE_GRAMMAR);
+        const localGrammarSet = new Set(localGrammars.map(g => g.grammar_point));
         const missingGrammars = cloudGrammar.filter(g => !localGrammarSet.has(g));
 
         if (missingGrammars.length === 0) {
@@ -20030,34 +20097,33 @@ async function refreshGrammarCollection() {
         } else {
             document.getElementById('loadingText').innerText = `Đang tải ${missingGrammars.length} cấu trúc mới...`;
             
-            // 3. Tải Skeleton Data của những cấu trúc mới (Để đồng bộ với quy tắc Lazy Load)
             const { data: newGrammarData, error: err2 } = await sb.from('grammar_dict')
                 .select('id, grammar_point, level, meaning')
                 .in('grammar_point', missingGrammars);
                 
             if (err2) throw err2;
 
-            // 4. Trộn dữ liệu mới vào dữ liệu cũ
-            globalGrammarData = deduplicateGrammarList([...globalGrammarData, ...newGrammarData]);
+            // Ghi mẻ mới xuống IndexedDB
+            await dbOps.putBatch(STORE_GRAMMAR, newGrammarData);
             
-            // Sắp xếp lại từ N5 -> N1 cho chuẩn UI
+            // Cập nhật RAM Cache
+            globalGrammarData = deduplicateGrammarList([...localGrammars, ...newGrammarData]);
             globalGrammarData.sort((a, b) => (a.level > b.level ? -1 : 1));
             
-            localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
             showToast(`🎉 Đã nạp thêm ${newGrammarData.length} ngữ pháp mới!`);
         }
 
-        // 5. Cập nhật lại UI và điểm số
         await calculateGrammarMastery(true); 
         renderGrammarGrid(globalGrammarData);
 
     } catch (e) {
-        console.error(e);
+        console.error("Lỗi cập nhật ngữ pháp:", e);
         customAlert("Lỗi khi cập nhật ngữ pháp: " + e.message, "❌");
     } finally {
         hideLoading();
     }
 }
+
 // ================= HÀM LƯU THẺ YÊU THÍCH (BỎ QUA LỌC TRÙNG LẶP) =================
 window.addToFavorites = async function(event, btnElement) {
     event.stopPropagation();
@@ -20838,32 +20904,30 @@ async function triggerSilentBackgroundSync(textToScan = null, isDestructive = fa
     // TRƯỜNG HỢP 2: THAO TÁC XÓA LỚN (BẮT BUỘC GỌI CLOUD NẾU ĐANG Ở TRANG THỐNG KÊ)
     // -----------------------------------------------------------
     if (isDestructive) {
-        console.log("MindDeck: 🗑️ Phát hiện thao tác Xóa lớn. Đang dọn Cache để chuẩn bị tái đồng bộ...");
+        console.log("MindDeck: 🗑️ Phát hiện thao tác Xóa lớn. Đang tiến hành làm sạch LocalStorage và IndexedDB...");
         try {
-            // 1. Xóa mảng cache tiến trình hiện tại dưới Local
+            // 1. Dọn dẹp cache LocalStorage của người dùng hiện tại
             localStorage.removeItem(`minddeck_kanji_cache_${userId}`);
             localStorage.removeItem(`minddeck_grammar_cache_${userId}`);
-
-            // 2. Xóa mảng cache kỷ lục cá nhân
             localStorage.removeItem(`minddeck_kanji_peaks_cache_${userId}`);
             localStorage.removeItem(`minddeck_grammar_peaks_cache_${userId}`);
-
-            // 3. Xóa các khóa lưu dấu thời gian cũ để buộc thiết bị phải đồng bộ mới ở chu kỳ sau
             localStorage.removeItem(`minddeck_delta_sync_time_${userId}`);
             localStorage.removeItem(`minddeck_mastery_updated_${userId}`);
-
-            // Xóa cache danh sách bộ bài
             localStorage.removeItem(`minddeck_decks_cache_${userId}`);
-
-            // 4. Kích hoạt đồng bộ lại ngay lập tức nếu đang mở các trang hiển thị dữ liệu trực quan
+            localStorage.removeItem('minddeck_kanji_dict_completed');
+    
+            // 2. Dọn sạch cấu trúc từ điển tĩnh trong IndexedDB
+            await dbOps.clear(STORE_KANJI);
+            await dbOps.clear(STORE_GRAMMAR);
+    
+            // 3. Thực thi kéo dữ liệu mới nếu giao diện thống kê đang mở
             const isDashboard = !document.getElementById('dashboardPage').classList.contains('hidden');
             const isKanjiPage = !document.getElementById('kanjiPage').classList.contains('hidden');
             const isGrammarPage = !document.getElementById('grammarPage').classList.contains('hidden');
-
+    
             if (isDashboard || isKanjiPage || isGrammarPage) {
-                await syncUserDataWithCloud(); // Tải lại toàn bộ dữ liệu sạch
+                await syncUserDataWithCloud(); 
             } else {
-                // Đặt RAM về null để chờ người dùng bấm chuyển trang sẽ tự nạp sau
                 userKanjiMasteryMap = null;
                 userGrammarMasteryMap = null;
             }
