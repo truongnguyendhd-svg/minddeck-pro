@@ -8248,7 +8248,8 @@ let cachedDueCount = 0;
 let forceDashboardRefresh = true; // Mặc định bằng true để lần đầu tiên mở App chắc chắn sẽ tải
 let isTabLeader = false;      // Cờ đánh dấu Tab hiện tại có phải là Leader không
 let leaderTimeout = null;     // Bộ đếm thời gian chờ phản hồi bầu cử
-
+let allKanjiData = []; // RAM Cache gốc của bạn
+let isKanjiLoadingPromise = null; // 🌟 THÊM KHÓA TOÀN CỤC CHỐNG RACE CONDITION
 /* ================= 3. UTILITIES ================= */
 sessionBroadcast.onmessage = (event) => {
     const { type } = event.data;
@@ -13670,64 +13671,74 @@ let userKanjiMasteryMap = {}; // Lưu object: { '日': 15, '月': 5, '学': 60..
 let currentKanjiFilter = 'ALL'; // Lưu bộ lọc hiện tại
 // HÀM TẢI TỪ ĐIỂN KANJI AN TOÀN (VƯỢT RÀO 1000 ROW CỦA SUPABASE)
 async function ensureKanjiDictLoaded() {
-    // 1. Đã có trong RAM -> Tiến hành lọc trùng bảo vệ RAM và bỏ qua
+    // 1. Đã có sẵn dữ liệu sạch trong RAM -> Trả về ngay
     if (allKanjiData.length > 0) {
         allKanjiData = deduplicateKanjiList(allKanjiData);
         return true;
     }
 
-    // 2. Đã tải Full 100% trong LocalStorage -> Bốc lên RAM và tự chữa lành nếu cache cũ có trùng lặp
-    const isCompleted = localStorage.getItem('minddeck_kanji_dict_completed') === 'true';
-    const cachedDict = localStorage.getItem('minddeck_kanji_dict');
-    
-    if (isCompleted && cachedDict) {
-        const rawList = JSON.parse(cachedDict);
-        const cleanList = deduplicateKanjiList(rawList);
-        
-        // Nếu phát hiện cache cũ bị trùng (độ dài lệch nhau), tự động ghi đè bản sạch để sửa lỗi vĩnh viễn
-        if (rawList.length !== cleanList.length) {
-            console.log(`MindDeck: Phát hiện và tự động sửa chữa ${rawList.length - cleanList.length} lỗi trùng lặp trong cache.`);
-            localStorage.setItem('minddeck_kanji_dict', JSON.stringify(cleanList));
-        }
-        
-        allKanjiData = cleanList;
-        return true;
+    // 2. Đang có luồng khác tải dở dang -> Cùng đợi chung một Promise, không gửi thêm request
+    if (isKanjiLoadingPromise) {
+        console.log("MindDeck: 🔒 Phát hiện tải Kanji đồng thời. Dùng chung luồng tránh Race Condition.");
+        return isKanjiLoadingPromise;
     }
 
-    // 3. Nếu chưa có hoặc tải dở dang -> Dùng vòng lặp kéo nối tiếp từ Cloud
-    allKanjiData = cachedDict ? deduplicateKanjiList(JSON.parse(cachedDict)) : [];
-    let isFetching = true;
-    let fromIndex = allKanjiData.length;
-    const step = 999; 
-
-    console.log(`MindDeck: Đang tải từ điển Kanji từ chỉ mục ${fromIndex}...`);
-
-    while (isFetching) {
-        const { data: kData, error: kErr } = await sb.from('kanji_builder')
-            .select('kanji, level')
-            .order('level', { ascending: true })
-            .order('kanji', { ascending: true }) // Sử dụng sắp xếp ổn định phía Cloud
-            .range(fromIndex, fromIndex + step);
-        
-        if (kErr) throw kErr;
-
-        if (kData && kData.length > 0) {
-            allKanjiData = allKanjiData.concat(kData);
-            allKanjiData = deduplicateKanjiList(allKanjiData);
-            fromIndex = allKanjiData.length; 
+    // 3. Khởi tạo khóa luồng bằng một chuỗi Async tự thực thi (IIFE)
+    isKanjiLoadingPromise = (async () => {
+        try {
+            const isCompleted = localStorage.getItem('minddeck_kanji_dict_completed') === 'true';
+            const cachedDict = localStorage.getItem('minddeck_kanji_dict');
             
-            localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
-        }
+            if (isCompleted && cachedDict) {
+                const rawList = JSON.parse(cachedDict);
+                const cleanList = deduplicateKanjiList(rawList);
+                if (rawList.length !== cleanList.length) {
+                    localStorage.setItem('minddeck_kanji_dict', JSON.stringify(cleanList));
+                }
+                allKanjiData = cleanList;
+                return true;
+            }
 
-        if (!kData || kData.length <= step) {
-            isFetching = false;
-        }
-    }
+            allKanjiData = cachedDict ? deduplicateKanjiList(JSON.parse(cachedDict)) : [];
+            let isFetching = true;
+            let fromIndex = allKanjiData.length;
+            const step = 999;
 
-    if (allKanjiData.length > 0) {
-        localStorage.setItem('minddeck_kanji_dict_completed', 'true');
-    }
-    return true;
+            console.log(`MindDeck: Đang tải từ điển Kanji từ chỉ mục ${fromIndex}...`);
+
+            while (isFetching) {
+                const { data: kData, error: kErr } = await sb.from('kanji_builder')
+                    .select('kanji, level')
+                    .order('level', { ascending: true })
+                    .order('kanji', { ascending: true }) // Sắp xếp ổn định
+                    .range(fromIndex, fromIndex + step);
+                
+                if (kErr) throw kErr;
+
+                if (kData && kData.length > 0) {
+                    allKanjiData = allKanjiData.concat(kData);
+                    allKanjiData = deduplicateKanjiList(allKanjiData);
+                    fromIndex = allKanjiData.length;
+                    
+                    localStorage.setItem('minddeck_kanji_dict', JSON.stringify(allKanjiData));
+                }
+
+                if (!kData || kData.length <= step) {
+                    isFetching = false;
+                }
+            }
+
+            if (allKanjiData.length > 0) {
+                localStorage.setItem('minddeck_kanji_dict_completed', 'true');
+            }
+            return true;
+        } finally {
+            // Mở khóa luồng sau khi hoàn thành (bất kể thành công hay thất bại)
+            isKanjiLoadingPromise = null;
+        }
+    })();
+
+    return isKanjiLoadingPromise;
 }
 // BỘ SƯU TẬP KANJI: ĐÃ TỐI ƯU CHỐNG SPAM BĂNG THÔNG & TẢI NỐI TIẾP
 async function showKanjiCollection(skipHash = false) {
