@@ -14043,8 +14043,9 @@ function renderGrammarGrid(dataList) {
 // (Tìm hàm handleRoute() ở trên cùng và thêm dòng này vào nhánh if/else):
 // else if (route === 'grammar') { showGrammarVault(); }
 
+let isGrammarLoadingPromise = null; // 🌟 THÊM KHÓA TOÀN CỤC CHỐNG TRÙNG NGỮ PHÁP
+
 async function loadGrammarData(level, btnElement = null) {
-    // Đổi màu Pill Button
     if (btnElement) {
         document.querySelectorAll('.grammar-pill').forEach(el => el.classList.remove('active'));
         btnElement.classList.add('active');
@@ -14058,24 +14059,34 @@ async function loadGrammarData(level, btnElement = null) {
         if (level === 'ALL' && globalGrammarData.length === 0) {
             const cachedDict = localStorage.getItem('minddeck_grammar_dict');
             if (cachedDict) {
-                globalGrammarData = JSON.parse(cachedDict);
-                console.log("MindDeck: Load Từ điển Ngữ pháp từ LocalStorage (0 KB)");
+                globalGrammarData = deduplicateGrammarList(JSON.parse(cachedDict));
+                console.log("MindDeck: Load Từ điển Ngữ pháp sạch từ LocalStorage");
             }
         }
 
-        // 🟢 BƯỚC 2: NẾU CACHE RỖNG, GỌI SUPABASE VÀ LƯU VÀO LOCALSTORAGE
+        // 🟢 BƯỚC 2: KHÓA CHỐNG TRÙNG LẶP KHI TẢI TỪ DATABASE (RACE CONDITION PREVENTION)
         if (globalGrammarData.length === 0) {
-            const { data, error } = await sb.from('grammar_dict')
-                // 🟢 TỐI ƯU BĂNG THÔNG: Chỉ tải Skeleton (Bỏ qua ví dụ, cấu trúc, note nặng)
-                .select('id, grammar_point, level, meaning') 
-                .order('level', { ascending: true });
-            
-            if (error) throw error;
-            globalGrammarData = data || []; 
-            
-            // Lưu cứng vào ổ cứng trình duyệt
-            if (globalGrammarData.length > 0) {
-                localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
+            if (isGrammarLoadingPromise) {
+                // Nếu đang có luồng khác tải, cùng đợi chung Promise đó
+                await isGrammarLoadingPromise;
+            } else {
+                // Khởi tạo luồng tải và khóa lại
+                isGrammarLoadingPromise = (async () => {
+                    const { data, error } = await sb.from('grammar_dict')
+                        .select('id, grammar_point, level, meaning') 
+                        .order('level', { ascending: true })
+                        .order('grammar_point', { ascending: true }); // Sắp xếp ổn định theo bảng chữ cái
+                    
+                    if (error) throw error;
+                    globalGrammarData = deduplicateGrammarList(data || []); 
+                    
+                    if (globalGrammarData.length > 0) {
+                        localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
+                    }
+                })();
+                
+                await isGrammarLoadingPromise;
+                isGrammarLoadingPromise = null; // Mở khóa sau khi hoàn tất
             }
         }
 
@@ -14085,10 +14096,7 @@ async function loadGrammarData(level, btnElement = null) {
             displayData = globalGrammarData.filter(g => g.level === level);
         }
         
-        // 🟢 GỌI HÀM QUÉT MAP ĐỂ TÔ MÀU
         await calculateGrammarMastery(); 
-
-        // Render ra UI
         renderGrammarGrid(displayData);
 
     } catch (err) {
@@ -20032,7 +20040,7 @@ async function refreshGrammarCollection() {
             if (err2) throw err2;
 
             // 4. Trộn dữ liệu mới vào dữ liệu cũ
-            globalGrammarData = [...globalGrammarData, ...newGrammarData];
+            globalGrammarData = deduplicateGrammarList([...globalGrammarData, ...newGrammarData]);
             
             // Sắp xếp lại từ N5 -> N1 cho chuẩn UI
             globalGrammarData.sort((a, b) => (a.level > b.level ? -1 : 1));
@@ -21682,7 +21690,16 @@ function deduplicateKanjiList(list) {
         return !duplicate;
     });
 }
-
+function deduplicateGrammarList(list) {
+    if (!Array.isArray(list)) return [];
+    const seen = new Set();
+    return list.filter(item => {
+        if (!item || !item.grammar_point) return false;
+        const duplicate = seen.has(item.grammar_point);
+        seen.add(item.grammar_point);
+        return !duplicate;
+    });
+}
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
