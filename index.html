@@ -8881,11 +8881,9 @@ sb.auth.onAuthStateChange(async (event, session) => {
         const nowTime = Date.now();
         const COOLDOWN_TIME = 60 * 1000; // Bảo hộ chặn gọi mạng trong vòng 60 giây
 
-        let cloudSyncPromise = null;
-
-        // CHỈ KÍCH HOẠT COOLDOWN CHỐNG SPAM KHI VÀ CHỈ KHI MÁY ĐÃ CÓ CACHE AN TOÀN
+        // 🟢 BẢN VÁ LỖI CỐT LÕI: TÁCH BIỆT LOGIC VÀ KHÔNG DÙNG PROMISE BỊ LỠ NHỊP NỮA
+        // NẾU CÓ CACHE AN TOÀN VÀ ĐANG TRONG THỜI GIAN COOLDOWN (Chặn mạng)
         if (hasLocalCache && lastSyncTime && (nowTime - parseInt(lastSyncTime)) < COOLDOWN_TIME) {
-            // ĐANG TRONG COOLDOWN: Chặn gọi mạng Supabase, sử dụng luôn cache cục bộ trên RAM
             console.log("MindDeck: Chặn spam F5 thành công! Sử dụng cache cục bộ an toàn (0 Request)");
             
             // Vẽ lại biểu đồ từ bộ nhớ đệm cực nhanh để tránh giật lag hiển thị
@@ -8893,31 +8891,34 @@ sb.auth.onAuthStateChange(async (event, session) => {
                 renderJLPTProgress();
                 renderRoadmapWidget();
             }
-        } else {
-            // HẾT COOLDOWN HOẶC LẦN ĐẦU MỞ TAB: Kích hoạt đồng bộ Cloud thật sự
-            cloudSyncPromise = syncUserDataWithCloud();
+        } 
+        // NẾU HẾT COOLDOWN HOẶC LÀ MÁY MỚI (BẮT BUỘC PHẢI TẢI DATA)
+        else {
             sessionStorage.setItem(`minddeck_last_sync_time_${currentUser.id}`, nowTime.toString());
-        }
-
-        // 4. CHỐT CHẶN: Nếu máy mới tinh (KHÔNG có cache), ép khóa màn hình đợi tải xong từ Cloud
-        if (!hasLocalCache && cloudSyncPromise) {
-            showLoading("Đang thiết lập tiến trình học tập... Vui lòng đợi!");
-            try {
-                // Đợi tải từ Cloud về
-                await cloudSyncPromise; 
-            } catch (err) {
-                // 🚨 KHÓA TỬ THẦN: Nếu mất mạng lúc kéo data, cấm dùng App để bảo vệ Cloud không bị ghi đè sai
-                hideLoading();
-                document.body.innerHTML = `
-                    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center; padding: 20px; font-family: 'Noto Sans JP', sans-serif;">
-                        <span class="material-symbols-outlined" style="font-size: 60px; color: #e53e3e; margin-bottom: 20px;">wifi_off</span>
-                        <h2 style="color: #1a1a1a;">Lỗi đồng bộ dữ liệu</h2>
-                        <p style="color: #4a4a4a;">Máy của bạn không có bộ nhớ đệm, và hệ thống không thể tải dữ liệu từ Cloud do kết nối mạng không ổn định.<br>Để bảo vệ an toàn cho dữ liệu của bạn, hệ thống tạm thời bị khóa.</p>
-                        <button onclick="window.location.reload()" style="padding: 12px 24px; background: #0067c0; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 20px;">TẢI LẠI TRANG</button>
-                    </div>`;
-                return; // Dừng hoàn toàn mọi tiến trình JS
+            
+            // 🟢 Nếu là máy mới tinh/Rỗng Cache -> Ép bật Loading chờ đồng bộ xong mới cho dùng App
+            if (!hasLocalCache) {
+                showLoading("Đang thiết lập tiến trình học tập... Vui lòng đợi!");
+                try {
+                    await syncUserDataWithCloud(); // 👈 Ép đợi ở đây
+                } catch (err) {
+                    // 🚨 KHÓA TỬ THẦN: Nếu mất mạng lúc kéo data
+                    hideLoading();
+                    document.body.innerHTML = `
+                        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center; padding: 20px; font-family: 'Noto Sans JP', sans-serif;">
+                            <span class="material-symbols-outlined" style="font-size: 60px; color: #e53e3e; margin-bottom: 20px;">wifi_off</span>
+                            <h2 style="color: #1a1a1a;">Lỗi đồng bộ dữ liệu</h2>
+                            <p style="color: #4a4a4a;">Máy của bạn không có bộ nhớ đệm, và hệ thống không thể tải dữ liệu từ Cloud do kết nối mạng không ổn định.<br>Để bảo vệ an toàn cho dữ liệu của bạn, hệ thống tạm thời bị khóa.</p>
+                            <button onclick="window.location.reload()" style="padding: 12px 24px; background: #0067c0; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: margin-top: 20px;">TẢI LẠI TRANG</button>
+                        </div>`;
+                    return; // Dừng hoàn toàn
+                }
+                hideLoading(); // 👈 Đồng bộ xong thì cất Loading đi
+            } 
+            // 🟢 Nếu có Cache an toàn rồi nhưng Hết thời gian Cooldown -> Chỉ việc tải ngầm (Không hiện Loading)
+            else {
+                syncUserDataWithCloud(); // Tải ngầm, không cần await
             }
-            hideLoading();
         }
 
         // Thiết lập Single Session
