@@ -19,8 +19,7 @@
 <!-- TẢI CÁC THƯ VIỆN NẶNG (Thêm DEFER để trình duyệt vẽ UI trước, tải script ngầm) -->
 <script defer src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 <script defer src="https://unpkg.com/wanakana"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
 
 <style>
 /* ================= CSS THEO ĐÚNG TIÊU CHUẨN CỦA BẠN ================= */
@@ -8247,6 +8246,24 @@ let isTabLeader = false;      // Cờ đánh dấu Tab hiện tại có phải l
 let leaderTimeout = null;     // Bộ đếm thời gian chờ phản hồi bầu cử
 
 /* ================= 3. UTILITIES ================= */
+function loadExternalScript(url) {
+    return new Promise((resolve, reject) => {
+        // Kiểm tra nếu script đã được tải trước đó thì không tải lại (Tránh trùng lặp)
+        if (document.querySelector(`script[src="${url}"]`)) {
+            resolve();
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = url;
+        script.async = true; // Tải bất đồng bộ, không chặn luồng dựng giao diện (UI)
+        script.onload = () => {
+            console.log(`[LazyLoad] Nạp thành công: ${url}`);
+            resolve();
+        };
+        script.onerror = () => reject(new Error(`Không thể nạp tệp: ${url}`));
+        document.head.appendChild(script);
+    });
+}
 // Phân vùng lưu trữ kết quả phân tích AI trên RAM
 window.aiKanjiExpansionCache = window.aiKanjiExpansionCache || {};
 window.aiGrammarExpansionCache = window.aiGrammarExpansionCache || {};
@@ -12163,15 +12180,26 @@ async function confirmRenameDeck() {
 // Hết================= CÁC HÀM XỬ LÝ DROPDOWN DECK MENU =================
 
 
-function showImportForm(skipHash = false) { 
+async function showImportForm(skipHash = false) { 
     if (!skipHash) window.location.hash = 'import'; 
     
+    // Hiển thị vòng xoay loading để thông báo cho người dùng khi tải tệp nặng 1MB
+    showLoading("Đang thiết lập bộ thư viện Excel...");
+    try {
+        await loadExternalScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+    } catch (err) {
+        hideLoading();
+        console.error("Lỗi nạp thư viện XLSX:", err);
+        customAlert("Không thể tải bộ xử lý Excel. Vui lòng kiểm tra kết nối mạng và thử lại.", "❌");
+        return;
+    }
+    hideLoading();
+
     // 1. Chuyển sang trang chủ để ẩn các phân hệ Playground / Dashboard
     showPage('homePage'); 
 
     // 2. Ẩn menu học và MỞ form Import
     document.getElementById('learnMenu').classList.add('hidden'); 
-    // Đã xóa hẳn dòng gọi newForm
     document.getElementById('importForm').classList.remove('hidden'); 
     
     // 3. Cập nhật Text chỉ hiển thị duy nhất tên trang viết hoa
@@ -16715,8 +16743,21 @@ async function updatePdfLastPage(id, page) {
 
 // ================= GIAO DIỆN & ĐIỀU KHIỂN =================
 
-function showPdfReaderPage(skipHash = false) {
+async function showPdfReaderPage(skipHash = false) {
     if (!skipHash) window.location.hash = 'pdfreader';
+    
+    // Hiển thị vòng xoay loading trong khi tải bộ thư viện PDF (~1.3MB)
+    showLoading("Đang thiết lập bộ đọc PDF...");
+    try {
+        await loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+    } catch (err) {
+        hideLoading();
+        console.error("Lỗi nạp thư viện PDF.js:", err);
+        customAlert("Không thể tải bộ đọc PDF. Vui lòng kiểm tra kết nối mạng và thử lại.", "❌");
+        return;
+    }
+    hideLoading();
+
     showPage('pdfReaderPage');
     
     updateBreadcrumb([{label: "Smart PDF Reader"}]);
