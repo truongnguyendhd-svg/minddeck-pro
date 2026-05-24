@@ -10317,7 +10317,14 @@ function renderBoostCard() {
     }
 
     const c = parseCardData(rawCard);
-    
+    const getParsedData = (cardObj) => {
+        if (!cardObj.parsedCardDataCache) {
+            // Chỉ chạy Regex 1 lần duy nhất trong suốt vòng đời của thẻ
+            cardObj.parsedCardDataCache = parseCardData(cardObj);
+        }
+        return cardObj.parsedCardDataCache;
+    };
+
     // XÁC ĐỊNH GAME HIỆN TẠI VÀ HEADER UI
     if (mode === 'assessment') {
         // Lấy game hiện tại của thẻ dựa theo Chặng
@@ -10366,9 +10373,9 @@ function renderBoostCard() {
     zone.style.color = '';
 
     const getDistractors = (type) => {
-        // Chỉ lọc các thẻ khác và BẮT BUỘC thẻ đó đã được tải đầy đủ dữ liệu (x.isLoaded)
         let pool = sessionCards.filter(x => x.id !== rawCard.id && x.isLoaded).map(x => {
-            let parsed = parseCardData(x);
+            // 🟢 TỐI ƯU HIỆU NĂNG: Sử dụng kết quả đã bọc Cache
+            let parsed = getParsedData(x); 
             return type === 'meaning' ? parsed.meaning : parsed.front;
         });
         return pool.sort(() => 0.5 - Math.random()).slice(0, 3);
@@ -10551,7 +10558,7 @@ function renderBoostCard() {
             while (distractorSet5.size < 2 && attempts5 < 50) {
                 let randomCard5 = sessionCards[Math.floor(Math.random() * sessionCards.length)];
                 if (randomCard5.id !== rawCard.id) {
-                    let parsed5 = parseCardData(randomCard5);
+                    let parsed5 = getParsedData(randomCard5);
                     let cleanKana5 = parsed5.reading.replace(/[^ぁ-んァ-ン]/g, ''); 
                     for (let char of cleanKana5) {
                         if (!targetPieces.includes(char)) {
@@ -10725,7 +10732,7 @@ function renderBoostCard() {
                 let randomCard = sessionCards[Math.floor(Math.random() * sessionCards.length)];
                 
                 if (randomCard.id !== rawCard.id) {
-                    let pCard = parseCardData(randomCard);
+                    let pCard = getParsedData(randomCard);
                     if (pCard.exampleJP) {
                         for (let char of pCard.exampleJP) {
                             if (/[\u4e00-\u9faf]/.test(char) && !targetKanjiSequence.includes(char)) {
@@ -10860,7 +10867,7 @@ function renderBoostCard() {
             while (noisePool.length < gridSize * gridSize && attemptsNoise < 20) {
                 let randomCard = sessionCards[Math.floor(Math.random() * sessionCards.length)];
                 if (randomCard.id !== rawCard.id) {
-                    let parsed = parseCardData(randomCard);
+                    let parsed = getParsedData(randomCard);
                     let cleanKana = parsed.reading.replace(/[^ぁ-んァ-ン]/g, '');
                     if (cleanKana) noisePool = noisePool.concat(cleanKana.split(''));
                 }
