@@ -12955,19 +12955,33 @@ async function saveQuickEdit() {
     try {
         const tagsArray = extractTagsFromInfo(newInfo);
         if (isQuickAddMode) {
-            // 🟢 CHẾ ĐỘ THÊM MỚI (GIỮ NGUYÊN)
-            const dupeCheck = await checkDuplicateCards([{ front: newFront }]);
-            if (dupeCheck.hasDuplicate) {
+            // 🟢 CHẾ ĐỘ THÊM MỚI (ĐÃ TỐI ƯU 1-REQUEST RPC)
+            const singleCardPayload = [{
+                deck_id: deckToStudyId,
+                front: newFront, 
+                back: newBack, 
+                info: newInfo,
+                tags: tagsArray
+            }];
+
+            const { data: dbResult, error: dbErr } = await sb.rpc('bulk_insert_cards_safe', {
+                p_user_id: currentUser.id, 
+                p_cards: singleCardPayload
+            });
+
+            if (dbErr) throw dbErr;
+
+            // Nếu DB trả về insert = 0, nghĩa là đã bị chặn do trùng lặp
+            if (dbResult && dbResult.inserted_count === 0) {
                 hideLoading();
-                return showDuplicateAlert(dupeCheck);
+                // Giả lập lại Object kết quả để tái sử dụng hàm hiển thị Alert cũ của bạn
+                return showDuplicateAlert({ 
+                    hasDuplicate: true, 
+                    words: [newFront], 
+                    type: 'database' 
+                });
             }
 
-            const { error } = await sb.from('cards').insert([{
-                deck_id: deckToStudyId,
-                front: newFront, back: newBack, info: newInfo,
-                tags: tagsArray
-            }]);
-            if (error) throw error;
             showToast("Đã thêm thẻ mới thành công! ✨");
             
         } else {
