@@ -8247,6 +8247,9 @@ let isTabLeader = false;      // Cờ đánh dấu Tab hiện tại có phải l
 let leaderTimeout = null;     // Bộ đếm thời gian chờ phản hồi bầu cử
 
 /* ================= 3. UTILITIES ================= */
+// Phân vùng lưu trữ kết quả phân tích AI trên RAM
+window.aiKanjiExpansionCache = window.aiKanjiExpansionCache || {};
+window.aiGrammarExpansionCache = window.aiGrammarExpansionCache || {};
 sessionBroadcast.onmessage = (event) => {
     const { type } = event.data;
 
@@ -9970,11 +9973,24 @@ async function expandKanjiWithAI(kanji) {
     const btn = document.getElementById('btnAskAIKanji');
     const zone = document.getElementById('aiKanjiExpansionZone');
     
+    // 🟢 1. KIỂM TRA BỘ NHỚ ĐỆM (RAM CACHE): Nếu đã phân tích rồi, xuất dữ liệu ngay lập tức
+    if (window.aiKanjiExpansionCache && window.aiKanjiExpansionCache[kanji]) {
+        console.log(`[AI Cache Hit] Phục hồi phân tích chi tiết Kanji "${kanji}" từ RAM.`);
+        
+        // Điều chỉnh lại kích thước Modal rộng ra tương thích với khung hiển thị 2 cột
+        const modalContent = document.querySelector('#xrayModal .modal-content');
+        modalContent.style.width = "95%";
+        modalContent.style.maxWidth = "1400px"; 
+        
+        zone.innerHTML = window.aiKanjiExpansionCache[kanji];
+        return; // Thoát hàm sớm, chặn đứng mọi yêu cầu mạng lên API Vercel
+    }
+    
     btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#1a1a1a;margin-right:8px;"></div> Đang phân tích...';
     btn.disabled = true;
     btn.style.cursor = 'wait';
 
-    // ĐÃ SỬA PROMPT: Ép AI phải nhóm theo TỪNG ÂM ĐỌC CỤ THỂ (Kèm tiền tố Onyomi/Kunyomi)
+    // ĐÁ SỬA PROMPT: Ép AI phải nhóm theo TỪNG ÂM ĐỌC CỤ THỂ (Kèm tiền tố Onyomi/Kunyomi)
     const prompt = `Bạn là chuyên gia ngôn ngữ tiếng Nhật. Phân tích chi tiết chữ Kanji: "${kanji}".
     BẮT BUỘC TRẢ VỀ KẾT QUẢ DƯỚI DẠNG KHỐI JSON DUY NHẤT (Không bọc trong markdown \`\`\`json).
     Với MỖI MỘT ÂM ĐỌC CỤ THỂ (cả Onyomi và Kunyomi), hãy tìm TỐI ĐA 4 TỪ VỰNG PHỔ BIẾN NHẤT chứa âm đó.
@@ -10087,7 +10103,7 @@ async function expandKanjiWithAI(kanji) {
                             <span style="font-size: 10px; color: ${accentColor}; font-weight: 700; background: ${softBg}; padding: 2px 6px; border-radius: 4px; border: 1px solid ${borderColor};">${v.hv}</span>
                         </div>
                         <div style="font-size: 14px; color: #1a1a1a; margin-bottom: 10px; font-weight: 500;">${v.meaning}</div>
-                        <div style="font-size: 13px; color: #4a4a4a; background: #fbfbfb; padding: 10px 12px; border-radius: 6px; border: 1px solid #e5e5e5; line-height: 1.5;">
+                        <div style="font-size: 13px; color: #4a4a4a; background: #fbfbfd; padding: 10px 12px; border-radius: 6px; border: 1px solid #e5e5e5; line-height: 1.5;">
                             ${v.example}
                         </div>
                     </div>
@@ -10109,6 +10125,9 @@ async function expandKanjiWithAI(kanji) {
         `;
 
         html += `</div>`;
+        
+        // 🟢 2. GHI KẾT QUẢ ĐÃ DỰNG VÀO CACHE TRƯỚC KHI RENDER RA UI
+        window.aiKanjiExpansionCache[kanji] = html;
         
         zone.innerHTML = html;
 
@@ -14279,6 +14298,25 @@ async function expandGrammarWithAI() {
     const modalContent = document.querySelector('#grammarDetailModal .modal-content');
 
     if (!currentGrammarObj) return;
+    const grammarId = currentGrammarObj.id; // Sử dụng ID làm khóa phân biệt cache
+
+    // 🟢 1. KIỂM TRA BỘ NHỚ ĐỆM RAM: Khôi phục tức thì cả HTML đã dựng và mảng dữ liệu Bulk Save
+    if (window.aiGrammarExpansionCache[grammarId]) {
+        console.log(`[AI Cache Hit] Phục hồi phân tích chi tiết Ngữ pháp từ RAM.`);
+        
+        const cachedData = window.aiGrammarExpansionCache[grammarId];
+        
+        // Khôi phục mảng lưu thẻ hàng loạt để nút "TẠO BỘ THẺ" hoạt động chuẩn xác
+        combinedGrammarDataForBulk = cachedData.bulkData;
+
+        // Thiết lập lại kích thước khung giao diện Win11
+        modalContent.style.maxWidth = "1100px";
+        zone.style.display = 'block';
+        document.getElementById('gdBasicActions').style.display = 'none';
+
+        zone.innerHTML = cachedData.html;
+        return; // Thoát sớm, chặn đứng cuộc gọi mạng API
+    }
 
     btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#9333ea;margin-right:8px;"></div> Đang phân tích...';
     btn.disabled = true;
@@ -14322,7 +14360,6 @@ async function expandGrammarWithAI() {
             <div style="font-size: 16px; font-weight: 700; color: #1a1a1a; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
                 <span class="material-symbols-outlined" style="color: #9333ea;">auto_awesome</span> KHÔNG GIAN MỞ RỘNG KIẾN THỨC
             </div>
-            <!-- ĐÃ SỬA: Đổi 400px thành 250px để khối tự bóp nhỏ trên mobile -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; margin-bottom: 24px;">
         `;
 
@@ -14347,7 +14384,7 @@ async function expandGrammarWithAI() {
                 </div>
             `).join('');
 
-            // 🟢 TẠO NÚT LƯU DB NẾU LÀ ADMIN
+            // TẠO NÚT LƯU DB NẾU LÀ ADMIN
             let adminBtnHtml = "";
             if (isAdmin) {
                 // Gom dữ liệu chuẩn bị đẩy sang Admin Modal
@@ -14364,7 +14401,6 @@ async function expandGrammarWithAI() {
                 };
                 const safeAdminJSON = encodeURIComponent(JSON.stringify(adminSaveObj)).replace(/'/g, "%27");
 
-                
                 adminBtnHtml = `
                     <div style="margin-top: 16px; padding-top: 12px; border-top: 1px dashed #e5e5e5; display: flex; justify-content: flex-end;">
                         <button onclick="openAdminGrammarModal('${safeAdminJSON}')" class="win11-btn-secondary" style="padding: 6px 12px; font-size: 12px; color: #10b981; border-color: #bbf7d0; background: #f0fdf4;">
@@ -14374,7 +14410,6 @@ async function expandGrammarWithAI() {
                 `;
             }
 
-            // ĐÃ SỬA: Bỏ thẻ div ngoài cùng, thêm CSS trực tiếp vào card
             return `
                 <div style="background: #ffffff; border: 1px solid #e5e5e5; border-top: 4px solid ${colorHex}; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); padding: 12px;">
                     <div style="font-size: 11px; font-weight: 800; color: ${colorHex}; text-transform: uppercase; margin-bottom: 12px; display: flex; align-items: center; gap: 4px; background: ${bgColor}; display: inline-flex; padding: 4px 8px; border-radius: 4px;">
@@ -14386,19 +14421,18 @@ async function expandGrammarWithAI() {
                     </div>
                     <div style="font-size: 14px; color: #1a1a1a; font-weight: 600; margin-bottom: 12px;">${escapeHTML(item.meaning)}</div>
                     
-                    <div style="background: #fbfbfb; padding: 8px; border-radius: 6px; border: 1px solid #f0f0f0; font-size: 13px; color: #4a4a4a; margin-bottom: 12px;">
+                    <div style="background: #fbfbfd; padding: 8px; border-radius: 6px; border: 1px solid #f0f0f0; font-size: 13px; color: #4a4a4a; margin-bottom: 12px;">
                         <b style="color: #666666;">Cách ghép:</b> ${escapeHTML(item.structure)}<br>
                         <b style="color: #666666;">Sắc thái:</b> ${escapeHTML(item.nuance)}
                     </div>
                     
                     <div style="font-size: 12px; font-weight: 700; color: #8c8c8c; margin-bottom: 8px; border-bottom: 1px solid #f0f0f0; padding-bottom: 4px;">VÍ DỤ MINH HỌA</div>
                     ${exHtml}
-                    ${adminBtnHtml} <!-- Chèn nút Admin ở đây -->
+                    ${adminBtnHtml}
                 </div>
             `;
         };
 
-        // ĐÃ SỬA: Thêm flex-direction: column và gap: 16px để các block không dính nhau
         if (data.similar && data.similar.length > 0) {
             html += `<div style="display: flex; flex-direction: column; gap: 16px;">
                         <h4 style="margin: 0; color: #0067c0; font-size: 14px; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined">join</span> Tương đương / Thay thế</h4>`;
@@ -14424,6 +14458,12 @@ async function expandGrammarWithAI() {
                 </button>
             </div>
         `;
+
+        // 🟢 2. GHI NHỚ TRẠNG THÁI VÀO BỘ NHỚ ĐỆM TRƯỚC KHI HIỂN THỊ
+        window.aiGrammarExpansionCache[grammarId] = {
+            html: html,
+            bulkData: [...combinedGrammarDataForBulk] // Thực hiện sao chép nông mảng bản ghi
+        };
 
         zone.innerHTML = html;
 
