@@ -13281,7 +13281,21 @@ window.addEventListener('hashchange', async function(e) {
 });
 /* ================= CHỨC NĂNG TỪ ĐIỂN ================= */
 /* ================= API TỪ ĐIỂN MỞ RỘNG (MAZII) ================= */
+// Khởi tạo bộ nhớ đệm cho từ điển Mazii trên RAM ngoài phạm vi hàm (nếu chưa có)
+window.maziiSearchCache = window.maziiSearchCache || {};
+
 async function fetchMaziiDictionary(keyword) {
+    if (!keyword) return [];
+    
+    // 1. Chuẩn hóa từ khóa tìm kiếm để tránh sai lệch cache do khoảng trắng hoặc viết hoa
+    const normalizedKey = keyword.trim().toLowerCase();
+
+    // 2. CHỐT CHẶN BĂNG THÔNG: Kiểm tra xem kết quả đã có trong bộ nhớ đệm chưa
+    if (window.maziiSearchCache[normalizedKey]) {
+        console.log(`[Cache Hit] Phục hồi kết quả tra từ "${normalizedKey}" từ RAM Cache.`);
+        return window.maziiSearchCache[normalizedKey];
+    }
+
     try {
         const response = await fetch('https://mazii.net/api/search', {
             method: 'POST',
@@ -13289,15 +13303,20 @@ async function fetchMaziiDictionary(keyword) {
             body: JSON.stringify({ 
                 dict: 'javi', 
                 type: 'word', 
-                query: keyword, 
-                limit: 15 // Lấy 15 từ chuẩn nhất
+                query: normalizedKey, 
+                limit: 15 // Giới hạn 15 kết quả tối ưu nhất
             })
         });
 
         const data = await response.json();
-        if (!data || !data.data || data.data.length === 0) return [];
+        
+        // 3. NEGATIVE CACHING: Nếu từ khóa không tồn tại, lưu mảng rỗng để chặn spam yêu cầu sau này
+        if (!data || !data.data || data.data.length === 0) {
+            window.maziiSearchCache[normalizedKey] = [];
+            return [];
+        }
 
-        return data.data.map(item => {
+        const parsedResults = data.data.map(item => {
             let exampleText = "";
             if (item.means && item.means[0] && item.means[0].examples && item.means[0].examples[0]) {
                 const ex = item.means[0].examples[0];
@@ -13311,6 +13330,11 @@ async function fetchMaziiDictionary(keyword) {
                 example: exampleText
             };
         });
+
+        // 4. GHI NHỚ VÀO CACHE: Lưu kết quả sạch đã phân tích vào RAM
+        window.maziiSearchCache[normalizedKey] = parsedResults;
+        return parsedResults;
+
     } catch (err) {
         console.error("Mazii API Error:", err);
         return []; 
