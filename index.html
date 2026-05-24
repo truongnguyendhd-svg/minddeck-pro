@@ -9997,17 +9997,30 @@ async function expandKanjiWithAI(kanji) {
     const btn = document.getElementById('btnAskAIKanji');
     const zone = document.getElementById('aiKanjiExpansionZone');
     
-    // 🟢 1. KIỂM TRA BỘ NHỚ ĐỆM (RAM CACHE): Nếu đã phân tích rồi, xuất dữ liệu ngay lập tức
+    // 🟢 1. KIỂM TRA BỘ NHỚ ĐỆM (RAM VÀ INDEXED_DB)
+    const dbCacheKey = `kanji_${currentUser?.id}_${kanji}`;
+
+    // A. Quét RAM (0ms)
     if (window.aiKanjiExpansionCache && window.aiKanjiExpansionCache[kanji]) {
-        console.log(`[AI Cache Hit] Phục hồi phân tích chi tiết Kanji "${kanji}" từ RAM.`);
-        
-        // Điều chỉnh lại kích thước Modal rộng ra tương thích với khung hiển thị 2 cột
+        console.log(`[AI Cache Hit] Phục hồi phân tích Kanji "${kanji}" từ RAM.`);
         const modalContent = document.querySelector('#xrayModal .modal-content');
         modalContent.style.width = "95%";
         modalContent.style.maxWidth = "1400px"; 
-        
         zone.innerHTML = window.aiKanjiExpansionCache[kanji];
-        return; // Thoát hàm sớm, chặn đứng mọi yêu cầu mạng lên API Vercel
+        return;
+    }
+
+    // B. Quét IndexedDB (Mất ~2ms nhưng chứa được dung lượng vô hạn)
+    const cachedRecord = await dbOps.get(STORE_AI_CACHE, dbCacheKey);
+    if (cachedRecord && cachedRecord.data) {
+        console.log(`[AI Cache Hit] Phục hồi phân tích Kanji "${kanji}" từ IndexedDB.`);
+        window.aiKanjiExpansionCache[kanji] = cachedRecord.data; // Nạp ngược lên RAM
+        
+        const modalContent = document.querySelector('#xrayModal .modal-content');
+        modalContent.style.width = "95%";
+        modalContent.style.maxWidth = "1400px"; 
+        zone.innerHTML = cachedRecord.data;
+        return; // Thoát sớm, bảo vệ 100% tài nguyên Vercel/Gemini
     }
     
     btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#1a1a1a;margin-right:8px;"></div> Đang phân tích...';
@@ -10150,9 +10163,12 @@ async function expandKanjiWithAI(kanji) {
 
         html += `</div>`;
         
-        // 🟢 2. GHI KẾT QUẢ ĐÃ DỰNG VÀO CACHE TRƯỚC KHI RENDER RA UI
+        // 🟢 2. GHI KẾT QUẢ ĐÃ DỰNG VÀO CACHE (RAM + INDEXED_DB)
         window.aiKanjiExpansionCache[kanji] = html;
         
+        // Cất vào ổ cứng sâu IndexedDB không giới hạn dung lượng
+        await dbOps.put(STORE_AI_CACHE, { id: dbCacheKey, data: html });
+
         zone.innerHTML = html;
 
     } catch (err) {
@@ -14339,22 +14355,27 @@ async function expandGrammarWithAI() {
     if (!currentGrammarObj) return;
     const grammarId = currentGrammarObj.id; // Sử dụng ID làm khóa phân biệt cache
 
-    // 🟢 1. KIỂM TRA BỘ NHỚ ĐỆM RAM: Khôi phục tức thì cả HTML đã dựng và mảng dữ liệu Bulk Save
-    if (window.aiGrammarExpansionCache[grammarId]) {
-        console.log(`[AI Cache Hit] Phục hồi phân tích chi tiết Ngữ pháp từ RAM.`);
-        
-        const cachedData = window.aiGrammarExpansionCache[grammarId];
-        
-        // Khôi phục mảng lưu thẻ hàng loạt để nút "TẠO BỘ THẺ" hoạt động chuẩn xác
-        combinedGrammarDataForBulk = cachedData.bulkData;
+    // 🟢 1. KIỂM TRA BỘ NHỚ ĐỆM (RAM VÀ INDEXED_DB)
+    const dbCacheKey = `grammar_${currentUser?.id}_${grammarId}`;
+    let cachedData = window.aiGrammarExpansionCache[grammarId];
 
-        // Thiết lập lại kích thước khung giao diện Win11
+    // Nếu RAM không có, thử tìm trong ổ cứng IndexedDB
+    if (!cachedData) {
+        const cachedRecord = await dbOps.get(STORE_AI_CACHE, dbCacheKey);
+        if (cachedRecord && cachedRecord.data) {
+            cachedData = cachedRecord.data;
+            window.aiGrammarExpansionCache[grammarId] = cachedData; // Nạp lại lên RAM
+        }
+    }
+
+    if (cachedData) {
+        console.log(`[AI Cache Hit] Phục hồi phân tích chi tiết Ngữ pháp.`);
+        combinedGrammarDataForBulk = cachedData.bulkData;
         modalContent.style.maxWidth = "1100px";
         zone.style.display = 'block';
         document.getElementById('gdBasicActions').style.display = 'none';
-
         zone.innerHTML = cachedData.html;
-        return; // Thoát sớm, chặn đứng cuộc gọi mạng API
+        return; // Thoát sớm, không gọi API
     }
 
     btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#9333ea;margin-right:8px;"></div> Đang phân tích...';
@@ -14498,11 +14519,15 @@ async function expandGrammarWithAI() {
             </div>
         `;
 
-        // 🟢 2. GHI NHỚ TRẠNG THÁI VÀO BỘ NHỚ ĐỆM TRƯỚC KHI HIỂN THỊ
-        window.aiGrammarExpansionCache[grammarId] = {
+        // 🟢 2. GHI NHỚ TRẠNG THÁI VÀO BỘ NHỚ ĐỆM (RAM + INDEXED_DB)
+        const cachePayload = {
             html: html,
-            bulkData: [...combinedGrammarDataForBulk] // Thực hiện sao chép nông mảng bản ghi
+            bulkData: [...combinedGrammarDataForBulk]
         };
+        window.aiGrammarExpansionCache[grammarId] = cachePayload;
+        
+        // Cất vào IndexedDB (Dễ dàng lưu trữ HTML dài và Array lớn)
+        await dbOps.put(STORE_AI_CACHE, { id: dbCacheKey, data: cachePayload });
 
         zone.innerHTML = html;
 
@@ -16555,6 +16580,7 @@ const APP_DB_NAME = 'AlcoholPdfStore'; // Giữ nguyên tên để tương thíc
 const STORE_PDF = 'recent_pdfs';
 const STORE_KANJI = 'kanji_dict';
 const STORE_GRAMMAR = 'grammar_dict';
+const STORE_AI_CACHE = 'ai_expansion_cache'; // 🟢 THÊM DÒNG NÀY: Kho lưu trữ riêng cho AI
 const MAX_RECENT_FILES = 5;
 
 let appDbInstance = null;
@@ -16569,7 +16595,7 @@ function initAppDB() {
             return;
         }
 
-        const request = indexedDB.open(APP_DB_NAME, 2); // Nâng cấp lên Version 2
+        const request = indexedDB.open(APP_DB_NAME, 3); // Nâng cấp lên Version 3
 
         request.onupgradeneeded = (e) => {
             const db = e.target.result;
@@ -16586,6 +16612,11 @@ function initAppDB() {
             if (!db.objectStoreNames.contains(STORE_GRAMMAR)) {
                 db.createObjectStore(STORE_GRAMMAR, { keyPath: 'id' });
             }
+            // 🟢 THÊM DÒNG NÀY: Bảng mới để lưu Cache AI
+            if (!db.objectStoreNames.contains(STORE_AI_CACHE)) {
+                db.createObjectStore(STORE_AI_CACHE, { keyPath: 'id' });
+            }
+
         };
 
         request.onsuccess = (e) => {
@@ -16606,6 +16637,17 @@ const initPdfDB = initAppDB;
  * Trình điều phối tác vụ (Database Operations Helper)
  */
 const dbOps = {
+    // 🟢 THÊM HÀM NÀY: Lấy một bản ghi cụ thể siêu tốc (O(1))
+    async get(storeName, key) {
+        const db = await initAppDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(storeName, 'readonly');
+            const store = tx.objectStore(storeName);
+            const req = store.get(key);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    },
     /**
      * Lấy toàn bộ dữ liệu từ một Object Store
      */
