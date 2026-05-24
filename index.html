@@ -20082,7 +20082,10 @@ async function refreshKanjiCollection() {
             showToast(`🎉 Đã cập nhật thêm ${newKanjiData.length} chữ Kanji mới!`);
         }
 
+        // Tải lại điểm tiến độ mới nhất
         await syncKanjiMastery(true); 
+        
+        // Vẽ lại UI
         renderKanjiCollectionGrid(currentKanjiFilter);
 
     } catch (e) {
@@ -20092,6 +20095,7 @@ async function refreshKanjiCollection() {
         hideLoading();
     }
 }
+
 
 
 // =====================================================================
@@ -20174,8 +20178,17 @@ async function refreshGrammarCollection() {
             showToast(`🎉 Đã nạp thêm ${newGrammarData.length} ngữ pháp mới!`);
         }
 
+        // Tải lại điểm tiến độ mới nhất
         await calculateGrammarMastery(true); 
-        renderGrammarGrid(globalGrammarData);
+        
+        // Vẽ lại UI dựa trên bộ lọc hiện hành
+        const activePill = document.querySelector('#grammarFilterBar .grammar-pill.active');
+        const currentFilter = activePill ? activePill.innerText.trim() : 'ALL';
+        let displayData = globalGrammarData;
+        if (currentFilter !== 'ALL' && currentFilter !== 'Tất cả') {
+            displayData = globalGrammarData.filter(g => g.level === currentFilter);
+        }
+        renderGrammarGrid(displayData);
 
     } catch (e) {
         console.error("Lỗi cập nhật ngữ pháp:", e);
@@ -21840,6 +21853,133 @@ function deduplicateGrammarList(list) {
         seen.add(item.grammar_point);
         return !duplicate;
     });
+}
+
+
+// =====================================================================
+// ĐÀI PHÁT THANH TOÀN CẦU (LẮNG NGHE ADMIN THAY ĐỔI DỮ LIỆU)
+// =====================================================================
+// Biến toàn cục giữ kết nối kênh (Chống mở nhiều kênh)
+let globalDictChannel = null;
+function setupGlobalDictionaryRealtime() {
+    if (globalDictChannel) return; // Tránh mở trùng lặp
+
+    console.log("MindDeck: 📡 Đang bật đài phát thanh lắng nghe Admin...");
+
+    // Tạo Kênh DUY NHẤT lắng nghe NHIỀU BẢNG cùng lúc
+    globalDictChannel = sb.channel('public:global_dictionary')
+        
+        // 1. KÊNH NGỮ PHÁP (Grammar Dict)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'grammar_dict' }, async (payload) => {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                await handleRealtimeGrammarUpdate(payload.new, payload.eventType);
+            } else if (payload.eventType === 'DELETE') {
+                await handleRealtimeGrammarDelete(payload.old);
+            }
+        })
+        
+        // 2. KÊNH KANJI (Kanji Builder)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'kanji_builder' }, async (payload) => {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                await handleRealtimeKanjiUpdate(payload.new, payload.eventType);
+            } else if (payload.eventType === 'DELETE') {
+                await handleRealtimeKanjiDelete(payload.old);
+            }
+        })
+        
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                console.log("MindDeck: 🟢 Đã kết nối Hệ thống Dữ liệu Trực tuyến!");
+            }
+        });
+}
+
+// ---------------- HANDLER NGỮ PHÁP ----------------
+async function handleRealtimeGrammarUpdate(newRecord, eventType) {
+    if (!currentUser) return;
+
+    // Đánh dấu đã tải đủ thịt
+    newRecord.isLoaded = true;
+
+    await dbOps.put(STORE_GRAMMAR, newRecord);
+
+    const existingIndex = globalGrammarData.findIndex(g => g.id === newRecord.id);
+    if (existingIndex !== -1) {
+        globalGrammarData[existingIndex] = newRecord; // Ghi đè RAM
+    } else {
+        globalGrammarData.push(newRecord); // Thêm mới
+        showToast(`🔔 Ngữ pháp mới: ${newRecord.grammar_point}`);
+    }
+
+    globalGrammarData.sort((a, b) => (a.level > b.level ? -1 : 1));
+
+    // Live Update UI
+    const grammarPage = document.getElementById('grammarPage');
+    if (grammarPage && !grammarPage.classList.contains('hidden')) {
+        const activePill = document.querySelector('#grammarFilterBar .grammar-pill.active');
+        const currentFilter = activePill ? activePill.innerText.trim() : 'ALL';
+        let displayData = globalGrammarData;
+        if (currentFilter !== 'ALL' && currentFilter !== 'Tất cả') {
+            displayData = globalGrammarData.filter(g => g.level === currentFilter);
+        }
+        renderGrammarGrid(displayData);
+    }
+}
+
+async function handleRealtimeGrammarDelete(oldRecord) {
+    if (!currentUser || !oldRecord.id) return;
+    await dbOps.delete(STORE_GRAMMAR, oldRecord.id);
+    globalGrammarData = globalGrammarData.filter(g => g.id !== oldRecord.id);
+    
+    const grammarPage = document.getElementById('grammarPage');
+    if (grammarPage && !grammarPage.classList.contains('hidden')) {
+        renderGrammarGrid(globalGrammarData);
+    }
+}
+
+// ---------------- HANDLER KANJI ----------------
+async function handleRealtimeKanjiUpdate(newRecord, eventType) {
+    if (!currentUser) return;
+
+    // Pokedex chỉ cần Kanji và Level
+    const lightKanjiData = { kanji: newRecord.kanji, level: newRecord.level };
+    
+    await dbOps.put(STORE_KANJI, lightKanjiData);
+
+    // 🟢 HỦY CACHE X-RAY: Ép người dùng tải lại dữ liệu mới nhất nếu họ bấm vào chữ Kanji này
+    if (window.kanjiDetailCache && window.kanjiDetailCache[newRecord.kanji]) {
+        delete window.kanjiDetailCache[newRecord.kanji];
+    }
+
+    const existingIndex = allKanjiData.findIndex(k => k.kanji === newRecord.kanji);
+    if (existingIndex !== -1) {
+        allKanjiData[existingIndex] = lightKanjiData;
+    } else {
+        allKanjiData.push(lightKanjiData);
+        showToast(`🔔 Kanji mới: ${newRecord.kanji}`);
+    }
+
+    // Live Update UI
+    const kanjiPage = document.getElementById('kanjiPage');
+    if (kanjiPage && !kanjiPage.classList.contains('hidden')) {
+        renderKanjiCollectionGrid(currentKanjiFilter);
+    }
+}
+
+async function handleRealtimeKanjiDelete(oldRecord) {
+    if (!currentUser || !oldRecord.kanji) return;
+    
+    await dbOps.delete(STORE_KANJI, oldRecord.kanji);
+    allKanjiData = allKanjiData.filter(k => k.kanji !== oldRecord.kanji);
+    
+    if (window.kanjiDetailCache) delete window.kanjiDetailCache[oldRecord.kanji];
+
+    showToast(`🗑️ Đã gỡ bỏ Kanji: ${oldRecord.kanji}`);
+
+    const kanjiPage = document.getElementById('kanjiPage');
+    if (kanjiPage && !kanjiPage.classList.contains('hidden')) {
+        renderKanjiCollectionGrid(currentKanjiFilter);
+    }
 }
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
