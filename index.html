@@ -22143,8 +22143,8 @@ async function syncAllMasteryFromCloud() {
 }
 // 🟢 LẤY CHI TIẾT KANJI VÀ TOÀN BỘ MẢNG VÍ DỤ TỪ MAZII
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    // 🟢 SỬA LỖI 1: Đổi tên cache key thành v8 để ép App "quên" dữ liệu hỏng cũ
-    const cacheKey = `mazii_v8_final_${kanjiChar}`; 
+    // ⚠️ Đổi tên khóa thành v9 để ép hệ thống xoá Cache chứa Chuỗi cũ, tải lại Mảng mới
+    const cacheKey = `mazii_v9_final_${kanjiChar}`; 
 
     window.kanjiDetailCache = window.kanjiDetailCache || {};
     if (window.kanjiDetailCache[cacheKey]) return window.kanjiDetailCache[cacheKey];
@@ -22184,18 +22184,38 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             }
             if (!meaning && k.mean) meaning = k.mean;
 
-            // 🟢 SỬA LỖI 2: Mở rộng bẫy bắt tên biến của Mazii (Bắt cả có "s" và không "s")
+            // 🟢 HÀM PHỤ TRỢ: Bắt buộc ép Chuỗi thành Mảng an toàn
+            const parseSafeArray = (raw) => {
+                if (!raw) return [];
+                if (Array.isArray(raw)) return raw;
+                if (typeof raw === 'string') {
+                    try {
+                        return JSON.parse(raw); // Dịch chuỗi "[{...}]" thành mảng [{...}]
+                    } catch (e) {
+                        console.warn("Mazii Parse Error:", e);
+                        return [];
+                    }
+                }
+                return [];
+            };
+
+            // Lấy data thô (bao vây mọi tên biến có thể có của Mazii)
+            const rawEx = k.examples || k.example;
+            const rawExOn = k.example_on || k.examples_on || k.on_example || k.on_examples;
+            const rawExKun = k.example_kun || k.examples_kun || k.kun_example || k.kun_examples;
+
             const result = {
                 kanji: k.kanji || kanjiChar,
                 hv: hv || 'CHƯA CÓ',
                 meaning: meaning || 'Chưa rõ nghĩa',
                 onyomi: k.on || '',
                 kunyomi: k.kun || '',
-                examples: k.examples || k.example || [], 
-                example_on: k.example_on || k.examples_on || k.on_example || k.on_examples || [],
-                example_kun: k.example_kun || k.examples_kun || k.kun_example || k.kun_examples || [],
+                // 🟢 Đưa qua máy giặt parseSafeArray để đảm bảo 100% là Array
+                examples: parseSafeArray(rawEx), 
+                example_on: parseSafeArray(rawExOn),   
+                example_kun: parseSafeArray(rawExKun), 
                 stroke_count: k.stroke_count || 0,
-                tips: k.tips || "" // Để trống string thay vì mảng
+                tips: k.tips || ""
             };
 
             window.kanjiDetailCache[cacheKey] = result;
