@@ -22039,40 +22039,44 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             })
         });
         const data = await response.json();
-                console.log(`Dữ liệu Mazii gốc của chữ ${kanjiChar}:`, data); // THÊM DÒNG NÀY VÀO ĐÂY
+
         const kList = data.results || data.result || [];
         if (kList.length > 0) {
             const k = kList[0];
 
+            // ==========================================
+            // THUẬT TOÁN BÓC TÁCH MỚI (Lấy từ field detail)
+            // ==========================================
+            
+            // 1. TÌM HÁN VIỆT TỪ "hanviet" HOẶC "mean"
             let hv = (k.hanviet || '').trim().toUpperCase();
-            let meaning = (k.mean || '').trim();
+            if (!hv && k.mean) {
+                // Nếu hanviet rỗng (như chữ 三), lấy từ đầu tiên trước dấu phẩy của trường mean
+                hv = k.mean.split(/[,、，]/)[0].trim().toUpperCase();
+            }
 
-            // 🧠 THUẬT TOÁN TỰ SỬA LỖI 1 (Bóc tách ngoặc đơn):
-            const bracketMatch = meaning.match(/^(.*?)\s*[\(（](.*?)[\)）]/);
-
-            if (bracketMatch) {
-                if (!hv) {
-                    hv = bracketMatch[1].trim().toUpperCase();
-                }
-                meaning = bracketMatch[2].trim();
-            } else {
-                if (!hv && meaning) {
-                    const firstWord = meaning.split(/[\s,，、]/)[0].toUpperCase();
-                    hv = firstWord;
+            // 2. BÓC TÁCH Ý NGHĨA SẠCH TỪ TRƯỜNG "detail"
+            let meaning = '';
+            if (k.detail) {
+                // Tách theo dấu xuống dòng và lấy dòng đầu tiên có chữ
+                const lines = k.detail.split('\n').filter(line => line.trim() !== '');
+                if (lines.length > 0) {
+                    let firstLine = lines[0].trim();
+                    // Xóa số thứ tự ở đầu (VD: "1. ba" -> "ba", "1: số ba" -> "số ba")
+                    firstLine = firstLine.replace(/^\d+[\.\:\s]+/, '').trim();
+                    // Xóa phần Ví dụ nếu nó nằm chung dòng (VD: "ba. VD: ...")
+                    firstLine = firstLine.split(/VD:|Ví dụ:|e\.g\./i)[0].trim();
+                    
+                    meaning = firstLine;
                 }
             }
 
-            // 🧠 THUẬT TOÁN CHỐNG LẶP TỪ LỚP 1 (Lược bỏ tiền tố trùng Hán Việt):
-            if (hv && meaning) {
-                const hvLower = hv.toLowerCase();
-                // 🟢 FIX: Thêm ( ... |$) để Regex bắt và xóa sạch chuỗi nếu chuỗi ĐÓ CHỈ CÓ MỖI CHỮ HÁN VIỆT
-                const regexPrefix = new RegExp(`^${hvLower}(?:[\\s,，、;；\\-]+|$)`, 'i');
-                if (regexPrefix.test(meaning)) {
-                    meaning = meaning.replace(regexPrefix, '').trim();
-                }
+            // Fallback nếu detail rỗng
+            if (!meaning && k.mean) {
+                meaning = k.mean;
             }
 
-            // Bóc từ ghép minh họa từ Mazii
+            // 3. BÓC TỪ GHÉP MINH HỌA
             let compoundWord = "";
             const examples = k.compounds || k.examples || k.example || [];
             if (examples.length > 0) {
@@ -22085,10 +22089,9 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 }
             }
 
-            // ================================================================
-            // KHẮC PHỤC LỖI TẠI ĐÂY:
-            // 1. Khai báo hằng số `result` chứa dữ liệu sạch đã bóc tách
-            // ================================================================
+            // ==========================================
+            // ĐÓNG GÓI VÀ LƯU CACHE
+            // ==========================================
             const result = {
                 kanji: k.kanji || kanjiChar,
                 hv: hv || 'CHƯA CÓ',
@@ -22098,10 +22101,9 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 kunyomi: k.kun || ''
             };
 
-            // 2. Lưu trữ trực tiếp đối tượng này vào Cache hệ thống trên RAM
+            // Lưu trực tiếp đối tượng này vào Cache hệ thống trên RAM
             window.kanjiDetailCache[`mazii_${kanjiChar}`] = result;
 
-            // 3. Thực hiện trả về kết quả
             return result;
         }
         return null;
