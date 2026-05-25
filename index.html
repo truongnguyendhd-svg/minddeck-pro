@@ -11660,24 +11660,36 @@ async function answerCurrent(q) {
     }
 
     // Cập nhật Heatmap Kanji
+    if (!currentUser.kanji_peaks) currentUser.kanji_peaks = {}; // Đảm bảo tồn tại
+
     const kMatches = c.front.match(/[\u4e00-\u9faf]/g) || [];
     kMatches.forEach(k => {
         let currentInt = userKanjiMasteryMap[k] || 0;
+        let currentPeak = currentUser.kanji_peaks[k] || 0; // 🟢 FIX
+        
         if (q < 2) { 
             let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
             userKanjiMasteryMap[k] = pen;
         } else {
             userKanjiMasteryMap[k] = Math.max(currentInt, interval);
+            currentUser.kanji_peaks[k] = Math.max(currentPeak, interval); // 🟢 FIX
         }
     });
 
     // Cập nhật Heatmap Ngữ pháp
     if (globalGrammarData && globalGrammarData.length > 0) {
+        if (!currentUser.grammar_peaks) currentUser.grammar_peaks = {}; // Đảm bảo tồn tại
+        
         globalGrammarData.forEach(g => {
             const cleanPoint = g.grammar_point.replace(/～/g, '');
             if (c.front.includes(cleanPoint)) {
                 let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
-                if (q >= 2) userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
+                let currentPeak = currentUser.grammar_peaks[g.grammar_point] || 0; // 🟢 FIX
+                
+                if (q >= 2) {
+                    userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
+                    currentUser.grammar_peaks[g.grammar_point] = Math.max(currentPeak, interval); // 🟢 FIX
+                }
             }
         });
     }
@@ -11720,6 +11732,9 @@ async function flushSrsQueue() {
     srsPendingQueue = [];
     localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
     localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+    // 🟢 FIX: Lưu thêm Kỷ lục vào ổ cứng trước khi đẩy lên Cloud
+    localStorage.setItem(`minddeck_kanji_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser.kanji_peaks));
+    localStorage.setItem(`minddeck_grammar_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser.grammar_peaks));
     sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
 
     try {
@@ -13898,19 +13913,28 @@ async function showKanjiCollection(skipHash = false) {
         // BƯỚC 2: TẢI TIẾN ĐỘ LIVE TỪ CACHE / PROFILES
         // ==========================================
         const cachedKanji = localStorage.getItem(`minddeck_kanji_cache_${currentUser.id}`);
+        const cachedKanjiPeaks = localStorage.getItem(`minddeck_kanji_peaks_cache_${currentUser.id}`); // 🟢 FIX: Đọc thêm Kỷ lục từ ổ cứng
+
         if (cachedKanji) {
             userKanjiMasteryMap = JSON.parse(cachedKanji);
+            
+            // 🟢 FIX: Bơm lại Kỷ lục vào RAM
+            if (cachedKanjiPeaks) {
+                currentUser.kanji_peaks = JSON.parse(cachedKanjiPeaks);
+            } else {
+                currentUser.kanji_peaks = {};
+            }
         } else {
             const { data: profileData } = await sb.from('profiles')
-                .select('kanji_mastery, kanji_peaks') // 🟢 FIX: Kéo thêm kanji_peaks
+                .select('kanji_mastery, kanji_peaks') 
                 .eq('id', currentUser.id)
                 .single();
                 
             userKanjiMasteryMap = profileData?.kanji_mastery || {};
-            currentUser.kanji_peaks = profileData?.kanji_peaks || {}; // 🟢 FIX: Nạp kỷ lục vào RAM
+            currentUser.kanji_peaks = profileData?.kanji_peaks || {}; 
             
             localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-            localStorage.setItem(`minddeck_kanji_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser.kanji_peaks)); // 🟢 FIX: Lưu xuống Cache
+            localStorage.setItem(`minddeck_kanji_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser.kanji_peaks)); 
         }    
         let unlockedCount = Object.values(userKanjiMasteryMap).filter(interval => interval > 0).length;
 
@@ -18385,24 +18409,36 @@ async function processBatchAssessmentResults() {
         // ==============================================================
         // 🚀 CẬP NHẬT TRỰC TIẾP KANJI VÀ NGỮ PHÁP VÀO RAM (OPTIMISTIC UI)
         // ==============================================================
+         if (!currentUser.kanji_peaks) currentUser.kanji_peaks = {}; // Đảm bảo object tồn tại
+
         const kMatches = card.front.match(/[\u4e00-\u9faf]/g) || [];
         kMatches.forEach(k => {
             let currentInt = userKanjiMasteryMap[k] || 0;
+            let currentPeak = currentUser.kanji_peaks[k] || 0; // 🟢 FIX: Lấy kỷ lục hiện tại
+            
             if (q < 3) { 
                 let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
                 userKanjiMasteryMap[k] = pen;
             } else {
                 userKanjiMasteryMap[k] = Math.max(currentInt, interval);
+                currentUser.kanji_peaks[k] = Math.max(currentPeak, interval); // 🟢 FIX: Phá kỷ lục
             }
             hasMasteryChanges = true;
         });
 
         if (globalGrammarData && globalGrammarData.length > 0) {
+            if (!currentUser.grammar_peaks) currentUser.grammar_peaks = {};
+            
             globalGrammarData.forEach(g => {
                 const cleanPoint = g.grammar_point.replace(/～/g, '');
                 if (card.front.includes(cleanPoint)) {
                     let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
-                    if (q >= 3) userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
+                    let currentPeak = currentUser.grammar_peaks[g.grammar_point] || 0; // 🟢 FIX
+                    
+                    if (q >= 3) {
+                        userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
+                        currentUser.grammar_peaks[g.grammar_point] = Math.max(currentPeak, interval); // 🟢 FIX
+                    }
                     hasMasteryChanges = true;
                 }
             });
@@ -18442,6 +18478,11 @@ async function processBatchAssessmentResults() {
             if (hasMasteryChanges) {
                 localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
                 localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
+                
+                // 🟢 FIX: Lưu kỷ lục xuống ổ cứng
+                localStorage.setItem(`minddeck_kanji_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser.kanji_peaks));
+                localStorage.setItem(`minddeck_grammar_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser.grammar_peaks));
+                
                 sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
             }
 
@@ -20295,10 +20336,21 @@ async function syncKanjiMastery(force = false) {
     const userId = currentUser.id; 
 
     // 1. Nếu không ép buộc, dùng thẳng Cache LocalStorage (0 giây)
+    // 1. Nếu không ép buộc, dùng thẳng Cache LocalStorage (0 giây)
     if (!force) {
         const cachedKanji = localStorage.getItem(`minddeck_kanji_cache_${userId}`);
+        const cachedKanjiPeaks = localStorage.getItem(`minddeck_kanji_peaks_cache_${userId}`); // 🟢 FIX
+        
         if (cachedKanji) {
             userKanjiMasteryMap = JSON.parse(cachedKanji);
+            
+            // 🟢 FIX: Bơm lại Kỷ lục vào RAM để tránh bị null
+            if (cachedKanjiPeaks) {
+                currentUser.kanji_peaks = JSON.parse(cachedKanjiPeaks);
+            } else {
+                currentUser.kanji_peaks = {};
+            }
+            
             return Object.values(userKanjiMasteryMap).filter(interval => interval > 0).length;
         }
     }
