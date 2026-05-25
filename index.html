@@ -10096,22 +10096,18 @@ async function showKanjiXRay(event, kanji) {
         }
 
         // PHẦN GỢI Ý TỪ ĐIỂN (Tips)
-        if (maziiData.tips) {
+        if (maziiData.tips && maziiData.tips.length > 0) {
             let rawTips = "";
-            if (Array.isArray(maziiData.tips) && maziiData.tips.length > 0) {
-                // 🟢 ĐÃ SỬA: Lấy từ maziiData.tips[0].mean (theo đúng cấu trúc JSON trả về)
+            // Mazii trả về dạng mảng object: [{ mean: "Một đám lý..." }]
+            if (Array.isArray(maziiData.tips) && maziiData.tips[0]) {
                 rawTips = maziiData.tips[0].mean || maziiData.tips[0].tips || "";
-            } else if (typeof maziiData.tips === 'object' && maziiData.tips !== null) {
-                rawTips = maziiData.tips.mean || maziiData.tips.tips || "";
-            } else {
-                rawTips = String(maziiData.tips);
             }
 
             if (rawTips.trim() !== "") {
                 const cleanTip = rawTips.replace(/<b.*?>/g, '').replace(/<\/b>/g, '');
                 html += `
                 <div style="background: #f8fafc; border-radius: 8px; padding: 12px; font-size: 13px; color: #4a5568; text-align: left; line-height: 1.5; margin-top: 15px; border: 1px solid #e2e8f0;">
-                    <b style="color: #64748b;">Gợi ý từ điển:</b> ${cleanTip}
+                    <b style="color: #64748b;">Mẹo nhớ:</b> ${cleanTip}
                 </div>`;
             }
         }
@@ -22142,10 +22138,9 @@ async function syncAllMasteryFromCloud() {
         console.error("Lỗi đồng bộ gộp tối ưu:", e);
     }
 }
-// 🟢 [ĐÃ FIX LỖI API MAPPING MAZII]: Lấy chi tiết Kanji và toàn bộ mảng ví dụ
+// 🟢 LẤY CHI TIẾT KANJI VÀ TOÀN BỘ MẢNG VÍ DỤ TỪ MAZII
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    // 🌟 TĂNG VERSION LÊN v6: Rất quan trọng để bắt ứng dụng gọi lại API lấy đủ dữ liệu thay vì dùng dữ liệu lỗi trong Cache
-    const cacheKey = `mazii_v6_clean_${kanjiChar}`; 
+    const cacheKey = `mazii_v7_final_${kanjiChar}`; // Đổi tên khóa để đoạn tuyệt với cache cũ
 
     window.kanjiDetailCache = window.kanjiDetailCache || {};
     if (window.kanjiDetailCache[cacheKey]) return window.kanjiDetailCache[cacheKey];
@@ -22185,6 +22180,7 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             }
             if (!meaning && k.mean) meaning = k.mean;
 
+            // 🟢 TỐI ƯU MAPPING: Bắt chính xác tên biến do Mazii trả về
             const result = {
                 kanji: k.kanji || kanjiChar,
                 hv: hv || 'CHƯA CÓ',
@@ -22192,11 +22188,10 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 onyomi: k.on || '',
                 kunyomi: k.kun || '',
                 examples: k.examples || k.example || [], 
-                // 🟢 ĐÃ SỬA: Bắt đúng biến on_example và kun_example của Mazii
-                example_on: k.on_example || k.example_on || [],   
-                example_kun: k.kun_example || k.example_kun || [], 
+                example_on: k.on_example || k.example_on || [],   // Bắt mảng âm ON
+                example_kun: k.kun_example || k.example_kun || [], // Bắt mảng âm KUN
                 stroke_count: k.stroke_count || 0,
-                tips: k.tips || ''
+                tips: k.tips || [] // Đưa về dạng mảng thay vì string
             };
 
             window.kanjiDetailCache[cacheKey] = result;
