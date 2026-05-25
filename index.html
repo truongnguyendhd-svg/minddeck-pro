@@ -9886,7 +9886,7 @@ function renderStudy() {
     }
 }
 
-// HÀM XỬ LÝ X-RAY KANJI (HYBRID: SUPABASE + MAZII ĐẦY ĐỦ 4 ACCORDION)
+// HÀM XỬ LÝ X-RAY KANJI (HYBRID: SUPABASE + MAZII CHUẨN ĐƯỜNG KẺ MỚI)
 async function showKanjiXRay(event, kanji) {
     if (event) event.stopPropagation(); 
     showLoading("Đang phân tích cấu trúc...");
@@ -9894,7 +9894,6 @@ async function showKanjiXRay(event, kanji) {
     document.querySelector('#xrayModal .modal-content').style.maxWidth = "480px"; 
     
     try {
-        // 1. Tải song song dữ liệu từ Supabase và Mazii
         const [appDataArray, maziiData] = await Promise.all([
             getBatchKanjiBuilderData([kanji]),
             fetchMaziiKanjiDetail(kanji)
@@ -9908,7 +9907,7 @@ async function showKanjiXRay(event, kanji) {
             return showToast("Thư viện hiện chưa có thông tin cho chữ này.");
         }
 
-        // --- 2. ADMIN MENU ---
+        // --- ADMIN MENU ---
         const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
         let adminActionsHtml = "";
         if (isAdmin && appData) {
@@ -9938,7 +9937,7 @@ async function showKanjiXRay(event, kanji) {
                 </div>`;
         }
 
-        // --- 3. DỰNG GIAO DIỆN CHÍNH ---
+        // --- DỰNG GIAO DIỆN CHÍNH ---
         let html = `
             <style>
                 .mazii-accordion summary::-webkit-details-marker { display: none; }
@@ -9948,7 +9947,7 @@ async function showKanjiXRay(event, kanji) {
                 .mazii-vocab-row:last-child { border-bottom: none; }
             </style>
 
-            <!-- PHẦN 1: HEADER TỪ MAZII -->
+            <!-- HEADER TỪ MAZII -->
             <div style="position: relative; display: inline-block; margin-top: 5px;">
                 <div style="font-size: 75px; font-weight: 900; color: #0067c0; line-height: 1; font-family: 'Noto Sans JP', sans-serif;">${maziiData.kanji}</div>
                 ${adminActionsHtml}
@@ -9958,7 +9957,13 @@ async function showKanjiXRay(event, kanji) {
             <div style="font-size: 15px; color: #1a1a1a; margin-bottom: 25px; font-weight: 600;">Nghĩa: <b style="color: #0067c0;">${maziiData.meaning}</b></div>
         `;
 
-        // PHẦN 2: BẢN SẮC APP (CẤU TẠO & MẸO NHỚ)
+        // BẢN SẮC APP (CẤU TẠO, NÉT BÚT & MẸO NHỚ)
+        let strokeCountHtml = `
+            <div style="padding: 10px 16px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #64748b; font-weight: 600;">
+                <div style="display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">edit</span> NÉT BÚT</div>
+                <div style="color: #1d1d1f; font-weight: 800;">${maziiData.stroke_count} nét</div>
+            </div>`;
+
         if (appData) {
             html += `
             <div style="background: #ffffff; border: 1px solid #cbd5e0; border-left: 4px solid #10b981; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.02); margin-bottom: 20px; overflow: hidden; text-align: left;">
@@ -9966,15 +9971,25 @@ async function showKanjiXRay(event, kanji) {
                     <div style="font-size: 12px; font-weight: 800; color: #64748b; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">account_tree</span> CẤU TẠO</div>
                     <div style="font-size: 16px; font-weight: 800; color: #1a1a1a; letter-spacing: 2px;">${appData.components.join(' <span style="color:#cbd5e0;">+</span> ')}</div>
                 </div>
+                
+                <!-- 🟢 ĐÃ DI CHUYỂN NÉT BÚT VÀO ĐÂY -->
+                ${strokeCountHtml}
+
                 ${appData.mnemonics ? `
                 <div style="padding: 16px; background: #fffdfa;">
                     <div style="display: flex; align-items: center; gap: 6px; font-weight: 800; color: #d97706; margin-bottom: 8px; font-size: 12px;"><span class="material-symbols-outlined" style="font-size:16px;">lightbulb</span> MẸO NHỚ</div>
                     <div style="font-size: 14px; color: #333333; line-height: 1.6;">${appData.mnemonics}</div>
                 </div>` : ''}
             </div>`;
+        } else {
+            // Nếu không có cấu tạo từ app, vẫn dựng khung Nét bút độc lập
+            html += `
+            <div style="background: #ffffff; border: 1px solid #cbd5e0; border-left: 4px solid #64748b; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.02); margin-bottom: 20px; overflow: hidden; text-align: left;">
+                ${strokeCountHtml}
+            </div>`;
         }
 
-        // PHẦN 3: ÂM ON / KUN
+        // ÂM ON / KUN
         html += `
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; text-align: left;">
                 <div style="background: #fdf3f4; border: 1px solid #f8d7da; padding: 12px; border-radius: 8px;">
@@ -9988,102 +10003,85 @@ async function showKanjiXRay(event, kanji) {
             </div>
         `;
 
-        // 🟢 PHẦN 4: CÂU VÍ DỤ MINH HỌA (examples - Accordion xịn có hỗ trợ X-Ray chéo)
-        if (maziiData.examples && maziiData.examples.length > 0) {
-            html += `
-            <details class="mazii-accordion" style="background: #ffffff; border: 1px solid #a7f3d0; border-radius: 12px; margin-bottom: 12px; text-align: left; overflow: hidden;">
-                <summary style="padding: 12px 16px; font-size: 13px; font-weight: 800; color: #047857; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #f0fdf4;">
-                    <span>CÂU VÍ DỤ MINH HỌA (${maziiData.examples.length})</span>
-                    <span class="material-symbols-outlined acc-arrow" style="transition: transform 0.3s;">expand_more</span>
-                </summary>
-                <div style="padding: 0 16px; max-height: 250px; overflow-y: auto; border-top: 1px solid #a7f3d0;">
-                    ${maziiData.examples.map(ex => {
-                        // Bọc wrapKanjiWithLink để cho phép click tra chéo trực tiếp từ câu ví dụ
-                        const interactiveSentence = wrapKanjiWithLink(escapeHTML(ex.w || ex.word || ''));
-                        return `
-                        <div style="padding: 12px 0; border-bottom: 1px solid #f0f0f0;">
-                            <div style="font-size: 15px; font-weight: 700; color: #1a1a1a; font-family: 'Noto Sans JP', sans-serif; line-height: 1.4;">${interactiveSentence}</div>
-                            ${ex.p ? `<div style="font-size: 12px; color: #666; margin: 2px 0;">${escapeHTML(ex.p)}</div>` : ''}
-                            <div style="font-size: 13px; color: #4a4a4a; margin-top: 4px; font-weight: 500;">${escapeHTML(ex.m || ex.mean || '')}</div>
-                        </div>`;
-                    }).join('')}
-                </div>
-            </details>`;
-        }
-
         // HÀM RENDER ITEM TỪ VỰNG CHO ACCORDION
-        const renderVocabItem = (v, colorCode) => `
+        const renderVocabItem = (v, colorCode) => {
+            const word = v.w || v.word || '';
+            const reading = v.p || v.phonetic || v.reading || '';
+            const meaning = v.m || v.mean || v.meaning || '';
+            const hv = v.h || v.hanviet || '';
+            
+            return `
             <div class="mazii-vocab-row">
                 <div style="flex: 1; overflow: hidden;">
                     <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px;">
-                        <span style="font-size: 18px; font-weight: 700; color: #1a1a1a;">${v.w}</span>
-                        <span style="font-size: 13px; color: #666; font-weight: 600;">${v.p}</span>
+                        <span style="font-size: 18px; font-weight: 700; color: #1a1a1a;">${escapeHTML(word)}</span>
+                        ${reading ? `<span style="font-size: 13px; color: #666; font-weight: 600;">${escapeHTML(reading)}</span>` : ''}
                     </div>
                     <div style="font-size: 13px; color: #4a4a4a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                        <b style="color: ${colorCode}; font-size: 11px;">[${v.h || '---'}]</b> ${v.m}
+                        ${hv ? `<b style="color: ${colorCode}; font-size: 11px; margin-right: 4px;">[${escapeHTML(hv)}]</b>` : ''}${escapeHTML(meaning)}
                     </div>
                 </div>
-                <button onclick="openSaveDictWordModal('${encodeURIComponent(v.w)}', '${encodeURIComponent(v.p)}', '${encodeURIComponent(v.m)}', '${encodeURIComponent(v.h || '')}', '')" 
+                <button onclick="openSaveDictWordModal('${encodeURIComponent(word)}', '${encodeURIComponent(reading)}', '${encodeURIComponent(meaning)}', '${encodeURIComponent(hv)}', '')" 
                         title="Thêm vào bộ bài" style="background: #f1f5f9; color: ${colorCode}; border: none; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; flex-shrink: 0;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
                     <span class="material-symbols-outlined" style="font-size: 18px;">add</span>
                 </button>
-            </div>
-        `;
+            </div>`;
+        };
 
         let bulkVocabList = []; // Mảng gom từ vựng để truyền cho Bulk Save
 
-        // PHẦN 5: TỪ GHÉP THÔNG DỤNG (compDetail - Accordion)
-        if (maziiData.compDetail && maziiData.compDetail.length > 0) {
+        // 🟢 ACCORDION 1: TỪ GHÉP THÔNG DỤNG (examples)
+        if (maziiData.examples && maziiData.examples.length > 0) {
             html += `
-            <details class="mazii-accordion" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 12px; text-align: left; overflow: hidden;">
-                <summary style="padding: 12px 16px; font-size: 13px; font-weight: 800; color: #2d3748; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
-                    <span>TỪ GHÉP THÔNG DỤNG (${maziiData.compDetail.length})</span>
+            <details class="mazii-accordion" style="background: #ffffff; border: 1px solid #cbd5e0; border-radius: 12px; margin-bottom: 12px; text-align: left; overflow: hidden;" open>
+                <summary style="padding: 12px 16px; font-size: 13px; font-weight: 800; color: #1a1a1a; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #f5f5f7;">
+                    <span>TỪ GHÉP THÔNG DỤNG (${maziiData.examples.length})</span>
                     <span class="material-symbols-outlined acc-arrow" style="transition: transform 0.3s;">expand_more</span>
                 </summary>
-                <div style="padding: 0 16px; max-height: 250px; overflow-y: auto; border-top: 1px solid #e2e8f0;">
-                    ${maziiData.compDetail.map(v => {
-                        bulkVocabList.push({ word: v.w, reading: v.p, meaning: v.m, hv: v.h });
+                <div style="padding: 0 16px; max-height: 250px; overflow-y: auto; border-top: 1px solid #cbd5e0;">
+                    ${maziiData.examples.map(v => {
+                        bulkVocabList.push({ word: v.w || v.word, reading: v.p || v.phonetic, meaning: v.m || v.mean, hv: v.h || v.hanviet });
                         return renderVocabItem(v, '#0067c0');
                     }).join('')}
                 </div>
             </details>`;
         }
 
-        // PHẦN 6: TỪ GHÉP ÂM ON (example_on - Accordion)
+        // 🟢 ACCORDION 2: VÍ DỤ CÁCH ĐỌC ÂM ON (example_on)
         if (maziiData.example_on && maziiData.example_on.length > 0) {
             html += `
             <details class="mazii-accordion" style="background: #ffffff; border: 1px solid #f8d7da; border-radius: 12px; margin-bottom: 12px; text-align: left; overflow: hidden;">
                 <summary style="padding: 12px 16px; font-size: 13px; font-weight: 800; color: #c50f1f; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #fdf3f4;">
-                    <span>VÍ DỤ TỪ GHÉP ÂM ON (${maziiData.example_on.length})</span>
+                    <span>VÍ DỤ CÁCH ĐỌC ÂM ON (${maziiData.example_on.length})</span>
                     <span class="material-symbols-outlined acc-arrow" style="transition: transform 0.3s;">expand_more</span>
                 </summary>
                 <div style="padding: 0 16px; max-height: 250px; overflow-y: auto; border-top: 1px solid #f8d7da;">
                     ${maziiData.example_on.map(v => {
-                        bulkVocabList.push({ word: v.w, reading: v.p, meaning: v.m, hv: v.h });
+                        bulkVocabList.push({ word: v.w || v.word, reading: v.p || v.phonetic, meaning: v.m || v.mean, hv: v.h || v.hanviet });
                         return renderVocabItem(v, '#c50f1f');
                     }).join('')}
                 </div>
             </details>`;
         }
 
-        // PHẦN 7: TỪ GHÉP ÂM KUN (example_kun - Accordion)
+        // 🟢 ACCORDION 3: VÍ DỤ CÁCH ĐỌC ÂM KUN (example_kun)
         if (maziiData.example_kun && maziiData.example_kun.length > 0) {
             html += `
             <details class="mazii-accordion" style="background: #ffffff; border: 1px solid #cce3f6; border-radius: 12px; margin-bottom: 20px; text-align: left; overflow: hidden;">
                 <summary style="padding: 12px 16px; font-size: 13px; font-weight: 800; color: #0067c0; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #f3f8fd;">
-                    <span>VÍ DỤ TỪ GHÉP ÂM KUN (${maziiData.example_kun.length})</span>
+                    <span>VÍ DỤ CÁCH ĐỌC ÂM KUN (${maziiData.example_kun.length})</span>
                     <span class="material-symbols-outlined acc-arrow" style="transition: transform 0.3s;">expand_more</span>
                 </summary>
                 <div style="padding: 0 16px; max-height: 250px; overflow-y: auto; border-top: 1px solid #cce3f6;">
                     ${maziiData.example_kun.map(v => {
-                        bulkVocabList.push({ word: v.w, reading: v.p, meaning: v.m, hv: v.h });
+                        bulkVocabList.push({ word: v.w || v.word, reading: v.p || v.phonetic, meaning: v.m || v.mean, hv: v.h || v.hanviet });
                         return renderVocabItem(v, '#0067c0');
                     }).join('')}
                 </div>
             </details>`;
         }
 
-        // PHẦN 8: NÚT LƯU HÀNG LOẠT (BULK SAVE)
+        // NÚT LƯU HÀNG LOẠT (BULK SAVE)
         if (bulkVocabList.length > 0) {
             const safeBulkData = encodeURIComponent(JSON.stringify(bulkVocabList)).replace(/'/g, "%27");
             html += `
@@ -10095,21 +10093,25 @@ async function showKanjiXRay(event, kanji) {
             </div>`;
         }
 
-        // PHẦN 9: NÉT BÚT & TIPS TỪ TỪ ĐIỂN
-        html += `<div style="display: flex; justify-content: center; gap: 15px; margin-bottom: 15px; border-top: 1px solid #f0f0f0; padding-top: 15px;">
-            <div style="font-size: 12px; color: #64748b; font-weight: 600; display: flex; align-items: center; gap: 4px;">
-                <span class="material-symbols-outlined" style="font-size: 16px;">edit</span> Nét bút: <b style="color:#1d1d1f;">${maziiData.stroke_count}</b>
-            </div>
-        </div>`;
-
+        // 🟢 PHẦN GỢI Ý TỪ ĐIỂN (ĐÃ FIX LỖI [object Object])
         if (maziiData.tips) {
-            let rawTips = Array.isArray(maziiData.tips) ? maziiData.tips.join(' ') : String(maziiData.tips);
-            const cleanTip = rawTips.replace(/<b.*?>/g, '').replace(/<\/b>/g, '');
-            
-            html += `
-            <div style="background: #f8fafc; border-radius: 8px; padding: 12px; font-size: 13px; color: #4a5568; text-align: left; line-height: 1.5;">
-                <b style="color: #64748b;">Gợi ý từ điển:</b> ${cleanTip}
-            </div>`;
+            let rawTips = "";
+            // Bóc tách mảng lồng Object từ cấu trúc gốc của Mazii
+            if (Array.isArray(maziiData.tips) && maziiData.tips.length > 0) {
+                rawTips = maziiData.tips[0].tips || "";
+            } else if (typeof maziiData.tips === 'object' && maziiData.tips !== null) {
+                rawTips = maziiData.tips.tips || "";
+            } else {
+                rawTips = String(maziiData.tips);
+            }
+
+            if (rawTips.trim() !== "") {
+                const cleanTip = rawTips.replace(/<b.*?>/g, '').replace(/<\/b>/g, '');
+                html += `
+                <div style="background: #f8fafc; border-radius: 8px; padding: 12px; font-size: 13px; color: #4a5568; text-align: left; line-height: 1.5; margin-top: 15px; border: 1px solid #e2e8f0;">
+                    <b style="color: #64748b;">Gợi ý từ điển:</b> ${cleanTip}
+                </div>`;
+            }
         }
 
         document.getElementById('xrayContent').innerHTML = html;
@@ -22139,9 +22141,9 @@ async function syncAllMasteryFromCloud() {
         console.error("Lỗi đồng bộ gộp tối ưu:", e);
     }
 }
-// 🟢 [TỐI ƯU HÓA MAZII]: Lấy chi tiết Kanji và toàn bộ mảng ví dụ (Đã bổ sung trường examples)
+// 🟢 [TỐI ƯU HÓA MAZII]: Lấy chi tiết Kanji và toàn bộ mảng ví dụ (Đã chuẩn hóa)
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    const cacheKey = `mazii_full_v3_${kanjiChar}`; // Đổi key lên v3 để làm sạch cache lỗi thiếu trường cũ
+    const cacheKey = `mazii_full_v4_${kanjiChar}`; // Đổi key lên v4 để làm sạch cache cũ bị lỗi
 
     window.kanjiDetailCache = window.kanjiDetailCache || {};
     if (window.kanjiDetailCache[cacheKey]) return window.kanjiDetailCache[cacheKey];
@@ -22181,17 +22183,15 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             }
             if (!meaning && k.mean) meaning = k.mean;
 
-            // 🟢 ĐỒNG BỘ ĐẦY ĐỦ KHỚP 100% CÁC TRƯỜNG DỮ LIỆU
             const result = {
                 kanji: k.kanji || kanjiChar,
                 hv: hv || 'CHƯA CÓ',
                 meaning: meaning || 'Chưa rõ nghĩa',
                 onyomi: k.on || '',
                 kunyomi: k.kun || '',
-                examples: k.examples || k.example || [], // 🌟 ĐÃ THÊM: Lưu trữ mảng câu ví dụ mẫu
-                compDetail: k.compDetail || [],         // Từ ghép thông dụng
-                example_on: k.example_on || [],         // Ví dụ âm ON
-                example_kun: k.example_kun || [],       // Ví dụ âm KUN
+                examples: k.examples || k.example || [], // Từ ghép thông dụng
+                example_on: k.example_on || [],           // Ví dụ cách đọc âm ON
+                example_kun: k.example_kun || [],         // Ví dụ cách đọc âm KUN
                 stroke_count: k.stroke_count || 0,
                 tips: k.tips || ''
             };
