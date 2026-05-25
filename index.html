@@ -10098,8 +10098,8 @@ async function showKanjiXRay(event, kanji) {
         // PHẦN GỢI Ý TỪ ĐIỂN (Tips)
         if (maziiData.tips && maziiData.tips.length > 0) {
             let rawTips = "";
-            // Do hàm safeParseArray ở trên đã biến tips thành mảng Object chuẩn
-            if (maziiData.tips[0]) {
+            // Mazii trả về dạng mảng object: [{ mean: "Một đám lý..." }]
+            if (Array.isArray(maziiData.tips) && maziiData.tips[0]) {
                 rawTips = maziiData.tips[0].mean || maziiData.tips[0].tips || "";
             }
 
@@ -22138,9 +22138,9 @@ async function syncAllMasteryFromCloud() {
         console.error("Lỗi đồng bộ gộp tối ưu:", e);
     }
 }
-// 🟢 LẤY CHI TIẾT KANJI VÀ TOÀN BỘ MẢNG VÍ DỤ TỪ MAZII (BỘ GIẢI MÃ TUYỆT ĐỐI)
+// 🟢 LẤY CHI TIẾT KANJI VÀ TOÀN BỘ MẢNG VÍ DỤ TỪ MAZII
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    const cacheKey = `mazii_v10_${kanjiChar}`; // V10 để làm mới bộ nhớ đệm
+    const cacheKey = `mazii_v7_final_${kanjiChar}`; // Đổi tên khóa để đoạn tuyệt với cache cũ
 
     window.kanjiDetailCache = window.kanjiDetailCache || {};
     if (window.kanjiDetailCache[cacheKey]) return window.kanjiDetailCache[cacheKey];
@@ -22152,39 +22152,6 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             return localRecord.data;
         }
     } catch (e) { console.warn("Lỗi đọc IndexedDB Mazii:", e); }
-
-    // 🛡️ BỘ GIẢI MÃ TUYỆT ĐỐI: Trị mọi định dạng lỗi của Mazii (Nháy đơn, xuống dòng ẩn...)
-    const safeParseArray = (data) => {
-        if (!data) return [];
-        let arr = data;
-
-        // 1. Xử lý trường hợp data là chuỗi String (Ví dụ: trường tips)
-        if (typeof data === 'string') {
-            try {
-                arr = JSON.parse(data);
-            } catch(e) {
-                // Nếu JSON.parse thất bại, dùng JS Engine để dịch
-                try { arr = (new Function("return " + data))(); } catch(err) { return []; }
-            }
-        }
-
-        if (!Array.isArray(arr)) return [];
-
-        // 2. Xử lý trường hợp mảng chứa String (Ví dụ: example_on, example_kun)
-        return arr.map(item => {
-            if (typeof item === 'string') {
-                try {
-                    // Dùng JS Engine ép kiểu String thành Object. 
-                    // Cách này xử lý mượt mà nháy đơn và cả dấu \r\n ẩn bên trong chữ.
-                    return (new Function("return " + item))();
-                } catch(e) {
-                    console.error("Lỗi giải mã chuỗi từ Mazii:", item);
-                    return null;
-                }
-            }
-            return item; // Nếu đã là Object (như trường examples) thì giữ nguyên
-        }).filter(Boolean); // Lọc bỏ phần tử null
-    };
     
     try {
         const response = await fetch('https://mazii.net/api/search', {
@@ -22213,17 +22180,18 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             }
             if (!meaning && k.mean) meaning = k.mean;
 
+            // 🟢 TỐI ƯU MAPPING: Bắt chính xác tên biến do Mazii trả về
             const result = {
                 kanji: k.kanji || kanjiChar,
                 hv: hv || 'CHƯA CÓ',
                 meaning: meaning || 'Chưa rõ nghĩa',
                 onyomi: k.on || '',
                 kunyomi: k.kun || '',
-                examples: safeParseArray(k.examples),
-                example_on: safeParseArray(k.example_on),   // Đưa qua bộ giải mã
-                example_kun: safeParseArray(k.example_kun), // Đưa qua bộ giải mã
+                examples: k.examples || k.example || [], 
+                example_on: k.on_example || k.example_on || [],   // Bắt mảng âm ON
+                example_kun: k.kun_example || k.example_kun || [], // Bắt mảng âm KUN
                 stroke_count: k.stroke_count || 0,
-                tips: safeParseArray(k.tips)                // Đưa qua bộ giải mã
+                tips: k.tips || [] // Đưa về dạng mảng thay vì string
             };
 
             window.kanjiDetailCache[cacheKey] = result;
@@ -22700,7 +22668,6 @@ function showGrammarPreview(event, grammarId) {
 </div>
 </body>
 </html>
-
 
 
 
