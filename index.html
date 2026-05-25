@@ -22066,7 +22066,8 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             // 🧠 THUẬT TOÁN CHỐNG LẶP TỪ LỚP 1 (Lược bỏ tiền tố trùng Hán Việt):
             if (hv && meaning) {
                 const hvLower = hv.toLowerCase();
-                const regexPrefix = new RegExp(`^${hvLower}\\s*[,，、;；\\-\\s]+`, 'i');
+                // 🟢 FIX: Thêm ( ... |$) để Regex bắt và xóa sạch chuỗi nếu chuỗi ĐÓ CHỈ CÓ MỖI CHỮ HÁN VIỆT
+                const regexPrefix = new RegExp(`^${hvLower}(?:[\\s,，、;；\\-]+|$)`, 'i');
                 if (regexPrefix.test(meaning)) {
                     meaning = meaning.replace(regexPrefix, '').trim();
                 }
@@ -22196,8 +22197,9 @@ async function showKanjiPreview(event, kanji) {
     const activeMap = userKanjiMasteryMap || {};
     const peaksMap = currentUser.kanji_peaks || {};
     
-    const peakInterval = peaksMap[kanji] || 0;
     const currentInterval = activeMap[kanji] || 0;
+    // 🟢 FIX LỖI 1: Ép Kỷ lục phải luôn >= Hiện tại (Bù đắp dữ liệu cũ)
+    const peakInterval = Math.max(peaksMap[kanji] || 0, currentInterval);
     
     const kanjiItem = allKanjiData.find(k => k.kanji === kanji) || { level: 'N?' };
     
@@ -22215,7 +22217,13 @@ async function showKanjiPreview(event, kanji) {
     const detail = await fetchMaziiKanjiDetail(kanji);
     const subTitleEl = document.getElementById('previewSubTitle');
     if (detail && subTitleEl) {
-        subTitleEl.innerHTML = `<span style="color:#c50f1f; font-weight:800;">[${detail.hv}]</span> — <span style="font-weight:600;">${detail.meaning}</span>`;
+        // 🟢 FIX LỖI 2: Tự động ẩn Nghĩa nếu nó bị rỗng hoặc trùng 100% với Hán Việt (VD: [HẮC] - HẮC)
+        if (detail.meaning && detail.meaning.toUpperCase() !== detail.hv.toUpperCase()) {
+            subTitleEl.innerHTML = `<span style="color:#c50f1f; font-weight:800;">[${detail.hv}]</span> — <span style="font-weight:600;">${detail.meaning}</span>`;
+        } else {
+            // Nếu trùng nhau, chỉ hiện Hán Việt
+            subTitleEl.innerHTML = `<span style="color:#c50f1f; font-weight:800;">[${detail.hv}]</span>`;
+        }
     } else if (subTitleEl) {
         subTitleEl.innerText = "Chưa có thông tin dịch.";
     }
