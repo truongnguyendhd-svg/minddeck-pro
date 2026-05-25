@@ -10098,8 +10098,8 @@ async function showKanjiXRay(event, kanji) {
         // PHẦN GỢI Ý TỪ ĐIỂN (Tips)
         if (maziiData.tips && maziiData.tips.length > 0) {
             let rawTips = "";
-            // Mazii trả về dạng mảng object: [{ mean: "Một đám lý..." }]
-            if (Array.isArray(maziiData.tips) && maziiData.tips[0]) {
+            // Do hàm safeParseArray ở trên đã biến tips thành mảng Object chuẩn
+            if (maziiData.tips[0]) {
                 rawTips = maziiData.tips[0].mean || maziiData.tips[0].tips || "";
             }
 
@@ -22140,7 +22140,7 @@ async function syncAllMasteryFromCloud() {
 }
 // 🟢 LẤY CHI TIẾT KANJI VÀ TOÀN BỘ MẢNG VÍ DỤ TỪ MAZII
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    const cacheKey = `mazii_v7_final_${kanjiChar}`; // Đổi tên khóa để đoạn tuyệt với cache cũ
+    const cacheKey = `mazii_v8_superclean_${kanjiChar}`; // Ép làm mới cache bằng v8
 
     window.kanjiDetailCache = window.kanjiDetailCache || {};
     if (window.kanjiDetailCache[cacheKey]) return window.kanjiDetailCache[cacheKey];
@@ -22152,6 +22152,25 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             return localRecord.data;
         }
     } catch (e) { console.warn("Lỗi đọc IndexedDB Mazii:", e); }
+
+    // 🛡️ BỘ GIẢI MÃ BỌC THÉP: Xử lý mọi "cú lừa" định dạng từ Mazii API
+    const safeParseArray = (data) => {
+        if (!data) return [];
+        // Nếu nó trả về 1 cục String bự -> Giải mã thành mảng
+        if (typeof data === 'string') {
+            try { data = JSON.parse(data); } catch(e) { return []; }
+        }
+        // Nếu nó trả về mảng, nhưng bên trong lại chứa String -> Giải mã từng phần tử
+        if (Array.isArray(data)) {
+            return data.map(item => {
+                if (typeof item === 'string') {
+                    try { return JSON.parse(item); } catch(e) { return null; }
+                }
+                return item;
+            }).filter(Boolean); // Lọc bỏ các phần tử lỗi
+        }
+        return [];
+    };
     
     try {
         const response = await fetch('https://mazii.net/api/search', {
@@ -22180,18 +22199,18 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             }
             if (!meaning && k.mean) meaning = k.mean;
 
-            // 🟢 TỐI ƯU MAPPING: Bắt chính xác tên biến do Mazii trả về
             const result = {
                 kanji: k.kanji || kanjiChar,
                 hv: hv || 'CHƯA CÓ',
                 meaning: meaning || 'Chưa rõ nghĩa',
                 onyomi: k.on || '',
                 kunyomi: k.kun || '',
-                examples: k.examples || k.example || [], 
-                example_on: k.on_example || k.example_on || [],   // Bắt mảng âm ON
-                example_kun: k.kun_example || k.example_kun || [], // Bắt mảng âm KUN
+                // 🟢 ĐƯA TẤT CẢ QUA BỘ GIẢI MÃ ĐỂ BIẾN STRING THÀNH OBJECT CHUẨN
+                examples: safeParseArray(k.examples || k.example),
+                example_on: safeParseArray(k.on_example || k.example_on),
+                example_kun: safeParseArray(k.kun_example || k.example_kun),
                 stroke_count: k.stroke_count || 0,
-                tips: k.tips || [] // Đưa về dạng mảng thay vì string
+                tips: safeParseArray(k.tips)
             };
 
             window.kanjiDetailCache[cacheKey] = result;
