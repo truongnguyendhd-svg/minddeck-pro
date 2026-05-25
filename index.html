@@ -22141,10 +22141,20 @@ async function syncAllMasteryFromCloud() {
         console.error("Lỗi đồng bộ gộp tối ưu:", e);
     }
 }
-// 🟢 LẤY CHI TIẾT KANJI VÀ TOÀN BỘ MẢNG VÍ DỤ TỪ MAZII
+// 🟢 THÊM HÀM PHỤ TRỢ NÀY (Có thể đặt ngay phía trên fetchMaziiKanjiDetail)
+// Nhiệm vụ: Chuyển đổi Object chứa nhiều mảng con thành 1 mảng phẳng duy nhất
+function flattenMaziiExamples(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw; // Nếu đã là mảng thì giữ nguyên
+    if (typeof raw === 'object') {
+        // Gộp tất cả các mảng bên trong các key (như "ヘイ", "な.み") lại làm một
+        return Object.values(raw).flat(); 
+    }
+    return [];
+}
+
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    // 🟢 SỬA LỖI 1: Đổi tên cache key thành v8 để ép App "quên" dữ liệu hỏng cũ
-    const cacheKey = `mazii_v8_final_${kanjiChar}`; 
+    const cacheKey = `mazii_v12_final_${kanjiChar}`; // Đổi key để làm sạch cache cũ bị lỗi cấu trúc Object
 
     window.kanjiDetailCache = window.kanjiDetailCache || {};
     if (window.kanjiDetailCache[cacheKey]) return window.kanjiDetailCache[cacheKey];
@@ -22184,18 +22194,18 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             }
             if (!meaning && k.mean) meaning = k.mean;
 
-            // 🟢 SỬA LỖI 2: Mở rộng bẫy bắt tên biến của Mazii (Bắt cả có "s" và không "s")
+            // 🟢 TIẾN HÀNH PHẲNG HÓA DỮ LIỆU ĐỂ TƯƠNG THÍCH VỚI HÀM RENDER (.map)
             const result = {
                 kanji: k.kanji || kanjiChar,
                 hv: hv || 'CHƯA CÓ',
                 meaning: meaning || 'Chưa rõ nghĩa',
                 onyomi: k.on || '',
                 kunyomi: k.kun || '',
-                examples: k.examples || k.example || [], 
-                example_on: k.example_on || k.examples_on || k.on_example || k.on_examples || [],
-                example_kun: k.example_kun || k.examples_kun || k.kun_example || k.kun_examples || [],
+                examples: flattenMaziiExamples(k.examples || k.example), 
+                example_on: flattenMaziiExamples(k.on_example || k.example_on),   
+                example_kun: flattenMaziiExamples(k.kun_example || k.example_kun), 
                 stroke_count: k.stroke_count || 0,
-                tips: k.tips || "" // Để trống string thay vì mảng
+                tips: k.tips || "" 
             };
 
             window.kanjiDetailCache[cacheKey] = result;
