@@ -13891,13 +13891,15 @@ async function showKanjiCollection(skipHash = false) {
             userKanjiMasteryMap = JSON.parse(cachedKanji);
         } else {
             const { data: profileData } = await sb.from('profiles')
-                .select('kanji_mastery')
+                .select('kanji_mastery, kanji_peaks') // 🟢 FIX: Kéo thêm kanji_peaks
                 .eq('id', currentUser.id)
                 .single();
+                
             userKanjiMasteryMap = profileData?.kanji_mastery || {};
+            currentUser.kanji_peaks = profileData?.kanji_peaks || {}; // 🟢 FIX: Nạp kỷ lục vào RAM
+            
             localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-        }
-
+            localStorage.setItem(`minddeck_kanji_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser.kanji_peaks)); // 🟢 FIX: Lưu xuống Cache
         let unlockedCount = Object.values(userKanjiMasteryMap).filter(interval => interval > 0).length;
 
         // Cập nhật thống kê
@@ -20291,18 +20293,21 @@ async function syncKanjiMastery(force = false) {
         // 2. Kéo trực tiếp Object kanji_mastery từ Cloud (Mất ~0.05s, payload cực nhỏ)
         // Tuyệt đối không quét bảng progress nữa vì Trigger DB đã làm thay!
         const { data: profile, error } = await sb.from('profiles')
-            .select('kanji_mastery')
+            .select('kanji_mastery, kanji_peaks') // 🟢 FIX: Kéo thêm kanji_peaks
             .eq('id', userId)
             .single();
-
+        
         if (error) throw error;
-
-        // 🟢 Chốt chặn bảo vệ: Nếu user đăng xuất giữa chừng khi chờ mạng thì hủy ngang
+        
+        // 🟢 Chốt chặn bảo vệ
         if (!currentUser || currentUser.id !== userId) return 0;
-
+        
         // 3. Đồng bộ RAM và LocalStorage
         userKanjiMasteryMap = profile?.kanji_mastery || {};
+        currentUser.kanji_peaks = profile?.kanji_peaks || {}; // 🟢 FIX: Nạp kỷ lục vào RAM
+        
         localStorage.setItem(`minddeck_kanji_cache_${userId}`, JSON.stringify(userKanjiMasteryMap));
+        localStorage.setItem(`minddeck_kanji_peaks_cache_${userId}`, JSON.stringify(currentUser.kanji_peaks)); // 🟢 FIX: Lưu xuống Cache
         
         return Object.values(userKanjiMasteryMap).filter(interval => interval > 0).length;
 
