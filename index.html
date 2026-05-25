@@ -9886,120 +9886,212 @@ function renderStudy() {
     }
 }
 
-// HÀM XỬ LÝ X-RAY KANJI (BẢN TỐI ƯU ZERO-BLOAT)
+// HÀM XỬ LÝ X-RAY KANJI (HYBRID: SUPABASE + MAZII)
 async function showKanjiXRay(event, kanji) {
-    event.stopPropagation(); 
-    showLoading("Đang quét cấu trúc...");
+    if (event) event.stopPropagation(); 
+    showLoading("Đang phân tích cấu trúc...");
     
-    // Thu nhỏ modal về 420px trước khi mở
-    document.querySelector('#xrayModal .modal-content').style.maxWidth = "420px";
+    document.querySelector('#xrayModal .modal-content').style.maxWidth = "480px"; // Nới rộng form một chút
     
     try {
-        // 🟢 SỬA TẠI ĐÂY: Sử dụng chung "Cỗ máy tải Kanji" đã được trang bị IndexedDB
-        const fetchedData = await getBatchKanjiBuilderData([kanji]);
-        const data = fetchedData.length > 0 ? fetchedData[0] : null;
+        // 1. GỌI SONG SONG 2 NGUỒN DỮ LIỆU CÙNG LÚC (Cực nhanh)
+        const [appDataArray, maziiData] = await Promise.all([
+            getBatchKanjiBuilderData([kanji]),
+            fetchMaziiKanjiDetail(kanji)
+        ]);
+        
+        const appData = appDataArray.length > 0 ? appDataArray[0] : null;
 
         hideLoading();
-        
-        if (!data) {
-            const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
-            if (isAdmin) {
-                openAdminKanjiBuilderModal(kanji);
-                return showToast("Chữ này mới, mời sếp bổ sung! 👑");
-            } else {
-                return showToast("Thư viện hiện chưa có phân tích cơ bản cho chữ này.");
-            }
+
+        if (!maziiData) {
+            return showToast("Thư viện hiện chưa có thông tin cho chữ này.");
         }
 
-        // 🟢 ĐÃ XÓA TOÀN BỘ KHỐI TRUY VẤN SỐ LƯỢNG THẺ ĐỂ TIẾT KIỆM BĂNG THÔNG
-
-        // 1. MENU DROPDOWN SỬA/XÓA (CHỈ DÀNH CHO ADMIN)
+        // --- 2. ADMIN MENU (Giữ nguyên logic cũ) ---
         const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
         let adminActionsHtml = "";
-        
-        if (isAdmin) {
-            const safeKanjiData = encodeURIComponent(JSON.stringify(data)).replace(/'/g, "%27");
-            
+        if (isAdmin && appData) {
+            const safeKanjiData = encodeURIComponent(JSON.stringify(appData)).replace(/'/g, "%27");
             adminActionsHtml = `
                 <div style="position: absolute; top: -15px; right: -35px; z-index: 100;">
                     <button onclick="document.getElementById('kAdminMenu').classList.toggle('show'); event.stopPropagation();" 
-                            style="width: 32px; height: 32px; border-radius: 50%; background: #f5f5f7; border: 1px solid #e5e5ea; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #0071e3; transition: 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05);"
-                            onmouseover="this.style.background='#e5e5ea'; this.style.transform='scale(1.05)';" onmouseout="this.style.background='#f5f5f7'; this.style.transform='none';">
+                            style="width: 32px; height: 32px; border-radius: 50%; background: #f5f5f7; border: 1px solid #e5e5ea; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #0071e3; transition: 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
                         <span class="material-symbols-outlined" style="font-size: 16px;">edit</span>
                     </button>
-                    
                     <div id="kAdminMenu" class="kanji-admin-dropdown" style="position: absolute; top: 40px; right: 0; background: #ffffff; border: 1px solid #e5e5ea; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); padding: 6px; width: 150px; display: flex; flex-direction: column; gap: 4px;">
-                        <button onclick="editAdminKanji('${safeKanjiData}')" style="background: transparent; border: none; padding: 10px 12px; text-align: left; border-radius: 8px; font-size: 13px; color: #0071e3; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;" onmouseover="this.style.background='#f0f9ff'" onmouseout="this.style.background='transparent'">
+                        <button onclick="editAdminKanji('${safeKanjiData}')" style="background: transparent; border: none; padding: 10px 12px; text-align: left; border-radius: 8px; font-size: 13px; color: #0067c0; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;">
                             <span class="material-symbols-outlined" style="font-size: 16px;">edit_square</span> Sửa chữ
                         </button>
-                        <button onclick="deleteAdminKanji('${data.kanji}')" style="background: transparent; border: none; padding: 10px 12px; text-align: left; border-radius: 8px; font-size: 13px; color: #e53e3e; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;" onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background='transparent'">
+                        <button onclick="deleteAdminKanji('${kanji}')" style="background: transparent; border: none; padding: 10px 12px; text-align: left; border-radius: 8px; font-size: 13px; color: #e53e3e; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;">
                             <span class="material-symbols-outlined" style="font-size: 16px;">delete</span> Xóa
                         </button>
                     </div>
                 </div>
             `;
+        } else if (isAdmin && !appData) {
+            adminActionsHtml = `
+                <div style="position: absolute; top: -15px; right: -35px; z-index: 100;">
+                    <button onclick="openAdminKanjiBuilderModal('${kanji}')" style="width: 32px; height: 32px; border-radius: 50%; background: #ecfdf5; border: 1px solid #a7f3d0; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #10b981; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">add</span>
+                    </button>
+                </div>`;
         }
 
-        // 2. GỘP CẤU TẠO, MẸO NHỚ, TÌM TỪ ĐIỂN VÀO 1 KHỐI CARD THỐNG NHẤT
-        let unifiedBlockHtml = `
-        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-bottom: 20px; overflow: hidden; text-align: left;">
-            
-            <!-- A. CẤU TẠO -->
-            <div style="padding: 16px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #fbfbfd;">
-                <div style="font-size: 12px; font-weight: 800; color: #64748b; display: flex; align-items: center; gap: 4px; text-transform: uppercase; letter-spacing: 0.5px;"><span class="material-symbols-outlined" style="font-size: 16px;">account_tree</span> CẤU TẠO</div>
-                <div style="font-size: 16px; font-weight: 800; color: #1a1a1a; letter-spacing: 2px; text-align: right;">${data.components.join(' <span style="color:#cbd5e0; font-weight:400;">+</span> ')}</div>
-            </div>
+        // --- 3. DỰNG GIAO DIỆN CHÍNH ---
+        let html = `
+            <style>
+                .mazii-accordion summary::-webkit-details-marker { display: none; }
+                .mazii-accordion summary { list-style: none; }
+                .mazii-accordion[open] .acc-arrow { transform: rotate(180deg); }
+                .mazii-vocab-row { padding: 10px 0; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+                .mazii-vocab-row:last-child { border-bottom: none; }
+            </style>
 
-            <!-- B. MẸO NHỚ -->
-            ${data.mnemonics ? `
-            <div style="padding: 16px; border-bottom: 1px solid #f0f0f0; background: #fffdfa;">
-                <div style="display: flex; align-items: center; gap: 6px; font-weight: 800; color: #d97706; margin-bottom: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
-                    <span class="material-symbols-outlined" style="font-size:18px;">lightbulb</span> MẸO NHỚ
-                </div>
-                <div style="font-size: 14px; color: #333333; line-height: 1.6;">${data.mnemonics}</div>
-            </div>` : ''}
-
-            <!-- C. TÌM TRONG TỪ ĐIỂN MỞ RỘNG (GIAO DIỆN MỚI) -->
-            <div style="padding: 16px;">
-                <div style="font-size: 13px; color: #64748b; text-align: center; margin-bottom: 12px; font-weight: 500;">
-                    Tra cứu nhanh các từ vựng ghép với chữ Hán này
-                </div>
-                
-                <button onclick="searchKanjiInDict('${data.kanji}')" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; border-radius: 10px; background: #f1f5f9; color: #0067c0; border: 1px solid #cbd5e0; font-size: 14px; font-weight: 800; cursor: pointer; transition: 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.02);" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">menu_book</span> Tìm trong Từ điển
-                </button>
-            </div>
-        </div>
-        `;
-
-        // 3. RENDER TOÀN BỘ MODAL MỚI
-        const content = `
+            <!-- PHẦN 1: HEADER TỪ MAZII -->
             <div style="position: relative; display: inline-block; margin-top: 5px;">
-                <div style="font-size: 75px; font-weight: 900; color: #0067c0; line-height: 1; font-family: 'Noto Sans JP', sans-serif;">${data.kanji}</div>
+                <div style="font-size: 75px; font-weight: 900; color: #0067c0; line-height: 1; font-family: 'Noto Sans JP', sans-serif;">${maziiData.kanji}</div>
                 ${adminActionsHtml}
             </div>
             
-            <div style="font-size: 16px; font-weight: 800; color: #c50f1f; margin: 8px 0 10px 0; letter-spacing: 1px;">[ ${data.hv} ]</div>
-            <div style="font-size: 15px; color: #1a1a1a; margin-bottom: 25px; font-weight: 600;">Nghĩa: <b style="color: #0067c0;">${data.meaning}</b></div>
-            
-            <!-- NHÉT KHỐI THỐNG NHẤT VÀO ĐÂY -->
-            ${unifiedBlockHtml}
+            <div style="font-size: 16px; font-weight: 800; color: #c50f1f; margin: 8px 0 10px 0; letter-spacing: 1px;">[ ${maziiData.hv} ]</div>
+            <div style="font-size: 15px; color: #1a1a1a; margin-bottom: 25px; font-weight: 600;">Nghĩa: <b style="color: #0067c0;">${maziiData.meaning}</b></div>
+        `;
 
-            <!-- NÚT GỌI AI: APPLE GLASSMORPHISM (ĐEN NHÁM) -->
-            <div id="aiKanjiExpansionZone" style="margin-top: 5px;">
-                <button id="btnAskAIKanji" onclick="expandKanjiWithAI('${data.kanji}')" style="width: 100%; padding: 15px; background: rgba(29, 29, 31, 0.85); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 16px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);" onmouseover="this.style.transform='scale(1.02)'; this.style.background='rgba(0,0,0,0.95)'" onmouseout="this.style.transform='none'; this.style.background='rgba(29, 29, 31, 0.85)'">
-                    <span class="material-symbols-outlined" style="font-size: 20px; color: #d8b4fe;">auto_awesome</span> PHÂN TÍCH CHUYÊN SÂU BẰNG AI
+        // PHẦN 2: BẢN SẮC APP (CẤU TẠO & MẸO NHỚ)
+        if (appData) {
+            html += `
+            <div style="background: #ffffff; border: 1px solid #cbd5e0; border-left: 4px solid #10b981; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.02); margin-bottom: 20px; overflow: hidden; text-align: left;">
+                <div style="padding: 12px 16px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; background: #fbfbfd;">
+                    <div style="font-size: 12px; font-weight: 800; color: #64748b; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">account_tree</span> CẤU TẠO</div>
+                    <div style="font-size: 16px; font-weight: 800; color: #1a1a1a; letter-spacing: 2px;">${appData.components.join(' <span style="color:#cbd5e0;">+</span> ')}</div>
+                </div>
+                ${appData.mnemonics ? `
+                <div style="padding: 16px; background: #fffdfa;">
+                    <div style="display: flex; align-items: center; gap: 6px; font-weight: 800; color: #d97706; margin-bottom: 8px; font-size: 12px;"><span class="material-symbols-outlined" style="font-size:16px;">lightbulb</span> MẸO NHỚ</div>
+                    <div style="font-size: 14px; color: #333333; line-height: 1.6;">${appData.mnemonics}</div>
+                </div>` : ''}
+            </div>`;
+        }
+
+        // PHẦN 3: ÂM ON / KUN
+        html += `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; text-align: left;">
+                <div style="background: #fdf3f4; border: 1px solid #f8d7da; padding: 12px; border-radius: 8px;">
+                    <div style="color: #c50f1f; font-size: 11px; font-weight: 800; margin-bottom: 6px;">ONYOMI (Âm Ôn)</div>
+                    <div style="font-size: 16px; font-weight: 700; color: #1a1a1a;">${maziiData.onyomi ? maziiData.onyomi.replace(/,/g, ' 、 ') : '---'}</div>
+                </div>
+                <div style="background: #f3f8fd; border: 1px solid #cce3f6; padding: 12px; border-radius: 8px;">
+                    <div style="color: #0067c0; font-size: 11px; font-weight: 800; margin-bottom: 6px;">KUNYOMI (Âm Côn)</div>
+                    <div style="font-size: 16px; font-weight: 700; color: #1a1a1a;">${maziiData.kunyomi ? maziiData.kunyomi.replace(/,/g, ' 、 ') : '---'}</div>
+                </div>
+            </div>
+        `;
+
+        // PHẦN 4: VÍ DỤ NỔI BẬT (examples)
+        if (maziiData.examples && maziiData.examples.length > 0) {
+            html += `<div style="text-align: left; margin-bottom: 15px;">`;
+            maziiData.examples.forEach(ex => {
+                html += `
+                <div style="background: #fbfbfd; border: 1px dashed #cbd5e0; padding: 10px; border-radius: 8px; margin-bottom: 8px; font-size: 13px;">
+                    <b style="color: #0067c0; font-size: 15px;">${ex.w || ex.word}</b> 
+                    <span style="color: #64748b; font-weight: 600;">(${ex.p || ex.reading})</span> — ${ex.m || ex.mean}
+                </div>`;
+            });
+            html += `</div>`;
+        }
+
+        // HÀM RENDER ITEM TỪ VỰNG CHO ACCORDION
+        const renderVocabItem = (v, colorCode) => `
+            <div class="mazii-vocab-row">
+                <div style="flex: 1; overflow: hidden;">
+                    <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px;">
+                        <span style="font-size: 18px; font-weight: 700; color: #1a1a1a;">${v.w}</span>
+                        <span style="font-size: 13px; color: #666; font-weight: 600;">${v.p}</span>
+                    </div>
+                    <div style="font-size: 13px; color: #4a4a4a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        <b style="color: ${colorCode}; font-size: 11px;">[${v.h || '---'}]</b> ${v.m}
+                    </div>
+                </div>
+                <button onclick="openSaveDictWordModal('${encodeURIComponent(v.w)}', '${encodeURIComponent(v.p)}', '${encodeURIComponent(v.m)}', '${encodeURIComponent(v.h || '')}', '')" 
+                        title="Thêm vào bộ bài" style="background: #f1f5f9; color: ${colorCode}; border: none; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; flex-shrink: 0;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">add</span>
                 </button>
             </div>
         `;
-        
-        document.getElementById('xrayContent').innerHTML = content;
+
+        // PHẦN 5: TỪ GHÉP ÂM ON (Accordion)
+        let bulkVocabList = []; // Mảng gom từ vựng để truyền cho Bulk Save
+
+        if (maziiData.on_ex && maziiData.on_ex.length > 0) {
+            html += `
+            <details class="mazii-accordion" style="background: #ffffff; border: 1px solid #f8d7da; border-radius: 12px; margin-bottom: 12px; text-align: left; overflow: hidden;">
+                <summary style="padding: 12px 16px; font-size: 13px; font-weight: 800; color: #c50f1f; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #fdf3f4;">
+                    <span>TỪ GHÉP ÂM ON (${maziiData.on_ex.length})</span>
+                    <span class="material-symbols-outlined acc-arrow" style="transition: transform 0.3s;">expand_more</span>
+                </summary>
+                <div style="padding: 0 16px; max-height: 250px; overflow-y: auto; border-top: 1px solid #f8d7da;">
+                    ${maziiData.on_ex.map(v => {
+                        bulkVocabList.push({ word: v.w, reading: v.p, meaning: v.m, hv: v.h });
+                        return renderVocabItem(v, '#c50f1f');
+                    }).join('')}
+                </div>
+            </details>`;
+        }
+
+        // PHẦN 6: TỪ GHÉP ÂM KUN (Accordion)
+        if (maziiData.kun_ex && maziiData.kun_ex.length > 0) {
+            html += `
+            <details class="mazii-accordion" style="background: #ffffff; border: 1px solid #cce3f6; border-radius: 12px; margin-bottom: 20px; text-align: left; overflow: hidden;">
+                <summary style="padding: 12px 16px; font-size: 13px; font-weight: 800; color: #0067c0; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #f3f8fd;">
+                    <span>TỪ GHÉP ÂM KUN (${maziiData.kun_ex.length})</span>
+                    <span class="material-symbols-outlined acc-arrow" style="transition: transform 0.3s;">expand_more</span>
+                </summary>
+                <div style="padding: 0 16px; max-height: 250px; overflow-y: auto; border-top: 1px solid #cce3f6;">
+                    ${maziiData.kun_ex.map(v => {
+                        bulkVocabList.push({ word: v.w, reading: v.p, meaning: v.m, hv: v.h });
+                        return renderVocabItem(v, '#0067c0');
+                    }).join('')}
+                </div>
+            </details>`;
+        }
+
+        // NÚT LƯU HÀNG LOẠT (BULK SAVE)
+        if (bulkVocabList.length > 0) {
+            const safeBulkData = encodeURIComponent(JSON.stringify(bulkVocabList)).replace(/'/g, "%27");
+            html += `
+            <div style="margin-bottom: 20px;">
+                <button onclick="openBulkSaveKanjiModal('${safeBulkData}', '${kanji}')" style="background: #1d1d1f; color: white; width: 100%; border: none; border-radius: 12px; padding: 14px; font-size: 14px; font-weight: 800; display: flex; justify-content: center; align-items: center; gap: 8px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">library_add</span>
+                    LƯU TOÀN BỘ ${bulkVocabList.length} TỪ VÀO BỘ BÀI
+                </button>
+            </div>`;
+        }
+
+        // PHẦN 7: TIPS TỪ TỪ ĐIỂN
+        html += `<div style="display: flex; justify-content: center; gap: 15px; margin-bottom: 15px; border-top: 1px solid #f0f0f0; padding-top: 15px;">
+            <div style="font-size: 12px; color: #64748b; font-weight: 600; display: flex; align-items: center; gap: 4px;">
+                <span class="material-symbols-outlined" style="font-size: 16px;">edit</span> Nét bút: <b style="color:#1d1d1f;">${maziiData.stroke_count}</b>
+            </div>
+        </div>`;
+
+        if (maziiData.tips) {
+            // Loại bỏ bớt các thẻ <b> rối mắt của Mazii nếu có
+            const cleanTip = maziiData.tips.replace(/<b.*?>/g, '').replace(/<\/b>/g, '');
+            html += `
+            <div style="background: #f8fafc; border-radius: 8px; padding: 12px; font-size: 13px; color: #4a5568; text-align: left; line-height: 1.5;">
+                <b style="color: #64748b;">Gợi ý từ điển:</b> ${cleanTip}
+            </div>`;
+        }
+
+        document.getElementById('xrayContent').innerHTML = html;
         document.body.classList.add('modal-open-lock');
         document.getElementById('xrayModal').style.display = 'flex';
         
     } catch (err) {
         hideLoading();
-        showToast("Lỗi khi tra cứu Kanji.");
+        console.error(err);
+        showToast("Lỗi khi tải giao diện X-Ray.");
     }
 }
 // HÀM AI MỞ RỘNG KANJI (GOM NHÓM THEO TỪNG ÂM ĐỌC CỤ THỂ - WIN 11 STYLE)
@@ -22019,114 +22111,70 @@ async function syncAllMasteryFromCloud() {
         console.error("Lỗi đồng bộ gộp tối ưu:", e);
     }
 }
-// 🟢 [TỐI ƯU HÓA MAZII]: Lấy chi tiết Kanji từ API public của Mazii (Tích hợp IndexedDB Cache)
+// 🟢 [TỐI ƯU HÓA MAZII]: Lấy chi tiết Kanji và toàn bộ mảng ví dụ
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    const cacheKey = `mazii_${kanjiChar}`;
+    const cacheKey = `mazii_full_${kanjiChar}`; // Đổi key cache để tránh đụng độ cache cũ
 
-    // 1. CHỐT CHẶN 1: Kiểm tra RAM Cache (Tốc độ 0ms)
     window.kanjiDetailCache = window.kanjiDetailCache || {};
-    if (window.kanjiDetailCache[cacheKey]) {
-        console.log(`MindDeck: Đọc Kanji [${kanjiChar}] từ RAM Cache 🎯`);
-        return window.kanjiDetailCache[cacheKey];
-    }
+    if (window.kanjiDetailCache[cacheKey]) return window.kanjiDetailCache[cacheKey];
 
-    // 2. CHỐT CHẶN 2: Kiểm tra Ổ cứng IndexedDB (Tốc độ ~2ms, không sợ F5)
     try {
         const localRecord = await dbOps.get(STORE_AI_CACHE, cacheKey);
         if (localRecord && localRecord.data) {
-            console.log(`MindDeck: Phục hồi Kanji [${kanjiChar}] từ IndexedDB (Ổ cứng) 💾`);
-            window.kanjiDetailCache[cacheKey] = localRecord.data; // Nạp ngược lên RAM để lần sau gọi cho lẹ
+            window.kanjiDetailCache[cacheKey] = localRecord.data;
             return localRecord.data;
         }
-    } catch (e) {
-        console.warn("Lỗi đọc IndexedDB cho Mazii cache:", e);
-    }
+    } catch (e) { console.warn("Lỗi đọc IndexedDB Mazii:", e); }
     
-    // 3. NẾU CHƯA TỪNG CÓ: Gọi mạng (Mất ~300ms)
     try {
         const response = await fetch('https://mazii.net/api/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                dict: 'javi',
-                type: 'kanji',
-                query: kanjiChar
-            })
+            body: JSON.stringify({ dict: 'javi', type: 'kanji', query: kanjiChar })
         });
         const data = await response.json();
-console.log(`Dữ liệu Mazii gốc của chữ ${kanjiChar}:`, data); // THÊM DÒNG NÀY VÀO ĐÂY
+
         const kList = data.results || data.result || [];
         if (kList.length > 0) {
             const k = kList[0];
 
-            // ==========================================
-            // THUẬT TOÁN BÓC TÁCH MỚI (Lấy từ field detail)
-            // ==========================================
-            
-            // 1. TÌM HÁN VIỆT TỪ "hanviet" HOẶC "mean"
             let hv = (k.hanviet || '').trim().toUpperCase();
-            if (!hv && k.mean) {
-                // Nếu hanviet rỗng (như chữ 三), lấy từ đầu tiên trước dấu phẩy của trường mean
-                hv = k.mean.split(/[,、，]/)[0].trim().toUpperCase();
-            }
+            if (!hv && k.mean) hv = k.mean.split(/[,、，]/)[0].trim().toUpperCase();
 
-            // 2. BÓC TÁCH Ý NGHĨA SẠCH TỪ TRƯỜNG "detail"
             let meaning = '';
             if (k.detail) {
-                // Tách theo dấu xuống dòng và lấy dòng đầu tiên có chữ
                 const lines = k.detail.split('\n').filter(line => line.trim() !== '');
                 if (lines.length > 0) {
                     let firstLine = lines[0].trim();
-                    // Xóa số thứ tự ở đầu (VD: "1. ba" -> "ba", "1: số ba" -> "số ba")
                     firstLine = firstLine.replace(/^\d+[\.\:\s]+/, '').trim();
-                    // Xóa phần Ví dụ nếu nó nằm chung dòng (VD: "ba. VD: ...")
                     firstLine = firstLine.split(/VD:|Ví dụ:|e\.g\./i)[0].trim();
-                    
                     meaning = firstLine;
                 }
             }
+            if (!meaning && k.mean) meaning = k.mean;
 
-            // Fallback nếu detail rỗng
-            if (!meaning && k.mean) {
-                meaning = k.mean;
-            }
-
-            // 3. BÓC TỪ GHÉP MINH HỌA
-            let compoundWord = "";
-            const examples = k.compounds || k.examples || k.example || [];
-            if (examples.length > 0) {
-                const ex = examples[0];
-                const exWord = ex.w || ex.word || ex.kanji || "";
-                const exPhonetic = ex.p || ex.phonetic || ex.reading || "";
-                const exMean = ex.m || ex.mean || ex.meaning || "";
-                if (exWord && exMean) {
-                    compoundWord = `${exWord} (${exPhonetic}) — ${exMean}`;
-                }
-            }
-
-            // ==========================================
-            // ĐÓNG GÓI VÀ LƯU CACHE (RAM + Ổ CỨNG)
-            // ==========================================
+            // Lấy nguyên vẹn các mảng dữ liệu
             const result = {
                 kanji: k.kanji || kanjiChar,
                 hv: hv || 'CHƯA CÓ',
                 meaning: meaning || 'Chưa rõ nghĩa',
-                compoundWord: compoundWord,
                 onyomi: k.on || '',
-                kunyomi: k.kun || ''
+                kunyomi: k.kun || '',
+                examples: k.examples || k.example || [],
+                on_ex: k.on_ex || [],
+                kun_ex: k.kun_ex || [],
+                stroke_count: k.stroke_count || 0,
+                tips: k.tips || ''
             };
 
-            // Lưu trực tiếp vào RAM
             window.kanjiDetailCache[cacheKey] = result;
-            
-            // Lưu vĩnh viễn xuống ổ cứng IndexedDB (Dùng STORE_AI_CACHE để chứa)
-            dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: result }).catch(e => console.warn("Lỗi ghi IndexedDB:", e));
+            dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: result }).catch(e=>e);
 
             return result;
         }
         return null;
     } catch (e) {
-        console.error("Lỗi kết nối Mazii Kanji API:", e);
+        console.error("Lỗi Mazii Kanji API:", e);
         return null;
     }
 }
