@@ -22138,9 +22138,9 @@ async function syncAllMasteryFromCloud() {
         console.error("Lỗi đồng bộ gộp tối ưu:", e);
     }
 }
-// 🟢 LẤY CHI TIẾT KANJI VÀ TOÀN BỘ MẢNG VÍ DỤ TỪ MAZII
+// 🟢 LẤY CHI TIẾT KANJI VÀ TOÀN BỘ MẢNG VÍ DỤ TỪ MAZII (CHỐNG LỖI NHÁY ĐƠN)
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    const cacheKey = `mazii_v8_superclean_${kanjiChar}`; // Ép làm mới cache bằng v8
+    const cacheKey = `mazii_v9_ultimate_${kanjiChar}`; // V9 để làm mới
 
     window.kanjiDetailCache = window.kanjiDetailCache || {};
     if (window.kanjiDetailCache[cacheKey]) return window.kanjiDetailCache[cacheKey];
@@ -22153,23 +22153,34 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
         }
     } catch (e) { console.warn("Lỗi đọc IndexedDB Mazii:", e); }
 
-    // 🛡️ BỘ GIẢI MÃ BỌC THÉP: Xử lý mọi "cú lừa" định dạng từ Mazii API
+    // 🛡️ BỘ GIẢI MÃ: Trị dứt điểm lỗi dùng nháy đơn ('w') của Mazii
     const safeParseArray = (data) => {
         if (!data) return [];
-        // Nếu nó trả về 1 cục String bự -> Giải mã thành mảng
+        let arr = data;
+        
+        // 1. Nếu Mazii ném ra 1 chuỗi String bọc cả mảng (như trường tips)
         if (typeof data === 'string') {
-            try { data = JSON.parse(data); } catch(e) { return []; }
+            try { 
+                arr = JSON.parse(data); // tips dùng nháy kép chuẩn nên parse thẳng
+            } catch(e) { return []; }
         }
-        // Nếu nó trả về mảng, nhưng bên trong lại chứa String -> Giải mã từng phần tử
-        if (Array.isArray(data)) {
-            return data.map(item => {
-                if (typeof item === 'string') {
-                    try { return JSON.parse(item); } catch(e) { return null; }
+        
+        if (!Array.isArray(arr)) return [];
+
+        // 2. Nếu Mazii ném mảng, nhưng bên trong mảng là String chứa nháy đơn (như example_on)
+        return arr.map(item => {
+            if (typeof item === 'string') {
+                try { 
+                    // CHÌA KHÓA: Đổi nháy đơn thành nháy kép trước khi parse!
+                    let fixedString = item.replace(/'/g, '"');
+                    return JSON.parse(fixedString); 
+                } catch(e) { 
+                    console.error("Parse lỗi một từ vựng:", item);
+                    return null; 
                 }
-                return item;
-            }).filter(Boolean); // Lọc bỏ các phần tử lỗi
-        }
-        return [];
+            }
+            return item;
+        }).filter(Boolean); // Xóa các từ bị lỗi
     };
     
     try {
@@ -22205,7 +22216,6 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 meaning: meaning || 'Chưa rõ nghĩa',
                 onyomi: k.on || '',
                 kunyomi: k.kun || '',
-                // 🟢 ĐƯA TẤT CẢ QUA BỘ GIẢI MÃ ĐỂ BIẾN STRING THÀNH OBJECT CHUẨN
                 examples: safeParseArray(k.examples || k.example),
                 example_on: safeParseArray(k.on_example || k.example_on),
                 example_kun: safeParseArray(k.kun_example || k.example_kun),
