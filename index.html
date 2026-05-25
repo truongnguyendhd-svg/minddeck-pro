@@ -13994,7 +13994,7 @@ function renderKanjiCollectionGrid(levelFilter, btnElement = null) {
 
         return `
             <div class="kc-cell ${stateClass}" 
-                 onclick="showKanjiXRay(event, '${kanji}')" 
+                 onclick="showKanjiPreview(event, '${kanji}')" 
                  title="${tooltipText}">
                  ${kanji}
             </div>`;
@@ -14155,7 +14155,7 @@ function renderGrammarGrid(dataList) {
 
         return `
             <div class="grammar-card ${statusClass}" 
-                 onclick="openGrammarDetail('${g.id}')"
+                 onclick="showGrammarPreview(event, '${g.id}')" 
                  title="${hoverTooltip}">
                 <span class="g-card-level">${escapeHTML(g.level || 'N?')}</span>
                 <div class="g-card-point">${escapeHTML(point)}</div>
@@ -22078,7 +22078,119 @@ function deduplicateGrammarList(list) {
         return !duplicate;
     });
 }
+// =========================================================
+// HỆ THỐNG POPUP XEM NHANH TRÊN DI ĐỘNG (PILL PREVIEW MODAL)
+// =========================================================
 
+// 1. Hàm tạo và hiển thị Modal Khung Kính Apple dạng viên thuốc
+function openPillPreviewModal({ mainChar, subTitle, badge, stats, actionText, actionCallback }) {
+    let modal = document.getElementById('pillPreviewModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'pillPreviewModal';
+        modal.className = 'modal';
+        modal.style.zIndex = '14000';
+        document.body.appendChild(modal);
+    }
+
+    modal.innerHTML = `
+        <div class="modal-content glass-modal-container" style="max-width: 340px; width: 88%; text-align: center; padding: 25px 20px; position: relative; border-radius: 24px !important; animation: popMenuSide 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-sizing: border-box;">
+            <button class="glass-close-btn" onclick="closeModal('pillPreviewModal')" style="position: absolute; top: 15px; right: 15px; width: 30px; height: 30px;">
+                <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+            </button>
+
+            ${badge ? `<div class="discovery-badge" style="background: rgba(0, 0, 0, 0.04); color: #1d1d1f; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 15px; display: inline-block; font-size: 11px; font-weight: 800;">${badge}</div>` : ''}
+            
+            <div id="previewMainChar" style="font-size: ${mainChar.length > 3 ? '28px' : '58px'}; font-weight: 900; color: #1d1d1f; line-height: 1.2; margin-bottom: 4px; font-family: 'Noto Sans JP', sans-serif;">${mainChar}</div>
+            <div id="previewSubTitle" style="font-size: 15px; color: #4a5568; font-weight: 700; margin-bottom: 20px; line-height: 1.4; min-height: 22px;">${subTitle}</div>
+
+            <!-- Khung lưới chứa Kỷ lục và Hiện tại -->
+            <div style="display: flex; gap: 10px; margin-bottom: 20px; width: 100%; box-sizing: border-box;">
+                <div style="flex: 1; background: rgba(255,255,255,0.7); padding: 10px 5px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.06); text-align: center;">
+                    <span style="font-size: 10px; font-weight: 800; color: #d97706; display: block; margin-bottom: 4px; letter-spacing: 0.5px;">🏆 KỶ LỤC</span>
+                    <b style="font-size: 15px; color: #1d1d1f;">${stats.peak} ngày</b>
+                </div>
+                <div style="flex: 1; background: rgba(255,255,255,0.7); padding: 10px 5px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.06); text-align: center;">
+                    <span style="font-size: 10px; font-weight: 800; color: #0067c0; display: block; margin-bottom: 4px; letter-spacing: 0.5px;">⚡ HIỆN TẠI</span>
+                    <b style="font-size: 15px; color: #1d1d1f;">${stats.current} ngày</b>
+                </div>
+            </div>
+
+            <!-- Các nút hành động -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <button id="btnPillPreviewAction" class="btn-apple-glass-primary" style="width: 100%; padding: 12px; font-size: 14px; background: #1d1d1f; color: white; border-radius: 50px;">
+                    ${actionText}
+                </button>
+                <button onclick="closeModal('pillPreviewModal')" class="win11-btn-secondary" style="width: 100%; justify-content: center; padding: 10px; font-size: 14px; border-radius: 50px;">
+                    Đóng bản xem nhanh
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.getElementById('btnPillPreviewAction').onclick = () => {
+        closeModal('pillPreviewModal');
+        actionCallback();
+    };
+
+    document.body.classList.add('modal-open-lock');
+    modal.style.display = 'flex';
+}
+
+// 2. Bộ chuyển hướng hiển thị xem nhanh cho KANJI
+async function showKanjiPreview(event, kanji) {
+    if (event) { event.stopPropagation(); event.preventDefault(); }
+    
+    const activeMap = userKanjiMasteryMap || {};
+    const peaksMap = currentUser.kanji_peaks || {};
+    
+    const peakInterval = peaksMap[kanji] || 0;
+    const currentInterval = activeMap[kanji] || 0;
+    
+    const kanjiItem = allKanjiData.find(k => k.kanji === kanji) || { level: 'N?' };
+    
+    // Mở nhanh Modal ở trạng thái tải ngầm
+    openPillPreviewModal({
+        mainChar: kanji,
+        subTitle: '<div class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:#0071e3;margin:auto;"></div>',
+        badge: `CHỮ KANJI CẤP ĐỘ ${kanjiItem.level}`,
+        stats: { peak: peakInterval, current: currentInterval },
+        actionText: "PHÂN TÍCH X-RAY CHI TIẾT 🔍",
+        actionCallback: () => showKanjiXRay(new Event('click'), kanji)
+    });
+    
+    // Chạy ngầm bóc tách Hán Việt từ API Mazii và cập nhật thẳng lên DOM
+    const detail = await fetchMaziiKanjiDetail(kanji);
+    const subTitleEl = document.getElementById('previewSubTitle');
+    if (detail && subTitleEl) {
+        subTitleEl.innerHTML = `<span style="color:#c50f1f; font-weight:800;">[${detail.hv}]</span> — <span style="font-weight:600;">${detail.meaning}</span>`;
+    } else if (subTitleEl) {
+        subTitleEl.innerText = "Chưa có thông tin dịch.";
+    }
+}
+
+// 3. Bộ chuyển hướng hiển thị xem nhanh cho NGỮ PHÁP
+function showGrammarPreview(event, grammarId) {
+    if (event) { event.stopPropagation(); event.preventDefault(); }
+    
+    const g = globalGrammarData.find(x => x.id === grammarId);
+    if (!g) return;
+    
+    const activeMap = userGrammarMasteryMap || {};
+    const peaksMap = currentUser.grammar_peaks || {};
+    
+    const peakInterval = peaksMap[g.grammar_point] || 0;
+    const currentInterval = activeMap[g.grammar_point] || 0;
+    
+    openPillPreviewModal({
+        mainChar: g.grammar_point,
+        subTitle: g.meaning,
+        badge: `CẤU TRÚC NGỮ PHÁP ${g.level || 'N?'}`,
+        stats: { peak: peakInterval, current: currentInterval },
+        actionText: "XEM CHI TIẾT & VÍ DỤ 📚",
+        actionCallback: () => openGrammarDetail(grammarId)
+    });
+}
 
 
 </script>
