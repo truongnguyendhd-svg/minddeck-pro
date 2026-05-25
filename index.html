@@ -9885,13 +9885,13 @@ async function showKanjiXRay(event, kanji) {
     document.querySelector('#xrayModal .modal-content').style.maxWidth = "420px";
     
     try {
-        const { data, error } = await sb.from('kanji_builder')
-            .select('kanji, hv, meaning, components, level, structure_type, mnemonics')
-            .eq('kanji', kanji).single();
+        // 🟢 SỬA TẠI ĐÂY: Sử dụng chung "Cỗ máy tải Kanji" đã được trang bị IndexedDB
+        const fetchedData = await getBatchKanjiBuilderData([kanji]);
+        const data = fetchedData.length > 0 ? fetchedData[0] : null;
 
         hideLoading();
         
-        if (error || !data) {
+        if (!data) {
             const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
             if (isAdmin) {
                 openAdminKanjiBuilderModal(kanji);
@@ -12689,40 +12689,54 @@ async function smartImportExcel() {
 window.kanjiDetailCache = {}; 
 
 /**
- * Tải hàng loạt dữ liệu Kanji để tối ưu hóa băng thông (Chống bão N+1 Request)
- * @param {Array<string>} kanjiArray - Danh sách các chữ Kanji cần lấy dữ liệu
+ * Tải hàng loạt dữ liệu Kanji để tối ưu hóa băng thông (Tích hợp IndexedDB Cache)
  */
 async function getBatchKanjiBuilderData(kanjiArray) {
     if (!kanjiArray || kanjiArray.length === 0) return [];
 
-    const resultData = [];
     const missingKanji = [];
 
-    // 1. Phân loại: Lấy những chữ đã có sẵn từ RAM Cache để tránh gọi mạng thừa
-    kanjiArray.forEach(k => {
+    // 1. Quét RAM Cache và IndexedDB trước
+    for (let k of kanjiArray) {
+        // A. Thử tìm trong RAM (Nhanh nhất: 0ms)
         if (window.kanjiDetailCache[k]) {
             console.log(`MindDeck: Đọc Kanji [${k}] từ RAM Cache 🎯`);
-        } else {
-            missingKanji.push(k);
+        } 
+        // B. Thử tìm trong Ổ cứng IndexedDB (Mất ~2ms)
+        else {
+            const localRecord = await dbOps.get(STORE_KANJI, k);
+            
+            // KIỂM TRA ĐIỀU KIỆN: Record có tồn tại VÀ phải có trường 'components' (tức là đã có "thịt", không phải chỉ có mỗi cái "vỏ" level)
+            if (localRecord && localRecord.components) {
+                console.log(`MindDeck: Phục hồi Kanji [${k}] từ IndexedDB 💾`);
+                window.kanjiDetailCache[k] = localRecord; // Nạp ngược lên RAM để lần sau gọi cho nhanh
+            } else {
+                // Nếu chưa có, hoặc chỉ có vỏ -> Thêm vào danh sách cần đi hỏi Cloud
+                missingKanji.push(k);
+            }
         }
-    });
+    }
 
-    // 2. Chốt chặn: Nếu tất cả đều đã có trong Cache -> Trả về luôn (0 Request)
+    // 2. Chốt chặn: Nếu tất cả đều đã có trong RAM/Ổ cứng -> Trả về luôn (0 Request mạng)
     if (missingKanji.length === 0) {
         return kanjiArray.map(k => window.kanjiDetailCache[k]).filter(Boolean);
     }
 
     try {
-        // 3. Thực hiện BATCH REQUEST 1 lần duy nhất cho các chữ còn thiếu
-        console.log(`MindDeck: Bắn Batch Request lấy dữ liệu cho: [${missingKanji.join(', ')}] ⚡`);
+        // 3. Thực hiện BATCH REQUEST lên Cloud cho các chữ còn thiếu
+        console.log(`MindDeck: Bắn Request lấy chi tiết cho: [${missingKanji.join(', ')}] ⚡`);
         const { data: dbData, error } = await sb.from('kanji_builder')
             .select('kanji, meaning, hv, mnemonics, structure_type, components, level')
             .in('kanji', missingKanji);
 
         if (error) throw error;
 
-        // 4. Đóng gói và Cache ngược các chữ mới tải về từ Cloud
+        // 4. Đóng gói và GHI VÀO CẢ RAM LẪN INDEXED_DB
         if (dbData && dbData.length > 0) {
+            
+            // Tạo mảng để lưu nhiều chữ vào IndexedDB cùng lúc cho nhanh
+            const batchToSaveIndexedDB = [];
+
             dbData.forEach(targetData => {
                 const correctPieces = targetData.components;
                 const availableNoise = KANJI_COMPONENTS_POOL.filter(piece => !correctPieces.includes(piece));
@@ -12736,21 +12750,32 @@ async function getBatchKanjiBuilderData(kanjiArray) {
                     hv: targetData.hv,
                     mnemonics: targetData.mnemonics,
                     structure: targetData.structure_type,
+                    components: correctPieces, // 🟢 Trường này xác nhận là Kanji đã có chi tiết
                     correctSequence: correctPieces,
-                    pool: [...correctPieces, ...noisePieces].sort(() => 0.5 - Math.random())
+                    pool: [...correctPieces, ...noisePieces].sort(() => 0.5 - Math.random()),
+                    level: targetData.level // Bơm lại level để không bị mất cái vỏ cũ
                 };
 
-                // Ghi vào RAM Cache
+                // A. Ghi vào RAM Cache
                 window.kanjiDetailCache[targetData.kanji] = resultObj;
+                
+                // B. Chuẩn bị ghi vào ổ cứng
+                batchToSaveIndexedDB.push(resultObj);
             });
+
+            // 🟢 THỰC THI GHI VÀO Ổ CỨNG: 
+            // Hàm putBatch sẽ tự động UPSERT. Nó sẽ đè cái "Thịt" lên cái "Vỏ" cũ đang có trong DB.
+            if (batchToSaveIndexedDB.length > 0) {
+                await dbOps.putBatch(STORE_KANJI, batchToSaveIndexedDB);
+                console.log(`MindDeck: Đã lưu vĩnh viễn chi tiết ${batchToSaveIndexedDB.length} Kanji xuống IndexedDB 📦`);
+            }
         }
 
-        // 5. Trả về mảng kết quả được sắp xếp đúng theo thứ tự yêu cầu ban đầu
+        // 5. Trả về mảng kết quả cuối cùng
         return kanjiArray.map(k => window.kanjiDetailCache[k]).filter(Boolean);
 
     } catch (err) {
         console.error("Lỗi Batch getKanjiBuilderData:", err);
-        // Dự phòng: Nếu lỗi mạng, cố gắng trả về những gì đã có sẵn trong Cache
         return kanjiArray.map(k => window.kanjiDetailCache[k]).filter(Boolean);
     }
 }
