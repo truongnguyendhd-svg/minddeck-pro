@@ -10096,23 +10096,14 @@ async function showKanjiXRay(event, kanji) {
         }
 
         // PHẦN GỢI Ý TỪ ĐIỂN (Tips)
-        if (maziiData.tips && maziiData.tips.length > 0) {
-            let rawTips = "";
+        if (maziiData.tips && typeof maziiData.tips === 'string' && maziiData.tips.trim() !== "") {
+            // Giữ lại thẻ <b> để hiển thị in đậm (như "sử dụng") cho trực quan
+            const cleanTip = maziiData.tips; 
             
-            // 🟢 SỬA LỖI 3: Kiểm tra nếu là mảng thì lấy phần tử [0], nếu là chuỗi (String) thì lấy luôn
-            if (Array.isArray(maziiData.tips) && maziiData.tips[0]) {
-                rawTips = maziiData.tips[0].mean || maziiData.tips[0].tips || "";
-            } else if (typeof maziiData.tips === 'string') {
-                rawTips = maziiData.tips; // Mazii đang trả về dạng String này
-            }
-
-            if (rawTips.trim() !== "") {
-                const cleanTip = rawTips.replace(/<b.*?>/g, '').replace(/<\/b>/g, '');
-                html += `
-                <div style="background: #f8fafc; border-radius: 8px; padding: 12px; font-size: 13px; color: #4a5568; text-align: left; line-height: 1.5; margin-top: 15px; border: 1px solid #e2e8f0;">
-                    <b style="color: #64748b;">Mẹo nhớ:</b> ${cleanTip}
-                </div>`;
-            }
+            html += `
+            <div style="background: #f8fafc; border-radius: 8px; padding: 12px; font-size: 13px; color: #4a5568; text-align: left; line-height: 1.5; margin-top: 15px; border: 1px solid #e2e8f0;">
+                <b style="color: #64748b;">Mẹo nhớ:</b> ${cleanTip}
+            </div>`;
         }
         document.getElementById('xrayContent').innerHTML = html;
         document.body.classList.add('modal-open-lock');
@@ -22141,20 +22132,36 @@ async function syncAllMasteryFromCloud() {
         console.error("Lỗi đồng bộ gộp tối ưu:", e);
     }
 }
-// 🟢 THÊM HÀM PHỤ TRỢ NÀY (Có thể đặt ngay phía trên fetchMaziiKanjiDetail)
-// Nhiệm vụ: Chuyển đổi Object chứa nhiều mảng con thành 1 mảng phẳng duy nhất
+// 🟢 1. Hàm chuẩn hóa mảng ví dụ (đã viết ở câu trước)
 function flattenMaziiExamples(raw) {
     if (!raw) return [];
-    if (Array.isArray(raw)) return raw; // Nếu đã là mảng thì giữ nguyên
+    if (Array.isArray(raw)) return raw;
     if (typeof raw === 'object') {
-        // Gộp tất cả các mảng bên trong các key (như "ヘイ", "な.み") lại làm một
         return Object.values(raw).flat(); 
     }
     return [];
 }
 
+// 🟢 2. Hàm chuẩn hóa Tips đa năng (Xử lý String, Object {vi:...}, Array)
+function normalizeTips(rawTips) {
+    if (!rawTips) return "";
+    if (typeof rawTips === 'string') return rawTips;
+    if (Array.isArray(rawTips)) {
+        if (rawTips.length === 0) return "";
+        const first = rawTips[0];
+        if (typeof first === 'string') return first;
+        return first.mean || first.tips || first.vi || "";
+    }
+    if (typeof rawTips === 'object') {
+        // Ưu tiên lấy tiếng Việt (vi), nếu không có thì lấy tiếng Anh (en) hoặc thuộc tính đầu tiên tìm thấy
+        return rawTips.vi || rawTips.en || Object.values(rawTips)[0] || "";
+    }
+    return "";
+}
+
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    const cacheKey = `mazii_v12_final_${kanjiChar}`; // Đổi key để làm sạch cache cũ bị lỗi cấu trúc Object
+    // Đổi key lên v10 để ép trình duyệt xóa sạch cache lỗi cũ trong IndexedDB
+    const cacheKey = `mazii_v13_final_${kanjiChar}`; 
 
     window.kanjiDetailCache = window.kanjiDetailCache || {};
     if (window.kanjiDetailCache[cacheKey]) return window.kanjiDetailCache[cacheKey];
@@ -22194,7 +22201,6 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             }
             if (!meaning && k.mean) meaning = k.mean;
 
-            // 🟢 TIẾN HÀNH PHẲNG HÓA DỮ LIỆU ĐỂ TƯƠNG THÍCH VỚI HÀM RENDER (.map)
             const result = {
                 kanji: k.kanji || kanjiChar,
                 hv: hv || 'CHƯA CÓ',
@@ -22205,7 +22211,7 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 example_on: flattenMaziiExamples(k.on_example || k.example_on),   
                 example_kun: flattenMaziiExamples(k.kun_example || k.example_kun), 
                 stroke_count: k.stroke_count || 0,
-                tips: k.tips || "" 
+                tips: normalizeTips(k.tips) // 🟢 Chuẩn hóa tips thành String sạch 100%
             };
 
             window.kanjiDetailCache[cacheKey] = result;
