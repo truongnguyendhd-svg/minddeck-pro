@@ -8247,6 +8247,17 @@ let isTabLeader = false;      // Cờ đánh dấu Tab hiện tại có phải l
 let leaderTimeout = null;     // Bộ đếm thời gian chờ phản hồi bầu cử
 
 /* ================= 3. UTILITIES ================= */
+// Hàm xin giờ chuẩn tuyệt đối từ Cloud
+async function getServerTime() {
+    try {
+        const { data, error } = await sb.rpc('get_server_now');
+        if (error) throw error;
+        return data; // Trả về chuỗi ISO 8601 chuẩn của Server
+    } catch (e) {
+        console.warn("Lỗi lấy giờ Server, dùng tạm giờ Client:", e);
+        return new Date().toISOString(); // Fallback nếu rớt mạng
+    }
+}
 function loadExternalScript(url) {
     return new Promise((resolve, reject) => {
         // Kiểm tra nếu script đã được tải trước đó thì không tải lại (Tránh trùng lặp)
@@ -14080,7 +14091,8 @@ async function calculateGrammarMastery(force = false) {
 
         localStorage.setItem(`minddeck_grammar_cache_${userId}`, JSON.stringify(userGrammarMasteryMap));
         localStorage.setItem(`minddeck_grammar_peaks_cache_${userId}`, JSON.stringify(currentUser.grammar_peaks));
-        localStorage.setItem(`minddeck_delta_sync_time_${userId}`, new Date().toISOString());
+        const serverNow = await getServerTime();
+        localStorage.setItem(`minddeck_delta_sync_time_${userId}`, serverNow);
 
         console.log("MindDeck: Đã đồng bộ Kỷ lục Ngữ pháp từ Cloud! 🏆");
 
@@ -20310,7 +20322,8 @@ async function syncKanjiMastery(force = false) {
         
         localStorage.setItem(`minddeck_kanji_cache_${userId}`, JSON.stringify(userKanjiMasteryMap));
         localStorage.setItem(`minddeck_kanji_peaks_cache_${userId}`, JSON.stringify(currentUser.kanji_peaks)); // 🟢 FIX: Lưu xuống Cache
-        localStorage.setItem(`minddeck_delta_sync_time_${userId}`, new Date().toISOString());
+        const serverNow = await getServerTime();
+        localStorage.setItem(`minddeck_delta_sync_time_${userId}`, serverNow);
 
         return Object.values(userKanjiMasteryMap).filter(interval => interval > 0).length;
 
@@ -21758,7 +21771,8 @@ async function syncUserDataWithCloud() {
                 currentUser.daily_stats = profile.daily_stats;
             }
 
-            localStorage.setItem(`minddeck_delta_sync_time_${userId}`, new Date().toISOString());
+            const serverNow = await getServerTime();
+            localStorage.setItem(`minddeck_delta_sync_time_${userId}`, serverNow);
             saveAllToLocalStorage(userId);
             renderActivePage();
             
@@ -21946,7 +21960,8 @@ async function syncAllMasteryFromCloud() {
             userGrammarMasteryMap = data.grammar_mastery || {};
             localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
         }
-        localStorage.setItem(`minddeck_delta_sync_time_${currentUser.id}`, new Date().toISOString());
+        const serverNow = await getServerTime();
+        localStorage.setItem(`minddeck_delta_sync_time_${currentUser.id}`, serverNow);
 
 
     } catch (e) {
