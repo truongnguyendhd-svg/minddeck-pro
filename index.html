@@ -22019,15 +22019,30 @@ async function syncAllMasteryFromCloud() {
         console.error("Lỗi đồng bộ gộp tối ưu:", e);
     }
 }
-// 🟢 [TỐI ƯU HÓA MAZII]: Lấy chi tiết Kanji từ API public của Mazii (Miễn phí băng thông)
+// 🟢 [TỐI ƯU HÓA MAZII]: Lấy chi tiết Kanji từ API public của Mazii (Tích hợp IndexedDB Cache)
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    // 1. CHỐT CHẶN BĂNG THÔNG: Kiểm tra sự tồn tại trong bộ đệm RAM trước khi gọi mạng
+    const cacheKey = `mazii_${kanjiChar}`;
+
+    // 1. CHỐT CHẶN 1: Kiểm tra RAM Cache (Tốc độ 0ms)
     window.kanjiDetailCache = window.kanjiDetailCache || {};
-    if (window.kanjiDetailCache[`mazii_${kanjiChar}`]) {
-        console.log(`MindDeck: Đọc Kanji [${kanjiChar}] từ Mazii Cache 🎯`);
-        return window.kanjiDetailCache[`mazii_${kanjiChar}`];
+    if (window.kanjiDetailCache[cacheKey]) {
+        console.log(`MindDeck: Đọc Kanji [${kanjiChar}] từ RAM Cache 🎯`);
+        return window.kanjiDetailCache[cacheKey];
+    }
+
+    // 2. CHỐT CHẶN 2: Kiểm tra Ổ cứng IndexedDB (Tốc độ ~2ms, không sợ F5)
+    try {
+        const localRecord = await dbOps.get(STORE_AI_CACHE, cacheKey);
+        if (localRecord && localRecord.data) {
+            console.log(`MindDeck: Phục hồi Kanji [${kanjiChar}] từ IndexedDB (Ổ cứng) 💾`);
+            window.kanjiDetailCache[cacheKey] = localRecord.data; // Nạp ngược lên RAM để lần sau gọi cho lẹ
+            return localRecord.data;
+        }
+    } catch (e) {
+        console.warn("Lỗi đọc IndexedDB cho Mazii cache:", e);
     }
     
+    // 3. NẾU CHƯA TỪNG CÓ: Gọi mạng (Mất ~300ms)
     try {
         const response = await fetch('https://mazii.net/api/search', {
             method: 'POST',
@@ -22090,7 +22105,7 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             }
 
             // ==========================================
-            // ĐÓNG GÓI VÀ LƯU CACHE
+            // ĐÓNG GÓI VÀ LƯU CACHE (RAM + Ổ CỨNG)
             // ==========================================
             const result = {
                 kanji: k.kanji || kanjiChar,
@@ -22101,8 +22116,11 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 kunyomi: k.kun || ''
             };
 
-            // Lưu trực tiếp đối tượng này vào Cache hệ thống trên RAM
-            window.kanjiDetailCache[`mazii_${kanjiChar}`] = result;
+            // Lưu trực tiếp vào RAM
+            window.kanjiDetailCache[cacheKey] = result;
+            
+            // Lưu vĩnh viễn xuống ổ cứng IndexedDB (Dùng STORE_AI_CACHE để chứa)
+            dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: result }).catch(e => console.warn("Lỗi ghi IndexedDB:", e));
 
             return result;
         }
