@@ -6721,6 +6721,9 @@ body.shadowing-mode #shadowingPage {
                 <div class="ai-mode-item" onclick="triggerPdfAI('extract_vocab')">
                     <span class="material-symbols-outlined" style="color: #3b82f6;">translate</span> Chuyên gia Đọc hiểu (Dokkai)
                 </div>
+                <div class="ai-mode-item" onclick="triggerPdfAI('digitize')">
+                    <span class="material-symbols-outlined" style="color: #f59e0b;">document_scanner</span> Số hóa toàn trang (Tạo Flashcard)
+                </div>
             </div>
         </div>
 
@@ -6740,6 +6743,9 @@ body.shadowing-mode #shadowingPage {
                 </button>
                 <button class="win11-crop-btn" onclick="executeCropAI('extract_vocab')">
                     <span class="material-symbols-outlined" style="color: #3b82f6;">translate</span> Chuyên gia Đọc hiểu (Dokkai)
+                </button>
+                <button class="win11-crop-btn" onclick="executeCropAI('digitize')">
+                    <span class="material-symbols-outlined" style="color: #f59e0b;">document_scanner</span> Số hóa vùng chọn (Tạo Flashcard)
                 </button>
                 
                 <!-- BẮT ĐẦU: Nút Copy Ảnh mới -->
@@ -17277,6 +17283,24 @@ async function triggerPdfAI(actionType, croppedBase64 = null) {
               ]
             }`;
             break;
+        case 'digitize':
+            modalTitle = "Máy quét Số hóa Tài liệu";
+            prompt = `Đóng vai trò là một cỗ máy số hóa dữ liệu học tiếng Nhật (OCR & Data Extraction). Hãy quét hình ảnh được cung cấp.
+            Nhiệm vụ:
+            1. Tìm và trích xuất TOÀN BỘ từ vựng, chữ Kanji và ngữ pháp tiếng Nhật quan trọng có trong bức ảnh.
+            2. BẮT BUỘC đặt dữ liệu này vào một khối JSON ở CUỐI CÙNG của câu trả lời (nằm trong \`\`\`json và \`\`\`).
+            
+            Định dạng mảng JSON chuẩn xác như sau (KHÔNG phân chia vocab hay grammar, gom chung vào 1 mảng duy nhất):
+            [
+              {
+                "word": "Kanji / Từ vựng / Ngữ pháp",
+                "reading": "Cách đọc Hiragana (để trống nếu là ngữ pháp)",
+                "meaning": "Ý nghĩa tiếng Việt",
+                "hv": "Nghĩa Hán Việt (hoặc ghi chú cấu trúc nếu là ngữ pháp)",
+                "example": "Câu ví dụ tiếng Nhật (Nghĩa tiếng Việt) - Lấy từ trong ảnh nếu có"
+              }
+            ]`;
+            break;
     }
 
     try {
@@ -17383,7 +17407,48 @@ async function triggerPdfAI(actionType, croppedBase64 = null) {
                 });
             }
             extractUI += `</div>`;
+        } else if (actionType === 'digitize' && extractedData && Array.isArray(extractedData)) {
+            // XỬ LÝ GIAO DIỆN SỐ HÓA TÀI LIỆU
+            if (extractedData.length > 0) {
+                extractUI += `
+                <div class="ai-extracted-zone">
+                    <div class="ai-ext-title" style="color: #f59e0b; margin-bottom: 15px;">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">dataset</span> Đã số hóa thành công ${extractedData.length} thẻ:
+                    </div>
+                    
+                    <div style="max-height: 300px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; background: #fbfbfd; margin-bottom: 20px;">
+                `;
+
+                extractedData.forEach(item => {
+                    extractUI += `
+                        <div style="padding: 10px 12px; background: #fff; border: 1px solid #edf2f7; border-radius: 8px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                            <div style="display: flex; align-items: baseline; gap: 8px;">
+                                <span style="font-weight: 800; color: #1d1d1f; font-size: 16px;">${escapeHTML(item.word)}</span>
+                                <span style="font-size: 13px; color: #718096; font-weight: 600;">${escapeHTML(item.reading || '')}</span>
+                            </div>
+                            <div style="font-size: 14px; color: #4a5568;">${escapeHTML(item.meaning)}</div>
+                        </div>
+                    `;
+                });
+
+                extractUI += `</div>`;
+
+                // Mã hóa mảng dữ liệu để truyền sang Modal Lưu hàng loạt
+                const encodedData = encodeURIComponent(JSON.stringify(extractedData)).replace(/'/g, "%27");
+                
+                extractUI += `
+                    <button onclick="closeAIModal(); openBulkSaveKanjiModal('${encodedData}', 'Tài liệu PDF')" class="win11-btn-primary" style="width: 100%; padding: 16px; font-size: 15px; display: flex; justify-content: center; align-items: center; gap: 8px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; border-radius: 16px; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);">
+                        <span class="material-symbols-outlined" style="font-size: 20px;">library_add</span> LƯU HÀNG LOẠT VÀO BỘ BÀI
+                    </button>
+                </div>`;
+                
+                // Ghi đè text phản hồi của AI cho gọn gàng
+                formattedAI = `<p style="font-weight: 600; color: #10b981;">✅ Quá trình số hóa hoàn tất! Hệ thống đã trích xuất được dữ liệu.</p>`;
+            } else {
+                 formattedAI = `<div style="padding: 15px; background: #fff5f5; color: #c50f1f; border-radius: 8px; border: 1px solid #fed7d7;">Không tìm thấy từ vựng hay ngữ pháp nào rõ ràng để số hóa trong vùng chọn này.</div>`;
+            }
         }
+        
 
         // 7. CẬP NHẬT GIAO DIỆN MODAL HIỂN THỊ KẾT QUẢ CUỐI CÙNG
         const finalHTML = `
