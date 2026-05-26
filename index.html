@@ -13437,12 +13437,9 @@ window.maziiSearchCache = window.maziiSearchCache || {};
 async function fetchMaziiDictionary(keyword) {
     if (!keyword) return [];
     
-    // 1. Chuẩn hóa từ khóa tìm kiếm để tránh sai lệch cache
     const normalizedKey = keyword.trim().toLowerCase();
 
-    // 2. Kiểm tra bộ nhớ đệm
     if (window.maziiSearchCache[normalizedKey]) {
-        console.log(`[Cache Hit] Phục hồi kết quả tra từ "${normalizedKey}" từ RAM Cache.`);
         return window.maziiSearchCache[normalizedKey];
     }
 
@@ -13459,53 +13456,42 @@ async function fetchMaziiDictionary(keyword) {
         });
 
         const data = await response.json();
-        // =========================================================
-        // 🟢 THÊM DÒNG NÀY ĐỂ IN RA TOÀN BỘ DATA GỐC CỦA MAZII
-        console.log("🔥 [FULL RAW DATA TỪ MAZII]:", data);
-        // =========================================================
+        
         if (!data || !data.data || data.data.length === 0) {
             window.maziiSearchCache[normalizedKey] = [];
             return [];
         }
 
         const parsedResults = data.data.map(item => {
-            // Lấy 1 ví dụ tiêu biểu (Quét qua mảng means)
-            let exampleText = "";
+            // Lấy 1 ví dụ đầu tiên tìm thấy để dự phòng cho Nút [ + Thêm Flashcard ]
+            let firstExample = "";
             if (item.means && item.means.length > 0) {
                 for (let m of item.means) {
                     if (m.examples && m.examples.length > 0) {
-                        exampleText = `${m.examples[0].content} (${m.examples[0].mean})`;
+                        firstExample = `${m.examples[0].content} (${m.examples[0].mean})`;
                         break;
                     }
                 }
             }
 
-            // Xử lý Cấp độ JLPT (Có thể là chuỗi "N5" hoặc mảng ["N5"])
-            let jlptLevel = "";
-            if (item.level) {
-                jlptLevel = Array.isArray(item.level) ? item.level[0] : item.level;
+            // Gộp tối đa 3 nghĩa đầu tiên thành 1 chuỗi ngắn gọn để dự phòng cho Nút [ + Thêm Flashcard ]
+            let shortMeaningStr = item.short_mean;
+            if (!shortMeaningStr && item.means) {
+                shortMeaningStr = item.means.map(m => m.mean).slice(0, 3).join(', ');
             }
 
-            // Xử lý Từ trái nghĩa (Có thể là mảng)
-            let opposite = "";
-            if (item.opposite_word) {
-                opposite = Array.isArray(item.opposite_word) ? item.opposite_word.join(', ') : item.opposite_word;
-            }
-
-            // Đóng gói dữ liệu chuẩn
             return {
                 word: item.word || item.phonetic, 
                 reading: item.phonetic || '',
-                meaning: item.short_mean || (item.means && item.means[0] ? item.means[0].mean : 'Chưa có nghĩa'), // Nghĩa rút gọn để lưu thẻ
-                hv: item.han || '', // 🟢 Hán Việt
-                level: jlptLevel,   // 🟢 Cấp độ
-                antonyms: opposite, // 🟢 Trái nghĩa
-                meaningsList: item.means || [], // 🟢 Mảng nghĩa chi tiết kèm từ loại
-                example: exampleText
+                meaning: shortMeaningStr || 'Chưa có nghĩa', 
+                hv: item.han || '', 
+                level: Array.isArray(item.level) ? item.level[0] : item.level,   
+                antonyms: Array.isArray(item.opposite_word) ? item.opposite_word.join(', ') : item.opposite_word, 
+                meaningsList: item.means || [], // 🟢 GIỮ NGUYÊN MẢNG NGHĨA VÀ VÍ DỤ CỦA MAZII
+                example: firstExample 
             };
         });
 
-        // Lưu Cache
         window.maziiSearchCache[normalizedKey] = parsedResults;
         return parsedResults;
 
@@ -13581,30 +13567,75 @@ async function executeHybridSearch(input, resDiv) {
             return;
         }
 
-        // 3. RENDER GIAO DIỆN TỪ MAZII VỚI DATA MỞ RỘNG
+        // 🟢 INJECT CSS CHO ACCORDION (Ẩn mũi tên mặc định, xoay mũi tên mới)
+        const stylesHTML = `
+            <style>
+                .qd-accordion summary::-webkit-details-marker { display: none; }
+                .qd-accordion summary { list-style: none; }
+                .qd-accordion[open] .qd-acc-icon { transform: rotate(180deg); color: #0071e3 !important; }
+                .qd-accordion[open] summary { background: #f0f9ff; }
+            </style>
+        `;
+
+        // 3. RENDER GIAO DIỆN TỪ MAZII
         const cardsHTML = maziiRes.map(d => {
             const safeWord = escapeHTML(d.word);
             const safeReading = escapeHTML(d.reading || '');
-            const safeMeaning = escapeHTML(d.meaning); // Dùng cho nút Save
-            const safeExample = escapeHTML(d.example || '');
+            const safeMeaning = escapeHTML(d.meaning); // Dùng cho nút Save (Đã gộp gọn)
+            const safeExample = escapeHTML(d.example || ''); // Dùng cho nút Save
             const safeHv = escapeHTML(d.hv);
-            const safeLevel = escapeHTML(d.level);
-            const safeAntonyms = escapeHTML(d.antonyms);
+            const safeLevel = escapeHTML(d.level || '');
+            const safeAntonyms = escapeHTML(d.antonyms || '');
 
-            // 🟢 Nút Thêm: Truyền thêm safeHv vào tham số thứ 4 để khi bấm "+" sẽ tự điền Hán Việt
+            // Nút Thêm vào Flashcard
             const btnHTML = `<button class="btn-dict-add" title="Thêm vào bộ bài" 
                 onclick="openSaveDictWordModal('${encodeURIComponent(safeWord)}', '${encodeURIComponent(safeReading)}', '${encodeURIComponent(safeMeaning)}', '${encodeURIComponent(safeHv)}', '${encodeURIComponent(safeExample)}')">
                 <span class="material-symbols-outlined">add</span>
             </button>`;
 
-            // 🟢 Render Mảng nghĩa (Danh từ, Động từ...)
+            // 🟢 Render Mảng nghĩa thành dạng ACCORDION
             let detailedMeaningsHTML = "";
             if (d.meaningsList && d.meaningsList.length > 0) {
-                detailedMeaningsHTML = d.meaningsList.map(m => {
-                    const kindBadge = m.kind ? `<span style="background:#f1f5f9; color:#475569; padding:2px 6px; border-radius:4px; font-size:10px; margin-right:6px; border:1px solid #e2e8f0; vertical-align: middle;">${escapeHTML(m.kind)}</span>` : '';
-                    return `<div style="font-size: 15px; color:#1d1d1f; margin-bottom:8px; line-height:1.5;">${kindBadge}${escapeHTML(m.mean)}</div>`;
+                // Xác định Index của cái Nghĩa đầu tiên có chứa ví dụ (Để mở sẵn ra cho User thấy)
+                const firstExIndex = d.meaningsList.findIndex(m => m.examples && m.examples.length > 0);
+
+                detailedMeaningsHTML = d.meaningsList.map((m, index) => {
+                    const kindBadge = m.kind ? `<span style="background:#e2e8f0; color:#475569; padding:1px 6px; border-radius:4px; font-size:10px; margin-right:8px; font-weight:700; border: 1px solid #cbd5e0; text-transform: uppercase; vertical-align: middle;">${escapeHTML(m.kind)}</span>` : '';
+                    
+                    if (m.examples && m.examples.length > 0) {
+                        // NẾU CÓ VÍ DỤ -> Tạo khối Accordion
+                        const examplesHTML = m.examples.map((ex, exIdx) => `
+                            <div style="padding: 10px 0; border-bottom: ${exIdx === m.examples.length - 1 ? 'none' : '1px dashed #e5e5ea'};">
+                                <div style="color: #1d1d1f; font-weight: 600; font-size: 14px; margin-bottom: 4px;">${wrapKanjiWithLink(escapeHTML(ex.content))}</div>
+                                <div style="color: #64748b; font-size: 13px; line-height: 1.4;">${escapeHTML(ex.mean)}</div>
+                            </div>
+                        `).join('');
+
+                        // Chỉ tự động mở (open) cái Accordion đầu tiên có ví dụ để tránh làm Modal quá dài
+                        const isOpen = index === firstExIndex ? 'open' : '';
+
+                        return `
+                        <details class="qd-accordion" style="background: #fbfbfd; border: 1px solid #e5e5ea; border-radius: 12px; margin-bottom: 8px; overflow: hidden;" ${isOpen}>
+                            <summary style="padding: 12px; display: flex; align-items: flex-start; cursor: pointer; outline: none; transition: background 0.2s;">
+                                <div style="flex: 1; font-size: 15px; color: #1d1d1f; font-weight: 600; line-height: 1.4;">
+                                    ${kindBadge}${escapeHTML(m.mean)}
+                                </div>
+                                <span class="material-symbols-outlined qd-acc-icon" style="color: #a0aec0; font-size: 20px; margin-left: 8px; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);">expand_more</span>
+                            </summary>
+                            <div style="padding: 0 12px 4px 12px; background: #ffffff; border-top: 1px solid #e5e5ea;">
+                                ${examplesHTML}
+                            </div>
+                        </details>`;
+                    } else {
+                        // NẾU KHÔNG CÓ VÍ DỤ -> Chỉ tạo text bình thường
+                        return `
+                        <div style="padding: 10px 12px; margin-bottom: 8px; font-size: 15px; color: #1d1d1f; font-weight: 600; line-height: 1.4;">
+                            ${kindBadge}${escapeHTML(m.mean)}
+                        </div>`;
+                    }
                 }).join('');
             } else {
+                // Rơi vào Fallback nếu API lỗi không trả mảng means
                 detailedMeaningsHTML = `<div style="font-size: 15px; color:#1d1d1f; margin-bottom:8px;">${safeMeaning}</div>`;
             }
 
@@ -13618,33 +13649,28 @@ async function executeHybridSearch(input, resDiv) {
                     </div>
                     
                     <!-- Chữ Nhật & Hán Việt -->
-                    <div style="display:flex; align-items:baseline; gap:8px; margin-bottom: 8px;">
-                        <div class="d-word" style="font-size: 22px; margin: 0;">${wrapKanjiWithLink(safeWord)}</div>
+                    <div style="display:flex; align-items:baseline; gap:8px; margin-bottom: 12px;">
+                        <div class="d-word" style="font-size: 24px; margin: 0;">${wrapKanjiWithLink(safeWord)}</div>
                         ${safeHv ? `<div style="color:#c50f1f; font-weight:800; font-size:14px; letter-spacing: 0.5px;">[${safeHv}]</div>` : ''}
                     </div>
                     
-                    <!-- Mảng Nghĩa chi tiết -->
+                    <!-- 🟢 Mảng Nghĩa chi tiết (Accordions) -->
                     <div style="margin-top: 5px;">
                         ${detailedMeaningsHTML}
                     </div>
                     
                     <!-- Từ trái nghĩa -->
                     ${safeAntonyms ? `
-                    <div style="font-size: 13px; margin-top: 8px; color:#e53e3e; font-weight: 600; background: #fff5f5; padding: 4px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; border: 1px dashed #fed7d7;">
-                        <span class="material-symbols-outlined" style="font-size:14px;">alt_route</span> Trái nghĩa: ${safeAntonyms}
-                    </div>` : ''}
-                    
-                    <!-- Ví dụ -->
-                    ${safeExample ? `
-                    <div style="margin-top: 10px; font-size: 13px; color: #4a5568; background: #fbfbfb; padding: 8px 10px; border-radius: 8px; border-left: 3px solid #8b5cf6;">
-                        <span style="color: #8b5cf6; font-weight: 800; font-size: 11px;">VÍ DỤ</span> <br>${wrapKanjiWithLink(safeExample)}
+                    <div style="font-size: 13px; margin-top: 8px; color:#e53e3e; font-weight: 600; background: #fff5f5; padding: 6px 10px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; border: 1px dashed #fed7d7;">
+                        <span class="material-symbols-outlined" style="font-size:16px;">alt_route</span> <b>Trái nghĩa:</b> ${safeAntonyms}
                     </div>` : ''}
                 </div>
                 ${btnHTML}
             </div>`;
         }).join('');
 
-        resDiv.innerHTML = adminHintHTML + cardsHTML;
+        // Nối CSS + Admin Hint + Cards vào HTML
+        resDiv.innerHTML = stylesHTML + adminHintHTML + cardsHTML;
 
     } catch (err) {
         console.error("Lỗi tra từ:", err);
