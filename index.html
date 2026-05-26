@@ -13543,6 +13543,56 @@ async function searchQuickDictionary() {
 }
 
 // LÕI XỬ LÝ: CHỈ QUÉT MAZII VÀ KẾT HỢP KANJI X-RAY + GỢI Ý ADMIN
+// ================= TỪ ĐIỂN MAP KÝ HIỆU TỪ LOẠI =================
+const POS_MAP = {
+    'N': 'Danh từ (Noun)',
+    'VT': 'Tha động từ (Động từ cần đi kèm tân ngữ: ~を)',
+    'VI': 'Tự động từ (Động từ không cần tân ngữ: ~が / ~は)',
+    'V1': 'Động từ nhóm 2 (Ichidan)',
+    'V5S': 'Động từ nhóm 1 (Godan) kết thúc bằng す',
+    'V5K': 'Động từ nhóm 1 (Godan) kết thúc bằng く',
+    'V5G': 'Động từ nhóm 1 (Godan) kết thúc bằng ぐ',
+    'V5M': 'Động từ nhóm 1 (Godan) kết thúc bằng む',
+    'V5B': 'Động từ nhóm 1 (Godan) kết thúc bằng ぶ',
+    'V5N': 'Động từ nhóm 1 (Godan) kết thúc bằng ぬ',
+    'V5R': 'Động từ nhóm 1 (Godan) kết thúc bằng る',
+    'V5T': 'Động từ nhóm 1 (Godan) kết thúc bằng つ',
+    'V5U': 'Động từ nhóm 1 (Godan) kết thúc bằng う',
+    'VK': 'Động từ bất quy tắc (来る)',
+    'VS': 'Động từ bất quy tắc (する)',
+    'ADJ-I': 'Tính từ đuôi い',
+    'ADJ-NA': 'Tính từ đuôi な',
+    'ADV': 'Trạng từ / Phó từ',
+    'PRON': 'Đại từ',
+    'PREF': 'Tiền tố',
+    'SUF': 'Hậu tố',
+    'CONJ': 'Liên từ (Từ nối)',
+    'INT': 'Thán từ (Từ cảm thán)',
+    'EXP': 'Cụm từ / Thành ngữ cố định'
+};
+
+// Hàm hiển thị giải thích (Dùng CustomAlert xịn xò có sẵn của app)
+window.showPosExplanation = function(event, rawKind) {
+    event.stopPropagation(); // Ngăn sự kiện click làm mở/đóng Accordion
+    if (!rawKind) return;
+    
+    const parts = rawKind.split(',').map(k => k.trim().toUpperCase());
+    
+    let html = '<div style="text-align: left; display: flex; flex-direction: column; gap: 8px;">';
+    parts.forEach(p => {
+        const meaning = POS_MAP[p] || 'Phân loại khác';
+        html += `
+            <div style="background: #f8fafc; padding: 12px 15px; border-radius: 12px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 12px;">
+                <span style="background: #1d1d1f; color: white; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 800; min-width: 45px; text-align: center; letter-spacing: 0.5px;">${p}</span>
+                <span style="font-size: 14px; color: #1a1a1a; font-weight: 600; line-height: 1.4;">${meaning}</span>
+            </div>
+        `;
+    });
+    html += '</div>';
+    
+    // Gọi hàm customAlert màu xanh nhạt
+    customAlert(html, "💡 Ý NGHĨA TỪ LOẠI", "info");
+};
 async function executeHybridSearch(input, resDiv) {
     try {
         const maziiRes = await fetchMaziiDictionary(input);
@@ -13606,21 +13656,27 @@ async function executeHybridSearch(input, resDiv) {
             </style>
         `;
 
-        // 🟢 HÀM PHỤ TRỢ: Viết hoa chữ cái đầu tiên
+        // 🟢 HÀM PHỤ TRỢ 1: Viết hoa chữ cái đầu tiên
         const capitalizeFirstLetter = (str) => {
             if (!str) return '';
             const trimmed = str.trim();
             return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
         };
 
+        // 🟢 HÀM PHỤ TRỢ 2: Dọn dẹp mảng từ loại (Lọc trùng lặp "vt, vt, vt")
+        const formatKindBadge = (rawKind) => {
+            if (!rawKind) return '';
+            // Tách chuỗi bằng dấu phẩy, xóa khoảng trắng thừa và ép viết hoa
+            let parts = rawKind.split(',').map(k => k.trim().toUpperCase()).filter(Boolean);
+            // Dùng Set để loại bỏ các phần tử trùng lặp, sau đó ghép lại
+            return [...new Set(parts)].join(', ');
+        };
+
         // 3. RENDER GIAO DIỆN TỪ MAZII
         const cardsHTML = maziiRes.map(d => {
             const safeWord = escapeHTML(d.word);
             const safeReading = escapeHTML(d.reading || '');
-            
-            // 🟢 VIẾT HOA CHỮ CÁI ĐẦU CHO NGHĨA CHÍNH (Dùng khi Lưu thẻ & Fallback)
             const safeMeaning = escapeHTML(capitalizeFirstLetter(d.meaning)); 
-            
             const safeExample = escapeHTML(d.example || ''); 
             const safeHv = escapeHTML(d.hv);
             const safeLevel = escapeHTML(d.level);
@@ -13636,9 +13692,11 @@ async function executeHybridSearch(input, resDiv) {
                 const firstExIndex = d.meaningsList.findIndex(m => m.examples && m.examples.length > 0);
 
                 const rowsHTML = d.meaningsList.map((m, index) => {
-                    const kindBadge = m.kind ? `<span style="background:transparent; color:#64748b; padding:2px 6px; border-radius:4px; font-size:10px; margin-right:8px; font-weight:700; border: 1px solid #cbd5e0; text-transform: uppercase; vertical-align: middle; letter-spacing: 0.5px;">${escapeHTML(m.kind)}</span>` : '';
+                    // 🟢 Dọn dẹp từ loại trước khi nhét vào Badge
+                    const cleanKindText = formatKindBadge(m.kind);
+                    // 🟢 Thay thế dòng tạo Badge này:
+                    const kindBadge = m.kind ? `<span onclick="showPosExplanation(event, '${escapeHTML(cleanKindText)}')" title="Nhấn để xem giải thích" style="background:transparent; color:#64748b; padding:2px 6px; border-radius:4px; font-size:10px; margin-right:8px; font-weight:800; border: 1px solid #cbd5e0; vertical-align: middle; letter-spacing: 0.5px; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#f1f5f9'; this.style.color='#1d1d1f';" onmouseout="this.style.background='transparent'; this.style.color='#64748b';">${escapeHTML(cleanKindText)}</span>` : '';
                     
-                    // 🟢 VIẾT HOA CHỮ CÁI ĐẦU CHO TỪNG NGHĨA TRONG DANH SÁCH
                     const capitalizedMean = capitalizeFirstLetter(m.mean);
 
                     if (m.examples && m.examples.length > 0) {
@@ -13678,7 +13736,6 @@ async function executeHybridSearch(input, resDiv) {
 
             return `
             <div class="dict-card" style="padding: 15px; border-color:#e2e8f0; box-shadow: 0 2px 5px rgba(0,0,0,0.02); display: flex; flex-direction: column;">
-                
                 <div style="width: 100%;">
                     <div class="d-reading" style="font-size:13px; display:flex; align-items:center; margin-bottom:2px;">
                         ${safeReading}
