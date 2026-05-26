@@ -13437,10 +13437,10 @@ window.maziiSearchCache = window.maziiSearchCache || {};
 async function fetchMaziiDictionary(keyword) {
     if (!keyword) return [];
     
-    // 1. Chuẩn hóa từ khóa tìm kiếm để tránh sai lệch cache do khoảng trắng hoặc viết hoa
+    // 1. Chuẩn hóa từ khóa tìm kiếm để tránh sai lệch cache
     const normalizedKey = keyword.trim().toLowerCase();
 
-    // 2. CHỐT CHẶN BĂNG THÔNG: Kiểm tra xem kết quả đã có trong bộ nhớ đệm chưa
+    // 2. Kiểm tra bộ nhớ đệm
     if (window.maziiSearchCache[normalizedKey]) {
         console.log(`[Cache Hit] Phục hồi kết quả tra từ "${normalizedKey}" từ RAM Cache.`);
         return window.maziiSearchCache[normalizedKey];
@@ -13454,37 +13454,55 @@ async function fetchMaziiDictionary(keyword) {
                 dict: 'javi', 
                 type: 'word', 
                 query: normalizedKey, 
-                limit: 15 // Giới hạn 15 kết quả tối ưu nhất
+                limit: 15
             })
         });
 
         const data = await response.json();
-        // =========================================================
-        // 🟢 THÊM DÒNG NÀY ĐỂ IN RA TOÀN BỘ DATA GỐC CỦA MAZII
-        console.log("🔥 [FULL RAW DATA TỪ MAZII]:", data);
-        // =========================================================
-        // 3. NEGATIVE CACHING: Nếu từ khóa không tồn tại, lưu mảng rỗng để chặn spam yêu cầu sau này
+        
         if (!data || !data.data || data.data.length === 0) {
             window.maziiSearchCache[normalizedKey] = [];
             return [];
         }
 
         const parsedResults = data.data.map(item => {
+            // Lấy 1 ví dụ tiêu biểu (Quét qua mảng means)
             let exampleText = "";
-            if (item.means && item.means[0] && item.means[0].examples && item.means[0].examples[0]) {
-                const ex = item.means[0].examples[0];
-                exampleText = `${ex.content} (${ex.mean})`;
+            if (item.means && item.means.length > 0) {
+                for (let m of item.means) {
+                    if (m.examples && m.examples.length > 0) {
+                        exampleText = `${m.examples[0].content} (${m.examples[0].mean})`;
+                        break;
+                    }
+                }
             }
 
+            // Xử lý Cấp độ JLPT (Có thể là chuỗi "N5" hoặc mảng ["N5"])
+            let jlptLevel = "";
+            if (item.level) {
+                jlptLevel = Array.isArray(item.level) ? item.level[0] : item.level;
+            }
+
+            // Xử lý Từ trái nghĩa (Có thể là mảng)
+            let opposite = "";
+            if (item.opposite_word) {
+                opposite = Array.isArray(item.opposite_word) ? item.opposite_word.join(', ') : item.opposite_word;
+            }
+
+            // Đóng gói dữ liệu chuẩn
             return {
                 word: item.word || item.phonetic, 
                 reading: item.phonetic || '',
-                meaning: item.means && item.means[0] ? item.means[0].mean : 'Chưa có nghĩa',
+                meaning: item.short_mean || (item.means && item.means[0] ? item.means[0].mean : 'Chưa có nghĩa'), // Nghĩa rút gọn để lưu thẻ
+                hv: item.han || '', // 🟢 Hán Việt
+                level: jlptLevel,   // 🟢 Cấp độ
+                antonyms: opposite, // 🟢 Trái nghĩa
+                meaningsList: item.means || [], // 🟢 Mảng nghĩa chi tiết kèm từ loại
                 example: exampleText
             };
         });
 
-        // 4. GHI NHỚ VÀO CACHE: Lưu kết quả sạch đã phân tích vào RAM
+        // Lưu Cache
         window.maziiSearchCache[normalizedKey] = parsedResults;
         return parsedResults;
 
@@ -13538,10 +13556,8 @@ async function searchQuickDictionary() {
 // LÕI XỬ LÝ: CHỈ QUÉT MAZII VÀ KẾT HỢP KANJI X-RAY + GỢI Ý ADMIN
 async function executeHybridSearch(input, resDiv) {
     try {
-        // 1. Chỉ gọi Mazii API (Tốn 0 byte băng thông Supabase)
         const maziiRes = await fetchMaziiDictionary(input);
 
-        // 2. KIỂM TRA QUYỀN ADMIN & TÌM TRONG DB NỘI BỘ (Chỉ Admin mới chạy đoạn này)
         let adminHintHTML = "";
         const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
         
@@ -13557,35 +13573,65 @@ async function executeHybridSearch(input, resDiv) {
             }
         }
 
-        // Nếu Mazii không có kết quả
         if (maziiRes.length === 0) {
             resDiv.innerHTML = adminHintHTML + `<div style="text-align:center; color:#718096; padding: 30px; background:#fff; border-radius:12px;">Không tìm thấy kết quả nào cho "<b>${escapeHTML(input)}</b>".</div>`;
             return;
         }
 
-        // 3. RENDER GIAO DIỆN TỪ MAZII (Tuyệt đối không truy vấn Database)
+        // 3. RENDER GIAO DIỆN TỪ MAZII VỚI DATA MỞ RỘNG
         const cardsHTML = maziiRes.map(d => {
             const safeWord = escapeHTML(d.word);
             const safeReading = escapeHTML(d.reading || '');
-            const safeMeaning = escapeHTML(d.meaning);
+            const safeMeaning = escapeHTML(d.meaning); // Dùng cho nút Save
             const safeExample = escapeHTML(d.example || '');
+            const safeHv = escapeHTML(d.hv);
+            const safeLevel = escapeHTML(d.level);
+            const safeAntonyms = escapeHTML(d.antonyms);
 
-            // Nút Thêm vào thẻ
+            // 🟢 Nút Thêm: Truyền thêm safeHv vào tham số thứ 4 để khi bấm "+" sẽ tự điền Hán Việt
             const btnHTML = `<button class="btn-dict-add" title="Thêm vào bộ bài" 
-                onclick="openSaveDictWordModal('${encodeURIComponent(safeWord)}', '${encodeURIComponent(safeReading)}', '${encodeURIComponent(safeMeaning)}', '', '${encodeURIComponent(safeExample)}')">
+                onclick="openSaveDictWordModal('${encodeURIComponent(safeWord)}', '${encodeURIComponent(safeReading)}', '${encodeURIComponent(safeMeaning)}', '${encodeURIComponent(safeHv)}', '${encodeURIComponent(safeExample)}')">
                 <span class="material-symbols-outlined">add</span>
             </button>`;
+
+            // 🟢 Render Mảng nghĩa (Danh từ, Động từ...)
+            let detailedMeaningsHTML = "";
+            if (d.meaningsList && d.meaningsList.length > 0) {
+                detailedMeaningsHTML = d.meaningsList.map(m => {
+                    const kindBadge = m.kind ? `<span style="background:#f1f5f9; color:#475569; padding:2px 6px; border-radius:4px; font-size:10px; margin-right:6px; border:1px solid #e2e8f0; vertical-align: middle;">${escapeHTML(m.kind)}</span>` : '';
+                    return `<div style="font-size: 15px; color:#1d1d1f; margin-bottom:8px; line-height:1.5;">${kindBadge}${escapeHTML(m.mean)}</div>`;
+                }).join('');
+            } else {
+                detailedMeaningsHTML = `<div style="font-size: 15px; color:#1d1d1f; margin-bottom:8px;">${safeMeaning}</div>`;
+            }
 
             return `
             <div class="dict-card" style="padding: 15px; border-color:#e2e8f0; box-shadow: 0 2px 5px rgba(0,0,0,0.02); display: flex; align-items: flex-start;">
                 <div style="flex: 1; padding-right: 15px;">
-                    <div class="d-reading" style="font-size:13px; display:flex; align-items:center;">
+                    <!-- Cách đọc & Level -->
+                    <div class="d-reading" style="font-size:13px; display:flex; align-items:center; margin-bottom:2px;">
                         ${safeReading}
+                        ${safeLevel ? `<span style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd; padding:1px 6px; border-radius:4px; font-size:10px; margin-left:8px; font-weight:800;">${safeLevel}</span>` : ''}
                     </div>
-                    <!-- Chữ Kanji đã được bọc sẵn thẻ span để click gọi X-Ray an toàn -->
-                    <div class="d-word" style="font-size: 22px; margin-bottom: 5px;">${wrapKanjiWithLink(safeWord)}</div>
-                    <div class="d-meaning" style="font-size: 16px;">${safeMeaning}</div>
                     
+                    <!-- Chữ Nhật & Hán Việt -->
+                    <div style="display:flex; align-items:baseline; gap:8px; margin-bottom: 8px;">
+                        <div class="d-word" style="font-size: 22px; margin: 0;">${wrapKanjiWithLink(safeWord)}</div>
+                        ${safeHv ? `<div style="color:#c50f1f; font-weight:800; font-size:14px; letter-spacing: 0.5px;">[${safeHv}]</div>` : ''}
+                    </div>
+                    
+                    <!-- Mảng Nghĩa chi tiết -->
+                    <div style="margin-top: 5px;">
+                        ${detailedMeaningsHTML}
+                    </div>
+                    
+                    <!-- Từ trái nghĩa -->
+                    ${safeAntonyms ? `
+                    <div style="font-size: 13px; margin-top: 8px; color:#e53e3e; font-weight: 600; background: #fff5f5; padding: 4px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; border: 1px dashed #fed7d7;">
+                        <span class="material-symbols-outlined" style="font-size:14px;">alt_route</span> Trái nghĩa: ${safeAntonyms}
+                    </div>` : ''}
+                    
+                    <!-- Ví dụ -->
                     ${safeExample ? `
                     <div style="margin-top: 10px; font-size: 13px; color: #4a5568; background: #fbfbfb; padding: 8px 10px; border-radius: 8px; border-left: 3px solid #8b5cf6;">
                         <span style="color: #8b5cf6; font-weight: 800; font-size: 11px;">VÍ DỤ</span> <br>${wrapKanjiWithLink(safeExample)}
