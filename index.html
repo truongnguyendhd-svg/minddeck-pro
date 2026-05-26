@@ -11999,8 +11999,22 @@ async function renderManageDeckList(preventBackgroundSync = false) {
     // 2. CHẠY NGẦM ĐỒNG BỘ VỚI CLOUD VÀ UPDATE UI NẾU CÓ THAY ĐỔI
     if (!preventBackgroundSync) {
         getCachedDeckList(true).then(freshDecks => {
-            if (JSON.stringify(decks) !== JSON.stringify(freshDecks)) {
-                console.log("MindDeck: Background sync phát hiện bộ bài mới, đang cập nhật UI...");
+            
+            // 🟢 TẠO HÀM SO SÁNH CHUẨN XÁC (Tránh False Positive do lệch kiểu dữ liệu hoặc thứ tự)
+            const getDeckSignature = (deckArray) => {
+                if (!deckArray || deckArray.length === 0) return "";
+                return deckArray
+                    .map(d => `${d.id}|${d.is_public}|${d.total_cards || 0}|${d.due_cards || 0}|${d.studied_cards || 0}`)
+                    .sort() // Ép sắp xếp a-b-c để thứ tự mảng không làm sai lệch kết quả
+                    .join('###');
+            };
+
+            const oldSignature = getDeckSignature(decks);
+            const newSignature = getDeckSignature(freshDecks);
+
+            // Chỉ cập nhật UI khi "chữ ký" thực sự thay đổi
+            if (oldSignature !== newSignature) {
+                console.log("MindDeck: Background sync phát hiện thay đổi thực sự, đang cập nhật UI...");
                 drawUI(freshDecks);
             }
         });
