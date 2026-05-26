@@ -13905,60 +13905,72 @@ function openAutoJLPTModal() {
     document.getElementById('autoJLPTModal').style.display = 'flex';
 }
 
-// ================= TÍNH NĂNG 3: AUTO JLPT DECK (DÙNG RPC CHỐNG TRÙNG CÓ SẴN) =================
 async function generateAutoJLPTDeck() {
-    if (!currentUser) return customAlert("Vui lòng đăng nhập trước!", "⚠️");
-
-    const level = document.getElementById('autoJlptLevel').value; // N5, N4, N3...
+    const level = document.getElementById('autoJlptLevel').value;
     const amount = parseInt(document.getElementById('autoJlptAmount').value);
     
     closeModal('autoJLPTModal');
-    showLoading(`Hệ thống đang tải danh sách từ vựng ${level} từ GitHub...`);
+    showLoading(`Hệ thống đang quét và bốc từ vựng ${level} mới...`);
 
     try {
-        // BƯỚC 1: LẤY DANH SÁCH TỪ VỰNG TỪ GITHUB (0 BYTE SUPABASE TỪ ĐIỂN)
-        const levelNumber = level.replace('N', ''); 
-        const jsonUrl = `https://raw.githubusercontent.com/jlpt-vocab/jlpt-vocab-api/master/data/jlpt-n${levelNumber}.json`;
+        // 1. TẠO TÊN BỘ BÀI VÀ THIẾT LẬP ID ĐỘC BẢN CHỐNG TRÙNG LẶP
+        const deckName = `Bộ từ vựng ${level} (Tự động)`;
+        const uniqueName = await generateUniqueDeckName(deckName, 'flashcard');
+        const deckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
 
-        let vocabPool = [];
-        try {
-            const response = await fetch(jsonUrl);
-            const data = await response.json();
-            vocabPool = data.map(item => item.kanji || item.word || item.kana);
-        } catch (e) {
-            throw new Error("Không thể tải danh sách JLPT từ nguồn tĩnh GitHub.");
-        }
+        // 2. KHỞI TẠO VỎ BỘ BÀI TRÊN CLOUD (CHƯA CÓ THẺ BÊN TRONG)
+        const { error: deckErr } = await sb.from('decks').insert({
+            id: deckId,
+            owner_id: currentUser.id,
+            type: 'flashcard',
+            is_public: false
+        });
+        if (deckErr) throw deckErr;
 
-        // BƯỚC 2: SỬ DỤNG RPC `check_duplicate_fronts` ĐỂ LỌC TRÙNG SIÊU TỐC
-        document.getElementById('loadingText').innerText = "Đang kiểm tra trùng lặp qua RPC...";
-
-        // Bốc ngẫu nhiên một lượng ứng viên (Lấy số lượng yêu cầu + 100 từ phòng hờ trùng lặp)
-        const candidates = vocabPool.sort(() => 0.5 - Math.random()).slice(0, amount + 100);
-
-        // Gọi RPC chống trùng có sẵn trên Supabase của bạn
-        const { data: duplicates, error: rpcErr } = await sb.rpc('check_duplicate_fronts', {
+        // 3. 🚀 GỌI RPC: SQL TỰ LÀM HẾT (BĂNG THÔNG = 0 BYTES)
+        const { data: finalAmount, error: rpcErr } = await sb.rpc('generate_auto_jlpt_deck_direct', {
             p_user_id: currentUser.id,
-            p_fronts: candidates
+            p_deck_id: deckId,
+            p_level: level,
+            p_limit: amount
         });
 
         if (rpcErr) throw rpcErr;
 
-        // Loại bỏ các từ trùng lặp do RPC trả về
-        const duplicateSet = new Set(duplicates || []);
-        const uniqueWords = candidates.filter(word => !duplicateSet.has(word)).slice(0, amount);
-
-        // CHỐT CHẶN: Nếu toàn bộ từ bốc ra đều bị trùng (Hiếm gặp trừ khi đã thuộc hết sạch)
-        if (uniqueWords.length === 0) {
+        // 4. CHỐT CHẶN CỨU HỘ: NẾU KHÔNG CÓ THẺ MỚI (Trùng lặp 100% với kho bài cũ)
+        if (!finalAmount || finalAmount === 0) {
+            // Tự dọn rác vỏ bộ bài rỗng
+            await sb.from('decks').delete().eq('id', deckId); 
+            localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
+            
             hideLoading();
-            return customAlert(`Toàn bộ từ bốc ngẫu nhiên đều đã có trong kho học của bạn. Vui lòng thử lại để bốc nhóm khác!`, "⚠️");
+            return customAlert(
+                `Bạn đã nạp TOÀN BỘ từ vựng cấp độ ${level} có trong hệ thống vào các bộ bài của mình.<br><br>Không còn từ mới nào để tạo thêm!`, 
+                "🎉 Hoàn tất cấp độ", 
+                "success"
+            );
         }
 
-        // BƯỚC 3: GIAO CHO MAZII ĐÓNG GÓI THẺ
-        const cardsToSave = await buildCardsFromMaziiBatch(uniqueWords, "temp_id");
+        // 🟢 ĐÃ XÓA BƯỚC ĐỒNG BỘ KANJI THỪA THÃI Ở ĐÂY!
+        // Dữ liệu sẽ tự động đồng bộ khi người dùng bắt đầu học thẻ.
 
-        // BƯỚC 4: LƯU LÊN SUPABASE
-        const deckName = `Từ vựng ${level} (Tự động)`;
-        await executeFinalImportToSupabase(cardsToSave, deckName, false);
+        // Xóa cache danh sách bộ bài cũ để nạp mảng mới
+        localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
+        hideLoading();
+
+        // 5. HIỂN THỊ THÔNG BÁO THEO SỐ LƯỢNG THỰC TẾ ĐH ĐÃ CHÈN
+        if (finalAmount < amount) {
+            customAlert(
+                `Hệ thống chỉ tìm thấy <b>${finalAmount}</b> từ vựng ${level} mới tinh chưa từng có trong kho của bạn. Đã đóng gói thành công!`, 
+                "ℹ️ Thông báo", 
+                "success"
+            );
+        } else {
+            showToast(`🎉 Đã bốc thành công ${finalAmount} từ vựng mới tinh!`);
+        }
+
+        // Quay về trang chủ
+        showHome();
 
     } catch (e) {
         hideLoading();
@@ -22736,7 +22748,6 @@ function showGrammarPreview(event, grammarId) {
 </div>
 </body>
 </html>
-
 
 
 
