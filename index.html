@@ -6041,14 +6041,29 @@ body.shadowing-mode #shadowingPage {
     transform: translate(-50%, 0) !important; /* Ép cứng vị trí ở giữa */
 }
 /* Hết================= FIX LỖI GIẬT MENU AI PDF ================= */
-/* ================= FIX LỖI MODAL AI DÍNH LỀ MOBILE ================= */
+/* ================= TỐI ƯU TOÀN DIỆN DIỆN MẠO MODAL AI TRÊN MOBILE ================= */
 @media (max-width: 600px) {
+    #aiResponseModal {
+        padding: 20px 16px !important; /* Tạo lề đệm 16px chuẩn iOS, không bao giờ lo dính mép */
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    
     #aiResponseModal .ai-modal-box {
-        width: calc(100% - 16px) !important; /* Ép trừ đi 8px lề mỗi bên */
-        margin: 0 auto !important; /* Căn giữa tuyệt đối */
+        width: 100% !important; /* Chiếm trọn không gian đã trừ lề */
+        max-width: none !important;
+        margin: 0 !important;
+        border-radius: 24px !important; /* Bo góc tròn chuẩn Apple Store */
         box-sizing: border-box !important;
     }
+
+    #aiModalContent {
+        padding: 0 16px 20px 16px !important; /* Triệt tiêu padding-top để dồn nội dung lên sát Header */
+    }
 }
+/* Hết================= TỐI ƯU TOÀN DIỆN DIỆN MẠO MODAL AI TRÊN MOBILE ================= */
+
 </style>
 </head>
 <body>
@@ -14791,6 +14806,13 @@ function closeAIModal() {
     // Hiệu ứng Scale down nhẹ khi đóng
     modalBox.style.transform = 'scale(0.95)';
     modalBox.style.opacity = '0';
+    // 🟢 KHÔI PHỤC LẠI PADDING TRƯỚC KHI ẨN MODAL
+    const contentDiv = document.getElementById('aiModalContent');
+    if (contentDiv) {
+        contentDiv.style.paddingTop = ''; 
+        contentDiv.style.paddingLeft = '';
+        contentDiv.style.paddingRight = '';
+    }
 
     // Chờ 150ms (khớp với transition CSS) rồi mới ẩn hẳn
     setTimeout(() => {
@@ -17433,47 +17455,85 @@ async function triggerPdfAI(actionType, croppedBase64 = null) {
             }
             extractUI += `</div>`;
         } else if (actionType === 'digitize' && extractedData && Array.isArray(extractedData)) {
-            // XỬ LÝ GIAO DIỆN SỐ HÓA TÀI LIỆU MỚI (KHÔNG CÓ SCROLL LỒNG NHAU)
             if (extractedData.length > 0) {
-                // Banner thông báo thành công gọn gàng
+                // 1. Ép xóa khoảng trắng dư thừa bằng cách triệt tiêu padding-top của container
+                const contentDiv = document.getElementById('aiModalContent');
+                if (contentDiv) {
+                    contentDiv.style.paddingTop = '0px';
+                    contentDiv.style.paddingLeft = '16px';
+                    contentDiv.style.paddingRight = '16px';
+                }
+
+                // 2. Banner thông báo dính sát lên mí trên (Header) cực kỳ gọn gàng
                 extractUI += `
-                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px 16px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; animation: popIn 0.3s ease;">
-                    <span class="material-symbols-outlined" style="color: #10b981; font-size: 24px;">task_alt</span>
-                    <span style="color: #047857; font-weight: 700; font-size: 14px;">Hệ thống đã bóc tách thành công ${extractedData.length} thẻ.</span>
+                <div style="background: #eefbf3; border: 1px solid #ccefe0; padding: 12px 16px; border-radius: 12px; margin: 16px 0; display: flex; align-items: center; gap: 10px; animation: popIn 0.3s ease;">
+                    <span class="material-symbols-outlined" style="color: #10b981; font-size: 20px;">check_circle</span>
+                    <span style="color: #0d5c3a; font-weight: 700; font-size: 13px; letter-spacing: -0.2px;">Hệ thống đã bóc tách thành công ${extractedData.length} thẻ học</span>
                 </div>
                 
-                <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">`;
+                <div style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 24px;">`;
 
-                // Render danh sách thẻ bung thả tự do (không bị khóa trong khung 300px nữa)
+                // 3. Render danh sách thẻ thiết kế mới (Apple Card Style)
                 extractedData.forEach(item => {
+                    const safeWord = escapeHTML(item.word);
+                    const safeReading = escapeHTML(item.reading || '');
+                    const safeMeaning = escapeHTML(item.meaning);
+                    const safeHv = escapeHTML(item.hv || '');
+                    const safeExample = escapeHTML(item.example || '');
+
+                    // Phân tách phần dịch nghĩa câu ví dụ để làm Sub-card
+                    let mainExJp = safeExample;
+                    let subExVn = "";
+                    const parenIndex = safeExample.search(/[\(（]/);
+                    if (parenIndex !== -1) {
+                        mainExJp = safeExample.substring(0, parenIndex).trim();
+                        subExVn = safeExample.substring(parenIndex).replace(/[\(\)（）]/g, '').trim();
+                    }
+
                     extractUI += `
-                        <div style="padding: 16px; background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #f59e0b; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
-                            <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px;">
-                                <span style="font-weight: 800; color: #1d1d1f; font-size: 18px;">${escapeHTML(item.word)}</span>
-                                <span style="font-size: 14px; color: #64748b; font-weight: 600;">${escapeHTML(item.reading || '')}</span>
+                        <div style="background: #ffffff; border: 1px solid #e5e5ea; border-radius: 16px; padding: 16px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02); display: flex; flex-direction: column; gap: 10px; position: relative;">
+                            
+                            <!-- Tiêu đề thẻ (Chữ Kanji + Hiragana + Hán Việt nằm trên cùng một dòng) -->
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <span style="font-size: 20px; font-weight: 800; color: #1c1c1e; font-family: 'Noto Sans JP', sans-serif;">${safeWord}</span>
+                                ${safeReading ? `<span style="background: #f2f2f7; color: #3a3a3c; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 6px; font-family: 'Noto Sans JP', sans-serif;">${safeReading}</span>` : ''}
+                                ${safeHv ? `<span style="background: #fff0f0; color: #c53030; font-size: 11px; font-weight: 800; padding: 3px 6px; border-radius: 4px; letter-spacing: 0.5px;">${safeHv}</span>` : ''}
                             </div>
-                            <div style="font-size: 15px; color: #333336; font-weight: 500; margin-bottom: ${item.example ? '10px' : '0'};">${escapeHTML(item.meaning)}</div>
-                            ${item.example ? `<div style="font-size: 13px; color: #4a5568; background: #f8fafc; padding: 8px 10px; border-radius: 8px;"><b>VD:</b> ${escapeHTML(item.example)}</div>` : ''}
+
+                            <!-- Nghĩa tiếng Việt rõ ràng -->
+                            <div style="font-size: 15px; color: #2c2c2e; font-weight: 600; line-height: 1.4;">
+                                ${safeMeaning}
+                            </div>
+
+                            <!-- Phân hệ ví dụ dạng Sub-Card phẳng sang trọng -->
+                            ${mainExJp ? `
+                            <div style="background: #f8f9fa; border-left: 3px solid #f59e0b; padding: 10px 14px; border-radius: 0 12px 12px 0; margin-top: 4px;">
+                                <div style="font-size: 14px; font-weight: 600; color: #1c1c1e; font-family: 'Noto Sans JP', sans-serif; line-height: 1.5; margin-bottom: 4px;">
+                                    ${mainExJp}
+                                </div>
+                                ${subExVn ? `
+                                <div style="font-size: 12px; color: #8e8e93; font-weight: 500; line-height: 1.4;">
+                                    ${subExVn}
+                                </div>` : ''}
+                            </div>` : ''}
                         </div>
                     `;
                 });
 
                 extractUI += `</div>`;
 
-                // Mã hóa mảng dữ liệu để truyền sang Modal Lưu hàng loạt
                 const encodedData = encodeURIComponent(JSON.stringify(extractedData)).replace(/'/g, "%27");
                 
-                // Nút bấm lưu hàng loạt (Đen nhám Apple)
+                // Nút lưu bo góc dạng Pill
                 extractUI += `
-                    <button onclick="closeAIModal(); openBulkSaveKanjiModal('${encodedData}', 'Tài liệu số hóa')" class="btn-apple-glass-primary" style="width: 100%; background: #1d1d1f; border: none; padding: 16px; justify-content: center; box-shadow: 0 10px 25px rgba(0,0,0,0.15);">
-                        <span class="material-symbols-outlined" style="font-size: 20px;">library_add</span> LƯU TOÀN BỘ ${extractedData.length} THẺ
+                    <button onclick="closeAIModal(); openBulkSaveKanjiModal('${encodedData}', 'Tài liệu số hóa')" class="btn-apple-glass-primary" style="width: 100%; background: #1c1c1e; border: none; padding: 15px; justify-content: center; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border-radius: 50px;">
+                        <span class="material-symbols-outlined" style="font-size: 20px;">library_add</span> LƯU TOÀN BỘ ${extractedData.length} THẺ HỌC
                     </button>
                 `;
                 
-                // Xóa bỏ đoạn text báo cáo thừa thãi gây ra khoảng trắng ở trên cùng
                 formattedAI = ""; 
             } else {
-                 formattedAI = `<div style="padding: 15px; background: #fff5f5; color: #c50f1f; border-radius: 12px; border: 1px solid #fed7d7;">Không tìm thấy từ vựng hay ngữ pháp nào rõ ràng để số hóa trong vùng chọn này.</div>`;
+                 formattedAI = `<div style="padding: 15px; background: #fff5f5; color: #c50f1f; border-radius: 12px; border: 1px solid #fed7d7;">Không tìm thấy dữ liệu rõ ràng để số hóa trong vùng chọn này.</div>`;
             }
         }
         
