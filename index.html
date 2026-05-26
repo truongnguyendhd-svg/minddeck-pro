@@ -13597,26 +13597,13 @@ async function executeHybridSearch(input, resDiv) {
     try {
         const maziiRes = await fetchMaziiDictionary(input);
 
-        let adminHintHTML = "";
-        const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
-        
-        if (isAdmin) {
-            const { data: dbCheck } = await sb.from('dictionary').select('id').eq('word', input).single();
-            if (!dbCheck) {
-                adminHintHTML = `
-                    <div class="qd-admin-hint">
-                        <span>Từ <b>"${escapeHTML(input).replace(/"/g, '&quot;')}"</b> chưa có trong DB nội bộ.</span>
-                        <button onclick="openDictAdminModal({ word: '${escapeHTML(input).replace(/'/g, "\\'")}' }, true, true)">+ Bổ sung</button>
-                    </div>
-                `;
-            }
-        }
-
+        // Nếu Mazii không có kết quả
         if (maziiRes.length === 0) {
-            resDiv.innerHTML = adminHintHTML + `<div style="text-align:center; color:#718096; padding: 30px; background:#fff; border-radius:12px;">Không tìm thấy kết quả nào cho "<b>${escapeHTML(input)}</b>".</div>`;
+            resDiv.innerHTML = `<div style="text-align:center; color:#718096; padding: 30px; background:#fff; border-radius:12px;">Không tìm thấy kết quả nào cho "<b>${escapeHTML(input)}</b>".</div>`;
             return;
         }
 
+        // 🟢 INJECT CSS MỚI: Thêm class cho Nút Glassmorphism và Fix tràn lề Khối lưới
         const stylesHTML = `
             <style>
                 .qd-meanings-wrapper {
@@ -13635,6 +13622,7 @@ async function executeHybridSearch(input, resDiv) {
                 .qd-accordion[open] .qd-acc-icon { transform: rotate(180deg); color: #1d1d1f !important; }
                 .qd-accordion[open] summary { background: #f9fafb; } 
 
+                /* 🟢 Nút Glass Xám Tròn Tối Giản */
                 .btn-qd-glass-add {
                     width: 36px; height: 36px;
                     border-radius: 50%;
@@ -13666,9 +13654,7 @@ async function executeHybridSearch(input, resDiv) {
         // 🟢 HÀM PHỤ TRỢ 2: Dọn dẹp mảng từ loại (Lọc trùng lặp "vt, vt, vt")
         const formatKindBadge = (rawKind) => {
             if (!rawKind) return '';
-            // Tách chuỗi bằng dấu phẩy, xóa khoảng trắng thừa và ép viết hoa
             let parts = rawKind.split(',').map(k => k.trim().toUpperCase()).filter(Boolean);
-            // Dùng Set để loại bỏ các phần tử trùng lặp, sau đó ghép lại
             return [...new Set(parts)].join(', ');
         };
 
@@ -13692,10 +13678,8 @@ async function executeHybridSearch(input, resDiv) {
                 const firstExIndex = d.meaningsList.findIndex(m => m.examples && m.examples.length > 0);
 
                 const rowsHTML = d.meaningsList.map((m, index) => {
-                    // 🟢 Dọn dẹp từ loại trước khi nhét vào Badge
                     const cleanKindText = formatKindBadge(m.kind);
-                    // 🟢 Thay thế dòng tạo Badge này:
-                    const kindBadge = m.kind ? `<span onclick="showPosExplanation(event, '${escapeHTML(cleanKindText)}')" title="Nhấn để xem giải thích" style="background:transparent; color:#64748b; padding:2px 6px; border-radius:4px; font-size:10px; margin-right:8px; font-weight:800; border: 1px solid #cbd5e0; vertical-align: middle; letter-spacing: 0.5px; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#f1f5f9'; this.style.color='#1d1d1f';" onmouseout="this.style.background='transparent'; this.style.color='#64748b';">${escapeHTML(cleanKindText)}</span>` : '';
+                    const kindBadge = cleanKindText ? `<span onclick="showPosExplanation(event, '${escapeHTML(cleanKindText)}')" title="Nhấn để xem giải thích" style="background:transparent; color:#64748b; padding:2px 6px; border-radius:4px; font-size:10px; margin-right:8px; font-weight:800; border: 1px solid #cbd5e0; vertical-align: middle; letter-spacing: 0.5px; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#f1f5f9'; this.style.color='#1d1d1f';" onmouseout="this.style.background='transparent'; this.style.color='#64748b';">${escapeHTML(cleanKindText)}</span>` : '';
                     
                     const capitalizedMean = capitalizeFirstLetter(m.mean);
 
@@ -13736,6 +13720,7 @@ async function executeHybridSearch(input, resDiv) {
 
             return `
             <div class="dict-card" style="padding: 15px; border-color:#e2e8f0; box-shadow: 0 2px 5px rgba(0,0,0,0.02); display: flex; flex-direction: column;">
+                
                 <div style="width: 100%;">
                     <div class="d-reading" style="font-size:13px; display:flex; align-items:center; margin-bottom:2px;">
                         ${safeReading}
@@ -13762,7 +13747,8 @@ async function executeHybridSearch(input, resDiv) {
             </div>`;
         }).join('');
 
-        resDiv.innerHTML = stylesHTML + adminHintHTML + cardsHTML;
+        // Không còn cộng adminHintHTML vào resDiv nữa
+        resDiv.innerHTML = stylesHTML + cardsHTML;
 
     } catch (err) {
         console.error("Lỗi tra từ:", err);
