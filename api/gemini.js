@@ -1,4 +1,3 @@
-// api/gemini.js
 
 export const config = {
   runtime: 'edge', // Kích hoạt môi trường Edge để chạy không giới hạn 10s
