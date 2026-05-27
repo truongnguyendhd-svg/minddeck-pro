@@ -9992,13 +9992,13 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             }
             if (!meaning && k.mean) meaning = k.mean;
 
-            // Nạp mảng thô
+            // Nạp mảng thô từ API
             const rawOnExamples = flattenMaziiExamples(k.on_example || k.example_on);
             const rawKunExamples = flattenMaziiExamples(k.kun_example || k.example_kun);
             const rawGeneralExamples = flattenMaziiExamples(k.examples || k.example);
 
             // =========================================================================
-            // 🧱 THUẬT TOÁN KHỬ TRÙNG LẶP & ĐỘC QUYỀN GẮN NHÃN PHÂN LOẠI ĐỘC LẬP
+            // 🧱 THUẬT TOÁN GỘP MẢNG & TỰ ĐỘNG BÙ NƯỚC DỮ LIỆU (DATA ENRICHMENT)
             // =========================================================================
             const mergedMap = new Map();
             const processList = (list, type) => {
@@ -10006,21 +10006,44 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 list.forEach(v => {
                     const word = v.w || v.word;
                     if (!word) return;
+
+                    const rawHv = (v.h || v.hanviet || '').trim().toUpperCase();
+                    const rawMeaning = v.m || v.mean || v.meaning || 'Chưa rõ nghĩa';
+                    const rawReading = v.p || v.phonetic || v.reading || '';
+
                     if (!mergedMap.has(word)) {
+                        // Trường hợp từ chưa có trong Map -> Thêm mới hoàn toàn
                         mergedMap.set(word, {
                             word: word,
-                            reading: v.p || v.phonetic || v.reading || '',
-                            meaning: v.m || v.mean || v.meaning || 'Chưa rõ nghĩa',
-                            hv: v.h || v.hanviet || '',
+                            reading: rawReading,
+                            meaning: rawMeaning,
+                            hv: rawHv,
                             readingType: type, // 'ON' | 'KUN' | 'GENERAL'
-                            isDeepFetched: false, // Cờ kiểm soát tải lười
+                            isDeepFetched: false,
                             exampleJP: '',
                             exampleVN: ''
                         });
+                    } else {
+                        // Trường hợp từ ĐÃ CÓ trong Map -> Tiến hành bù nước dữ liệu thiếu
+                        const existing = mergedMap.get(word);
+                        
+                        // 1. Nếu bản ghi cũ thiếu Hán Việt nhưng bản ghi mới có -> Đắp vào ngay
+                        if (!existing.hv && rawHv) {
+                            existing.hv = rawHv;
+                        }
+                        // 2. Nếu bản ghi cũ thiếu Cách đọc nhưng bản ghi mới có -> Đắp vào ngay
+                        if (!existing.reading && rawReading) {
+                            existing.reading = rawReading;
+                        }
+                        // 3. Ưu tiên giữ lại phân loại ON / KUN thay vì GENERAL để tô màu chính xác
+                        if (existing.readingType === 'GENERAL' && type !== 'GENERAL') {
+                            existing.readingType = type;
+                        }
                     }
                 });
             };
 
+            // Tiến hành quét mảng tuần tự
             processList(rawOnExamples, 'ON');
             processList(rawKunExamples, 'KUN');
             processList(rawGeneralExamples, 'GENERAL');
@@ -10033,7 +10056,7 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 kunyomi: k.kun || '',
                 stroke_count: k.stroke_count || 0,
                 tips: normalizeTips(k.tips),
-                mergedVocabList: Array.from(mergedMap.values()) // Đám mây từ vựng gộp chuẩn
+                mergedVocabList: Array.from(mergedMap.values())
             };
 
             window.kanjiDetailCache[cacheKey] = result;
