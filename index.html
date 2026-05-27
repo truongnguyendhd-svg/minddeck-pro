@@ -16855,24 +16855,39 @@ async function saveAdminGrammar() {
 
         if (insertErr) throw insertErr;
 
-        // 3. ĐỒNG BỘ CỤC BỘ (Tuyệt đối KHÔNG xóa dbOps.clear nữa)
+        // 3. ĐỒNG BỘ CỤC BỘ
         if (newRecord) {
-            // Đánh dấu thẻ này đã có đủ data chi tiết để hàm mở Modal không cần tải lại
+            // Đánh dấu thẻ này đã có đủ data chi tiết
             newRecord.isLoaded = true; 
 
-            // Nhét thẳng bản ghi mới tinh vào IndexedDB
-            await dbOps.put(STORE_GRAMMAR, newRecord);
+            // Nhét thẳng bản ghi mới vào IndexedDB (Cập nhật cái Vỏ)
+            await dbOps.put(STORE_GRAMMAR, {
+                id: newRecord.id,
+                grammar_point: newRecord.grammar_point,
+                level: newRecord.level,
+                meaning: newRecord.meaning
+            });
             
+            // 🟢 ADMIN CỐT LÕI: Phá hủy Cache AI Deep Dive nếu đang sửa thẻ cũ
+            const aiCacheKey = `grammar_${currentUser.id}_${newRecord.id}`;
+            await dbOps.delete(STORE_AI_CACHE, aiCacheKey);
+            window.aiGrammarExpansionCache = window.aiGrammarExpansionCache || {};
+            delete window.aiGrammarExpansionCache[newRecord.id];
+
             // Nhét vào RAM hệ thống đang chạy
-            globalGrammarData.push(newRecord);
+            const existingIndex = globalGrammarData.findIndex(item => item.id === newRecord.id);
+            if (existingIndex !== -1) {
+                globalGrammarData[existingIndex] = newRecord;
+            } else {
+                globalGrammarData.push(newRecord);
+            }
             
-            // Sắp xếp lại RAM cho chuẩn Level (N1 -> N5)
+            // Sắp xếp lại RAM
             globalGrammarData.sort((a, b) => (a.level > b.level ? -1 : 1));
 
-            // 4. KIỂM TRA UI: Nếu đang đứng ở trang Ngữ Pháp thì vẽ lại màn hình ngay
+            // KIỂM TRA UI
             const grammarPage = document.getElementById('grammarPage');
             if (grammarPage && !grammarPage.classList.contains('hidden')) {
-                // Xác định xem người dùng đang lọc ở tab nào (N1, N2 hay Tất cả)
                 const activePill = document.querySelector('#grammarFilterBar .grammar-pill.active');
                 const currentFilter = activePill ? activePill.innerText.trim() : 'ALL';
                 
@@ -16880,7 +16895,6 @@ async function saveAdminGrammar() {
                 if (currentFilter !== 'ALL' && currentFilter !== 'Tất cả') {
                     displayData = globalGrammarData.filter(g => g.level === currentFilter);
                 }
-                // Vẽ lại giao diện
                 renderGrammarGrid(displayData);
             }
         }
@@ -20881,12 +20895,15 @@ async function syncKanjiMastery(force = false) {
         return 0;
     }
 }
-// Hàm làm mới hoàn toàn kho Ngữ Pháp
+// Hàm làm mới hoàn toàn kho Ngữ Pháp và Đồng bộ bản vá lỗi của Admin
 async function refreshGrammarCollection() {
     if (!currentUser) return;
-    showLoading("Đang kiểm tra ngữ pháp mới...");
+    showLoading("Đang đồng bộ ngữ pháp từ Cloud...");
     
     try {
+        // =========================================================================
+        // 1. TẢI NHỮNG NGỮ PHÁP MỚI TINH (CHƯA TỪNG CÓ TRONG MÁY)
+        // =========================================================================
         const { data: cloudGrammar, error: err1 } = await sb.rpc('get_all_grammar_points_flat');
         if (err1) throw err1;
 
@@ -20894,31 +20911,86 @@ async function refreshGrammarCollection() {
         const localGrammarSet = new Set(localGrammars.map(g => g.grammar_point));
         const missingGrammars = cloudGrammar.filter(g => !localGrammarSet.has(g));
 
-        if (missingGrammars.length === 0) {
-            showToast("✅ Từ điển Ngữ pháp của bạn đã là bản mới nhất!");
-        } else {
+        if (missingGrammars.length > 0) {
             document.getElementById('loadingText').innerText = `Đang tải ${missingGrammars.length} cấu trúc mới...`;
-            
             const { data: newGrammarData, error: err2 } = await sb.from('grammar_dict')
                 .select('id, grammar_point, level, meaning')
                 .in('grammar_point', missingGrammars);
                 
             if (err2) throw err2;
-
-            // Ghi mẻ mới xuống IndexedDB
+            
+            // Lưu cái vỏ vào IndexedDB và nạp lên RAM
             await dbOps.putBatch(STORE_GRAMMAR, newGrammarData);
-            
-            // Cập nhật RAM Cache
             globalGrammarData = deduplicateGrammarList([...localGrammars, ...newGrammarData]);
-            globalGrammarData.sort((a, b) => (a.level > b.level ? -1 : 1));
-            
             showToast(`🎉 Đã nạp thêm ${newGrammarData.length} ngữ pháp mới!`);
+        } else {
+            // Đảm bảo RAM có data nếu không có thẻ mới
+            globalGrammarData = localGrammars; 
         }
 
-        // Tải lại điểm tiến độ mới nhất
+        // =========================================================================
+        // 2. 🟢 ĐỒNG BỘ VI SAI (CẬP NHẬT NHỮNG NGỮ PHÁP BỊ ADMIN SỬA ĐỔI)
+        // =========================================================================
+        document.getElementById('loadingText').innerText = `Đang kiểm tra bản vá lỗi...`;
+        
+        // Lấy mốc thời gian đồng bộ ngữ pháp lần cuối của User
+        const lastSyncKey = `minddeck_dict_grammar_sync_${currentUser.id}`;
+        const lastSyncTime = localStorage.getItem(lastSyncKey) || '2020-01-01T00:00:00.000Z';
+
+        // Hỏi Cloud: Có ngữ pháp nào được sửa sau mốc thời gian trên không?
+        const { data: modifiedGrammars, error: err3 } = await sb.from('grammar_dict')
+            .select('id, grammar_point, level, meaning, updated_at')
+            .gt('updated_at', lastSyncTime)
+            .order('updated_at', { ascending: false });
+
+        if (err3) throw err3;
+
+        if (modifiedGrammars && modifiedGrammars.length > 0) {
+            console.log(`MindDeck: Phát hiện Admin đã sửa ${modifiedGrammars.length} cấu trúc. Đang cập nhật...`);
+            
+            for (let g of modifiedGrammars) {
+                // A. Cập nhật "Cái Vỏ" (Lưới bên ngoài) vào ổ cứng IndexedDB
+                await dbOps.put(STORE_GRAMMAR, {
+                    id: g.id,
+                    grammar_point: g.grammar_point,
+                    level: g.level,
+                    meaning: g.meaning
+                });
+
+                // B. Xóa "Cái Ruột" (Cache AI phân tích sâu & Cấu trúc chi tiết) để ép app tải lại khi bấm vào
+                const aiCacheKey = `grammar_${currentUser.id}_${g.id}`;
+                await dbOps.delete(STORE_AI_CACHE, aiCacheKey); // Xóa trên ổ cứng
+                if (window.aiGrammarExpansionCache) delete window.aiGrammarExpansionCache[g.id]; // Xóa trên RAM
+
+                // C. Cập nhật RAM hiện tại
+                const idx = globalGrammarData.findIndex(item => item.id === g.id);
+                if (idx !== -1) {
+                    // Cập nhật lại Level/Meaning và GẮN CỜ isLoaded = false ĐỂ ÉP TẢI LẠI RUỘT
+                    globalGrammarData[idx] = { ...globalGrammarData[idx], ...g, isLoaded: false };
+                } else {
+                    globalGrammarData.push(g);
+                }
+            }
+
+            // Sắp xếp lại RAM
+            globalGrammarData.sort((a, b) => (a.level > b.level ? -1 : 1));
+
+            // Cập nhật mốc thời gian mới nhất
+            const newestTime = modifiedGrammars[0].updated_at;
+            localStorage.setItem(lastSyncKey, newestTime);
+            
+            if (missingGrammars.length === 0) {
+                showToast(`✨ Đã đồng bộ bản vá cho ${modifiedGrammars.length} cấu trúc ngữ pháp!`);
+            }
+        } else if (missingGrammars.length === 0) {
+            showToast("✅ Từ điển Ngữ pháp của bạn đã là bản mới nhất!");
+        }
+
+        // =========================================================================
+        // 3. TẢI LẠI ĐIỂM TIẾN ĐỘ & VẼ LẠI GIAO DIỆN
+        // =========================================================================
         await calculateGrammarMastery(true); 
         
-        // Vẽ lại UI dựa trên bộ lọc hiện hành
         const activePill = document.querySelector('#grammarFilterBar .grammar-pill.active');
         const currentFilter = activePill ? activePill.innerText.trim() : 'ALL';
         let displayData = globalGrammarData;
