@@ -19138,12 +19138,9 @@ async function renderJLPTProgress() {
     }
 }
 
-/* ================= HÀM XỬ LÝ GÓC KHÁM PHÁ (BỐC THĂM NGẪU NHIÊN) ================= */
+// ================= HÀM XỬ LÝ GÓC KHÁM PHÁ (BỐC THĂM NGẪU NHIÊN) =================
 let lastDiscoveryData = null;
-
-// Khóa chống click spam
-let isDiscoverySpinning = false;
-// Cờ lưu trữ kho Kanji detail nếu bạn muốn lưu tạm vào RAM tránh gọi lại Mazii trùng
+let isDiscoverySpinning = false; // Khóa chống click spam
 window.kanjiDetailCache = window.kanjiDetailCache || {};
 
 function refreshDiscovery() {
@@ -19161,21 +19158,38 @@ function refreshDiscovery() {
     return new Promise((resolve) => {
         setTimeout(async () => {
             try {
-                const isKanji = Math.random() > 0.5;
                 let html = '';
+                let isKanji = Math.random() > 0.5; // Tỷ lệ 50/50
                 
-                if (isKanji && allKanjiData && allKanjiData.length > 0) {
+                // 1. 🟢 FIX LỖI: ĐẢM BẢO NGỮ PHÁP ĐÃ ĐƯỢC NẠP TỪ INDEXED DB
+                if (globalGrammarData.length === 0) {
+                    try {
+                        const localGrammars = await dbOps.getAll(STORE_GRAMMAR);
+                        if (localGrammars && localGrammars.length > 0) {
+                            globalGrammarData = deduplicateGrammarList(localGrammars);
+                        }
+                    } catch (e) {
+                        console.warn("Chưa tải được Ngữ pháp từ DB cục bộ:", e);
+                    }
+                }
+
+                // 2. 🟢 CHỐT CHẶN CỨU HỘ: 
+                // Nếu quay trúng Ngữ pháp mà chưa có Ngữ pháp -> Ép thành Kanji
+                if (!isKanji && globalGrammarData.length === 0) isKanji = true;
+                // Nếu quay trúng Kanji mà không có Kanji -> Ép thành Ngữ pháp
+                if (isKanji && (!allKanjiData || allKanjiData.length === 0)) isKanji = false;
+
+                // 3. XỬ LÝ BỐC THĂM KANJI
+                if (isKanji) {
                     const randomSeed = allKanjiData[Math.floor(Math.random() * allKanjiData.length)];
                     const data = await fetchMaziiKanjiDetail(randomSeed.kanji);
                     
                     if (data) {
-                        const rawReadings = `Onyomi: ${data.onyomi || '---'}\\nKunyomi: ${data.kunyomi || '---'}`;
+                        const rawReadings = `Onyomi: ${data.onyomi || '---'}\nKunyomi: ${data.kunyomi || '---'}`;
                         
-                        // 🧠 THUẬT TOÁN CHỐNG LẶP TỪ LỚP 2:
-                        // Chỉ hiển thị dòng nghĩa nếu nó khác hoàn toàn với chữ Hán Việt để tránh lặp từ vô nghĩa
                         const showMeaningHTML = (data.meaning && data.meaning.toUpperCase() !== data.hv)
                             ? `<div style="font-size: 15px; color: #4a5568; font-weight: 500; margin-bottom: 15px; padding: 0 10px; text-align: center;">${data.meaning}</div>`
-                            : '<div style="margin-bottom: 10px;"></div>'; // Khoảng giãn nhỏ thay thế nếu ẩn nghĩa
+                            : '<div style="margin-bottom: 10px;"></div>';
 
                         const compoundHTML = data.compoundWord 
                             ? `<div style="background: #f8fafc; border: 1px dashed #cbd5e0; padding: 10px; border-radius: 10px; font-size: 13px; color: #4a5568; margin-bottom: 20px; width: 100%; box-sizing: border-box; text-align: center;">
@@ -19189,39 +19203,36 @@ function refreshDiscovery() {
                             <div style="font-size: 60px; font-weight: 900; color: #1d1d1f; line-height: 1.2; cursor: help;" title="${rawReadings}">${data.kanji}</div>
                             <div style="font-size: 16px; font-weight: 700; color: #c50f1f; letter-spacing: 1px; margin: 5px 0;">[ ${data.hv} ]</div>
                             
-                            ${showMeaningHTML} <!-- Chỉ hiện nghĩa nếu không trùng với Hán Việt -->
+                            ${showMeaningHTML}
                             ${compoundHTML}
                             
                             <button onclick="showKanjiXRay(event, '${data.kanji}')" style="background: #1d1d1f; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); margin: 0 auto;">
                                 <span class="material-symbols-outlined" style="font-size: 16px;">troubleshoot</span> Xem cách nhớ
                             </button>
                         `;
+                    } else {
+                        // 🟢 FALLBACK: Nếu Mazii API bị lỗi mạng/timeout -> Trả cờ về false để hiện Ngữ Pháp
+                        isKanji = false;
                     }
                 } 
-                else {
-                    if (globalGrammarData.length === 0) {
-                        const cachedDict = localStorage.getItem('minddeck_grammar_dict');
-                        if (cachedDict) {
-                            globalGrammarData = JSON.parse(cachedDict);
-                        }
-                    }
+                
+                // 4. XỬ LÝ BỐC THĂM NGỮ PHÁP
+                if (!isKanji && globalGrammarData.length > 0) {
+                    const randomGrammar = globalGrammarData[Math.floor(Math.random() * globalGrammarData.length)];
                     
-                    if (globalGrammarData.length > 0) {
-                        const randomGrammar = globalGrammarData[Math.floor(Math.random() * globalGrammarData.length)];
-                        
-                        html = `
-                            <div class="discovery-badge" style="background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;">Ngữ pháp trong ngày [${randomGrammar.level || 'N?'}]</div>
-                            <div style="font-size: 24px; font-weight: 900; color: #1d1d1f; line-height: 1.4; margin: 15px 0; font-family: 'Noto Sans JP', sans-serif;">${randomGrammar.grammar_point}</div>
-                            <div style="font-size: 14px; color: #4a5568; font-weight: 500; margin-bottom: 20px; max-width: 90%; text-align: center; margin-left: auto; margin-right: auto;">${randomGrammar.meaning}</div>
-                            <button onclick="openGrammarDetail('${randomGrammar.id}')" style="background: #1d1d1f; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); margin: 0 auto;">
-                                <span class="material-symbols-outlined" style="font-size: 16px;">menu_book</span> Xem chi tiết
-                            </button>
-                        `;
-                    }
+                    html = `
+                        <div class="discovery-badge" style="background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;">Ngữ pháp trong ngày [${randomGrammar.level || 'N?'}]</div>
+                        <div style="font-size: 24px; font-weight: 900; color: #1d1d1f; line-height: 1.4; margin: 15px 0; font-family: 'Noto Sans JP', sans-serif;">${randomGrammar.grammar_point}</div>
+                        <div style="font-size: 14px; color: #4a5568; font-weight: 500; margin-bottom: 20px; max-width: 90%; text-align: center; margin-left: auto; margin-right: auto;">${randomGrammar.meaning}</div>
+                        <button onclick="openGrammarDetail('${randomGrammar.id}')" style="background: #1d1d1f; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); margin: 0 auto;">
+                            <span class="material-symbols-outlined" style="font-size: 16px;">menu_book</span> Xem chi tiết
+                        </button>
+                    `;
                 }
                 
+                // Nếu đen đủi lỗi cả 2
                 if (!html) {
-                    html = '<div style="color: #718096; padding: 20px;">Không thể tải dữ liệu bốc thăm.</div>';
+                    html = '<div style="color: #718096; padding: 20px; text-align: center;">Chưa tải xong dữ liệu, hãy bấm làm mới nhé.</div>';
                 }
                 
                 card.innerHTML = html;
@@ -19234,7 +19245,7 @@ function refreshDiscovery() {
                 isDiscoverySpinning = false;
                 resolve();
             }
-        }, 400);
+        }, 400); // 400ms tương ứng với thời gian CSS xoay thẻ
     });
 }
 
