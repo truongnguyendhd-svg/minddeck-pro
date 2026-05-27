@@ -20712,10 +20712,15 @@ async function saveAdminKanjiBuilder() {
         const { error } = await sb.from('kanji_builder').upsert(payload);
         if (error) throw error;
 
-        // Cập nhật dữ liệu trong IndexedDB cục bộ
+        // Cập nhật dữ liệu trong IndexedDB cục bộ (Cái Vỏ)
         await dbOps.put(STORE_KANJI, { kanji: payload.kanji, level: payload.level });
 
-        // Cập nhật RAM Cache
+        // 🟢 CỐT LÕI ADMIN: Phá hủy bộ nhớ đệm X-Ray (Cái Ruột) để ép tạo lại bản mới nhất
+        const cacheKey = `mazii_v14_final_${kanji}`;
+        await dbOps.delete(STORE_AI_CACHE, cacheKey); // Xóa khỏi Ổ cứng
+        delete window.kanjiDetailCache[cacheKey];     // Xóa khỏi RAM
+
+        // Cập nhật RAM Cache danh sách
         const existingIndex = allKanjiData.findIndex(k => k.kanji === kanji);
         if (existingIndex !== -1) {
             allKanjiData[existingIndex] = { kanji: payload.kanji, level: payload.level };
@@ -20736,12 +20741,13 @@ async function saveAdminKanjiBuilder() {
     }
 }
 /*Hết ================= HỆ THỐNG ADMIN: QUẢN LÝ KANJI BUILDER ================= */
-// Hàm làm mới hoàn toàn kho Kanji Pokedex
+// Hàm làm mới hoàn toàn kho Kanji Pokedex và Đồng bộ bản cập nhật của Admin
 async function refreshKanjiCollection() {
     if (!currentUser) return;
-    showLoading("Đang kiểm tra từ điển Kanji mới...");
+    showLoading("Đang đồng bộ dữ liệu từ Cloud...");
     
     try {
+        // 1. LẤY NHỮNG CHỮ KANJI MỚI TINH (CHƯA TỪNG CÓ TRONG MÁY)
         const { data: cloudKanjis, error: err1 } = await sb.rpc('get_all_kanji_flat');
         if (err1) throw err1;
 
@@ -20749,30 +20755,58 @@ async function refreshKanjiCollection() {
         const localKanjiSet = new Set(localKanjis.map(k => k.kanji));
         const missingKanjis = cloudKanjis.filter(k => !localKanjiSet.has(k));
 
-        if (missingKanjis.length === 0) {
-            showToast("✅ Từ điển Kanji của bạn đã là bản mới nhất!");
-        } else {
+        if (missingKanjis.length > 0) {
             document.getElementById('loadingText').innerText = `Đang tải ${missingKanjis.length} chữ Kanji mới...`;
-            
             const { data: newKanjiData, error: err2 } = await sb.from('kanji_builder')
                 .select('kanji, level')
                 .in('kanji', missingKanjis);
                 
             if (err2) throw err2;
-
-            // Lưu dữ liệu gia tăng xuống IndexedDB
             await dbOps.putBatch(STORE_KANJI, newKanjiData);
-            
-            // Cập nhật bộ nhớ đệm RAM
             allKanjiData = deduplicateKanjiList([...localKanjis, ...newKanjiData]);
-            
             showToast(`🎉 Đã cập nhật thêm ${newKanjiData.length} chữ Kanji mới!`);
         }
 
-        // Tải lại điểm tiến độ mới nhất
-        await syncKanjiMastery(true); 
+        // =========================================================================
+        // 2. 🟢 ĐỒNG BỘ VI SAI (CẬP NHẬT NHỮNG CHỮ BỊ ADMIN SỬA ĐỔI)
+        // =========================================================================
+        document.getElementById('loadingText').innerText = `Đang kiểm tra bản vá lỗi...`;
         
-        // Vẽ lại UI
+        // Lấy mốc thời gian đồng bộ từ điển lần cuối của người dùng này
+        const lastSyncKey = `minddeck_dict_kanji_sync_${currentUser.id}`;
+        const lastSyncTime = localStorage.getItem(lastSyncKey) || '2020-01-01T00:00:00.000Z';
+        
+        // Hỏi Cloud: Có chữ Kanji nào được Admin "updated_at" sau mốc thời gian trên không?
+        const { data: modifiedKanjis, error: err3 } = await sb.from('kanji_builder')
+            .select('kanji, updated_at')
+            .gt('updated_at', lastSyncTime)
+            .order('updated_at', { ascending: false });
+
+        if (err3) throw err3;
+
+        if (modifiedKanjis && modifiedKanjis.length > 0) {
+            console.log(`MindDeck: Phát hiện Admin đã sửa đổi ${modifiedKanjis.length} chữ Kanji. Đang dọn rác...`);
+            
+            // Xóa bộ nhớ đệm X-Ray của ĐÚNG những chữ bị sửa để lần sau bấm vào nó ép tải lại
+            for (let k of modifiedKanjis) {
+                const cacheKey = `mazii_v14_final_${k.kanji}`;
+                await dbOps.delete(STORE_AI_CACHE, cacheKey); // Xóa trong ổ cứng
+                delete window.kanjiDetailCache[cacheKey];     // Xóa trong RAM
+            }
+
+            // Cập nhật lại mốc thời gian mới nhất
+            const newestTime = modifiedKanjis[0].updated_at;
+            localStorage.setItem(lastSyncKey, newestTime);
+            
+            if (missingKanjis.length === 0) {
+                showToast(`✨ Đã đồng bộ bản vá lỗi cho ${modifiedKanjis.length} chữ Kanji!`);
+            }
+        } else if (missingKanjis.length === 0) {
+            showToast("✅ Từ điển Kanji của bạn đã là bản mới nhất!");
+        }
+
+        // 3. Tải lại điểm tiến độ mới nhất & Vẽ lại UI
+        await syncKanjiMastery(true); 
         renderKanjiCollectionGrid(currentKanjiFilter);
 
     } catch (e) {
