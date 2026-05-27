@@ -10232,8 +10232,9 @@ async function showKanjiXRay(event, kanji) {
                                 <span style="font-size: 18px; font-weight: 700; color: #1a1a1a;">${wrapKanjiWithLink(escapeHTML(word))}</span>
                                 ${reading ? `<span style="font-size: 13px; color: ${readingColor}; font-weight: 800;">${escapeHTML(reading)}</span>` : ''}
                             </div>
-                            <div style="font-size: 13px; color: #4a4a4a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                ${hv ? `<b style="color: #64748b; font-size: 11px; margin-right: 4px;">[${escapeHTML(hv)}]</b>` : ''}${escapeHTML(meaning)}
+                            <!-- 🟢 ĐÃ FIX: Gắn ID và đổi màu Hán Việt sang Xanh Lá -->
+                            <div id="xray-meaning-box-${index}" style="font-size: 13px; color: #4a4a4a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                ${hv ? `<b style="color: #059669; font-size: 11px; margin-right: 4px;">[${escapeHTML(hv)}]</b>` : ''}${escapeHTML(meaning)}
                             </div>
                         </div>
                         <button onclick="addSingleVocabXRay('${kanji}', ${index})" 
@@ -10359,13 +10360,21 @@ async function toggleXRayVocabExample(kanjiChar, index) {
 
     const v = await ensureXRayVocabDeepFetched(kanjiChar, index);
 
-    if (v && v.exampleJP) {
-        exContainer.innerHTML = `
-            <div style="font-size: 14px; font-weight: 700; color: #1a1a1a; font-family:'Noto Sans JP', sans-serif; line-height:1.4; margin-bottom:4px;">${wrapKanjiWithLink(escapeHTML(v.exampleJP))}</div>
-            <div style="font-size: 12px; color: #4a5568; line-height:1.4;">${escapeHTML(v.exampleVN)}</div>
-        `;
-    } else {
-        exContainer.innerHTML = `<div style="font-size:12px; color:#a0aec0;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">subtitles_off</span> Không có câu ví dụ cho từ này.</div>`;
+    if (v) {
+        // 🟢 CẬP NHẬT NGAY LẬP TỨC UI HÁN VIỆT & NGHĨA RA MÀN HÌNH
+        const meaningBox = document.getElementById(`xray-meaning-box-${index}`);
+        if (meaningBox) {
+            meaningBox.innerHTML = `${v.hv ? `<b style="color: #059669; font-size: 11px; margin-right: 4px;">[${escapeHTML(v.hv)}]</b>` : ''}${escapeHTML(v.meaning)}`;
+        }
+
+        if (v.exampleJP) {
+            exContainer.innerHTML = `
+                <div style="font-size: 14px; font-weight: 700; color: #1a1a1a; font-family:'Noto Sans JP', sans-serif; line-height:1.4; margin-bottom:4px;">${wrapKanjiWithLink(escapeHTML(v.exampleJP))}</div>
+                <div style="font-size: 12px; color: #4a5568; line-height:1.4;">${escapeHTML(v.exampleVN)}</div>
+            `;
+        } else {
+            exContainer.innerHTML = `<div style="font-size:12px; color:#a0aec0;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">subtitles_off</span> Không có câu ví dụ cho từ này.</div>`;
+        }
     }
 }
 
@@ -10378,6 +10387,12 @@ async function addSingleVocabXRay(kanjiChar, index) {
     hideLoading();
 
     if (!v) return showToast("Không nạp được dữ liệu thẻ.");
+
+    // 🟢 CẬP NHẬT NGAY LẬP TỨC UI HÁN VIỆT & NGHĨA (Dù user ấn cộng nhanh)
+    const meaningBox = document.getElementById(`xray-meaning-box-${index}`);
+    if (meaningBox) {
+        meaningBox.innerHTML = `${v.hv ? `<b style="color: #059669; font-size: 11px; margin-right: 4px;">[${escapeHTML(v.hv)}]</b>` : ''}${escapeHTML(v.meaning)}`;
+    }
 
     let combinedExample = "";
     if (v.exampleJP) {
@@ -10392,7 +10407,6 @@ async function addSingleVocabXRay(kanjiChar, index) {
         encodeURIComponent(combinedExample)
     );
 }
-
 /**
  * Hoạt động 3: Bấm Lưu hàng loạt (Quét nối tiếp các từ chưa deep-fetch)
  */
