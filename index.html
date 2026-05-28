@@ -8814,7 +8814,7 @@ function closeModal(id) {
         document.body.classList.remove('modal-open-lock');
     }
 }
-function customAlert(msg, title = "Thông báo", type = "info") {
+function customAlert(msg, title = "Thông báo", type = "info", onCloseCallback = null) {
     document.getElementById('alertMsg').innerHTML = msg;
     document.getElementById('alertTitle').innerText = title.replace(/[❌⚠️🎉✨💡]/g, "").trim();
 
@@ -8835,6 +8835,18 @@ function customAlert(msg, title = "Thông báo", type = "info") {
         modalContent.style.background = "linear-gradient(135deg, #1e3a8a, #3b82f6)"; // Gradient Xanh Dương
         bgIcon.innerText = "info";
     }
+
+    // 🟢 THÊM MỚI: Cấu hình lại sự kiện click của nút bấm để xử lý Callback
+    const alertBtn = document.querySelector('#customAlert button');
+    if (alertBtn) {
+        alertBtn.onclick = () => {
+            closeModal('customAlert');
+            if (typeof onCloseCallback === 'function') {
+                onCloseCallback(); // Kích hoạt hành động cưỡng chế
+            }
+        };
+    }
+
     document.body.classList.add('modal-open-lock');
     document.getElementById('customAlert').style.display = 'flex';
 }
@@ -9152,6 +9164,7 @@ async function handleForcedLogout() {
         clearInterval(sessionCheckInterval);
         sessionCheckInterval = null;
     }
+
     // 1. KIỂM TRA TRẠNG THÁI ĐANG LÀM VIỆC DỞ DANG (ĐÓNG BĂNG GIAO DIỆN)
     const hasAssessmentSave = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
     const hasBoostSave = localStorage.getItem(`minddeck_boost_save_${currentUser.id}`);
@@ -9162,10 +9175,7 @@ async function handleForcedLogout() {
             realtimeSessionChannel = null;
         }
 
-        // 🟢 BẢN VÁ LỖI (HOTFIX): Bẻ gãy vòng lặp vô hạn F5
-        // Xóa mã phiên bị lỗi cục bộ. Khi người dùng F5, hàm setupSingleSessionProtection() 
-        // sẽ tự động sinh mã mới và ghi đè lên Supabase để khôi phục quyền, 
-        // mà KHÔNG CẦN xóa file save game/sát hạch của người dùng.
+        // Xóa mã phiên bị lỗi cục bộ để chuẩn bị cấp mã mới khi F5
         localStorage.removeItem(`current_session_id_${currentUser.id}`);
 
         customAlert(
@@ -9173,44 +9183,48 @@ async function handleForcedLogout() {
             ⚠️ <b>HỆ THỐNG ĐÃ ĐÓNG BĂNG AN TOÀN:</b><br>
             - Dữ liệu đang gõ dở hoặc bài Sát hạch của bạn <b>vẫn được giữ lại trong máy</b>.<br>
             - Hãy bôi đen copy lại nội dung đang gõ (nếu có).<br><br>
-            👉 Sau đó, hãy <b>F5 (Tải lại trang)</b> để hệ thống tự động kết nối lại và cho phép bạn học tiếp.`,
+            👉 Sau đó, hãy bấm nút dưới đây để <b>Tải lại trang (F5)</b> nhằm đồng bộ lại thiết bị.`,
             "⚠️ MẤT ĐỒNG BỘ PHIÊN",
-            "warning" // Đổi thành warning thay vì error cho thân thiện
+            "warning",
+            () => {
+                window.location.reload(); // 🟢 CƯỠNG CHẾ F5 KHI BẤM "ĐÃ HIỂU"
+            }
         );
 
         window.saveFullDeck = () => customAlert("Phiên đăng nhập đang tạm ngắt. Vui lòng copy văn bản và F5 để tải lại.", "❌");
         return; 
     }
 
-    // 2. NẾU MÁY ĐANG RẢNH (TIẾN HÀNH ĐÁ VĂNG NHƯNG GIỮ LẠI CACHE HỌC TẬP)
+    // 2. NẾU MÁY ĐANG RẢNH (TIẾN HÀNH ĐÁ VĂNG)
     showLoading("Tài khoản đang được kết nối từ thiết bị khác...");
     
-    // Ngắt kênh lắng nghe Realtime
     if (realtimeSessionChannel) {
         sb.removeChannel(realtimeSessionChannel);
         realtimeSessionChannel = null;
     }
 
-    // Xóa duy nhất Session ID của máy này
     if (currentUser) {
         localStorage.removeItem(`current_session_id_${currentUser.id}`);
     }
 
-    // Gọi lệnh signOut của Supabase để HỦY BỎ Token đăng nhập trên trình duyệt này
     await sb.auth.signOut(); 
-    
     hideLoading();
 
     customAlert(
         "Tài khoản của bạn vừa đăng nhập ở một thiết bị khác. Thiết bị này đã tự động đăng xuất để bảo vệ quyền truy cập.",
         "⚠️ ĐĂNG NHẬP THIẾT BỊ KHÁC",
-        "warning"
+        "warning",
+        () => {
+            window.location.hash = '';
+            window.location.reload(); // 🟢 CƯỠNG CHẾ QUAY VỀ LOGIN KHI BẤM "ĐÃ HIỂU"
+        }
     );
 
+    // Vẫn duy trì cơ chế tự động chuyển trang sau 4 giây phòng khi người dùng không bấm
     setTimeout(() => {
         closeModal('customAlert');
         window.location.hash = '';
-        window.location.reload(); // Tải lại trang đưa về màn hình Login
+        window.location.reload(); 
     }, 4000);
 }
 async function login() { 
