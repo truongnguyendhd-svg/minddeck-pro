@@ -8299,7 +8299,7 @@ let cachedVocabStudiedCount = 0; // 🟢 THÊM MỚI: Biến cache lưu trữ l�
 let forceDashboardRefresh = true; // Mặc định bằng true
 let isTabLeader = false;      // Cờ đánh dấu Tab hiện tại có phải là Leader không
 let leaderTimeout = null;     // Bộ đếm thời gian chờ phản hồi bầu cử
-
+let sessionCheckInterval = null; // Quản lý vòng lặp kiểm tra session tuần hoàn
 /* ================= 3. UTILITIES ================= */
 // Hàm xin giờ chuẩn tuyệt đối từ Cloud
 async function getServerTime() {
@@ -9044,7 +9044,6 @@ async function setupSingleSessionProtection() {
         // TRƯỜNG HỢP 2: CHỐT CHẶN WAKE-UP TĨNH KÈM COOLDOWN
         const now = Date.now();
         
-        // Chỉ gọi lên Supabase nếu đã qua thời gian Cooldown (3 phút)
         if (now - lastSessionCheckTime > SESSION_CHECK_COOLDOWN) {
             try {
                 const { data: remoteSession } = await sb.from('active_sessions')
@@ -9052,23 +9051,46 @@ async function setupSingleSessionProtection() {
                     .eq('user_id', currentUser.id)
                     .single();
                 
-                // Cập nhật lại mốc thời gian vừa check xong
                 lastSessionCheckTime = now;
                     
                 if (remoteSession && remoteSession.session_id !== localSessionId) {
-                    console.warn("MindDeck: Phát hiện Session bị chiếm quyền!");
+                    console.warn("MindDeck: Phát hiện Session bị chiếm quyền khi khởi chạy!");
                     return handleForcedLogout(); 
                 }
             } catch (e) {
                 console.warn("Lỗi kiểm tra session tĩnh:", e);
             }
-        } else {
-            // Log ra console để bạn dễ theo dõi việc chặn spam thành công
-            // console.log("MindDeck: Đã chặn lệnh kiểm tra Session (Đang trong thời gian Cooldown).");
         }
     }
 
-    // 3. LUÔN LUÔN KÍCH HOẠT BẦU CỬ NỘI BỘ MỖI KHI MỞ TAB (Xử lý dưới Local, tốn 0 byte mạng)
+    // THIẾT LẬP CHỐT CHẶN TUẦN HOÀN (POLLING FALLBACK)
+    // Đề phòng trường hợp Realtime bị ngắt kết nối âm thầm do trình duyệt tối ưu RAM hoặc mạng yếu
+    if (sessionCheckInterval) clearInterval(sessionCheckInterval);
+    sessionCheckInterval = setInterval(async () => {
+        if (!currentUser) {
+            clearInterval(sessionCheckInterval);
+            return;
+        }
+        const currentLocalId = localStorage.getItem(sessionKey);
+        if (!currentLocalId) return;
+
+        try {
+            const { data: remoteSession, error } = await sb.from('active_sessions')
+                .select('session_id')
+                .eq('user_id', currentUser.id)
+                .maybeSingle();
+
+            if (!error && remoteSession && remoteSession.session_id !== currentLocalId) {
+                console.warn("MindDeck (Polling Fallback): Phiên hoạt động đã thay đổi trên thiết bị khác!");
+                clearInterval(sessionCheckInterval);
+                handleForcedLogout();
+            }
+        } catch (e) {
+            console.warn("Lỗi kiểm tra session tuần hoàn:", e);
+        }
+    }, 45000); // Kiểm tra định kỳ mỗi 45 giây
+
+    // 3. LUÔN LUÔN KÍCH HOẠT BẦU CỬ NỘI BỘ MỖI KHI MỞ TAB
     startLeaderElection();
 }
 function establishRealtimeConnection() {
@@ -9077,7 +9099,8 @@ function establishRealtimeConnection() {
     const sessionKey = `current_session_id_${currentUser.id}`;
     const myLocalSessionId = localStorage.getItem(sessionKey);
 
-    realtimeSessionChannel = sb.channel(`public:active_sessions:user_id=eq.${currentUser.id}`)
+    // Sử dụng định dạng tên kênh chuẩn hóa của Realtime v2 để tránh các xung đột cú pháp
+    realtimeSessionChannel = sb.channel(`session_monitor_channel_${currentUser.id}`)
         .on(
             'postgres_changes',
             {
@@ -9087,16 +9110,30 @@ function establishRealtimeConnection() {
                 filter: `user_id=eq.${currentUser.id}`
             },
             (payload) => {
-                const newActiveSessionId = payload.new.session_id;
+                // Kiểm tra lỗi 401 phân quyền RLS thầm lặng được gửi về từ Supabase
+                if (payload.errors && payload.errors.length > 0) {
+                    console.error("MindDeck (Realtime Auth Error):", payload.errors);
+                    return;
+                }
+
+                const newActiveSessionId = payload.new ? payload.new.session_id : null;
 
                 if (newActiveSessionId && myLocalSessionId && newActiveSessionId !== myLocalSessionId) {
-                    // Leader phát lệnh đăng xuất đồng loạt cho các tab phụ
+                    console.warn("MindDeck (Realtime): Phát hiện phiên đăng nhập mới từ thiết bị khác!", newActiveSessionId);
+                    // Phát lệnh đăng xuất đồng loạt cho các tab phụ cùng trình duyệt
                     sessionBroadcast.postMessage({ type: 'FORCE_LOGOUT' });
                     handleForcedLogout();
                 }
             }
-        )
-        .subscribe();
+        );
+
+    realtimeSessionChannel.subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+            console.log('MindDeck: Đã kết nối kênh giám sát phiên đăng nhập thời gian thực.');
+        } else if (status === 'CHANNEL_ERROR') {
+            console.error('MindDeck: Không thể kết nối kênh Realtime, hệ thống sẽ sử dụng cơ chế Polling dự phòng.', err);
+        }
+    });
 }
 window.addEventListener('beforeunload', () => {
     if (isTabLeader) {
@@ -9111,6 +9148,10 @@ window.addEventListener('beforeunload', () => {
 });
 // Cập nhật hàm thực thi đăng xuất cưỡng chế
 async function handleForcedLogout() {
+    if (sessionCheckInterval) {
+        clearInterval(sessionCheckInterval);
+        sessionCheckInterval = null;
+    }
     // 1. KIỂM TRA TRẠNG THÁI ĐANG LÀM VIỆC DỞ DANG (ĐÓNG BĂNG GIAO DIỆN)
     const hasAssessmentSave = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
     const hasBoostSave = localStorage.getItem(`minddeck_boost_save_${currentUser.id}`);
@@ -9230,7 +9271,10 @@ async function logout() {
         localStorage.removeItem(`minddeck_boost_save_${userId}`);
         localStorage.removeItem(`current_session_id_${userId}`);
     }
-    
+    if (sessionCheckInterval) {
+        clearInterval(sessionCheckInterval);
+        sessionCheckInterval = null;
+    }
     await sb.auth.signOut(); 
     hideLoading(); 
     window.location.reload(); 
