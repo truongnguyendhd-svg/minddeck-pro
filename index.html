@@ -10306,49 +10306,153 @@ async function ensureXRayVocabDeepFetched(kanjiChar, index) {
     if (!cachedData || !cachedData.mergedVocabList || !cachedData.mergedVocabList[index]) return null;
 
     const v = cachedData.mergedVocabList[index];
-    if (v.isDeepFetched) return v; // Đã quét xong từ trước, trả về ngay
+    if (v.isDeepFetched) return v; // Đã quét rồi, trả về luôn
 
     try {
         const results = await fetchMaziiDictionary(v.word);
+        v.examplesList = []; // Khởi tạo mảng ví dụ trống
+
         if (results && results.length > 0) {
             const detail = results[0];
-            
-            // Cập nhật Hán Việt nếu cache gốc bị rỗng
             if (detail.hv && !v.hv) v.hv = detail.hv;
+            v.meaning = detail.meaning || v.meaning;
             
-            // Trích xuất ví dụ đầu tiên
-            let exampleSentence = detail.example || "";
-            let exJp = "";
-            let exVn = "";
-
-            if (exampleSentence) {
-                const parenMatch = exampleSentence.match(/(.*?)[(（](.*?)[)）]/);
-                if (parenMatch) {
-                    exJp = parenMatch[1].trim();
-                    exVn = parenMatch[2].trim();
-                } else {
-                    exJp = exampleSentence;
-                }
+            // 🟢 TRÍCH XUẤT TOÀN BỘ VÍ DỤ CÓ SẴN TỪ MAZII
+            if (detail.meaningsList) {
+                detail.meaningsList.forEach(m => {
+                    if (m.examples && Array.isArray(m.examples)) {
+                        m.examples.forEach(ex => {
+                            if (ex.content && ex.mean) {
+                                v.examplesList.push({
+                                    jp: ex.content.trim(),
+                                    vn: ex.mean.trim()
+                                });
+                            }
+                        });
+                    }
+                });
             }
 
-            v.exampleJP = exJp;
-            v.exampleVN = exVn;
-            v.meaning = detail.meaning || v.meaning; // Đồng bộ nghĩa đầy đủ
+            // Fallback định dạng cũ của Mazii
+            if (v.examplesList.length === 0 && detail.example) {
+                const parenMatch = detail.example.match(/(.*?)[(（](.*?)[)）]/);
+                v.examplesList.push({
+                    jp: parenMatch ? parenMatch[1].trim() : detail.example,
+                    vn: parenMatch ? parenMatch[2].trim() : ""
+                });
+            }
         }
         
-        v.isDeepFetched = true; // Chốt cờ đã tải xong
+        // Khống chế tối đa 15 ví dụ
+        v.examplesList = v.examplesList.slice(0, 15);
+        v.isDeepFetched = true;
 
-        // Cập nhật bộ nhớ đệm RAM & IndexedDB cục bộ vĩnh viễn
+        // Lưu cục bộ IndexedDB
         window.kanjiDetailCache[cacheKey] = cachedData;
         await dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: cachedData });
 
         return v;
     } catch (e) {
-        console.error("Lỗi Deep Fetch từ ghép đơn lẻ:", e);
+        console.error("Lỗi Deep Fetch:", e);
         return v;
     }
 }
+async function generateExWithAIOndemand(kanjiChar, index) {
+    const btn = document.getElementById(`btnAiGenEx-${index}`);
+    const exContainer = document.getElementById(`xray-vocab-ex-${index}`);
+    
+    const cacheKey = `mazii_v14_final_${kanjiChar}`;
+    const cachedData = window.kanjiDetailCache[cacheKey];
+    if (!cachedData || !cachedData.mergedVocabList) return;
+    
+    const v = cachedData.mergedVocabList[index];
 
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<div class="spinner" style="width:12px;height:12px;border-width:2px;border-top-color:#0067c0;"></div> Đang nạp...`;
+    }
+
+    try {
+        // =========================================================================
+        // 📡 BƯỚC 1: LẤY MẢNG VÍ DỤ TỪ GLOBAL CACHE SUPABASE
+        // =========================================================================
+        const { data: cloudCached, error: cloudErr } = await sb.from('ai_dict_cache')
+            .select('examples')
+            .eq('word', v.word)
+            .maybeSingle();
+
+        let currentExamples = (cloudCached && cloudCached.examples) ? cloudCached.examples : [];
+
+        // Nếu máy người dùng chưa có ví dụ cục bộ nhưng Cloud ĐÃ CÓ SẴN mảng ví dụ
+        if (currentExamples.length > 0 && (!v.examplesList || v.examplesList.length === 0)) {
+            console.log(`[Global Cache Hit] Khôi phục thành công mảng ${currentExamples.length} ví dụ từ Cloud! 💾`);
+            v.examplesList = currentExamples;
+
+            window.kanjiDetailCache[cacheKey] = cachedData;
+            await dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: cachedData });
+            
+            // Vẽ lại giao diện và đóng luồng
+            await toggleXRayVocabExample(kanjiChar, index); 
+            await toggleXRayVocabExample(kanjiChar, index); // Trigger đóng/mở lại để vẽ dữ liệu
+            return;
+        }
+
+        // =========================================================================
+        // 🧠 BƯỚC 2: GỌI AI SÁNG TÁC (Tự động tính toán số câu cần sinh)
+        // =========================================================================
+        const listLength = v.examplesList ? v.examplesList.length : 0;
+        const countToGen = listLength === 0 ? 3 : 2; // Lần đầu tạo 3 câu, các lần sau tạo thêm 2 câu
+        
+        console.log(`[Global Cache Miss] AI tiến hành sáng tác thêm ${countToGen} câu ví dụ cho: [${v.word}]`);
+        if (btn) btn.innerHTML = `<div class="spinner" style="width:12px;height:12px;border-width:2px;border-top-color:#0067c0;"></div> AI đang viết...`;
+
+        const aiPrompt = `Hãy tạo thêm đúng ${countToGen} câu ví dụ tiếng Nhật tự nhiên chứa từ "${v.word}" (Đọc: ${v.reading}, Nghĩa: ${v.meaning}).
+        BẮT BUỘC chỉ trả về duy nhất một mảng JSON (không bọc trong markdown \`\`\`json hay bất cứ ghi chú nào). Định dạng mảng:
+        [
+          {"jp": "Câu JP", "vn": "Dịch VN"}
+        ]`;
+
+        const aiEx = await callGeminiAI(aiPrompt);
+        let cleanResponse = aiEx.replace(/```json/g, '').replace(/```/g, '').trim();
+        const newExs = JSON.parse(cleanResponse);
+
+        if (Array.isArray(newExs)) {
+            // Nối mảng mới tạo vào mảng hiện tại
+            v.examplesList = [...(v.examplesList || []), ...newExs];
+            v.examplesList = v.examplesList.slice(0, 15); // Cắt móng tối đa 15 câu
+        }
+
+        // Cập nhật bộ nhớ đệm Offline thiết bị hiện tại
+        window.kanjiDetailCache[cacheKey] = cachedData;
+        await dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: cachedData });
+
+        // Vẽ lại giao diện ngay cho mượt mà
+        await toggleXRayVocabExample(kanjiChar, index);
+        await toggleXRayVocabExample(kanjiChar, index);
+        showToast(`✨ AI đã viết thêm ${newExs.length} câu ví dụ mới!`);
+
+        // =========================================================================
+        // 📡 BƯỚC 3: ĐỒNG BỘ GỘP MẢNG (UPSERT) LÊN ĐÁM MÂY CHUNG
+        // =========================================================================
+        sb.from('ai_dict_cache').upsert({
+            word: v.word,
+            reading: v.reading || '',
+            examples: v.examplesList,
+            updated_at: new Date().toISOString()
+        }).then(({ error }) => {
+            if (error) console.warn("Lỗi đồng bộ gộp mảng lên Cloud:", error.message);
+            else console.log(`[Global Cache Upserted] Đã đồng bộ mảng ${v.examplesList.length} câu ví dụ lên Cloud! 🚀`);
+        });
+
+    } catch (err) {
+        console.error("Lỗi quy trình bốc ví dụ On-demand:", err);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 14px; color: #e53e3e;">error</span> Lỗi. Thử lại`;
+        }
+        showToast("Có lỗi xảy ra. Vui lòng thử lại!");
+    }
+}
 /**
  * Hoạt động 1: Đóng mở và hiển thị Ví dụ của từ vựng (Tải lười)
  */
@@ -10361,25 +10465,49 @@ async function toggleXRayVocabExample(kanjiChar, index) {
         return;
     }
 
-    exContainer.innerHTML = `<div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#718096;"><div class="mini-loader"></div> Đang tìm ví dụ...</div>`;
+    exContainer.innerHTML = `<div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#718096;"><div class="mini-loader"></div> Đang tải dữ liệu...</div>`;
     exContainer.style.display = 'block';
 
     const v = await ensureXRayVocabDeepFetched(kanjiChar, index);
 
     if (v) {
-        // 🟢 CẬP NHẬT NGAY LẬP TỨC UI HÁN VIỆT & NGHĨA RA MÀN HÌNH
+        // Cập nhật Hán Việt ra màn hình chính
         const meaningBox = document.getElementById(`xray-meaning-box-${index}`);
         if (meaningBox) {
             meaningBox.innerHTML = `${v.hv ? `<b style="color: #059669; font-size: 11px; margin-right: 4px;">[${escapeHTML(v.hv)}]</b>` : ''}${escapeHTML(v.meaning)}`;
         }
 
-        if (v.exampleJP) {
-            exContainer.innerHTML = `
-                <div style="font-size: 14px; font-weight: 700; color: #1a1a1a; font-family:'Noto Sans JP', sans-serif; line-height:1.4; margin-bottom:4px;">${wrapKanjiWithLink(escapeHTML(v.exampleJP))}</div>
-                <div style="font-size: 12px; color: #4a5568; line-height:1.4;">${escapeHTML(v.exampleVN)}</div>
-            `;
+        const listLength = v.examplesList ? v.examplesList.length : 0;
+
+        if (listLength > 0) {
+            // 🟢 VẼ DANH SÁCH NHIỀU VÍ DỤ PHÂN CÁCH BẰNG NÉT ĐỨT
+            let listHtml = v.examplesList.map((ex, i) => `
+                <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: ${i === listLength - 1 ? 'none' : '1px dashed #e2e8f0'};">
+                    <div style="font-size: 14px; font-weight: 700; color: #1a1a1a; font-family:'Noto Sans JP', sans-serif; line-height:1.4; margin-bottom:4px;">${wrapKanjiWithLink(escapeHTML(ex.jp))}</div>
+                    <div style="font-size: 12px; color: #4a5568; line-height:1.4;">${escapeHTML(ex.vn)}</div>
+                </div>
+            `).join('');
+
+            // Nút tạo thêm ví dụ (Chỉ hiện nếu dưới 15 câu)
+            let appendBtnHtml = listLength < 15 ? `
+                <div style="margin-top: 12px; text-align: right; border-top: 1px solid #f1f3f4; padding-top: 8px;">
+                    <button id="btnAiGenEx-${index}" onclick="generateExWithAIOndemand('${kanjiChar}', ${index})" style="background: transparent; color: #0067c0; border: none; font-weight: 700; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                        <span class="material-symbols-outlined" style="font-size: 14px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> Tạo thêm ví dụ (${listLength}/15)
+                    </button>
+                </div>
+            ` : '';
+
+            exContainer.innerHTML = listHtml + appendBtnHtml;
         } else {
-            exContainer.innerHTML = `<div style="font-size:12px; color:#a0aec0;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">subtitles_off</span> Không có câu ví dụ cho từ này.</div>`;
+            // Trường hợp rỗng hoàn toàn -> Hiện nút kích hoạt lần đầu
+            exContainer.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size:12px; color:#a0aec0;">Không có câu ví dụ cho từ này.</span>
+                    <button id="btnAiGenEx-${index}" onclick="generateExWithAIOndemand('${kanjiChar}', ${index})" style="background: #fbfbfd; color: #0067c0; border: 1px solid #bee3f8; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s;">
+                        <span class="material-symbols-outlined" style="font-size: 14px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> Tạo 3 ví dụ bằng AI
+                    </button>
+                </div>
+            `;
         }
     }
 }
@@ -10394,15 +10522,16 @@ async function addSingleVocabXRay(kanjiChar, index) {
 
     if (!v) return showToast("Không nạp được dữ liệu thẻ.");
 
-    // 🟢 CẬP NHẬT NGAY LẬP TỨC UI HÁN VIỆT & NGHĨA (Dù user ấn cộng nhanh)
     const meaningBox = document.getElementById(`xray-meaning-box-${index}`);
     if (meaningBox) {
         meaningBox.innerHTML = `${v.hv ? `<b style="color: #059669; font-size: 11px; margin-right: 4px;">[${escapeHTML(v.hv)}]</b>` : ''}${escapeHTML(v.meaning)}`;
     }
 
+    // Bốc câu ví dụ đầu tiên trong mảng 15 câu để gán vào Flashcard
     let combinedExample = "";
-    if (v.exampleJP) {
-        combinedExample = v.exampleVN ? `${v.exampleJP} (${v.exampleVN})` : v.exampleJP;
+    if (v.examplesList && v.examplesList.length > 0) {
+        const firstEx = v.examplesList[0];
+        combinedExample = `${firstEx.jp} (${firstEx.vn})`;
     }
 
     openSaveDictWordModal(
@@ -10413,6 +10542,7 @@ async function addSingleVocabXRay(kanjiChar, index) {
         encodeURIComponent(combinedExample)
     );
 }
+
 /**
  * Hoạt động 3: Bấm Lưu hàng loạt (Quét nối tiếp các từ chưa deep-fetch)
  */
@@ -10432,20 +10562,19 @@ async function bulkSaveXRayVocab(kanjiChar) {
             if (!v.isDeepFetched) {
                 document.getElementById('loadingText').innerText = `Đang quét và lấy ví dụ (${i + 1}/${total}): ${v.word}...`;
                 await ensureXRayVocabDeepFetched(kanjiChar, i);
-                // Giãn cách 200ms bảo vệ IP
                 await new Promise(resolve => setTimeout(resolve, 200));
             }
         }
 
         hideLoading();
 
-        // Chuẩn bị payload chuẩn gửi sang form lưu hàng loạt
+        // Định dạng dữ liệu: bốc câu ví dụ đầu tiên trong mảng
         const formattedVocabList = list.map(v => ({
             word: v.word,
             reading: v.reading,
             meaning: v.meaning,
             hv: v.hv || '',
-            example: v.exampleJP ? `${v.exampleJP} (${v.exampleVN})` : ''
+            example: (v.examplesList && v.examplesList.length > 0) ? `${v.examplesList[0].jp} (${v.examplesList[0].vn})` : ''
         }));
 
         closeModal('xrayModal');
@@ -10459,6 +10588,7 @@ async function bulkSaveXRayVocab(kanjiChar) {
         customAlert("Gặp sự cố khi quét hàng loạt dữ liệu. Vui lòng thử lại!", "❌");
     }
 }
+
 
 /* ================= THUẬT TOÁN BOOST MODE (5 IN 1) ================= */
 // ================= SIÊU PARSER: BÓC TÁCH DỮ LIỆU THẺ =================
