@@ -21423,21 +21423,19 @@ function setAiFabLoading(isLoading) {
     }
 }
 
-// Hàm điều khiển gọi AI trong Info Modal (Đã sửa sạch các lỗi ReferenceError)
+// Hàm điều khiển gọi AI trong Info Modal (Đã vá lỗi kẹt Spinner vĩnh viễn)
 async function executeAiAction(actionType) {
     const c = sessionCards[currentIndex];
     if (!c) return;
     const p = parseCardData(c);
     const zone = document.getElementById('aiGenericResultZone');
-    
-    // 🟢 VÁ LỖI CỐT LÕI 1: Khai báo biến btn rõ ràng để không bị báo "not defined"
-    const btn = document.getElementById('btnAiFab'); 
+    const btn = document.getElementById('btnAiFab'); // Khai báo nút gốc
 
     if (actionType === 'mnemonic' && !p.reading) {
         return customAlert("Từ này chưa có cách đọc (Hiragana) để tạo mẹo!", "⚠️");
     }
 
-    setAiFabLoading(true);
+    setAiFabLoading(true); // Bật quay tròn ở icon gốc một cách an toàn
     zone.style.display = 'none';
 
     try {
@@ -21455,7 +21453,7 @@ async function executeAiAction(actionType) {
 
         } else if (actionType === 'examples') {
             // =========================================================================
-            // 📡 BƯỚC A: KIỂM TRA SỐ LƯỢNG CÂU HIỆN CÓ TRÊN CLOUD
+            // BƯỚC 1: KIỂM TRA SỐ LƯỢNG CÂU HIỆN CÓ TRÊN CLOUD
             // =========================================================================
             const { data: cloudCached } = await sb.from('ai_dict_cache')
                 .select('examples')
@@ -21469,15 +21467,14 @@ async function executeAiAction(actionType) {
             let finalExamplesList = [...currentExamples];
 
             // =========================================================================
-            // 🧠 BƯỚC B: TỰ ĐỘNG BÙ NƯỚC (HYDRATE) THEO LÔ 5 CÂU HOẶC SỐ CÂU CÒN THIẾU
+            // BƯỚC 2: TỰ ĐỘNG BÙ NƯỚC (HYDRATE) THEO LÔ 5 CÂU HOẶC SỐ CÂU CÒN THIẾU
             // =========================================================================
             if (missing > 0) {
-                // Tính toán số câu cần sinh: Thiếu trên 5 câu thì sinh 5 câu, dưới 5 thì sinh nốt số còn thiếu
                 const countToGen = missing > 5 ? 5 : missing;
-                
                 console.log(`[Cloud Sync] Kho đang có ${currentCount}/15 câu. AI tiến hành viết thêm ${countToGen} câu mới...`);
-                if (btn) btn.innerHTML = `<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#9333ea;margin-right:8px;"></div> AI đang viết...`;
 
+                // 🟢 ĐÃ FIX: Không ghi đè toàn bộ innerHTML của nút nữa, để setAiFabLoading tự xử lý icon xoay
+                
                 // Chống AI tạo trùng với các câu ví dụ đã có sẵn trên Cloud của từ này
                 const existingSentences = currentExamples.map(ex => ex.jp);
                 const avoidStr = existingSentences.length > 0
@@ -21512,9 +21509,8 @@ async function executeAiAction(actionType) {
 
                 } catch (err) {
                     console.error("Lỗi gọi AI trong Info Modal:", err);
-                    // Dự phòng: Nếu gọi AI lỗi mạng, ta dùng tạm những câu đã có sẵn trước đó (nếu có) thay vì crash sập App
                     if (currentExamples.length === 0) {
-                        throw err; // Chỉ ném lỗi ra ngoài nếu máy trống rỗng chưa có câu ví dụ nào
+                        throw err; // Chỉ báo lỗi nếu chưa có câu ví dụ nào trong kho
                     }
                 }
             } else {
@@ -21522,7 +21518,7 @@ async function executeAiAction(actionType) {
             }
 
             // =========================================================================
-            // 📡 BƯỚC C: XÁO TRỘN MẢNG VÀ BỐC RA 2 CÂU NGẪU NHIÊN HIỂN THỊ
+            // BƯỚC 3: XÁO TRỘN MẢNG VÀ BỐC RA 2 CÂU NGẪU NHIÊN HIỂN THỊ
             // =========================================================================
             const shuffledList = [...finalExamplesList].sort(() => 0.5 - Math.random());
             
@@ -21543,7 +21539,7 @@ async function executeAiAction(actionType) {
         console.error("Lỗi AI:", err);
         customAlert("Lỗi khi gọi AI. Vui lòng thử lại sau.", "❌");
     } finally {
-        setAiFabLoading(false);
+        setAiFabLoading(false); // Giải phóng nút bấm về trạng thái "THÊM THÔNG TIN" ban đầu một cách mượt mà
         setTimeout(() => {
             const infoText = document.getElementById('infoText');
             if (infoText) infoText.scrollTop = infoText.scrollHeight;
