@@ -15020,63 +15020,95 @@ async function generateMoreGrammarExamples() {
         showToast("Lỗi khi tạo ví dụ. Hãy thử lại!");
     }
 }
-// 2. HÀM GỌI AI PHÂN TÍCH SÂU NGỮ PHÁP (TƯƠNG ĐƯƠNG & TRÁI NGHĨA)
+// 2. HÀM GỌI AI PHÂN TÍCH SÂU NGỮ PHÁP (TƯƠNG ĐƯƠNG & TRÁI NGHĨA - ĐÃ NÂNG CẤP GLOBAL CACHE)
 async function expandGrammarWithAI() {
     const btn = document.getElementById('btnExpandAIGrammar');
     const zone = document.getElementById('gdAiExpansionZone');
     const modalContent = document.querySelector('#grammarDetailModal .modal-content');
 
     if (!currentGrammarObj) return;
-    const grammarId = currentGrammarObj.id; // Sử dụng ID làm khóa phân biệt cache
+    const grammarId = currentGrammarObj.id; // ID của ngữ pháp hiện hành
 
-    // 🟢 1. KIỂM TRA BỘ NHỚ ĐỆM (RAM VÀ INDEXED_DB)
+    // =========================================================================
+    // 📡 BƯỚC A: KIỂM TRA RAM & INDEXED DB CỦA THIẾT BỊ NÀY TRƯỚC (2ms)
+    // =========================================================================
     const dbCacheKey = `grammar_${currentUser?.id}_${grammarId}`;
     let cachedData = window.aiGrammarExpansionCache[grammarId];
 
-    // Nếu RAM không có, thử tìm trong ổ cứng IndexedDB
     if (!cachedData) {
         const cachedRecord = await dbOps.get(STORE_AI_CACHE, dbCacheKey);
         if (cachedRecord && cachedRecord.data) {
             cachedData = cachedRecord.data;
-            window.aiGrammarExpansionCache[grammarId] = cachedData; // Nạp lại lên RAM
+            window.aiGrammarExpansionCache[grammarId] = cachedData; 
         }
     }
 
     if (cachedData) {
-        console.log(`[AI Cache Hit] Phục hồi phân tích chi tiết Ngữ pháp.`);
+        console.log(`[Offline Cache Hit] Khôi phục phân tích Ngữ pháp từ thiết bị 💾`);
         combinedGrammarDataForBulk = cachedData.bulkData;
         modalContent.style.maxWidth = "1100px";
         zone.style.display = 'block';
         document.getElementById('gdBasicActions').style.display = 'none';
         zone.innerHTML = cachedData.html;
-        return; // Thoát sớm, không gọi API
+        return; 
     }
 
     btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#9333ea;margin-right:8px;"></div> Đang phân tích...';
     btn.disabled = true;
 
-    const prompt = `Bạn là chuyên gia luyện thi JLPT. Hãy phân tích cấu trúc ngữ pháp: "${currentGrammarObj.grammar_point}" (Nghĩa: ${currentGrammarObj.meaning}).
-    Mở rộng kiến thức bằng cách tìm ra:
-    1. Tối đa 2 cấu trúc NGỮ PHÁP TƯƠNG ĐƯƠNG (có thể thay thế). Mỗi cấu trúc kèm 2 ví dụ.
-    2. Tối đa 2 cấu trúc NGỮ PHÁP TRÁI NGHĨA (hoặc đối lập ngữ cảnh). Mỗi cấu trúc kèm 2 ví dụ.
-
-    BẮT BUỘC TRẢ VỀ DUY NHẤT 1 KHỐI JSON (Không bọc trong markdown \`\`\`json). Định dạng:
-    {
-      "similar": [
-        {
-          "point": "Cấu trúc", "level": "N?", "meaning": "Nghĩa tiếng Việt", "structure": "Cách ghép", "nuance": "Sắc thái khác biệt",
-          "examples": [ {"jp": "Ví dụ 1 JP", "vn": "Nghĩa VD 1 VN"}, {"jp": "Ví dụ 2 JP", "vn": "Nghĩa VD 2 VN"} ]
-        }
-      ],
-      "opposite": [
-        {
-          "point": "Cấu trúc", "level": "N?", "meaning": "Nghĩa tiếng Việt", "structure": "Cách ghép", "nuance": "Sắc thái",
-          "examples": [ {"jp": "Ví dụ 1 JP", "vn": "Nghĩa VD 1 VN"}, {"jp": "Ví dụ 2 JP", "vn": "Nghĩa VD 2 VN"} ]
-        }
-      ]
-    }`;
-
     try {
+        // =========================================================================
+        // 📡 BƯỚC B: KIỂM TRA MÂY TOÀN CẦU SUPABASE (0.1 GIÂY - 0 TOKEN)
+        // =========================================================================
+        const { data: cloudCached, error: cloudErr } = await sb.from('ai_grammar_cache')
+            .select('payload')
+            .eq('grammar_id', grammarId)
+            .maybeSingle();
+
+        if (cloudCached && cloudCached.payload) {
+            console.log(`[Global Grammar Cache Hit] Phục hồi phân tích ngữ pháp đám mây vĩnh viễn! ☁️`);
+            const globalPayload = cloudCached.payload;
+
+            // Đồng bộ ngược vào RAM & Thiết bị này
+            window.aiGrammarExpansionCache[grammarId] = globalPayload;
+            await dbOps.put(STORE_AI_CACHE, { id: dbCacheKey, data: globalPayload });
+
+            combinedGrammarDataForBulk = globalPayload.bulkData;
+            modalContent.style.maxWidth = "1100px";
+            zone.style.display = 'block';
+            document.getElementById('gdBasicActions').style.display = 'none';
+            zone.innerHTML = globalPayload.html;
+            
+            showToast("✨ Đã tải phân tích từ kho lưu trữ đám mây!");
+            return;
+        }
+
+        // =========================================================================
+        // 🧠 BƯỚC C: GỌI AI SÁNG TÁC NẾU CẢ THẾ GIỚI CHƯA AI TỪNG LÀM (3 GIÂY)
+        // =========================================================================
+        console.log(`[Global Grammar Cache Miss] Gọi AI thiết lập dữ liệu ngữ pháp mới cho: [${grammarId}]`);
+
+        const prompt = `Bạn là chuyên gia luyện thi JLPT. Hãy phân tích cấu trúc ngữ pháp: "${currentGrammarObj.grammar_point}" (Nghĩa: ${currentGrammarObj.meaning}).
+        Mở rộng kiến thức bằng cách tìm ra:
+        1. Tối đa 2 cấu trúc NGỮ PHÁP TƯƠNG ĐƯƠNG (có thể thay thế). Mỗi cấu trúc kèm 2 ví dụ.
+        2. Tối đa 2 cấu trúc NGỮ PHÁP TRÁI NGHĨA (hoặc đối lập ngữ cảnh). Mỗi cấu trúc kèm 2 ví dụ.
+
+        BẮT BUỘC TRẢ VỀ DUY NHẤT 1 KHỐI JSON (Không bọc trong markdown \`\`\`json). Định dạng:
+        {
+          "similar": [
+            {
+              "point": "Cấu trúc", "level": "N?", "meaning": "Nghĩa tiếng Việt", "structure": "Cách ghép", "nuance": "Sắc thái khác biệt",
+              "examples": [ {"jp": "Ví dụ 1 JP", "vn": "Nghĩa VD 1 VN"}, {"jp": "Ví dụ 2 JP", "vn": "Nghĩa VD 2 VN"} ]
+            }
+          ],
+          "opposite": [
+            {
+              "point": "Cấu trúc", "level": "N?", "meaning": "Nghĩa tiếng Việt", "structure": "Cách ghép", "nuance": "Sắc thái",
+              "examples": [ {"jp": "Ví dụ 1 JP", "vn": "Nghĩa VD 1 VN"}, {"jp": "Ví dụ 2 JP", "vn": "Nghĩa VD 2 VN"} ]
+            }
+          ]
+        }`;
+
         let aiResponse = await callGeminiAI(prompt);
         aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
         const data = JSON.parse(aiResponse);
@@ -15086,8 +15118,6 @@ async function expandGrammarWithAI() {
         document.getElementById('gdBasicActions').style.display = 'none';
 
         combinedGrammarDataForBulk = [currentGrammarObj];
-        
-        // Kiểm tra quyền Admin
         const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
 
         let html = `
@@ -15097,7 +15127,6 @@ async function expandGrammarWithAI() {
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; margin-bottom: 24px;">
         `;
 
-        // Hàm nội bộ để render thẻ Win 11
         const renderGrammarBox = (item, typeStr, icon, colorHex, bgColor) => {
             combinedGrammarDataForBulk.push({
                 grammar_point: item.point,
@@ -15118,23 +15147,15 @@ async function expandGrammarWithAI() {
                 </div>
             `).join('');
 
-            // TẠO NÚT LƯU DB NẾU LÀ ADMIN
             let adminBtnHtml = "";
             if (isAdmin) {
-                // Gom dữ liệu chuẩn bị đẩy sang Admin Modal
                 const adminSaveObj = {
-                    point: item.point,
-                    level: item.level,
-                    meaning: item.meaning,
-                    structure: item.structure,
-                    nuance: item.nuance,
-                    ex1_jp: item.examples[0]?.jp || "",
-                    ex1_vn: item.examples[0]?.vn || "",
-                    ex2_jp: item.examples[1]?.jp || "",
-                    ex2_vn: item.examples[1]?.vn || ""
+                    point: item.point, level: item.level, meaning: item.meaning,
+                    structure: item.structure, nuance: item.nuance,
+                    ex1_jp: item.examples[0]?.jp || "", ex1_vn: item.examples[0]?.vn || "",
+                    ex2_jp: item.examples[1]?.jp || "", ex2_vn: item.examples[1]?.vn || ""
                 };
                 const safeAdminJSON = encodeURIComponent(JSON.stringify(adminSaveObj)).replace(/'/g, "%27");
-
                 adminBtnHtml = `
                     <div style="margin-top: 16px; padding-top: 12px; border-top: 1px dashed #e5e5e5; display: flex; justify-content: flex-end;">
                         <button onclick="openAdminGrammarModal('${safeAdminJSON}')" class="win11-btn-secondary" style="padding: 6px 12px; font-size: 12px; color: #10b981; border-color: #bbf7d0; background: #f0fdf4;">
@@ -15154,12 +15175,10 @@ async function expandGrammarWithAI() {
                         <span style="font-size: 12px; font-weight: 700; color: #666666; background: #f0f0f0; padding: 2px 6px; border-radius: 4px;">${escapeHTML(item.level)}</span>
                     </div>
                     <div style="font-size: 14px; color: #1a1a1a; font-weight: 600; margin-bottom: 12px;">${escapeHTML(item.meaning)}</div>
-                    
                     <div style="background: #fbfbfd; padding: 8px; border-radius: 6px; border: 1px solid #f0f0f0; font-size: 13px; color: #4a4a4a; margin-bottom: 12px;">
                         <b style="color: #666666;">Cách ghép:</b> ${escapeHTML(item.structure)}<br>
                         <b style="color: #666666;">Sắc thái:</b> ${escapeHTML(item.nuance)}
                     </div>
-                    
                     <div style="font-size: 12px; font-weight: 700; color: #8c8c8c; margin-bottom: 8px; border-bottom: 1px solid #f0f0f0; padding-bottom: 4px;">VÍ DỤ MINH HỌA</div>
                     ${exHtml}
                     ${adminBtnHtml}
@@ -15183,25 +15202,31 @@ async function expandGrammarWithAI() {
 
         html += `</div>`;
 
-        // NÚT LƯU TOÀN BỘ VÀO BỘ BÀI DÀNH CHO USER
+        // Nút Lưu toàn bộ vào bộ bài
         html += `
             <div style="text-align: center; border-top: 1px solid #f0f0f0; padding-top: 24px;">
                 <button onclick="bulkSaveExpandedGrammar()" class="win11-btn-primary" style="width: 100%; padding: 14px; font-size: 15px; display: inline-flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 15px rgba(0, 103, 192, 0.3); white-space: normal; line-height: 1.4;">
                     <span class="material-symbols-outlined" style="font-size: 20px; flex-shrink: 0;">library_add</span> 
-                    <span>TẠO BỘ ${combinedGrammarDataForBulk.length} THẺ NGỮ PHÁP NÀY</span>
+                    <span>TẠO BỘ ${combinedGrammarDataForBulk.length} THỂ NGỮ PHÁP NÀY</span>
                 </button>
             </div>
         `;
 
-        // 🟢 2. GHI NHỚ TRẠNG THÁI VÀO BỘ NHỚ ĐỆM (RAM + INDEXED_DB)
-        const cachePayload = {
-            html: html,
-            bulkData: [...combinedGrammarDataForBulk]
-        };
-        window.aiGrammarExpansionCache[grammarId] = cachePayload;
+        // Đóng gói cấu trúc lưu trữ
+        const cachePayload = { html: html, bulkData: [...combinedGrammarDataForBulk] };
         
-        // Cất vào IndexedDB (Dễ dàng lưu trữ HTML dài và Array lớn)
+        // 1. Lưu RAM máy hiện tại
+        window.aiGrammarExpansionCache[grammarId] = cachePayload;
+        // 2. Lưu Offline máy hiện tại (IndexedDB)
         await dbOps.put(STORE_AI_CACHE, { id: dbCacheKey, data: cachePayload });
+
+        // 3. 📡 ĐỒNG BỘ LÊN ĐÁM MÂY CHUNG SUPABASE (CHO TOÀN THẾ GIỚI XÀI CHUNG)
+        sb.from('ai_grammar_cache').insert([{
+            grammar_id: grammarId,
+            payload: cachePayload
+        }]).then(({ error }) => {
+            if (!error) console.log(`[Global Cache Contributed] Đã đồng bộ phân tích Ngữ pháp [${grammarId}] lên đám mây! 🚀`);
+        });
 
         zone.innerHTML = html;
 
@@ -21425,26 +21450,81 @@ async function executeAiAction(actionType) {
             zone.style.display = 'block';
 
         } else if (actionType === 'examples') {
-            const prompt = `Tạo đúng 2 câu ví dụ tiếng Nhật chứa từ "${p.front}" (${p.reading} - ${p.meaning}). 
-            Trình bày ĐÚNG format sau, không thêm text thừa:
-            [JP1] (Câu Nhật 1)
-            [VN1] (Nghĩa Việt 1)
-            [JP2] (Câu Nhật 2)
-            [VN2] (Nghĩa Việt 2)`;
+            // =========================================================================
+            // BƯỚC 1: KIỂM TRA SỐ LƯỢNG CÂU HIỆN CÓ TRÊN CLOUD
+            // =========================================================================
+            const { data: cloudCached } = await sb.from('ai_dict_cache')
+                .select('examples')
+                .eq('word', p.front)
+                .maybeSingle();
 
-            let res = await callGeminiAI(prompt);
+            let currentExamples = (cloudCached && cloudCached.examples) ? cloudCached.examples : [];
+            const currentCount = currentExamples.length;
+            const missing = 15 - currentCount;
+
+            let finalExamplesList = [...currentExamples];
+
+            // =========================================================================
+            // BƯỚC 2: TỰ ĐỘNG BÙ NƯỚC (HYDRATE) THEO LÔ 5 CÂU HOẶC SỐ CÂU CÒN THIẾU
+            // =========================================================================
+            if (missing > 0) {
+                // Tính toán số câu cần sinh: Thiếu trên 5 câu thì sinh 5 câu, dưới 5 thì sinh nốt số còn thiếu
+                const countToGen = missing > 5 ? 5 : missing;
+                
+                console.log(`[Cloud Sync] Kho đang có ${currentCount}/15 câu. AI tiến hành viết thêm ${countToGen} câu mới...`);
+                if (btn) btn.innerHTML = `<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#9333ea;margin-right:8px;"></div> AI đang viết...`;
+
+                // Chống AI tạo trùng với các câu ví dụ đã có sẵn trên Cloud của từ này
+                const existingSentences = currentExamples.map(ex => ex.jp);
+                const avoidStr = existingSentences.length > 0
+                    ? `\nTUYỆT ĐỐI KHÔNG TẠO TRÙNG với các câu ví dụ đã có sau đây: [ ${existingSentences.join(' | ')} ]`
+                    : "";
+
+                const prompt = `Hãy tạo thêm đúng ${countToGen} câu ví dụ tiếng Nhật tự nhiên chứa từ "${p.front}" (${p.reading} - ${p.meaning}). ${avoidStr}
+                BẮT BUỘC chỉ trả về duy nhất một mảng JSON (không bọc trong markdown \`\`\`json hay bất cứ ghi chú nào). Định dạng mảng:
+                [
+                  {"jp": "Câu JP", "vn": "Dịch VN"}
+                ]`;
+
+                try {
+                    let aiResponse = await callGeminiAI(prompt);
+                    let cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+                    const newExs = JSON.parse(cleanResponse);
+
+                    if (Array.isArray(newExs)) {
+                        finalExamplesList = [...finalExamplesList, ...newExs];
+                        finalExamplesList = finalExamplesList.slice(0, 15); // Cắt móng tối đa 15 câu
+                    }
+
+                    // Lưu (upsert) mảng đã gộp mới lên Supabase
+                    await sb.from('ai_dict_cache').upsert({
+                        word: p.front,
+                        reading: p.reading || '',
+                        examples: finalExamplesList,
+                        updated_at: new Date().toISOString()
+                    });
+                    console.log(`[Cloud Sync] Đã đồng bộ mảng ${finalExamplesList.length}/15 câu lên đám mây thành công! 🚀`);
+                    showToast(`✨ AI đã viết thêm ${newExs.length} câu ví dụ mới vào kho!`);
+
+                } catch (err) {
+                    console.error("Lỗi gọi AI trong Info Modal:", err);
+                    // Dự phòng: Nếu gọi AI lỗi mạng, ta dùng tạm những câu đã có sẵn trước đó (nếu có) thay vì crash sập App
+                    if (currentExamples.length === 0) {
+                        throw err; // Chỉ ném lỗi ra ngoài nếu máy trống rỗng chưa có câu ví dụ nào
+                    }
+                }
+            } else {
+                console.log(`[Cloud Sync Cache Hit] Kho đã đầy 15/15 câu. Bốc ngẫu nhiên không tốn token! 💾`);
+            }
+
+            // =========================================================================
+            // BƯỚC 3: XÁO TRỘN MẢNG VÀ BỐC RA 2 CÂU NGẪU NHIÊN HIỂN THỊ
+            // =========================================================================
+            const shuffledList = [...finalExamplesList].sort(() => 0.5 - Math.random());
             
-            // Bóc tách dữ liệu bằng Regex đơn giản
-            const jp1Match = res.match(/\[JP1\](.*)/);
-            const vn1Match = res.match(/\[VN1\](.*)/);
-            const jp2Match = res.match(/\[JP2\](.*)/);
-            const vn2Match = res.match(/\[VN2\](.*)/);
-
-            if (!jp1Match || !vn1Match) throw new Error("AI trả sai định dạng");
-
             window.tempAiData = {
-                jp1: jp1Match[1].trim(), vn1: vn1Match[1].trim(),
-                jp2: jp2Match ? jp2Match[1].trim() : '', vn2: vn2Match ? vn2Match[1].trim() : ''
+                jp1: shuffledList[0].jp, vn1: shuffledList[0].vn,
+                jp2: shuffledList[1] ? shuffledList[1].jp : '', vn2: shuffledList[1] ? shuffledList[1].vn : ''
             };
 
             let htmlPreview = `<b>1.</b> ${window.tempAiData.jp1}<br><span style="color:#666">${window.tempAiData.vn1}</span>`;
@@ -21452,8 +21532,9 @@ async function executeAiAction(actionType) {
                 htmlPreview += `<br><br><b>2.</b> ${window.tempAiData.jp2}<br><span style="color:#666">${window.tempAiData.vn2}</span>`;
             }
 
-            zone.innerHTML = renderAiResultCard('draw', 'VÍ DỤ MỚI ĐÃ TẠO', htmlPreview, 'saveExamplesToCard()', 'Lưu đè Ví dụ cũ');
+            zone.innerHTML = renderAiResultCard('draw', 'VÍ DỤ TỪ CLOUD', htmlPreview, 'saveExamplesToCard()', 'Lưu đè Ví dụ cũ');
             zone.style.display = 'block';
+            setAiFabLoading(false);
         }
     } catch (err) {
         console.error("Lỗi AI:", err);
