@@ -20977,13 +20977,15 @@ async function saveAdminKanjiBuilder() {
         const { error } = await sb.from('kanji_builder').upsert(payload);
         if (error) throw error;
 
-        // Cập nhật dữ liệu trong IndexedDB cục bộ (Cái Vỏ)
+        // Cập nhật dữ liệu trong IndexedDB cục bộ (Đưa về dạng "vỏ rỗng" để ép tải lại chi tiết)
         await dbOps.put(STORE_KANJI, { kanji: payload.kanji, level: payload.level });
 
-        // 🟢 CỐT LÕI ADMIN: Phá hủy bộ nhớ đệm X-Ray (Cái Ruột) để ép tạo lại bản mới nhất
+        // 🟢 CỐT LÕI ADMIN: Phá hủy bộ nhớ đệm X-Ray (Cả RAM và Ổ cứng của cả 2 loại)
         const cacheKey = `mazii_v14_final_${kanji}`;
-        await dbOps.delete(STORE_AI_CACHE, cacheKey); // Xóa khỏi Ổ cứng
-        delete window.kanjiDetailCache[cacheKey];     // Xóa khỏi RAM
+        await dbOps.delete(STORE_AI_CACHE, cacheKey); // Xóa khỏi Ổ cứng Mazii
+        
+        delete window.kanjiDetailCache[kanji];        // 🟢 SỬA LỖI: Xóa RAM Kanji Builder
+        delete window.kanjiDetailCache[cacheKey];     // Xóa RAM Mazii
 
         // Cập nhật RAM Cache danh sách
         const existingIndex = allKanjiData.findIndex(k => k.kanji === kanji);
@@ -21055,8 +21057,18 @@ async function refreshKanjiCollection() {
             // Xóa bộ nhớ đệm X-Ray của ĐÚNG những chữ bị sửa để lần sau bấm vào nó ép tải lại
             for (let k of modifiedKanjis) {
                 const cacheKey = `mazii_v14_final_${k.kanji}`;
-                await dbOps.delete(STORE_AI_CACHE, cacheKey); // Xóa trong ổ cứng
-                delete window.kanjiDetailCache[cacheKey];     // Xóa trong RAM
+                
+                // 1. Giải phóng RAM Cache (Cả 2 loại: Kanji Builder và Mazii)
+                delete window.kanjiDetailCache[k.kanji];
+                delete window.kanjiDetailCache[cacheKey];
+
+                // 2. Giải phóng IndexedDB Mazii Cache
+                await dbOps.delete(STORE_AI_CACHE, cacheKey);
+
+                // 3. 🟢 SỬA LỖI: Giải phóng IndexedDB Kanji Builder Cache (Đưa về vỏ rỗng để ép tải lại thịt)
+                const localRecord = await dbOps.get(STORE_KANJI, k.kanji);
+                const currentLevel = localRecord ? localRecord.level : 'N3';
+                await dbOps.put(STORE_KANJI, { kanji: k.kanji, level: currentLevel });
             }
 
             // Cập nhật lại mốc thời gian mới nhất
