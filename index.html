@@ -10654,18 +10654,17 @@ function parseCardData(card) {
     let result = {
         front: card.front ? card.front.trim() : "",
         reading: "", meaning: "", hv: "",
-        exampleJP: "", exampleVN: "", ex2jp: "", ex2vn: ""
+        exampleJP: "", exampleVN: "", ex2jp: "", ex2vn: "",
+        romaji1: "", romaji2: "" // Bổ sung 2 trường Romaji mới
     };
 
-    // --- 1. XỬ LÝ `BACK` (CÁCH ĐỌC & Ý NGHĨA) ---
+    // --- XỬ LÝ BACK (CÁCH ĐỌC & Ý NGHĨA) ---
     const backStr = card.back ? card.back.trim() : "";
-    
     if (backStr.includes('\n')) {
         const lines = backStr.split('\n');
         result.reading = lines[0].trim();
         result.meaning = lines.slice(1).join('\n').trim();
-    } 
-    else {
+    } else {
         const bracketMatch = backStr.match(/(.*?)\((.*?)\)(.*)/);
         if (bracketMatch) {
             result.reading = bracketMatch[2].trim();
@@ -10673,8 +10672,6 @@ function parseCardData(card) {
         } else if (/[-:\n]/.test(backStr)) {
             const parts = backStr.split(/[-:\n]/);
             let potentialReading = parts[0].trim();
-            
-            // CHỐT CHẶN LATIN: Nếu chứa nhiều hơn 5 ký tự Latin/Tiếng Việt, chắc chắn không phải Reading Nhật
             const latinMatch = potentialReading.match(/[a-zA-Zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/gi);
             if (latinMatch && latinMatch.length > 5) {
                 result.reading = ""; 
@@ -10689,18 +10686,16 @@ function parseCardData(card) {
         }
     }
 
-    // Kiểm tra lại lần cuối: Nếu Reading không chứa ký tự Nhật nào thì xóa luôn Reading
     if (result.reading && !wanakana.isJapanese(result.reading.replace(/[～\s]/g, ''))) {
         result.meaning = backStr;
         result.reading = "";
     }
 
-    // --- 2. XỬ LÝ `INFO` (HÁN VIỆT & VÍ DỤ) ---
+    // --- XỬ LÝ INFO (HÁN VIỆT, VÍ DỤ & ROMAJI) ---
     const infoStr = card.info ? card.info.trim() : "";
-    
     if (infoStr.includes('[EX1]') || infoStr.includes('[HV]')) {
         const extractVal = (marker) => {
-            const regex = new RegExp(`\\[${marker}\\]\\s*([^\[]*)`);
+            const regex = new RegExp(`\\[${marker}\\]\\s*([^\\[]*)`);
             const match = infoStr.match(regex);
             return match ? match[1].trim() : "";
         };
@@ -10709,8 +10704,9 @@ function parseCardData(card) {
         result.exampleVN = extractVal('VN1');
         result.ex2jp = extractVal('EX2');
         result.ex2vn = extractVal('VN2');
-    } 
-    else if (infoStr) {
+        result.romaji1 = extractVal('ROM1'); // Bóc tách Romaji câu 1
+        result.romaji2 = extractVal('ROM2'); // Bóc tách Romaji câu 2
+    } else if (infoStr) {
         let cleanInfo = infoStr.replace(/ví dụ[:\s-]*|vd[:\s-]*/gi, '').replace(/\[.*?\]/g, '').trim();
         const parenMatch = cleanInfo.match(/(.*?)[(（](.*?)[)）](.*)/);
         if (parenMatch) {
@@ -12883,31 +12879,13 @@ function showInfoModal() {
     }
 
     if (parsed.exampleJP) {
-        hasInfo = true;
-        // ĐÃ SỬA: Giảm padding từ 25px xuống 16px 12px
-        html += `
-            <div style="background: #ffffff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 16px 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.02);">
-                <div style="font-size: 13px; font-weight: 800; color: #8c8c8c; margin-bottom: 12px; border-bottom: 1px solid #f0f0f0; padding-bottom: 8px; letter-spacing: 0.5px;">VÍ DỤ 1</div>
-                <div style="font-size: 24px; font-weight: 600; color: #1a1a1a; margin-bottom: 10px; line-height: 1.6; font-family: 'Noto Sans JP', sans-serif;">
-                    ${wrapKanjiWithLink(escapeHTML(parsed.exampleJP))}
-                </div>
-                <div style="font-size: 16px; color: #515154; line-height: 1.5; font-weight: 500;">${escapeHTML(parsed.exampleVN)}</div>
-            </div>
-        `;
+    hasInfo = true;
+    html += buildExampleSentenceBlock(c.id, 1, parsed.exampleJP, parsed.romaji1, parsed.exampleVN);
     }
-
+    
     if (parsed.ex2jp) {
         hasInfo = true;
-        // ĐÃ SỬA: Giảm padding từ 25px xuống 16px 12px
-        html += `
-            <div style="background: #ffffff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 16px 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.02);">
-                <div style="font-size: 13px; font-weight: 800; color: #8c8c8c; margin-bottom: 12px; border-bottom: 1px solid #f0f0f0; padding-bottom: 8px; letter-spacing: 0.5px;">VÍ DỤ 2</div>
-                <div style="font-size: 24px; font-weight: 600; color: #1a1a1a; margin-bottom: 10px; line-height: 1.6; font-family: 'Noto Sans JP', sans-serif;">
-                    ${wrapKanjiWithLink(escapeHTML(parsed.ex2jp))}
-                </div>
-                <div style="font-size: 16px; color: #515154; line-height: 1.5; font-weight: 500;">${escapeHTML(parsed.ex2vn)}</div>
-            </div>
-        `;
+        html += buildExampleSentenceBlock(c.id, 2, parsed.ex2jp, parsed.romaji2, parsed.ex2vn);
     }
 
     if (!hasInfo && c.info && c.info.trim() !== '') {
@@ -15006,12 +14984,8 @@ async function openGrammarDetail(grammarId) {
         const vnText = g[`ex${i}_vn`];
         if (jpText && jpText.trim() !== '') {
             hasExamples = true;
-            exContainer.innerHTML += `
-                <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #f0f0f0;">
-                    <div style="font-size: 16px; color: #1a1a1a; font-weight: 600; margin-bottom: 4px;">${wrapKanjiWithLink(escapeHTML(jpText))}</div>
-                    <div style="font-size: 14px; color: #666666;">${escapeHTML(vnText || '')}</div>
-                </div>
-            `;
+            // Đối với Ngữ pháp, ta dùng grammarId làm gốc của thẻ ID để quản lý
+            exContainer.innerHTML += buildExampleSentenceBlock(grammarId, i, jpText, "", vnText);
         }
     }
     if (!hasExamples) exContainer.innerHTML = '<p style="color:#86868b; font-size: 14px;">Chưa có ví dụ cho cấu trúc này.</p>';
@@ -19760,12 +19734,7 @@ function renderInlineCardBody(bodyEl, c, index) {
         ${parsed.reading ? `<div style="margin-bottom: 6px; font-size: 14px; color: #4a5568;"><b>Cách đọc:</b> ${escapeHTML(parsed.reading)}</div>` : ''}
         <div style="margin-bottom: 6px; font-size: 14px; color: #4a5568;"><b>Ý nghĩa:</b> ${escapeHTML(parsed.meaning)}</div>
         ${parsed.hv ? `<div style="margin-bottom: 6px; color: #c53030; font-size: 14px;"><b>Hán Việt:</b> [ ${escapeHTML(parsed.hv)} ]</div>` : ''}
-        ${parsed.exampleJP ? `
-            <div style="margin-top: 10px; padding: 10px; background: #f8fafc; border-left: 3px solid #0067c0; border-radius: 6px; border-top: 1px solid #edf2f7; border-right: 1px solid #edf2f7; border-bottom: 1px solid #edf2f7;">
-                <div style="font-weight: 700; color: #1a1a1a; font-size: 15px; font-family: 'Noto Sans JP', sans-serif; line-height: 1.4;">${escapeHTML(parsed.exampleJP)}</div>
-                <div style="font-size: 13px; color: #718096; margin-top: 4px; line-height: 1.4;">${escapeHTML(parsed.exampleVN)}</div>
-            </div>
-        ` : ''}
+        ${parsed.exampleJP ? buildExampleSentenceBlock(c.id, 1, parsed.exampleJP, parsed.romaji1, parsed.exampleVN) : ''}
         ${editBtnHtml}
     `;
 }
@@ -23136,7 +23105,186 @@ function showGrammarPreview(event, grammarId) {
         actionCallback: () => openGrammarDetail(grammarId)
     });
 }
+/**
+ * 1. Gọi trực tiếp API Google Translate gtx để lấy Romaji mượt mà
+ */
+async function fetchRomajiFromGoogle(jpText) {
+    try {
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=vi&dt=rm&q=${encodeURIComponent(jpText)}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("Không phản hồi từ máy chủ Google");
+        const data = await res.json();
+        if (data && data[0] && data[0][0] && data[0][0][3]) {
+            return data[0][0][3].trim();
+        }
+        return null;
+    } catch (err) {
+        console.error("Lỗi Google Romaji API:", err);
+        return null;
+    }
+}
 
+/**
+ * 2. Hàm vẽ khối câu ví dụ động (Dùng chung toàn cục)
+ */
+function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn) {
+    if (!jp) return "";
+    const escapedJp = escapeHTML(jp);
+    const escapedVn = escapeHTML(vn || "");
+    const escapedRomaji = escapeHTML(romaji || "");
+    
+    const romajiId = `romaji-${cardId}-${exIndex}`;
+    const btnId = `btn-romaji-${cardId}-${exIndex}`;
+    const hasRomaji = romaji && romaji.trim() !== "";
+    
+    const btnText = hasRomaji ? "Ẩn Romaji" : "Hiện Romaji";
+    const btnIcon = hasRomaji ? "visibility" : "visibility_off";
+    const opacityStyle = hasRomaji ? "" : "opacity: 0.55;";
+    
+    return `
+        <div class="example-sentence-block" style="background: #ffffff; border: 1px solid #e5e5ea; border-left: 4px solid #0071e3; border-radius: 12px; padding: 16px 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.02); margin-bottom: 12px; position: relative; text-align: left;">
+            <div style="font-size: 11px; font-weight: 800; color: #86868b; margin-bottom: 10px; border-bottom: 1px solid #f1f3f4; padding-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase;">Ví dụ ${exIndex}</div>
+            
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; width: 100%;">
+                <div style="flex: 1; min-width: 0;">
+                    <!-- Dòng 1: Tiếng Nhật -->
+                    <div style="font-size: 22px; font-weight: 600; color: #1a1a1a; margin-bottom: 6px; line-height: 1.5; font-family: 'Noto Sans JP', sans-serif;">
+                        ${wrapKanjiWithLink(escapedJp)}
+                    </div>
+                    
+                    <!-- Dòng 2: Romaji (Toggle) -->
+                    <div id="${romajiId}" class="romaji-sentence ${hasRomaji ? '' : 'hidden'}" style="font-size: 13px; color: #0071e3; font-weight: 600; margin-bottom: 6px; ${hasRomaji ? '' : 'display: none;'}">
+                        ${escapedRomaji}
+                    </div>
+                    
+                    <!-- Dòng 3: Dịch nghĩa -->
+                    <div style="font-size: 15px; color: #515154; line-height: 1.4; font-weight: 500;">
+                        ${escapedVn}
+                    </div>
+                </div>
+                
+                <!-- Nút Ẩn/Hiện Romaji -->
+                <button id="${btnId}" class="btn-toggle-romaji" 
+                        style="background: #f1f5f9; border: none; padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 800; color: #4b5563; cursor: pointer; display: flex; align-items: center; gap: 4px; flex-shrink: 0; height: fit-content; transition: 0.2s; ${opacityStyle}"
+                        onclick="handleRomajiToggle(event, this, '${cardId}', ${exIndex}, '${escapedJp.replace(/'/g, "\\'")}')">
+                    <span class="material-symbols-outlined" style="font-size: 15px;">${btnIcon}</span>
+                    <span class="btn-text-lbl">${btnText}</span>
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * 3. Bộ điều phối xử lý click, loading xoay tròn và toggle mượt mà
+ */
+async function handleRomajiToggle(event, btn, cardId, exIndex, jpText) {
+    if (event) event.stopPropagation(); // Ngăn việc click nút làm lật thẻ khi học
+    
+    const romajiId = `romaji-${cardId}-${exIndex}`;
+    const romajiEl = document.getElementById(romajiId);
+    if (!romajiEl) return;
+    
+    const isHidden = romajiEl.classList.contains('hidden') || romajiEl.style.display === 'none';
+    const btnTextLbl = btn.querySelector('.btn-text-lbl');
+    const btnIcon = btn.querySelector('.material-symbols-outlined');
+
+    if (isHidden) {
+        const currentText = romajiEl.innerText.trim();
+        
+        // LAZY HYDRATION: Nếu chưa có sẵn trong DB -> Gọi Google Translate gtx nạp ngầm
+        if (currentText === "") {
+            btn.disabled = true;
+            btnTextLbl.innerText = "Đang tải...";
+            btnIcon.innerText = "sync";
+            btnIcon.style.animation = "spin 1s linear infinite"; // Xoay tròn loading mượt
+            
+            const resultRomaji = await fetchRomajiFromGoogle(jpText);
+            
+            btn.disabled = false;
+            btnIcon.style.animation = "none";
+            
+            if (!resultRomaji) {
+                showToast("Lỗi kết nối Google. Hãy thử lại!");
+                btnTextLbl.innerText = "Hiện Romaji";
+                btnIcon.innerText = "visibility_off";
+                return;
+            }
+            
+            romajiEl.innerText = resultRomaji;
+            
+            // Âm thầm đồng bộ lên Cloud Supabase và RAM Cache
+            silentSyncRomajiToCloud(cardId, exIndex, resultRomaji);
+        }
+        
+        // Trượt hiển thị
+        romajiEl.classList.remove('hidden');
+        romajiEl.style.display = 'block';
+        btnTextLbl.innerText = "Ẩn Romaji";
+        btnIcon.innerText = "visibility";
+        btn.style.opacity = "1";
+    } else {
+        // Thu gọn
+        romajiEl.classList.add('hidden');
+        romajiEl.style.display = 'none';
+        btnTextLbl.innerText = "Hiện Romaji";
+        btnIcon.innerText = "visibility_off";
+    }
+}
+
+/**
+ * 4. Đồng bộ âm thầm dữ liệu Romaji lên Cloud
+ */
+async function silentSyncRomajiToCloud(cardId, exIndex, romajiText) {
+    if (!currentUser) return;
+    
+    // Tìm thẻ trong mảng học hiện hành (sessionCards)
+    let cardObj = null;
+    if (typeof sessionCards !== 'undefined' && sessionCards.length > 0) {
+        cardObj = sessionCards.find(c => c.id === cardId);
+    }
+    
+    if (!cardObj) return; // Bỏ qua nếu là thẻ phụ đề video hoặc ngữ pháp thuần không lưu trong cards
+    
+    const parsed = parseCardData(cardObj);
+    
+    if (exIndex === 1) parsed.romaji1 = romajiText;
+    else if (exIndex === 2) parsed.romaji2 = romajiText;
+    
+    // Đóng gói mảng info mới bảo toàn Hashtag
+    let infoArr = [];
+    if (cardObj.info && cardObj.info.includes('[TAGS]')) {
+        const matchTag = cardObj.info.match(/\[TAGS\](.*?)(?:\n|$)/);
+        if (matchTag) infoArr.push(matchTag[0].trim());
+    }
+    
+    if (parsed.hv) infoArr.push(`[HV] ${parsed.hv}`);
+    if (parsed.exampleJP) infoArr.push(`[EX1] ${parsed.exampleJP}`);
+    if (parsed.romaji1) infoArr.push(`[ROM1] ${parsed.romaji1}`);
+    if (parsed.exampleVN) infoArr.push(`[VN1] ${parsed.exampleVN}`);
+    if (parsed.ex2jp) infoArr.push(`[EX2] ${parsed.ex2jp}`);
+    if (parsed.romaji2) infoArr.push(`[ROM2] ${parsed.romaji2}`);
+    if (parsed.ex2vn) infoArr.push(`[VN2] ${parsed.ex2vn}`);
+    
+    const newInfoString = infoArr.join('\n');
+    
+    // Đồng bộ RAM hoạt động và RAM Cache
+    cardObj.info = newInfoString;
+    if (window.rawDeckCache && window.rawDeckCache[currentDeckName]) {
+        const cacheCard = window.rawDeckCache[currentDeckName].find(c => c.id === cardId);
+        if (cacheCard) cacheCard.info = newInfoString;
+    }
+    
+    // Gọi Supabase lưu ngầm lên cơ sở dữ liệu
+    try {
+        await sb.from('cards')
+            .update({ info: newInfoString })
+            .eq('id', cardId);
+        console.log(`[Silent Sync] Đã lưu thành công Romaji${exIndex} lên Supabase.`);
+    } catch (err) {
+        console.error("Lỗi đồng bộ ngầm Romaji:", err);
+    }
+}
 
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
