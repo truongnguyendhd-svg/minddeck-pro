@@ -9036,8 +9036,12 @@ async function runAppInitialization() {
 }
 // HÀM BẢO VỆ PHIÊN ĐĂNG NHẬP (ĐÃ TỐI ƯU ZERO-BLOAT & OFFLINE-WAKEUP)
 // 1. KHAI BÁO BIẾN COOLDOWN TOÀN CỤC (Đặt ngay trên hàm)
-let lastSessionCheckTime = 0;
-const SESSION_CHECK_COOLDOWN = 15 * 60 * 1000;
+// Đảm bảo các mốc thời gian và luồng hẹn giờ được neo vào window để chống rò rỉ khi Dev (HMR)
+window.lastSessionCheckTime = window.lastSessionCheckTime || 0;
+window.sessionCheckInterval = window.sessionCheckInterval || null;
+
+const SESSION_CHECK_COOLDOWN = 15 * 60 * 1000; // 15 phút (Chốt chặn tĩnh khi mở/F5 trang)
+const POLLING_INTERVAL = 3 * 60 * 1000;         // 3 phút (Vòng lặp ngầm dự phòng khi rớt WebSocket)
 
 // 2. CẬP NHẬT LẠI HÀM BẢO VỆ PHIÊN
 async function setupSingleSessionProtection() {
@@ -9058,17 +9062,18 @@ async function setupSingleSessionProtection() {
                 updated_at: new Date().toISOString()
             });
     } else {
-        // TRƯỜNG HỢP 2: CHỐT CHẶN WAKE-UP TĨNH KÈM COOLDOWN
+        // TRƯỜNG HỢP 2: CHỐT CHẶN WAKE-UP TĨNH KÈM COOLDOWN (Sử dụng SESSION_CHECK_COOLDOWN)
+        // Chỉ cho phép gọi mạng kiểm tra tức thì tại thời điểm F5/Wake-up tối đa 1 lần mỗi 15 phút
         const now = Date.now();
         
-        if (now - lastSessionCheckTime > SESSION_CHECK_COOLDOWN) {
+        if (now - window.lastSessionCheckTime > SESSION_CHECK_COOLDOWN) {
             try {
                 const { data: remoteSession } = await sb.from('active_sessions')
                     .select('session_id')
                     .eq('user_id', currentUser.id)
                     .single();
                 
-                lastSessionCheckTime = now;
+                window.lastSessionCheckTime = now;
                     
                 if (remoteSession && remoteSession.session_id !== localSessionId) {
                     console.warn("MindDeck: Phát hiện Session bị chiếm quyền khi khởi chạy!");
@@ -9080,16 +9085,19 @@ async function setupSingleSessionProtection() {
         }
     }
 
-    // THIẾT LẬP CHỐT CHẶN TUẦN HOÀN (POLLING FALLBACK)
-    // Đề phòng trường hợp Realtime bị ngắt kết nối âm thầm do trình duyệt tối ưu RAM hoặc mạng yếu
-    if (sessionCheckInterval) clearInterval(sessionCheckInterval);
-    sessionCheckInterval = setInterval(async () => {
-        if (!currentUser) {
-            clearInterval(sessionCheckInterval);
-            return;
+    // TRƯỜNG HỢP 3: THIẾT LẬP VÒNG LẶP CHẠN NGẦM TUẦN HOÀN DỰ PHÒNG (Đã tối ưu hóa)
+    if (window.sessionCheckInterval) {
+        clearInterval(window.sessionCheckInterval);
+    }
+
+    window.sessionCheckInterval = setInterval(async () => {
+        // Tối ưu A: Không poll nếu tab đang ẩn trong nền
+        if (document.hidden) return;
+
+        // Tối ưu B: Không poll bằng REST API nếu WebSockets Realtime vẫn sống khỏe
+        if (realtimeSessionChannel && realtimeSessionChannel.state === 'joined') {
+            return; 
         }
-        const currentLocalId = localStorage.getItem(sessionKey);
-        if (!currentLocalId) return;
 
         try {
             const { data: remoteSession, error } = await sb.from('active_sessions')
@@ -9097,17 +9105,18 @@ async function setupSingleSessionProtection() {
                 .eq('user_id', currentUser.id)
                 .maybeSingle();
 
-            if (!error && remoteSession && remoteSession.session_id !== currentLocalId) {
-                console.warn("MindDeck (Polling Fallback): Phiên hoạt động đã thay đổi trên thiết bị khác!");
-                clearInterval(sessionCheckInterval);
+            if (!error && remoteSession && remoteSession.session_id !== localSessionId) {
+                console.warn("MindDeck (Polling Fallback): Phát hiện phiên hoạt động mới từ thiết bị khác!");
+                clearInterval(window.sessionCheckInterval);
+                window.sessionCheckInterval = null;
                 handleForcedLogout();
             }
         } catch (e) {
             console.warn("Lỗi kiểm tra session tuần hoàn:", e);
         }
-    }, 45000); // Kiểm tra định kỳ mỗi 45 giây
+    }, POLLING_INTERVAL);
 
-    // 3. LUÔN LUÔN KÍCH HOẠT BẦU CỬ NỘI BỘ MỖI KHI MỞ TAB
+    // Khởi động bầu cử và kết nối Realtime
     startLeaderElection();
 }
 function establishRealtimeConnection() {
