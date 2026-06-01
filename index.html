@@ -8678,21 +8678,18 @@ async function loadDashboardData() {
             await syncAllMasteryFromCloud();
         }
 
-        // 1. LẤY SỐ THẺ TRỄ HẠN VÀ SỐ THẺ ĐÃ HỌC QUA HÀM RPC (CHẠY SONG SONG)
+        // 1. LẤY DỮ LIỆU THỐNG KÊ DASHBOARD BẰNG RPC GỘP (1 REQUEST DUY NHẤT)
         if (forceDashboardRefresh || (nowMs - lastDashboardSync) > 60000) {
-            console.log("MindDeck: Cập nhật dữ liệu Dashboard từ RPC Cloud...");
+            console.log("MindDeck: Cập nhật dữ liệu Dashboard từ RPC gộp...");
             
-            // 🟢 TỐI ƯU: Chạy 2 API cùng lúc giúp giảm một nửa thời gian chờ mạng
-            const [dueRes, vocabRes] = await Promise.all([
-                sb.rpc('get_due_cards_count', { p_now: nowIso }),
-                sb.rpc('get_studied_flashcards_count', { p_user_id: currentUser.id })
-            ]);
+            const { data: statsData, error: statsErr } = await sb.rpc('get_dashboard_stats', { 
+                p_user_id: currentUser.id 
+            });
         
-            if (dueRes.error) console.error("Lỗi gọi RPC đếm thẻ trễ hạn:", dueRes.error);
-            if (vocabRes.error) console.error("Lỗi gọi RPC đếm flashcard đã học:", vocabRes.error);
+            if (statsErr) console.error("Lỗi gọi RPC lấy thống kê Dashboard:", statsErr);
             
-            cachedDueCount = dueRes.data || 0;
-            cachedVocabStudiedCount = vocabRes.data || 0; // 🟢 Cập nhật vào RAM
+            cachedDueCount = statsData?.due_count || 0;
+            cachedVocabStudiedCount = statsData?.studied_count || 0;
             
             lastDashboardSync = nowMs;
             forceDashboardRefresh = false; // Tắt cờ sau khi đã tải xong
