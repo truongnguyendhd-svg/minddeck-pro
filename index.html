@@ -9103,7 +9103,6 @@ async function runAppInitialization() {
 // HÀM BẢO VỆ PHIÊN ĐĂNG NHẬP (ĐÃ TỐI ƯU ZERO-BLOAT & OFFLINE-WAKEUP)
 // 1. KHAI BÁO BIẾN COOLDOWN TOÀN CỤC (Đặt ngay trên hàm)
 // Đảm bảo các mốc thời gian và luồng hẹn giờ được neo vào window để chống rò rỉ khi Dev (HMR)
-window.lastSessionCheckTime = window.lastSessionCheckTime || 0;
 window.sessionCheckInterval = window.sessionCheckInterval || null;
 
 const SESSION_CHECK_COOLDOWN = 15 * 60 * 1000; // 15 phút (Chốt chặn tĩnh khi mở/F5 trang)
@@ -9129,17 +9128,21 @@ async function setupSingleSessionProtection() {
             });
     } else {
         // TRƯỜNG HỢP 2: CHỐT CHẶN WAKE-UP TĨNH KÈM COOLDOWN (Sử dụng SESSION_CHECK_COOLDOWN)
-        // Chỉ cho phép gọi mạng kiểm tra tức thì tại thời điểm F5/Wake-up tối đa 1 lần mỗi 15 phút
+        // Chuyển sang sử dụng sessionStorage để giữ mốc thời gian khi nhấn F5
+        const cooldownKey = `minddeck_last_session_check_${currentUser.id}`;
+        const cachedLastCheck = sessionStorage.getItem(cooldownKey);
+        const lastSessionCheckTime = cachedLastCheck ? parseInt(cachedLastCheck, 10) : 0;
         const now = Date.now();
         
-        if (now - window.lastSessionCheckTime > SESSION_CHECK_COOLDOWN) {
+        if (now - lastSessionCheckTime > SESSION_CHECK_COOLDOWN) {
             try {
                 const { data: remoteSession } = await sb.from('active_sessions')
                     .select('session_id')
                     .eq('user_id', currentUser.id)
                     .single();
                 
-                window.lastSessionCheckTime = now;
+                // Lưu lại thời điểm check thành công vào sessionStorage
+                sessionStorage.setItem(cooldownKey, now.toString());
                     
                 if (remoteSession && remoteSession.session_id !== localSessionId) {
                     console.warn("MindDeck: Phát hiện Session bị chiếm quyền khi khởi chạy!");
@@ -9151,16 +9154,14 @@ async function setupSingleSessionProtection() {
         }
     }
 
-    // TRƯỜNG HỢP 3: THIẾT LẬP VÒNG LẶP CHẠN NGẦM TUẦN HOÀN DỰ PHÒNG (Đã tối ưu hóa)
+    // TRƯỜNG HỢP 3: THIẾT LẬP VÒNG LẶP CHẠN NGẦM TUẦN HOÀN DỰ PHÒNG
     if (window.sessionCheckInterval) {
         clearInterval(window.sessionCheckInterval);
     }
 
     window.sessionCheckInterval = setInterval(async () => {
-        // Tối ưu A: Không poll nếu tab đang ẩn trong nền
         if (document.hidden) return;
 
-        // Tối ưu B: Không poll bằng REST API nếu WebSockets Realtime vẫn sống khỏe
         if (realtimeSessionChannel && realtimeSessionChannel.state === 'joined') {
             return; 
         }
@@ -9182,7 +9183,6 @@ async function setupSingleSessionProtection() {
         }
     }, POLLING_INTERVAL);
 
-    // Khởi động bầu cử và kết nối Realtime
     startLeaderElection();
 }
 function establishRealtimeConnection() {
