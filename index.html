@@ -8410,30 +8410,36 @@ function becomeLeader() {
  */
 function safeGetLocalCache(key, fallbackValue = null, expectedType = null) {
     const rawData = localStorage.getItem(key);
-    if (!rawData) return fallbackValue;
+    
+    // Nếu chưa có dữ liệu trong localStorage, ghi giá trị mặc định xuống trước khi trả về
+    if (!rawData) {
+        if (fallbackValue !== null) {
+            try {
+                localStorage.setItem(key, JSON.stringify(fallbackValue));
+            } catch (e) {
+                console.warn(`MindDeck: Không thể ghi khởi tạo cho khóa [${key}]:`, e);
+            }
+        }
+        return fallbackValue;
+    }
 
     try {
         const parsed = JSON.parse(rawData);
         
-        // ===================================================
-        // LỚP 2: KIỂM TRA LOGIC CẤU TRÚC (CHỐT CHẶN NÂNG CẤP)
-        // ===================================================
         if (expectedType === 'object') {
-            // Ép buộc phải là Object, không được null, không được là Mảng
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                throw new Error("Sai cấu trúc Object mong muốn"); // 👈 Chủ động ném lỗi để nhảy xuống catch dọn rác
+                throw new Error("Sai cấu trúc Object mong muốn");
             }
         } else if (expectedType === 'array') {
-            // Ép buộc phải là Mảng hợp lệ
             if (!Array.isArray(parsed)) {
                 throw new Error("Sai cấu trúc Mảng mong muốn");
             }
         }
         
-        return parsed; // Trả về dữ liệu sạch 100% cả gốc lẫn ngọn
+        return parsed; 
     } catch (e) {
         console.warn(`MindDeck: Cache [${key}] bị hỏng dữ liệu hoặc sai cấu trúc (${e.message}). Đang tự động dọn rác...`);
-        localStorage.removeItem(key); // Tự dọn dẹp ổ cứng
+        localStorage.removeItem(key); 
         return fallbackValue;
     }
 }
@@ -9006,17 +9012,17 @@ sb.auth.onAuthStateChange((event, session) => {
 
 // 🟢 HÀM KHỞI TẠO ĐỘC LẬP (ĐẢM BẢO KHÔNG BAO GIỜ KẸT LOADING)
 async function runAppInitialization() {
-    isInitRunning = true; // Sập khóa cửa, không cho sự kiện khác chạy xen vào
+    isInitRunning = true;
     showLoading("Đang thiết lập tiến trình học tập... Vui lòng đợi!");
 
     try {
         // 1. Nạp cache từ RAM
         loadLocalUserDataCache();
 
-        // 2. Kiểm duyệt độ an toàn của RAM (Chống RAM hỏng/Rỗng)
+        // 2. Kiểm duyệt độ an toàn của RAM (Đã sửa đổi: Không bắt buộc length > 0)
         const isRamSafe = 
-            userKanjiMasteryMap && Object.keys(userKanjiMasteryMap).length > 0 &&
-            userGrammarMasteryMap && Object.keys(userGrammarMasteryMap).length > 0;
+            userKanjiMasteryMap !== null && typeof userKanjiMasteryMap === 'object' &&
+            userGrammarMasteryMap !== null && typeof userGrammarMasteryMap === 'object';
 
         const lastSyncTime = sessionStorage.getItem(`minddeck_last_sync_time_${currentUser.id}`);
         const nowTime = Date.now();
@@ -9030,7 +9036,7 @@ async function runAppInitialization() {
             await syncUserDataWithCloud(); 
             sessionStorage.setItem(`minddeck_last_sync_time_${currentUser.id}`, nowTime.toString());
         }
-
+        
         // 4. Thiết lập bảo mật & Điều hướng
         setupSingleSessionProtection();
         
