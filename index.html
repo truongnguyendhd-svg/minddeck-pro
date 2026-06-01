@@ -22739,10 +22739,15 @@ async function syncUserDataWithCloud() {
 
         // 🟢 BẢN VÁ LỖI CỐT LÕI 2: Chống kẹt truy vấn Supabase
         if (lastSyncTime) {
-            const parsedDate = new Date(lastSyncTime);
+            // Chèn thêm chữ T vào giữa nếu Postgres trả về thiếu chữ T để JS không bị lỗi NaN
+            const safeTimeStr = lastSyncTime.replace(' ', 'T'); 
+            const parsedDate = new Date(safeTimeStr);
+            
             if (isNaN(parsedDate.getTime())) {
                 console.warn("MindDeck: Mốc thời gian đồng bộ bị hỏng. Ép tải lại toàn bộ.");
                 lastSyncTime = null;
+            } else {
+                lastSyncTime = parsedDate.toISOString(); // Chuẩn hóa lại thành ISO an toàn
             }
         }
 
@@ -22834,6 +22839,9 @@ async function syncUserDataWithCloud() {
                 localStorage.setItem(`minddeck_delta_sync_time_${userId}`, newestTime);
             } else {
                 console.log("MindDeck: 🛡️ Không có biến động mới về thẻ học.");
+                // Lấy giờ hiện tại của Server để chốt mốc thời gian mới, chống bị quét lại từ đầu vào lần F5 sau
+                const serverNow = await getServerTime();
+                localStorage.setItem(`minddeck_delta_sync_time_${userId}`, serverNow);
             }
         
             saveAllToLocalStorage(userId);
