@@ -8666,37 +8666,80 @@ function showDashboard(skipHash = false) {
 // THAY THÀNH: (Áp dụng SWR Cache)
 async function loadDashboardData() {
     if (!currentUser) return;
-    showLoading("Đang tổng hợp dữ liệu...");
+    showLoading("Đang tối ưu và đồng bộ dữ liệu...");
 
     try {
+        const userId = currentUser.id;
         const nowMs = Date.now();
-        const nowIso = new Date().toISOString();
-        // 🔄 CHỐT CHẶN TỰ CHỮA LÀNH (AUTO-REVALIDATE ON DEMAND)
-        // Nếu phát hiện RAM bị hết hạn do thao tác xóa trước đó, tự động kéo ngầm từ Cloud
-        if (userKanjiMasteryMap === null || userGrammarMasteryMap === null) {
-            console.log("MindDeck: Phát hiện dữ liệu tiến trình đã hết hạn. Đang đồng bộ lại...");
-            await syncAllMasteryFromCloud();
+
+        // Đọc mốc đồng bộ vi sai cuối cùng lưu dưới máy
+        let lastSyncTime = localStorage.getItem(`minddeck_delta_sync_time_${userId}`);
+        
+        // Chuẩn hóa mốc thời gian để phòng lỗi NaN
+        if (lastSyncTime) {
+            let safeDateStr = lastSyncTime.trim().replace(' ', 'T');
+            if (safeDateStr.endsWith('+00')) safeDateStr = safeDateStr.replace('+00', 'Z');
+            const parsedDate = new Date(safeDateStr);
+            lastSyncTime = isNaN(parsedDate.getTime()) ? '2020-01-01T00:00:00.000Z' : parsedDate.toISOString();
+        } else {
+            lastSyncTime = '2020-01-01T00:00:00.000Z'; // Lần đầu tiên tải
         }
 
-        // 1. LẤY DỮ LIỆU THỐNG KÊ DASHBOARD BẰNG RPC GỘP (1 REQUEST DUY NHẤT)
+        // 1. GỌI SIÊU HÀM GỘP (3 TRONG 1) - TIẾT KIỆM TỐI ĐA BĂNG THÔNG VÀ KẾT NỐI
         if (forceDashboardRefresh || (nowMs - lastDashboardSync) > 60000) {
-            console.log("MindDeck: Cập nhật dữ liệu Dashboard từ RPC gộp...");
+            console.log("MindDeck: 🚀 Chạy siêu đồng bộ gộp tại Dashboard...");
             
-            const { data: statsData, error: statsErr } = await sb.rpc('get_dashboard_stats', { 
-                p_user_id: currentUser.id 
+            const { data, error } = await sb.rpc('get_dashboard_init_data', { 
+                p_user_id: userId,
+                p_last_sync_time: lastSyncTime
             });
         
-            if (statsErr) console.error("Lỗi gọi RPC lấy thống kê Dashboard:", statsErr);
-            
-            cachedDueCount = statsData?.due_count || 0;
-            cachedVocabStudiedCount = statsData?.studied_count || 0;
+            if (error) throw error;
+
+            // A. ÁP DỤNG THAY ĐỔI VI SAI (DELTA PATCH) VÀO RAM VÀ LOCAL STORAGE
+            const deltas = data.mastery_changes;
+            let hasMasteryChanges = false;
+
+            if (deltas && deltas.length > 0) {
+                console.log(`MindDeck: Nhận về ${deltas.length} cập nhật vi sai.`);
+                if (!currentUser.kanji_peaks) currentUser.kanji_peaks = {};
+                if (!currentUser.grammar_peaks) currentUser.grammar_peaks = {};
+
+                deltas.forEach(d => {
+                    if (d.type === 'kanji') {
+                        if (d.current_val === 0) delete userKanjiMasteryMap[d.key];
+                        else userKanjiMasteryMap[d.key] = d.current_val;
+                        currentUser.kanji_peaks[d.key] = d.peak_val;
+                    } else if (d.type === 'grammar') {
+                        if (d.current_val === 0) delete userGrammarMasteryMap[d.key];
+                        else userGrammarMasteryMap[d.key] = d.current_val;
+                        currentUser.grammar_peaks[d.key] = d.peak_val;
+                    }
+                });
+                hasMasteryChanges = true;
+            }
+
+            // B. ĐỒNG BỘ MỤC TIÊU VÀ SỐ LIỆU NGÀY
+            currentUser.study_goal = data.study_goal;
+            currentUser.daily_stats = data.daily_stats;
+
+            // C. LƯU TOÀN BỘ CACHE MỚI XUỐNG LOCALSTORAGE
+            saveAllToLocalStorage(userId);
+
+            // D. CHỐT SỔ MỐC ĐỒNG BỘ (Bây giờ đã tuyệt đối an toàn vì tải cùng lượt với data)
+            localStorage.setItem(`minddeck_delta_sync_time_${userId}`, data.server_now);
+
+            // E. CẬP NHẬT SỐ LIỆU ĐỂ VẼ BẢN ĐỒ
+            cachedDueCount = data.due_count || 0;
+            cachedVocabStudiedCount = data.studied_count || 0;
             
             lastDashboardSync = nowMs;
-            forceDashboardRefresh = false; // Tắt cờ sau khi đã tải xong
+            forceDashboardRefresh = false; 
         } else {
             console.log("MindDeck: Sử dụng dữ liệu Dashboard từ RAM (Bỏ qua API)");
         }
         
+        // 2. Cập nhật UI Thẻ cần ôn
         document.getElementById('dashDueCount').innerText = cachedDueCount;
 
         const btnReview = document.getElementById('btnGlobalReview');
@@ -8714,7 +8757,7 @@ async function loadDashboardData() {
             }
         }
         
-        // 2. Tự động dọn rác và Vẽ biểu đồ (Giữ nguyên phần dưới của bạn)
+        // 3. Tự động dọn dẹp và Vẽ lại toàn bộ giao diện
         await autoCleanRemedialCards(); 
         
         await Promise.all([
@@ -8725,7 +8768,7 @@ async function loadDashboardData() {
         refreshDiscovery();
 
     } catch (err) {
-        console.error("Lỗi Dashboard:", err);
+        console.error("Lỗi Siêu đồng bộ Dashboard:", err);
     } finally {
         hideLoading();
     }
