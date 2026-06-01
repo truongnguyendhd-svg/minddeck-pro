@@ -22729,30 +22729,29 @@ async function syncUserDataWithCloud() {
     try {
         let lastSyncTime = localStorage.getItem(`minddeck_delta_sync_time_${userId}`);
 
-        // 🟢 SỬA LỖI: Chỉ coi là trống nếu cache chưa từng được khởi tạo trong localStorage (trả về null)
-        // Loại bỏ hoàn toàn việc check Object.keys().length === 0 để tránh ép Full Sync liên tục
         const isRamEmpty = 
             localStorage.getItem(`minddeck_kanji_cache_${userId}`) === null ||
             localStorage.getItem(`minddeck_grammar_cache_${userId}`) === null ||
             localStorage.getItem(`minddeck_kanji_peaks_cache_${userId}`) === null ||
             localStorage.getItem(`minddeck_grammar_peaks_cache_${userId}`) === null;
 
-        // 🟢 BẢN VÁ LỖI CỐT LÕI 2: Chống kẹt truy vấn Supabase
+        // 🟢 BẢN VÁ LỖI CỐT LÕI: Chống lỗi NaN của Javascript khi đọc ngày tháng từ Postgres
         if (lastSyncTime) {
-            // Chèn thêm chữ T vào giữa nếu Postgres trả về thiếu chữ T để JS không bị lỗi NaN
-            const safeTimeStr = lastSyncTime.replace(' ', 'T'); 
-            const parsedDate = new Date(safeTimeStr);
+            // Biến "2026-06-02 12:22:00+00" thành chuẩn ISO "2026-06-02T12:22:00Z"
+            let safeDateStr = lastSyncTime.trim().replace(' ', 'T');
+            if (safeDateStr.endsWith('+00')) safeDateStr = safeDateStr.replace('+00', 'Z');
             
+            const parsedDate = new Date(safeDateStr);
             if (isNaN(parsedDate.getTime())) {
-                console.warn("MindDeck: Mốc thời gian đồng bộ bị hỏng. Ép tải lại toàn bộ.");
+                console.warn(`MindDeck: Mốc thời gian bị hỏng (${lastSyncTime}). Ép tải lại toàn bộ.`);
                 lastSyncTime = null;
             } else {
-                lastSyncTime = parsedDate.toISOString(); // Chuẩn hóa lại thành ISO an toàn
+                lastSyncTime = parsedDate.toISOString(); 
             }
         }
 
         // =========================================================================
-        // TRƯỜNG HỢP 1: TẢI HOÀN TOÀN (FULL SYNC) - Chỉ chạy khi thiết bị mới tinh
+        // TRƯỜNG HỢP 1: TẢI HOÀN TOÀN (FULL SYNC) - Chỉ chạy 1 lần khi máy mới tinh
         // =========================================================================
         if (!lastSyncTime || isRamEmpty) {
             console.log("MindDeck: 🆕 RAM rỗng hoặc thiết bị mới. Bắt buộc tải trọn gói dữ liệu ban đầu...");
@@ -22791,7 +22790,7 @@ async function syncUserDataWithCloud() {
         }
 
         // =========================================================================
-        // TRƯỜNG HỢP 2: ĐỒNG BỘ GIA TĂNG VI SAI (DELTA SYNC) - Tối ưu cho F5 thông thường
+        // TRƯỜNG HỢP 2: ĐỒNG BỘ GIA TĂNG VI SAI (DELTA SYNC) - Cực nhẹ (0.01MB)
         // =========================================================================
         console.log(`MindDeck: 📡 Đang dò tìm biến động kể từ mốc: ${lastSyncTime}`);
         
@@ -22839,7 +22838,8 @@ async function syncUserDataWithCloud() {
                 localStorage.setItem(`minddeck_delta_sync_time_${userId}`, newestTime);
             } else {
                 console.log("MindDeck: 🛡️ Không có biến động mới về thẻ học.");
-                // Lấy giờ hiện tại của Server để chốt mốc thời gian mới, chống bị quét lại từ đầu vào lần F5 sau
+                // 🟢 FIX LỖI "ĐỨNG IM": Luôn luôn cập nhật thời gian Server vào máy 
+                // Kể cả khi bạn không làm gì, để lần F5 tiếp theo nó không mất công quét lại đoạn thời gian rỗng này!
                 const serverNow = await getServerTime();
                 localStorage.setItem(`minddeck_delta_sync_time_${userId}`, serverNow);
             }
