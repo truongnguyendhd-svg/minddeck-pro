@@ -8411,8 +8411,8 @@ function becomeLeader() {
 function safeGetLocalCache(key, fallbackValue = null, expectedType = null) {
     const rawData = localStorage.getItem(key);
     
-    // Nếu chưa có dữ liệu trong localStorage, ghi giá trị mặc định xuống trước khi trả về
-    if (!rawData) {
+    // 🟢 BẢN VÁ LỖI: Chặn luôn chuỗi "undefined" do lỗi ép kiểu ngầm của localStorage
+    if (!rawData || rawData === "undefined") {
         if (fallbackValue !== null) {
             try {
                 localStorage.setItem(key, JSON.stringify(fallbackValue));
@@ -12227,11 +12227,12 @@ async function flushSrsQueue() {
     
     const payloadsToSend = [...srsPendingQueue];
     srsPendingQueue = [];
-    localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-    localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
-    // 🟢 FIX: Lưu thêm Kỷ lục vào ổ cứng trước khi đẩy lên Cloud
-    localStorage.setItem(`minddeck_kanji_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser.kanji_peaks));
-    localStorage.setItem(`minddeck_grammar_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser.grammar_peaks));
+    
+    // 🟢 BẢN VÁ LỖI: Bọc || {} chống lỗi undefined string
+    localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap || {}));
+    localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap || {}));
+    localStorage.setItem(`minddeck_kanji_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser?.kanji_peaks || {}));
+    localStorage.setItem(`minddeck_grammar_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser?.grammar_peaks || {}));
     sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
 
     try {
@@ -19221,12 +19222,11 @@ async function processBatchAssessmentResults() {
 
             // Lưu RAM Cache cục bộ
             if (hasMasteryChanges) {
-                localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-                localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
-                
-                // 🟢 FIX: Lưu kỷ lục xuống ổ cứng
-                localStorage.setItem(`minddeck_kanji_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser.kanji_peaks));
-                localStorage.setItem(`minddeck_grammar_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser.grammar_peaks));
+                // 🟢 BẢN VÁ LỖI: Bọc || {} chống lỗi undefined string
+                localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap || {}));
+                localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap || {}));
+                localStorage.setItem(`minddeck_kanji_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser?.kanji_peaks || {}));
+                localStorage.setItem(`minddeck_grammar_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser?.grammar_peaks || {}));
                 
                 sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
             }
@@ -22859,22 +22859,26 @@ async function syncUserDataWithCloud() {
 
 // Hàm phụ trợ lưu dữ liệu
 function saveAllToLocalStorage(userId) {
-    localStorage.setItem(`minddeck_kanji_cache_${userId}`, JSON.stringify(userKanjiMasteryMap));
-    localStorage.setItem(`minddeck_grammar_cache_${userId}`, JSON.stringify(userGrammarMasteryMap));
-    localStorage.setItem(`minddeck_kanji_peaks_cache_${userId}`, JSON.stringify(currentUser.kanji_peaks));
-    localStorage.setItem(`minddeck_grammar_peaks_cache_${userId}`, JSON.stringify(currentUser.grammar_peaks));
+    // 🟢 BẢN VÁ LỖI: Bọc || {} để đảm bảo JSON.stringify không bao giờ sinh ra undefined
+    localStorage.setItem(`minddeck_kanji_cache_${userId}`, JSON.stringify(userKanjiMasteryMap || {}));
+    localStorage.setItem(`minddeck_grammar_cache_${userId}`, JSON.stringify(userGrammarMasteryMap || {}));
     
-    // 🟢 BỔ SUNG: Khóa cứng Lộ trình và Thống kê ngày vào ổ cứng cục bộ
-    if (currentUser.study_goal) {
-        localStorage.setItem(`minddeck_study_goal_${userId}`, JSON.stringify(currentUser.study_goal));
-    } else {
-        localStorage.removeItem(`minddeck_study_goal_${userId}`);
-    }
-    
-    if (currentUser.daily_stats) {
-        localStorage.setItem(`minddeck_daily_stats_${userId}`, JSON.stringify(currentUser.daily_stats));
-    } else {
-        localStorage.removeItem(`minddeck_daily_stats_${userId}`);
+    if (currentUser) {
+        localStorage.setItem(`minddeck_kanji_peaks_cache_${userId}`, JSON.stringify(currentUser.kanji_peaks || {}));
+        localStorage.setItem(`minddeck_grammar_peaks_cache_${userId}`, JSON.stringify(currentUser.grammar_peaks || {}));
+        
+        // BỔ SUNG: Khóa cứng Lộ trình và Thống kê ngày vào ổ cứng cục bộ
+        if (currentUser.study_goal) {
+            localStorage.setItem(`minddeck_study_goal_${userId}`, JSON.stringify(currentUser.study_goal));
+        } else {
+            localStorage.removeItem(`minddeck_study_goal_${userId}`);
+        }
+        
+        if (currentUser.daily_stats) {
+            localStorage.setItem(`minddeck_daily_stats_${userId}`, JSON.stringify(currentUser.daily_stats));
+        } else {
+            localStorage.removeItem(`minddeck_daily_stats_${userId}`);
+        }
     }
 }
 
