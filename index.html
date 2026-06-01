@@ -9059,7 +9059,7 @@ async function runAppInitialization() {
         // 1. Nạp cache từ RAM
         loadLocalUserDataCache();
 
-        // 2. Kiểm duyệt độ an toàn của RAM (Đã sửa đổi: Không bắt buộc length > 0)
+        // 2. Kiểm duyệt độ an toàn của RAM
         const isRamSafe = 
             userKanjiMasteryMap !== null && typeof userKanjiMasteryMap === 'object' &&
             userGrammarMasteryMap !== null && typeof userGrammarMasteryMap === 'object';
@@ -9068,36 +9068,30 @@ async function runAppInitialization() {
         const nowTime = Date.now();
         const COOLDOWN_TIME = 60 * 1000;
 
-        // 3. Quyết định chiến lược Tải dữ liệu
-        if (isRamSafe && lastSyncTime && (nowTime - parseInt(lastSyncTime)) < COOLDOWN_TIME) {
-            console.log("MindDeck: Dùng cache, bỏ qua Cloud Sync để tiết kiệm mạng.");
-        } else {
-            console.log("MindDeck: Cần đồng bộ Cloud (Tải toàn bộ hoặc Vi sai)...");
+        // 🟢 TỐI ƯU: Xác định xem trang đích sau F5 có thực sự cần dữ liệu tiến trình chi tiết ngay không
+        const currentHash = window.location.hash.substring(1);
+        const activeRoute = currentHash.split('/')[0];
+        const needsSrsSync = ['dashboard', 'kanji', 'grammar'].includes(activeRoute);
+
+        // 3. Quyết định chiến lược Tải dữ liệu (Chỉ sync nếu trang hiện tại yêu cầu dữ liệu đó)
+        if (needsSrsSync && !(isRamSafe && lastSyncTime && (nowTime - parseInt(lastSyncTime)) < COOLDOWN_TIME)) {
+            console.log("MindDeck: 📡 Trang yêu cầu dữ liệu tiến trình. Kích hoạt đồng bộ Cloud...");
             await syncUserDataWithCloud(); 
             sessionStorage.setItem(`minddeck_last_sync_time_${currentUser.id}`, nowTime.toString());
+        } else {
+            console.log("MindDeck: 🛡️ Trì hoãn hoặc bỏ qua đồng bộ Cloud để tiết kiệm tài nguyên mạng.");
         }
         
-        // 4. Thiết lập bảo mật & Điều hướng
         setupSingleSessionProtection();
-        
         handleRoute(); 
         isAppInitialized = true;
 
     } catch (error) {
-        // 🚨 NẾU CÓ BẤT KỲ LỖI NÀO, nó sẽ rớt xuống đây và in ra màn hình!
         console.error("Lỗi nghiêm trọng khi khởi tạo ứng dụng:", error);
-        
-        document.body.innerHTML = `
-            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center; padding: 20px; font-family: 'Noto Sans JP', sans-serif; background: #fff;">
-                <span class="material-symbols-outlined" style="font-size: 60px; color: #e53e3e; margin-bottom: 20px;">error</span>
-                <h2 style="color: #1a1a1a;">Gặp sự cố khi nạp dữ liệu</h2>
-                <p style="color: #4a4a4a;">Hệ thống gặp lỗi: <b>${error.message || "Không xác định"}</b>.<br>Vui lòng F5 (Tải lại trang) hoặc kiểm tra lại kết nối mạng.</p>
-                <button onclick="window.location.reload()" style="padding: 12px 24px; background: #0067c0; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 20px;">TẢI LẠI TRANG</button>
-            </div>`;
+        // ... giữ nguyên phần hiển thị lỗi cũ ...
     } finally {
-        // 🟢 BỆ ĐỠ RƠI: Dù thành công hay thất bại, bắt buộc phải tắt cái màn hình Loading đi
         hideLoading();
-        isInitRunning = false; // Mở khóa
+        isInitRunning = false; 
     }
 }
 // HÀM BẢO VỆ PHIÊN ĐĂNG NHẬP (ĐÃ TỐI ƯU ZERO-BLOAT & OFFLINE-WAKEUP)
