@@ -8231,42 +8231,42 @@ async function handleRoute() {
     
     try {
         if (route === 'home') { 
-            showHome(); // Đã xóa logic folder
+            showHome(true); // 👈 BẮT BUỘC TRUYỀN TRUE
         } 
         else if (route === 'dashboard') {
-            showDashboard();
+            showDashboard(true); // 👈 BẮT BUỘC TRUYỀN TRUE
         }
         else if (route === 'study') { 
             mode = parts[2];
             await loadCards(decodeURIComponent(parts[1]), true); 
         } 
         else if (route === 'edit' || route === 'new') { 
-            showHome(); // Đẩy về trang kho dữ liệu an toàn
+            showHome(true); 
         }
         else if (route === 'import') { 
             showImportForm(true); 
         } 
         else if (route === 'playground') {  
-            showPlayground(); 
+            showPlayground(true); // 👈 BẮT BUỘC TRUYỀN TRUE
         }
         else if (route === 'grammar') { 
-            showGrammarVault(true); 
+            showGrammarVault(true); // 👈 BẮT BUỘC TRUYỀN TRUE
         }
         else if (route === 'kanji') {
-            showKanjiCollection(true); 
+            showKanjiCollection(true); // 👈 BẮT BUỘC TRUYỀN TRUE
         }
         else if (route === 'pdfreader') {
-            showPdfReaderPage();
+            showPdfReaderPage(true); // 👈 BẮT BUỘC TRUYỀN TRUE
         }
         else if (route === 'shadowing') { 
-            showShadowingTheater(); 
+            showShadowingTheater(true); // 👈 BẮT BUỘC TRUYỀN TRUE
         }
         else { 
-            showDashboard(); 
+            showDashboard(true); 
         }
     } catch (error) {
         console.error("Lỗi khi khôi phục trang:", error);
-        showDashboard();
+        showDashboard(true);
     }
 }
 /* ================= 1. CONFIG ================= */
@@ -8609,7 +8609,10 @@ function showPage(p) {
 // HÀM HIỂN THỊ DASHBOARD VÀ KÍCH HOẠT QUÉT DỮ LIỆU
 function showDashboard(skipHash = false) { 
     processOfflineQueue();
-    if (!skipHash) window.location.hash = 'dashboard';
+    if (!skipHash) {
+        window.location.hash = 'dashboard';
+        return; // 👈 CHỐT CHẶN
+    }
     editingDeckId = null;
     activeDeckId = null;
     showPage('dashboardPage'); 
@@ -8619,14 +8622,12 @@ function showDashboard(skipHash = false) {
     const hour = new Date().getHours();
     const greeting = hour < 12 ? "Chào buổi sáng!" : hour < 18 ? "Chào buổi chiều!" : "Chào buổi tối!";
     
-    // 🟢 BẢN VÁ LỖI CRASH: Xử lý an toàn khi tài khoản không có tên
     const meta = currentUser ? currentUser.user_metadata : {};
     const fullName = meta?.full_name || meta?.name || "";
     const userName = fullName ? fullName.split(' ')[0] : "Bạn";
     
     document.getElementById('dashGreeting').innerText = `${greeting} ${userName} 👋`;
 
-    // Gọi hàm load data
     loadDashboardData();
 }
 
@@ -8743,17 +8744,18 @@ async function autoCleanRemedialCards() {
 // ĐÃ SỬA: HÀM SHOW HOME (TRANG CHỦ BÂY GIỜ LÀ QUẢN LÝ DỮ LIỆU)
 // -------------------------------------------------------------
 function showHome(skipHash = false) { 
-    if (!skipHash) window.location.hash = 'home'; 
+    if (!skipHash) {
+        window.location.hash = 'home'; 
+        return; // 👈 CHỐT CHẶN: Dừng ngay lập tức, nhường việc render cho hashchange lo
+    }
     
     editingDeckId = null;
     activeDeckId = null;
 
     showPage('homePage'); 
     document.getElementById('learnMenu').classList.remove('hidden'); 
-    // Đã xóa hẳn dòng gọi newForm
     document.getElementById('importForm').classList.add('hidden'); 
     
-    // Breadcrumb phẳng (Không còn chui vào thư mục)
     updateBreadcrumb([{label: "KHO DỮ LIỆU CỦA BẠN"}]); 
     renderManageDeckList(); 
     updateHeaderTitle("KHO DỮ LIỆU CỦA BẠN");
@@ -13775,7 +13777,10 @@ let currentSelectedText = "";
 
 // 2. HÀM CHUYỂN TRANG PLAYGROUND
 function showPlayground(skipHash = false) {
-    if (!skipHash) window.location.hash = 'playground';
+    if (!skipHash) {
+        window.location.hash = 'playground';
+        return; // 👈 CHỐT CHẶN
+    }
     showPage('playgroundPage');
     updateBreadcrumb([{label: "Playground AI ✨"}]);
     updateHeaderTitle("PLAYGROUND");
@@ -17487,9 +17492,11 @@ async function updatePdfLastPage(id, page) {
 // ================= GIAO DIỆN & ĐIỀU KHIỂN =================
 
 async function showPdfReaderPage(skipHash = false) {
-    if (!skipHash) window.location.hash = 'pdfreader';
+    if (!skipHash) {
+        window.location.hash = 'pdfreader';
+        return; // 👈 CHỐT CHẶN
+    }
     
-    // Hiển thị vòng xoay loading trong khi tải bộ thư viện PDF (~1.3MB)
     showLoading("Đang thiết lập bộ đọc PDF...");
     try {
         await loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
@@ -17502,14 +17509,13 @@ async function showPdfReaderPage(skipHash = false) {
     hideLoading();
 
     showPage('pdfReaderPage');
-    
     updateBreadcrumb([{label: "Smart PDF Reader"}]);
     updateHeaderTitle("PDF READER");
     
     if (!pdfDoc) {
         document.getElementById('pdfUploadState').classList.remove('hidden');
         document.getElementById('pdfReadState').classList.add('hidden');
-        loadRecentPdfsUI(); // Tải danh sách gần đây
+        loadRecentPdfsUI();
     }
 }
 
@@ -22625,13 +22631,14 @@ class ShadowingTheater {
 const theaterApp = new ShadowingTheater();
 
 // Hàm Trigger từ Giao diện
-function showShadowingTheater() {
-    window.location.hash = 'shadowing';
+function showShadowingTheater(skipHash = false) {
+    if (!skipHash) {
+        window.location.hash = 'shadowing';
+        return; // 👈 CHỐT CHẶN
+    }
     showPage('shadowingPage');
     updateBreadcrumb([{label: "Shadowing Theater"}]);
     updateHeaderTitle("SHADOWING");
-    
-    // Mở khóa Audio cho iOS ngay khi vào trang
     window.unlockIOSAudio();
 }
 
