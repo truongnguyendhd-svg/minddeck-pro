@@ -8216,6 +8216,22 @@ body.shadowing-mode #shadowingPage {
     </div>
 </div>
 <script>
+// ==========================================
+// HỆ THỐNG ĐỒNG BỘ CACHE & ĐIỀU HƯỚNG MỚI
+// ==========================================
+window.preventDeckListSyncOnce = false; // Cờ chốt chặn bỏ qua đồng bộ ngầm khi về trang chủ
+
+window.invalidateDeckListCache = function() {
+    if (!currentUser) return;
+    const syncKey = `minddeck_decks_last_sync_${currentUser.id}`;
+    
+    // 1. Xóa mốc thời gian để ép hệ thống gọi API mới
+    sessionStorage.removeItem(syncKey);     
+    // 2. Hủy cờ chặn đồng bộ ngầm khi quay về
+    window.preventDeckListSyncOnce = false; 
+    
+    console.log("MindDeck: 🔄 Phát hiện biến động dữ liệu, đã hủy cache danh sách bộ bài thành công.");
+};
 /* ================= HỆ THỐNG ROUTER (LƯU TRẠNG THÁI F5) ================= */
 async function handleRoute() {
     const hash = window.location.hash.substring(1); 
@@ -8437,15 +8453,15 @@ async function getCachedDeckList(forceRefresh = false) {
     if (forceRefresh) {
         const lastSync = sessionStorage.getItem(syncKey);
         const now = Date.now();
-        if (lastSync && (now - parseInt(lastSync)) < 60 * 1000) {
-            const cachedData = safeGetLocalCache(cacheKey, null, 'array'); // 👈 Ép kiểu 'array'
+        if (lastSync && (now - parseInt(lastSync)) < 5 * 60 * 1000) { // 🟢 Đã tối ưu lên 5 phút
+            const cachedData = safeGetLocalCache(cacheKey, null, 'array');
             if (cachedData) {
                 console.log("MindDeck: 🛡️ Chặn spam băng thông Deck List (Bỏ qua SWR ngầm)");
                 return cachedData;
             }
         }
     }
-    // 3. Quá 60 giây, chưa từng tải, HOẶC cache bị hỏng: Tiến hành gọi API Supabase
+    // 3. Quá thời gian Cooldown, chưa từng tải, HOẶC cache bị hỏng: Tiến hành gọi API Supabase
     try {
         const { data, error } = await sb.rpc('get_user_decks_v2', {
             p_user_id: currentUser.id,
@@ -9494,8 +9510,11 @@ async function openCopyDeck(event, deckId) {
 window.rawDeckCache = {};
 
 async function loadCards(d, skipHash = false) {
-    // 🟢 THÊM DÒNG NÀY: Dọn sạch Promise rác từ phiên học trước để giải phóng RAM
     if (typeof prefetchPromises !== 'undefined') prefetchPromises.clear();
+    
+    // 🟢 Mặc định giả định đây là phiên học chỉ đọc (Read-Only) cho đến khi phát sinh thay đổi
+    window.preventDeckListSyncOnce = true;
+
     // --- 1. LOGIC TIẾT KIỆM BĂNG THÔNG ---
     if (d === 'GLOBAL_REVIEW') {
         return handleGlobalReviewClick(); 
@@ -12060,6 +12079,7 @@ function endBoostSession() {
 async function answerCurrent(q) {
     if (isSrsSubmitting) return; 
     const c = sessionCards[currentIndex];
+    window.invalidateDeckListCache();
 
     // ==========================================
     // LOGIC 1: CHẾ ĐỘ NHỒI NHÉT 5 CẤP ĐỘ (CRAM)
@@ -12506,22 +12526,23 @@ async function renderManageDeckList(preventBackgroundSync = false) {
     if (decks.length > 0) drawUI(decks);
 
     // 2. CHẠY NGẦM ĐỒNG BỘ VỚI CLOUD VÀ UPDATE UI NẾU CÓ THAY ĐỔI
-    if (!preventBackgroundSync) {
+    // 🟢 Kiểm tra và tự động dọn dẹp cờ chặn đồng bộ ngầm ngay sau khi sử dụng
+    const shouldPreventSync = preventBackgroundSync || window.preventDeckListSyncOnce;
+    window.preventDeckListSyncOnce = false; 
+
+    if (!shouldPreventSync) {
         getCachedDeckList(true).then(freshDecks => {
-            
-            // 🟢 TẠO HÀM SO SÁNH CHUẨN XÁC (Tránh False Positive do lệch kiểu dữ liệu hoặc thứ tự)
             const getDeckSignature = (deckArray) => {
                 if (!deckArray || deckArray.length === 0) return "";
                 return deckArray
                     .map(d => `${d.id}|${d.is_public}|${d.total_cards || 0}|${d.due_cards || 0}|${d.studied_cards || 0}`)
-                    .sort() // Ép sắp xếp a-b-c để thứ tự mảng không làm sai lệch kết quả
+                    .sort()
                     .join('###');
             };
 
             const oldSignature = getDeckSignature(decks);
             const newSignature = getDeckSignature(freshDecks);
 
-            // Chỉ cập nhật UI khi "chữ ký" thực sự thay đổi
             if (oldSignature !== newSignature) {
                 console.log("MindDeck: Background sync phát hiện thay đổi thực sự, đang cập nhật UI...");
                 drawUI(freshDecks);
@@ -12628,6 +12649,7 @@ async function deleteDeckFromDashboard(event, deckId, deckName) {
 
             showToast("🗑️ Đã xóa học phần thành công!");
             renderManageDeckList(true); // Truyền true để CHẶN gọi mạng
+            window.invalidateDeckListCache();
             forceDashboardRefresh = true;
 
             triggerSilentBackgroundSync(null, true);
@@ -12702,6 +12724,7 @@ async function confirmRenameDeck() {
         closeModal('renameDeckModal');
         showToast("✨ Đã đổi tên thành công!");
         hasUnsavedChanges = false;
+        window.invalidateDeckListCache();
         renderManageDeckList(true); 
 
     } catch (err) {
@@ -12845,7 +12868,8 @@ async function saveNewDeckFromModal() {
 
         closeModal('createDeckModal');
         showToast("🎉 Đã tạo học phần mới thành công!");
-        
+        window.invalidateDeckListCache();
+
         await renderManageDeckList(true); // Truyền true để CHẶN gọi mạng
         hasUnsavedChanges = false
 
@@ -13700,7 +13724,7 @@ async function saveQuickEdit() {
                 renderInlineCardBody(bodyEl, currentCard, currentIndex);
             }
         }
-        
+        window.invalidateDeckListCache();
     } catch (err) {
         console.error("Lỗi:", err);
         customAlert("Không thể thao tác. Kiểm tra lại quyền hoặc kết nối.", "❌");
@@ -13726,6 +13750,7 @@ async function deleteQuickCard() {
         closeModal('quickEditModal');
         showToast("Đã xóa thẻ khỏi bộ bài! 🗑️");
         forceDashboardRefresh = true;
+        window.invalidateDeckListCache();
 
 
         // ❌ ĐÃ XÓA DÒNG NÀY: triggerSilentBackgroundSync(null, true); 
@@ -14340,6 +14365,7 @@ async function confirmSaveWordToDeck() {
         closeModal('saveDictWordModal');
         showToast("Đã thêm vào học phần thành công! ✨");
         hasUnsavedChanges = false;
+        window.invalidateDeckListCache();
     } catch (err) {
         console.error("Lỗi lưu thẻ:", err);
         customAlert("Không thể lưu thẻ. Vui lòng thử lại.", "❌");
@@ -14462,6 +14488,7 @@ async function generateAutoJLPTDeck() {
         }
 
         // Quay về trang chủ
+        window.invalidateDeckListCache();
         showHome();
 
     } catch (e) {
@@ -16989,6 +17016,8 @@ async function confirmBulkSaveKanji() {
             showToast(`🎉 Đã thêm thành công ${dbResult.inserted_count} thẻ!`);
         }
         hasUnsavedChanges = false;
+        window.invalidateDeckListCache();
+
 
     } catch (err) {
         console.error("Lỗi Bulk Save:", err);
@@ -20576,6 +20605,8 @@ async function saveStoryAndStudy() {
         currentGeneratedStoryData = null;
         forceDashboardRefresh = true;
         hideLoading();
+        window.invalidateDeckListCache();
+
 
         window.scrollTo({ top: 0, behavior: 'instant' });
         
@@ -21759,7 +21790,7 @@ window.clearFavoriteDeck = async function(event, deckId) {
             if (error) throw error;
 
             showToast("✨ Đã dọn sạch bộ thẻ Yêu thích!");
-            
+            window.invalidateDeckListCache();
             // 4. Load lại giao diện (Thẻ sẽ tự động chuyển viền về màu xám vì đã trống)
             renderManageDeckList(); 
             triggerSilentBackgroundSync(null, true);
