@@ -22723,16 +22723,15 @@ async function syncUserDataWithCloud() {
     try {
         let lastSyncTime = localStorage.getItem(`minddeck_delta_sync_time_${userId}`);
 
-        // 🟢 BẢN VÁ LỖI CỐT LÕI 1: Nhận diện RAM rỗng chuẩn xác 100%
-        // Phải đếm số lượng key bên trong Object, không được dùng dấu chấm than (!)
+        // 🟢 SỬA LỖI: Chỉ coi là trống nếu cache chưa từng được khởi tạo trong localStorage (trả về null)
+        // Loại bỏ hoàn toàn việc check Object.keys().length === 0 để tránh ép Full Sync liên tục
         const isRamEmpty = 
-            !userKanjiMasteryMap || Object.keys(userKanjiMasteryMap).length === 0 ||
-            !userGrammarMasteryMap || Object.keys(userGrammarMasteryMap).length === 0 ||
-            !currentUser.kanji_peaks || Object.keys(currentUser.kanji_peaks).length === 0 ||
-            !currentUser.grammar_peaks || Object.keys(currentUser.grammar_peaks).length === 0;
+            localStorage.getItem(`minddeck_kanji_cache_${userId}`) === null ||
+            localStorage.getItem(`minddeck_grammar_cache_${userId}`) === null ||
+            localStorage.getItem(`minddeck_kanji_peaks_cache_${userId}`) === null ||
+            localStorage.getItem(`minddeck_grammar_peaks_cache_${userId}`) === null;
 
         // 🟢 BẢN VÁ LỖI CỐT LÕI 2: Chống kẹt truy vấn Supabase
-        // Nếu mốc thời gian bị hỏng (VD: chữ "undefined"), tự động xóa bỏ
         if (lastSyncTime) {
             const parsedDate = new Date(lastSyncTime);
             if (isNaN(parsedDate.getTime())) {
@@ -22742,7 +22741,7 @@ async function syncUserDataWithCloud() {
         }
 
         // =========================================================================
-        // TRƯỜNG HỢP 1: TẢI HOÀN TOÀN (FULL SYNC)
+        // TRƯỜNG HỢP 1: TẢI HOÀN TOÀN (FULL SYNC) - Chỉ chạy khi thiết bị mới tinh
         // =========================================================================
         if (!lastSyncTime || isRamEmpty) {
             console.log("MindDeck: 🆕 RAM rỗng hoặc thiết bị mới. Bắt buộc tải trọn gói dữ liệu ban đầu...");
@@ -22752,7 +22751,6 @@ async function syncUserDataWithCloud() {
                 .single();
 
             if (error) {
-                // Xử lý an toàn cho tài khoản mới tinh chưa có dữ liệu trên DB
                 if (error.code === 'PGRST116') {
                     console.log("MindDeck: Tài khoản mới, đang khởi tạo dữ liệu rỗng...");
                     userKanjiMasteryMap = {};
@@ -22778,16 +22776,15 @@ async function syncUserDataWithCloud() {
             saveAllToLocalStorage(userId);
             renderActivePage();
             
-            return; // 👈 Quan trọng: Bắt buộc thoát hàm tại đây, không chạy xuống dưới
+            return; // Thoát sớm
         }
 
         // =========================================================================
-        // TRƯỜNG HỢP 2: ĐỒNG BỘ GIA TĂNG VI SAI (DELTA SYNC)
+        // TRƯỜNG HỢP 2: ĐỒNG BỘ GIA TĂNG VI SAI (DELTA SYNC) - Tối ưu cho F5 thông thường
         // =========================================================================
         console.log(`MindDeck: 📡 Đang dò tìm biến động kể từ mốc: ${lastSyncTime}`);
         
         try {
-            // 🟢 BẢN VÁ: Sử dụng Promise.all để kéo song song cả nhật ký thẻ lẫn mục tiêu thi mới nhất từ Cloud
             const [deltaRes, profileRes] = await Promise.all([
                 sb.from('user_mastery_changes')
                     .select('type, key, current_val, peak_val, updated_at')
@@ -22803,7 +22800,6 @@ async function syncUserDataWithCloud() {
             if (deltaRes.error) throw deltaRes.error;
             if (profileRes.error && profileRes.error.code !== 'PGRST116') throw profileRes.error;
         
-            // Cập nhật mục tiêu thi và thống kê ngày mới nhất từ máy B về máy A
             if (profileRes.data) {
                 currentUser.study_goal = profileRes.data.study_goal;
                 currentUser.daily_stats = profileRes.data.daily_stats;
@@ -22834,7 +22830,6 @@ async function syncUserDataWithCloud() {
                 console.log("MindDeck: 🛡️ Không có biến động mới về thẻ học.");
             }
         
-            // Ghi toàn bộ dữ liệu mới (gồm study_goal vừa kéo) vào localStorage của máy A
             saveAllToLocalStorage(userId);
             renderActivePage();
         
@@ -22844,7 +22839,7 @@ async function syncUserDataWithCloud() {
 
     } catch (e) {
         console.error("Lỗi đồng bộ dữ liệu:", e);
-        throw e; // Ép ném lỗi để hiển thị màn hình đỏ đứt mạng (chống kẹt Loading)
+        throw e; 
     }
 }
 
