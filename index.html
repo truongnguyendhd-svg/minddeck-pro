@@ -9239,7 +9239,9 @@ async function handleForcedLogout() {
         window.sessionCheckInterval = null;
     }
 
-    // 1. KIỂM TRA TRẠNG THÁI ĐANG LÀM VIỆC DỞ DANG (ĐÓNG BĂNG GIAO DIỆN)
+    // =========================================================================
+    // ⚠️ TRƯỜNG HỢP 1: THIẾT BỊ ĐANG LÀM VIỆC DỞ DANG -> ĐÓNG BĂNG ĐỂ BẢO VỆ DỮ LIỆU
+    // =========================================================================
     const hasAssessmentSave = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
     const hasBoostSave = localStorage.getItem(`minddeck_boost_save_${currentUser.id}`);
     
@@ -9249,7 +9251,7 @@ async function handleForcedLogout() {
             realtimeSessionChannel = null;
         }
 
-        // Xóa mã phiên bị lỗi cục bộ để chuẩn bị cấp mã mới khi F5
+        // Xóa mã phiên bị xung đột để chuẩn bị cấp mã mới khi F5
         localStorage.removeItem(`current_session_id_${currentUser.id}`);
 
         customAlert(
@@ -9261,7 +9263,7 @@ async function handleForcedLogout() {
             "⚠️ MẤT ĐỒNG BỘ PHIÊN",
             "warning",
             () => {
-                window.location.reload(); // 🟢 CƯỠNG CHẾ F5 KHI BẤM "ĐÃ HIỂU"
+                window.location.reload(); // Cưỡng chế F5 khi bấm nút đồng ý
             }
         );
 
@@ -9269,7 +9271,9 @@ async function handleForcedLogout() {
         return; 
     }
 
-    // 2. NẾU MÁY ĐANG RẢNH (TIẾN HÀNH ĐÁ VĂNG)
+    // =========================================================================
+    // 👤 TRƯỜNG HỢP 2: THIẾT BỊ ĐANG RẢNH -> ĐÁ VĂNG VÀ XÓA SẠCH CACHE BẢO MẬT
+    // =========================================================================
     showLoading("Tài khoản đang được kết nối từ thiết bị khác...");
     
     if (realtimeSessionChannel) {
@@ -9278,7 +9282,25 @@ async function handleForcedLogout() {
     }
 
     if (currentUser) {
-        localStorage.removeItem(`current_session_id_${currentUser.id}`);
+        const userId = currentUser.id;
+
+        // Xóa mã phiên hoạt động cũ
+        localStorage.removeItem(`current_session_id_${userId}`);
+
+        // Dọn dẹp cục bộ toàn bộ cache lưu trữ tiến trình dưới máy khách để bảo mật thông tin
+        localStorage.removeItem(`minddeck_kanji_cache_${userId}`);
+        localStorage.removeItem(`minddeck_grammar_cache_${userId}`);
+        localStorage.removeItem(`minddeck_kanji_peaks_cache_${userId}`);
+        localStorage.removeItem(`minddeck_grammar_peaks_cache_${userId}`);
+        localStorage.removeItem(`minddeck_delta_sync_time_${userId}`);        
+        localStorage.removeItem(`minddeck_decks_cache_${userId}`);
+        localStorage.removeItem(`minddeck_study_goal_${userId}`);
+        localStorage.removeItem(`minddeck_daily_stats_${userId}`);
+        localStorage.removeItem(`minddeck_assessment_save_${userId}`);
+        localStorage.removeItem(`minddeck_boost_save_${userId}`);
+
+        // 🟢 DỌN DẸP TOÀN DIỆN PHIÊN BẢN: Giải phóng sessionStorage tránh rò rỉ dữ liệu sang người dùng sau
+        sessionStorage.clear(); 
     }
 
     await sb.auth.signOut(); 
@@ -9290,11 +9312,11 @@ async function handleForcedLogout() {
         "warning",
         () => {
             window.location.hash = '';
-            window.location.reload(); // 🟢 CƯỠNG CHẾ QUAY VỀ LOGIN KHI BẤM "ĐÃ HIỂU"
+            window.location.reload(); // Điều hướng về màn hình khởi động chính
         }
     );
 
-    // Vẫn duy trì cơ chế tự động chuyển trang sau 4 giây phòng khi người dùng không bấm
+    // Kích hoạt cơ chế dự phòng tự điều hướng sau 4 giây
     setTimeout(() => {
         closeModal('customAlert');
         window.location.hash = '';
@@ -9327,6 +9349,7 @@ async function logout() {
     const hasAssessmentSave = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
     const hasBoostSave = localStorage.getItem(`minddeck_boost_save_${currentUser.id}`);
     
+    // Kiểm tra nếu có dữ liệu học hoặc tiến trình dở dang chưa lưu
     if (hasUnsavedChanges || hasAssessmentSave || hasBoostSave) {
         const ok = await showConfirm(
             "Cảnh báo mất dữ liệu",
@@ -9338,32 +9361,39 @@ async function logout() {
     }
 
     showLoading("Đang đăng xuất..."); 
+    
     if (currentUser) {
-            const userId = currentUser.id;
-            
-            // 1. Xóa mảng tiến trình SRS hiện tại
-            localStorage.removeItem(`minddeck_kanji_cache_${userId}`);
-            localStorage.removeItem(`minddeck_grammar_cache_${userId}`);
-            
-            // 2. XÓA MẢNG TIẾN TRÌNH KỶ LỤC CÁ NHÂN (Mới thêm)
-            localStorage.removeItem(`minddeck_kanji_peaks_cache_${userId}`);
-            localStorage.removeItem(`minddeck_grammar_peaks_cache_${userId}`);
-            
-            // 3. XÓA MỐC THỜI GIAN ĐỒNG BỘ VI SAI (Mới thêm - để ép người sau phải Full Sync)
-            localStorage.removeItem(`minddeck_delta_sync_time_${userId}`);        
-            // 4. Xóa các mục tiêu thi, cache bộ bài và nháp game dở dang
-            localStorage.removeItem(`minddeck_decks_cache_${userId}`);
-            localStorage.removeItem(`minddeck_study_goal_${userId}`);
-            localStorage.removeItem(`minddeck_daily_stats_${userId}`);
-            localStorage.removeItem(`minddeck_assessment_save_${userId}`);
-            localStorage.removeItem(`minddeck_boost_save_${userId}`);
-            localStorage.removeItem(`current_session_id_${userId}`);
-        }
-        if (window.sessionCheckInterval) {
-            clearInterval(window.sessionCheckInterval);
-            window.sessionCheckInterval = null;
-        }
-        await sb.auth.signOut();
+        const userId = currentUser.id;
+        
+        // 1. Xóa mảng tiến trình SRS hiện tại dưới ổ cứng máy khách
+        localStorage.removeItem(`minddeck_kanji_cache_${userId}`);
+        localStorage.removeItem(`minddeck_grammar_cache_${userId}`);
+        
+        // 2. Xóa mảng tiến trình kỷ lục cá nhân
+        localStorage.removeItem(`minddeck_kanji_peaks_cache_${userId}`);
+        localStorage.removeItem(`minddeck_grammar_peaks_cache_${userId}`);
+        
+        // 3. Xóa mốc thời gian đồng bộ vi sai (Ép người đăng nhập sau phải đồng bộ lại từ đầu)
+        localStorage.removeItem(`minddeck_delta_sync_time_${userId}`);        
+        
+        // 4. Xóa các cấu hình lộ trình, cache danh sách bộ bài và nháp game dở dang
+        localStorage.removeItem(`minddeck_decks_cache_${userId}`);
+        localStorage.removeItem(`minddeck_study_goal_${userId}`);
+        localStorage.removeItem(`minddeck_daily_stats_${userId}`);
+        localStorage.removeItem(`minddeck_assessment_save_${userId}`);
+        localStorage.removeItem(`minddeck_boost_save_${userId}`);
+        localStorage.removeItem(`current_session_id_${userId}`);
+
+        // 5. 🟢 DỌN DẸP TOÀN DIỆN PHIÊN BẢN: Xóa sạch sessionStorage của tài khoản này
+        sessionStorage.clear(); 
+    }
+    
+    if (window.sessionCheckInterval) {
+        clearInterval(window.sessionCheckInterval);
+        window.sessionCheckInterval = null;
+    }
+    
+    await sb.auth.signOut();
     hideLoading(); 
     window.location.reload(); 
 }
@@ -9552,10 +9582,10 @@ window.rawDeckCache = {};
 async function loadCards(d, skipHash = false) {
     if (typeof prefetchPromises !== 'undefined') prefetchPromises.clear();
     
-    // 🟢 Mặc định giả định đây là phiên học chỉ đọc (Read-Only) cho đến khi phát sinh thay đổi
+    // Mặc định giả định đây là phiên học chỉ đọc (Read-Only) cho đến khi phát sinh thay đổi
     window.preventDeckListSyncOnce = true;
 
-    // --- 1. LOGIC TIẾT KIỆM BĂNG THÔNG ---
+    // --- 1. CHỐT CHẶN PHÂN HỆ SÁT HẠCH SRS TOÀN CỤC ---
     if (d === 'GLOBAL_REVIEW') {
         return handleGlobalReviewClick(); 
     }
@@ -9563,36 +9593,59 @@ async function loadCards(d, skipHash = false) {
     if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/${mode}`;
     
     let cards = [];
-    let isLoadedFromRAM = false;
+    let isLoadedFromCache = false;
     
     try {
-        // LẤY TỪ RAM NẾU CÓ SẴN (Chuyển chế độ 0 giây)
+        // =========================================================================
+        // 🚀 BƯỚC 1: KIỂM TRA BỘ NHỚ ĐỆM THEO THỨ TỰ ƯU TIÊN: RAM -> SESSIONSTORAGE
+        // =========================================================================
+
+        // Phân vùng A: Kiểm tra RAM Cache (Chuyển chế độ tức thời trong 0ms)
         if (window.rawDeckCache[d]) {
             cards = JSON.parse(JSON.stringify(window.rawDeckCache[d])); 
             currentDeckName = d;
-            isLoadedFromRAM = true;
+            isLoadedFromCache = true;
+            console.log(`[Cache Hit] Nạp bộ bài ${d} trực tiếp từ RAM Cache.`);
         } 
-        // 🟢 FIX LỖI: PHỤC HỒI SESSION ẢO TỪ TRÌNH DUYỆT NẾU VỪA BỊ F5
+        // Phân vùng B: Phục hồi Session ảo khi F5 (Dành cho Thematic Decks)
         else if (d === 'VIRTUAL_SESSION') {
             const savedVirtual = sessionStorage.getItem('minddeck_virtual_cards');
             if (savedVirtual) {
                 cards = JSON.parse(savedVirtual);
-                window.rawDeckCache = JSON.parse(savedVirtual); // Phục hồi RAM
+                window.rawDeckCache[d] = JSON.parse(savedVirtual); // Phục hồi RAM cục bộ
                 currentDeckName = 'VIRTUAL_SESSION';
-                isVirtualSession = true; // Phục hồi cờ hệ thống
-                isLoadedFromRAM = true;
+                isVirtualSession = true; 
+                isLoadedFromCache = true;
+                console.log(`[Cache Hit] Phục hồi Phiên học ảo thành công.`);
             } else {
-                // Nếu copy link gửi cho máy khác, không có cache -> Đá về trang chủ
                 showToast("Phiên học chủ đề đã hết hạn, vui lòng tạo lại.");
                 return showHome();
             }
         } 
+        // Phân vùng C: Kiểm tra sessionStorage (Phục hồi sau khi F5 bộ bài thường)
         else {
-            // CHƯA CÓ THÌ TẢI TỪ DATABASE (CẬP NHẬT TỐI ƯU SKELETON TẠI ĐÂY)
+            const sessionCachedData = sessionStorage.getItem(`minddeck_deck_cache_${d}`);
+            if (sessionCachedData) {
+                try {
+                    cards = JSON.parse(sessionCachedData);
+                    window.rawDeckCache[d] = JSON.parse(sessionCachedData); // Nạp ngược lại RAM
+                    currentDeckName = d;
+                    isLoadedFromCache = true;
+                    console.log(`[Cache Hit] Khôi phục bộ bài ${d} từ sessionStorage (0ms).`);
+                } catch (e) {
+                    sessionStorage.removeItem(`minddeck_deck_cache_${d}`); // Tự động dọn dẹp nếu dữ liệu hỏng
+                }
+            }
+        }
+
+        // =========================================================================
+        // 📡 BƯỚC 2: GỌI CLOUD NẾU CHƯA CÓ CACHE (LẦN ĐẦU TIÊN MỞ BỘ BÀI)
+        // =========================================================================
+        if (!isLoadedFromCache) {
             currentDeckName = d; 
             showLoading("Đang nạp dữ liệu...");
             
-            // 1. CHỈ TẢI KHUNG XƯƠNG + TIẾN ĐỘ ĐỂ LỌC SRS (Tối ưu Left Join để lấy cả thẻ chưa học)
+            // 2.1. CHỈ TẢI KHUNG XƯƠNG + TIẾN ĐỘ ĐỂ LỌC SRS (Tối ưu Left Join)
             const { data: skeletonCards, error: skelErr } = await sb.from('cards')
                 .select(`
                     id, 
@@ -9601,12 +9654,12 @@ async function loadCards(d, skipHash = false) {
                 `) 
                 .eq('deck_id', d)
                 .eq('progress.user_id', currentUser.id)
-                .limit(1, { foreignTable: 'progress' }); // Khống chế tối đa 1 dòng tiến trình của user hiện tại
+                .limit(1, { foreignTable: 'progress' }); 
             if (skelErr) throw skelErr;
             
             let filteredSkeleton = skeletonCards;
             
-            // 2. LỌC SRS TRÊN KHUNG XƯƠNG
+            // 2.2. LỌC SRS TRÊN KHUNG XƯƠNG (Chỉ lọc sơ bộ thời gian)
             if (mode === 'review') {
                 const now = new Date().toISOString();
                 filteredSkeleton = skeletonCards.filter(c => {
@@ -9615,15 +9668,14 @@ async function loadCards(d, skipHash = false) {
                 });
             }
 
-            // 3. XÁO TRỘN KHUNG XƯƠNG
+            // 2.3. XÁO TRỘN KHUNG XƯƠNG
             filteredSkeleton.sort(() => Math.random() - 0.5);
             
-            // 4. ĐẮP THỊT 30 THẺ ĐẦU TIÊN (HYDRATION)
+            // 2.4. ĐẮP THỊT 30 THẺ ĐẦU TIÊN (HYDRATION)
             const top30Ids = filteredSkeleton.slice(0, 30).map(c => c.id);
             let fullCardsMap = new Map();
             
             if (top30Ids.length > 0) {
-                // 🟢 TỐI ƯU 1: Chỉ lấy back, info, tags và các cột cần thiết của progress
                 const { data: fullCards, error: fullErr } = await sb.from('cards')
                     .select('id, back, info, tags, progress(id, ef, interval, interval_count, due)')
                     .in('id', top30Ids)
@@ -9636,42 +9688,52 @@ async function loadCards(d, skipHash = false) {
                 }
             }
 
-            // 5. LẮP RÁP THÀNH MẢNG CARDS CUỐI CÙNG
+            // 2.5. LẮP RÁP THÀNH MẢNG CARDS CUỐI CÙNG
             cards = filteredSkeleton.map(skel => {
                 if (fullCardsMap.has(skel.id)) {
-                    // 🟢 TỐI ƯU 2: Dùng { ...skel, ...full } để giữ lại cột 'front' của bộ xương
                     return { ...skel, ...fullCardsMap.get(skel.id), isLoaded: true };
                 }
-                return { ...skel, isLoaded: false }; // Đánh dấu chờ hàm showCard tải ngầm
+                return { ...skel, isLoaded: false }; // Chờ hàm showCard tải ngầm tiếp theo
             });
 
-            window.rawDeckCache[d] = JSON.parse(JSON.stringify(cards)); // Backup vào RAM
+            // Ghi nhận mảng thô vào RAM Cache toàn cục
+            window.rawDeckCache[d] = JSON.parse(JSON.stringify(cards)); 
+
+            // Ghi nhận mảng thô vào sessionStorage (Có chốt chặn try-catch phòng QuotaExceededError)
+            try {
+                sessionStorage.setItem(`minddeck_deck_cache_${d}`, JSON.stringify(cards));
+            } catch (e) {
+                if (e.name === 'QuotaExceededError' || e.code === 22) {
+                    console.warn("sessionStorage đã đầy, bỏ qua lưu cache cho bộ bài này.");
+                }
+            }
         }
 
-        // 4. CẬP NHẬT BREADCRUMB ĐÚNG HỆ THỐNG MỚI (PHẲNG)
+        // =========================================================================
+        // 🎨 BƯỚC 3: XỬ LÝ ĐIỀU HƯỚNG UI & ĐIỀU PHỐI LOGIC CHẾ ĐỘ HỌC
+        // =========================================================================
+
+        // Cập nhật Breadcrumb phẳng chuẩn Apple
         const labels = { 
             'review': 'Ôn tập hôm nay', 
             'cram': 'Học căn bản', 
             'test': 'Luyện đề thi', 
             'boost': 'Boost'
         };
-        const currentLabel = labels[mode] || 'Học tập';
         
         let breadcrumbArr = [];
-        // Nút Gốc trỏ thẳng về Trang chủ (Kho học phần)
         breadcrumbArr.push({
             label: 'Kho học phần', 
             action: `showHome()`
         });
-        // Tên bộ bài đang học
         breadcrumbArr.push({ label: getCleanName(d) });
-
         updateBreadcrumb(breadcrumbArr);
 
         const now = new Date().toISOString();
-        sessionCards = cards; // Mặc định lấy toàn bộ
+        sessionCards = cards; // Mặc định lấy toàn bộ cấu trúc để xử lý phân vùng
         currentIndex = 0;
-        // 5. XỬ LÝ LOGIC THEO TỪNG CHẾ ĐỘ
+
+        // Phân luồng xử lý Logic học theo cấu hình chế độ (Mode)
         if (mode === 'review') {
             sessionCards = cards.filter(c => {
                 const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
@@ -9684,7 +9746,7 @@ async function loadCards(d, skipHash = false) {
             if (savedLevel) {
                 targetCramLevel = parseInt(savedLevel);
             } else {
-                targetCramLevel = 1; // Reset về học cơ bản (liên hoàn 1 cấp độ) khi không có cấu hình lưu trữ
+                targetCramLevel = 1; 
             }
             sessionCards = cards.map(c => ({ ...c, cramLevel: 1 }));
             sessionCards.sort(() => Math.random() - 0.5); 
@@ -9696,43 +9758,40 @@ async function loadCards(d, skipHash = false) {
             if (savedJson) {
                 try {
                     const data = JSON.parse(savedJson);
-                    // Chỉ phục hồi nếu cùng bộ bài và file save chưa quá 2 tiếng
                     const hoursPassed = (Date.now() - data.timestamp) / (1000 * 60 * 60);
                     if (hoursPassed < 2 && currentDeckName === data.deckName) {
                         sessionCards = data.sessionCards;
                         boostState = data.boostState;
                         currentIndex = data.currentIndex;
                         isRestored = true;
-                        console.log("MindDeck: Phục hồi Boost Mode thành công!");
+                        console.log("MindDeck: Phục hồi trạng thái Boost Mode dở dang thành công.");
                     }
-                } catch(e) { console.error("Lỗi đọc file save Boost:", e); }
+                } catch(e) { 
+                    console.error("Lỗi đọc file save Boost:", e); 
+                }
             }
             
-            // Nếu không có file save hợp lệ thì mới xáo trộn và chơi từ đầu
             if (!isRestored) {
                 sessionCards.sort(() => Math.random() - 0.5);
                 currentIndex = 0;
-                // Đặt cờ báo hiệu chưa chọn game
                 boostState = { selectedGame: null }; 
             }
         }
-        // 6. Kiểm tra rỗng
+
+        // Chốt chặn kiểm tra danh sách rỗng
         if (!sessionCards || sessionCards.length === 0) {
             hideLoading();
             return customAlert("Chúc mừng! Bạn đã hoàn thành hết các thẻ.", "🎉");
         }
 
-        // 7. Hiển thị trang
+        // Kích hoạt hiển thị giao diện học
         showPage('reviewPage'); 
 
-        // ĐÃ FIX: Xóa ép cấp độ (targetCramLevel = 1), tôn trọng cấp độ User vừa chọn ở Settings
         if (mode === 'boost') {
             if (boostState && boostState.selectedGame) {
-                // Đã có state phục hồi -> Bỏ qua Modal chọn Game, vào thẳng bài học
                 document.getElementById('boostIntroModal').style.display = 'none';
                 showCard();
             } else {
-                // Chơi mới -> Hiện Modal chọn Game
                 document.getElementById('boostIntroModal').style.display = 'flex';
             }
         } else {
@@ -9740,18 +9799,20 @@ async function loadCards(d, skipHash = false) {
         }
         
         hideLoading();
+
+        // Kích hoạt hướng dẫn Onboarding cho người dùng mới
         if (sessionStorage.getItem('show_onboarding_tutorial') === 'true') {
-                sessionStorage.removeItem('show_onboarding_tutorial');
-                setTimeout(() => {
-                    openSettingsSpotlight();
-                    localStorage.setItem(`minddeck_seen_spotlight_${currentUser.id}`, 'true');
-                }, 400); // 400ms là khoảng trễ an toàn để trình duyệt vẽ xong giao diện hoàn chỉnh
-            }
+            sessionStorage.removeItem('show_onboarding_tutorial');
+            setTimeout(() => {
+                openSettingsSpotlight();
+                localStorage.setItem(`minddeck_seen_spotlight_${currentUser.id}`, 'true');
+            }, 400); 
+        }
 
     } catch (err) {
         hideLoading();
         console.error("Lỗi loadCards:", err);
-        customAlert("Lỗi kết nối mạng.", "❌");
+        customAlert("Lỗi kết nối hoặc xử lý dữ liệu bộ bài.", "❌");
     }
 }
 let isReverseCardMode = false; // Biến toàn cục mới
