@@ -12139,8 +12139,8 @@ async function answerCurrent(q) {
     // (Xử lý dưới máy Client mất 0ms, không cần chờ mạng)
     
     // Cập nhật thẻ hiện tại trong RAM
-    if (window.rawDeckCache) {
-        let cacheCard = window.rawDeckCache.find(x => x.id === c.id);
+    if (window.rawDeckCache && window.rawDeckCache[currentDeckName]) {
+        let cacheCard = window.rawDeckCache[currentDeckName].find(x => x.id === c.id);
         if (cacheCard) {
             if (!cacheCard.progress) cacheCard.progress = [];
             cacheCard.progress[0] = payload; 
@@ -13667,7 +13667,7 @@ async function saveQuickEdit() {
 
             if (updateErr) throw updateErr;
             
-            // BƯỚC C: Cập nhật đồng loạt vào RAM CACHE của hệ thống
+            // Cập nhật ngay lập tức giao diện thẻ đang hiển thị trong phiên học
             sessionCards.forEach(card => {
                 if (card.front === originalFront) {
                     card.front = newFront;
@@ -13677,24 +13677,8 @@ async function saveQuickEdit() {
                 }
             });
             
-            // Fix Bug ngầm: rawDeckCache là Object (Map deckId -> Array), phải lặp qua các value của nó
-            if (window.rawDeckCache) {
-                Object.values(window.rawDeckCache).forEach(deckCacheArray => {
-                    deckCacheArray.forEach(cacheCard => {
-                        if (cacheCard.front === originalFront) {
-                            cacheCard.front = newFront;
-                            cacheCard.back = newBack;
-                            cacheCard.info = newInfo;
-                            cacheCard.tags = tagsArray;
-                        }
-                    });
-                });
-            }
-
-            // 🟢 ĐỒNG BỘ SESSION STORAGE CHỐNG F5 (SỬA LỖI LOGIC 2)
-            if (window.rawDeckCache && window.rawDeckCache[currentDeckName]) {
-                syncDeckToSessionStorage(currentDeckName, window.rawDeckCache[currentDeckName]);
-            }
+            // Giải phóng bộ đệm của bộ bài hiện hành để ép tải mới khi thoát ra vào lại
+            window.invalidateDeckCache(currentDeckName || deckToStudyId);
             // Đồng bộ LocalStorage nếu đang thi Sát hạch
             if (mode === 'assessment' || currentDeckName === 'GLOBAL_REVIEW') {
                 if (typeof saveAssessmentStateToLocal === 'function') {
@@ -13726,6 +13710,7 @@ async function saveQuickEdit() {
                 renderInlineCardBody(bodyEl, currentCard, currentIndex);
             }
         }
+        window.invalidateDeckCache(deckToStudyId || currentDeckName);
         window.invalidateDeckListCache();
     } catch (err) {
         console.error("Lỗi:", err);
@@ -13759,18 +13744,11 @@ async function deleteQuickCard() {
         // (Chặn đứng việc xóa cache và gọi tải lại JSONB khổng lồ)
 
         // 2. CẬP NHẬT TRỰC TIẾP TRÊN RAM (OPTIMISTIC UPDATE)
-        // Xóa khỏi mảng đang học tạm thời
+        // Xóa ngay khỏi hàng đợi phiên học hiện hành để chuyển sang thẻ tiếp theo
         sessionCards.splice(currentIndex, 1);
 
-        // Xóa luôn khỏi RAM Cache bộ bài để chống lỗi khi F5
-        if (window.rawDeckCache && window.rawDeckCache[currentDeckName]) {
-            window.rawDeckCache[currentDeckName] = window.rawDeckCache[currentDeckName].filter(card => card.id !== c.id);
-        }
-
-        // 🟢 ĐỒNG BỘ SESSION STORAGE CHỐNG F5 (SỬA LỖI LOGIC 2)
-        if (window.rawDeckCache && window.rawDeckCache[currentDeckName]) {
-            syncDeckToSessionStorage(currentDeckName, window.rawDeckCache[currentDeckName]);
-        }
+        // Xóa sạch bộ đệm của bộ bài để chuẩn bị nạp lại chính xác từ Supabase
+        window.invalidateDeckCache(currentDeckName || deckToStudyId);
         // 3. Nếu Modal Danh sách thẻ đang mở (inline list) -> XÓA TRỰC TIẾP TRÊN DOM
         if (document.getElementById('studyOptionsModal').style.display === 'flex') {
             const cardItemEl = document.getElementById(`inline-card-${c.id}`);
@@ -23358,6 +23336,13 @@ function syncDeckToSessionStorage(deckId, cardsArray) {
         }
     }
 }
+window.invalidateDeckCache = function(deckId) {
+    if (window.rawDeckCache) {
+        delete window.rawDeckCache[deckId];
+    }
+    sessionStorage.removeItem(`minddeck_deck_cache_${deckId}`);
+    console.log(`[Cache Sync] Đã giải phóng bộ đệm của bộ bài: ${deckId}`);
+};
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
