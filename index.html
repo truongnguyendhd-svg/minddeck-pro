@@ -9738,6 +9738,13 @@ async function loadCards(d, skipHash = false) {
         }
         
         hideLoading();
+        if (sessionStorage.getItem('show_onboarding_tutorial') === 'true') {
+                sessionStorage.removeItem('show_onboarding_tutorial');
+                setTimeout(() => {
+                    openSettingsSpotlight();
+                    localStorage.setItem(`minddeck_seen_spotlight_${currentUser.id}`, 'true');
+                }, 400); // 400ms là khoảng trễ an toàn để trình duyệt vẽ xong giao diện hoàn chỉnh
+            }
 
     } catch (err) {
         hideLoading();
@@ -22007,14 +22014,12 @@ window.returnFromBoostToBasic = function() {
     document.getElementById('boostSummaryPage').classList.add('hidden');
     document.body.classList.remove('game-fullscreen-mode');
     
-    // Đọc lại chế độ cũ (Kể cả khi vừa F5 xong)
     mode = sessionStorage.getItem('minddeck_prev_mode') || 'cram';
-    
     if (mode === 'cram') {
         targetCramLevel = 1;
     }
+    // Chỉ cập nhật hash, để handleRoute tự kích hoạt tải dữ liệu đơn lẻ
     window.location.hash = `study/${encodeURIComponent(currentDeckName)}/${mode}`;
-    loadCards(currentDeckName);
 };
 // --- LOGIC SPOTLIGHT ---
 function openSettingsSpotlight() {
@@ -22071,26 +22076,19 @@ window.startBasicStudy = function() {
     sessionStorage.removeItem('minddeck_cram_level');
     sessionStorage.removeItem('minddeck_prev_mode');
     
+    // Đăng ký cờ hiển thị hướng dẫn nếu là người dùng mới
+    if (!deckToStudyId.endsWith(':Favorites')) {
+        const tutorialKey = `minddeck_seen_spotlight_${currentUser.id}`;
+        if (!localStorage.getItem(tutorialKey)) {
+            sessionStorage.setItem('show_onboarding_tutorial', 'true');
+        }
+    }
+
+    // Chỉ thay đổi URL hash, không gọi loadCards() trực tiếp tại đây
     if (pendingModalReturn.type === 'quiz') {
-        mode = 'test';
-        loadCards(deckToStudyId);
+        window.location.hash = `study/${encodeURIComponent(deckToStudyId)}/test`;
     } else {
-        mode = 'cram';
-        targetCramLevel = 1; 
-        loadCards(deckToStudyId).then(() => {
-            if (!deckToStudyId.endsWith(':Favorites')) {
-                // 🟢 ĐÃ FIX: Gắn thêm ID của User vào key để phân biệt các tài khoản trên cùng 1 máy
-                const tutorialKey = `minddeck_seen_spotlight_${currentUser.id}`;
-                
-                if (!localStorage.getItem(tutorialKey)) {
-                    setTimeout(() => {
-                        openSettingsSpotlight();
-                        // Ghi nhớ cho RIÊNG user này
-                        localStorage.setItem(tutorialKey, 'true');
-                    }, 400); 
-                }
-            }
-        });
+        window.location.hash = `study/${encodeURIComponent(deckToStudyId)}/cram`;
     }
 };
 
