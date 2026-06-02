@@ -9589,7 +9589,7 @@ async function loadCards(d, skipHash = false) {
     let isLoadedFromCache = false;
     
     try {
-        // 1. KIỂM TRA BỘ NHỚ ĐỆM (Luôn chứa toàn bộ cấu trúc gốc)
+        // 1. ĐỌC NHANH TỪ BỘ NHỚ ĐỆM (RAM / SessionStorage)
         if (window.rawDeckCache[d]) {
             cards = JSON.parse(JSON.stringify(window.rawDeckCache[d])); 
             currentDeckName = d;
@@ -9610,12 +9610,12 @@ async function loadCards(d, skipHash = false) {
             }
         }
 
-        // 2. GỌI MẠNG NẾU TRỐNG CACHE
+        // 2. GỌI MẠNG NẾU TRỐNG CACHE (Chỉ tải khung xương tĩnh, chưa Hydrate)
         if (!isLoadedFromCache) {
             currentDeckName = d; 
             showLoading("Đang nạp dữ liệu...");
             
-            // Tải KHUNG XƯƠNG TOÀN BỘ bộ bài (Không lọc SRS ở đây)
+            // Tải KHUNG XƯƠNG toàn bộ bộ bài (Cực nhẹ, chỉ lấy ID, Front và tiến trình due)
             const { data: skeletonCards, error: skelErr } = await sb.from('cards')
                 .select(`id, front, progress(due)`) 
                 .eq('deck_id', d)
@@ -9623,64 +9623,27 @@ async function loadCards(d, skipHash = false) {
                 .limit(1, { foreignTable: 'progress' }); 
             if (skelErr) throw skelErr;
             
-            // Xác định danh sách cần ưu tiên tải chi tiết (Hydration)
-            let priorityList = [...skeletonCards];
-            if (mode === 'review') {
-                const now = new Date().toISOString();
-                priorityList = skeletonCards.filter(c => {
-                    const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
-                    return !p || p.due <= now;
-                });
-            }
-            
-            // Hydrate 30 thẻ ưu tiên đầu tiên
-            priorityList.sort(() => Math.random() - 0.5);
-            const top30Ids = priorityList.slice(0, 30).map(c => c.id);
-            let fullCardsMap = new Map();
-            
-            if (top30Ids.length > 0) {
-                const { data: fullCards, error: fullErr } = await sb.from('cards')
-                    .select('id, back, info, tags, progress(id, ef, interval, interval_count, due)')
-                    .in('id', top30Ids)
-                    .eq('progress.user_id', currentUser.id)
-                    .order('due', { foreignTable: 'progress', ascending: false })
-                    .limit(1, { foreignTable: 'progress' });
-                    
-                if (!fullErr && fullCards) {
-                    fullCards.forEach(c => fullCardsMap.set(c.id, c));
-                }
-            }
-
-            // Lắp ráp mảng cards đầy đủ để lưu vào Cache gốc
-            cards = skeletonCards.map(skel => {
-                if (fullCardsMap.has(skel.id)) {
-                    return { ...skel, ...fullCardsMap.get(skel.id), isLoaded: true };
-                }
-                return { ...skel, isLoaded: false };
-            });
-
-            // Ghi nhận mảng TOÀN BỘ bộ bài vào Cache
+            // Thiết lập trạng thái chưa nạp mặc định cho khung xương
+            cards = skeletonCards.map(s => ({ ...s, isLoaded: false }));
             window.rawDeckCache[d] = JSON.parse(JSON.stringify(cards)); 
-            syncDeckToSessionStorage(d, cards);
         }
 
-        // 3. THỰC HIỆN LỌC VÀ ĐIỀU PHỐI ĐỘNG (Trên Runtime sessionCards)
+        // 3. ĐỊNH HÌNH HÀNG ĐỢI HOẠT ĐỘNG TRƯỚC (Lọc & Trộn mảng ổn định)
         sessionCards = JSON.parse(JSON.stringify(cards)); 
         currentIndex = 0;
 
         const now = new Date().toISOString();
         if (mode === 'review') {
-            // Lọc động tại Runtime, không ảnh hưởng đến cấu trúc lưu trong Cache nguồn
             sessionCards = sessionCards.filter(c => {
                 const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
                 return !p || p.due <= now;
             });
-            sessionCards.sort(() => Math.random() - 0.5); 
+            sessionCards.sort(() => Math.random() - 0.5); // Trộn cố định hàng đợi hiển thị
         } else if (mode === 'cram') {
             const savedLevel = sessionStorage.getItem('minddeck_cram_level');
             targetCramLevel = savedLevel ? parseInt(savedLevel) : 1;
             sessionCards = sessionCards.map(c => ({ ...c, cramLevel: 1 }));
-            sessionCards.sort(() => Math.random() - 0.5); 
+            sessionCards.sort(() => Math.random() - 0.5); // Trộn cố định hàng đợi hiển thị
         }
 
         if (!sessionCards || sessionCards.length === 0) {
@@ -9688,13 +9651,51 @@ async function loadCards(d, skipHash = false) {
             return customAlert("Chúc mừng! Bạn đã hoàn thành hết các thẻ.", "🎉");
         }
 
+        // 4. HYDRATE 30 THẺ ĐẦU TIÊN CỦA HÀNG ĐỢI ĐÃ TRỘN CỐ ĐỊNH
+        // Quét lấy các ID chưa được tải chi tiết trong top 30 thẻ đầu tiên
+        const targetsToHydrate = sessionCards.slice(0, 30).filter(c => !c.isLoaded);
+        const targetIds = targetsToHydrate.map(c => c.id);
+
+        if (targetIds.length > 0) {
+            showLoading("Đang chuẩn bị nội dung học...");
+            const { data: fullCards, error: fullErr } = await sb.from('cards')
+                .select('id, back, info, tags, progress(id, ef, interval, interval_count, due)')
+                .in('id', targetIds)
+                .eq('progress.user_id', currentUser.id)
+                .order('due', { foreignTable: 'progress', ascending: false })
+                .limit(1, { foreignTable: 'progress' });
+
+            if (!fullErr && fullCards) {
+                const fullCardsMap = new Map(fullCards.map(c => [c.id, c]));
+                
+                // Đồng bộ dữ liệu chi tiết vào mảng sessionCards đang chạy
+                sessionCards.forEach((c, idx) => {
+                    if (fullCardsMap.has(c.id)) {
+                        const hydratedCard = { ...c, ...fullCardsMap.get(c.id), isLoaded: true };
+                        sessionCards[idx] = hydratedCard;
+                        
+                        // Đồng bộ ngược lại bộ nhớ RAM cache chung
+                        if (window.rawDeckCache[d]) {
+                            const cacheIdx = window.rawDeckCache[d].findIndex(x => x.id === c.id);
+                            if (cacheIdx !== -1) {
+                                window.rawDeckCache[d][cacheIdx] = hydratedCard;
+                            }
+                        }
+                    }
+                });
+
+                // Đồng bộ cache xuống sessionStorage để giữ trạng thái khi F5
+                syncDeckToSessionStorage(d, window.rawDeckCache[d]);
+            }
+        }
+
         showPage('reviewPage'); 
-        showCard();
+        showCard(); // Chạy hiển thị thẻ đầu tiên (Đã được hydrate an toàn)
         hideLoading();
 
     } catch (err) {
         hideLoading();
-        console.error("Lỗi loadCards:", err);
+        console.error("Lỗi loadCards tối ưu:", err);
         customAlert("Lỗi kết nối hoặc xử lý dữ liệu bộ bài.", "❌");
     }
 }
