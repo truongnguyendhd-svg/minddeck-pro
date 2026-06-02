@@ -9581,14 +9581,7 @@ window.rawDeckCache = {};
 
 async function loadCards(d, skipHash = false) {
     if (typeof prefetchPromises !== 'undefined') prefetchPromises.clear();
-    
-    // Mặc định giả định đây là phiên học chỉ đọc (Read-Only) cho đến khi phát sinh thay đổi
     window.preventDeckListSyncOnce = true;
-
-    // --- 1. CHỐT CHẶN PHÂN HỆ SÁT HẠCH SRS TOÀN CỤC ---
-    if (d === 'GLOBAL_REVIEW') {
-        return handleGlobalReviewClick(); 
-    }
 
     if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/${mode}`;
     
@@ -9596,83 +9589,53 @@ async function loadCards(d, skipHash = false) {
     let isLoadedFromCache = false;
     
     try {
-        // =========================================================================
-        // 🚀 BƯỚC 1: KIỂM TRA BỘ NHỚ ĐỆM THEO THỨ TỰ ƯU TIÊN: RAM -> SESSIONSTORAGE
-        // =========================================================================
-
-        // Phân vùng A: Kiểm tra RAM Cache (Chuyển chế độ tức thời trong 0ms)
+        // 1. KIỂM TRA BỘ NHỚ ĐỆM (Luôn chứa toàn bộ cấu trúc gốc)
         if (window.rawDeckCache[d]) {
             cards = JSON.parse(JSON.stringify(window.rawDeckCache[d])); 
             currentDeckName = d;
             isLoadedFromCache = true;
-            console.log(`[Cache Hit] Nạp bộ bài ${d} trực tiếp từ RAM Cache.`);
-        } 
-        // Phân vùng B: Phục hồi Session ảo khi F5 (Dành cho Thematic Decks)
-        else if (d === 'VIRTUAL_SESSION') {
-            const savedVirtual = sessionStorage.getItem('minddeck_virtual_cards');
-            if (savedVirtual) {
-                cards = JSON.parse(savedVirtual);
-                window.rawDeckCache[d] = JSON.parse(savedVirtual); // Phục hồi RAM cục bộ
-                currentDeckName = 'VIRTUAL_SESSION';
-                isVirtualSession = true; 
-                isLoadedFromCache = true;
-                console.log(`[Cache Hit] Phục hồi Phiên học ảo thành công.`);
-            } else {
-                showToast("Phiên học chủ đề đã hết hạn, vui lòng tạo lại.");
-                return showHome();
-            }
-        } 
-        // Phân vùng C: Kiểm tra sessionStorage (Phục hồi sau khi F5 bộ bài thường)
-        else {
+            console.log(`[Cache Hit] Nạp bộ bài ${d} trực tiếp từ RAM.`);
+        } else {
             const sessionCachedData = sessionStorage.getItem(`minddeck_deck_cache_${d}`);
             if (sessionCachedData) {
                 try {
                     cards = JSON.parse(sessionCachedData);
-                    window.rawDeckCache[d] = JSON.parse(sessionCachedData); // Nạp ngược lại RAM
+                    window.rawDeckCache[d] = JSON.parse(sessionCachedData);
                     currentDeckName = d;
                     isLoadedFromCache = true;
-                    console.log(`[Cache Hit] Khôi phục bộ bài ${d} từ sessionStorage (0ms).`);
+                    console.log(`[Cache Hit] Phục hồi bộ bài ${d} từ sessionStorage.`);
                 } catch (e) {
-                    sessionStorage.removeItem(`minddeck_deck_cache_${d}`); // Tự động dọn dẹp nếu dữ liệu hỏng
+                    sessionStorage.removeItem(`minddeck_deck_cache_${d}`);
                 }
             }
         }
 
-        // =========================================================================
-        // 📡 BƯỚC 2: GỌI CLOUD NẾU CHƯA CÓ CACHE (LẦN ĐẦU TIÊN MỞ BỘ BÀI)
-        // =========================================================================
+        // 2. GỌI MẠNG NẾU TRỐNG CACHE
         if (!isLoadedFromCache) {
             currentDeckName = d; 
             showLoading("Đang nạp dữ liệu...");
             
-            // 2.1. CHỈ TẢI KHUNG XƯƠNG + TIẾN ĐỘ ĐỂ LỌC SRS (Tối ưu Left Join)
+            // Tải KHUNG XƯƠNG TOÀN BỘ bộ bài (Không lọc SRS ở đây)
             const { data: skeletonCards, error: skelErr } = await sb.from('cards')
-                .select(`
-                    id, 
-                    front, 
-                    progress(due)
-                `) 
+                .select(`id, front, progress(due)`) 
                 .eq('deck_id', d)
                 .eq('progress.user_id', currentUser.id)
                 .limit(1, { foreignTable: 'progress' }); 
             if (skelErr) throw skelErr;
             
-            let filteredSkeleton = skeletonCards;
-            
-            // 2.2. LỌC SRS TRÊN KHUNG XƯƠNG (Chỉ lọc sơ bộ thời gian)
+            // Xác định danh sách cần ưu tiên tải chi tiết (Hydration)
+            let priorityList = [...skeletonCards];
             if (mode === 'review') {
                 const now = new Date().toISOString();
-                filteredSkeleton = skeletonCards.filter(c => {
+                priorityList = skeletonCards.filter(c => {
                     const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
                     return !p || p.due <= now;
                 });
             }
-
-            // 2.3. XÁO TRỘN KHUNG XƯƠNG
-            filteredSkeleton.sort(() => Math.random() - 0.5);
             
-            // 2.4. ĐẮP THỊT 30 THẺ ĐẦU TIÊN (HYDRATION)
-            const top30Ids = filteredSkeleton.slice(0, 30).map(c => c.id);
+            // Hydrate 30 thẻ ưu tiên đầu tiên
+            priorityList.sort(() => Math.random() - 0.5);
+            const top30Ids = priorityList.slice(0, 30).map(c => c.id);
             let fullCardsMap = new Map();
             
             if (top30Ids.length > 0) {
@@ -9688,126 +9651,46 @@ async function loadCards(d, skipHash = false) {
                 }
             }
 
-            // 2.5. LẮP RÁP THÀNH MẢNG CARDS CUỐI CÙNG
-            cards = filteredSkeleton.map(skel => {
+            // Lắp ráp mảng cards đầy đủ để lưu vào Cache gốc
+            cards = skeletonCards.map(skel => {
                 if (fullCardsMap.has(skel.id)) {
                     return { ...skel, ...fullCardsMap.get(skel.id), isLoaded: true };
                 }
-                return { ...skel, isLoaded: false }; // Chờ hàm showCard tải ngầm tiếp theo
+                return { ...skel, isLoaded: false };
             });
 
-            // Ghi nhận mảng thô vào RAM Cache toàn cục
+            // Ghi nhận mảng TOÀN BỘ bộ bài vào Cache
             window.rawDeckCache[d] = JSON.parse(JSON.stringify(cards)); 
-
-            // Ghi nhận mảng thô vào sessionStorage (Có chốt chặn try-catch phòng QuotaExceededError)
-            try {
-                sessionStorage.setItem(`minddeck_deck_cache_${d}`, JSON.stringify(cards));
-            } catch (e) {
-                if (e.name === 'QuotaExceededError' || e.code === 22) {
-                    console.warn("sessionStorage đã đầy, bỏ qua lưu cache cho bộ bài này.");
-                }
-            }
+            syncDeckToSessionStorage(d, cards);
         }
 
-        // =========================================================================
-        // 🎨 BƯỚC 3: XỬ LÝ ĐIỀU HƯỚNG UI & ĐIỀU PHỐI LOGIC CHẾ ĐỘ HỌC
-        // =========================================================================
-
-        // Cập nhật Breadcrumb phẳng chuẩn Apple
-        const labels = { 
-            'review': 'Ôn tập hôm nay', 
-            'cram': 'Học căn bản', 
-            'test': 'Luyện đề thi', 
-            'boost': 'Boost'
-        };
-        
-        let breadcrumbArr = [];
-        breadcrumbArr.push({
-            label: 'Kho học phần', 
-            action: `showHome()`
-        });
-        breadcrumbArr.push({ label: getCleanName(d) });
-        updateBreadcrumb(breadcrumbArr);
-
-        const now = new Date().toISOString();
-        sessionCards = cards; // Mặc định lấy toàn bộ cấu trúc để xử lý phân vùng
+        // 3. THỰC HIỆN LỌC VÀ ĐIỀU PHỐI ĐỘNG (Trên Runtime sessionCards)
+        sessionCards = JSON.parse(JSON.stringify(cards)); 
         currentIndex = 0;
 
-        // Phân luồng xử lý Logic học theo cấu hình chế độ (Mode)
+        const now = new Date().toISOString();
         if (mode === 'review') {
-            sessionCards = cards.filter(c => {
+            // Lọc động tại Runtime, không ảnh hưởng đến cấu trúc lưu trong Cache nguồn
+            sessionCards = sessionCards.filter(c => {
                 const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
                 return !p || p.due <= now;
             });
             sessionCards.sort(() => Math.random() - 0.5); 
-        } 
-        else if (mode === 'cram') {
+        } else if (mode === 'cram') {
             const savedLevel = sessionStorage.getItem('minddeck_cram_level');
-            if (savedLevel) {
-                targetCramLevel = parseInt(savedLevel);
-            } else {
-                targetCramLevel = 1; 
-            }
-            sessionCards = cards.map(c => ({ ...c, cramLevel: 1 }));
+            targetCramLevel = savedLevel ? parseInt(savedLevel) : 1;
+            sessionCards = sessionCards.map(c => ({ ...c, cramLevel: 1 }));
             sessionCards.sort(() => Math.random() - 0.5); 
-        }         
-        else if (mode === 'boost') {
-            const savedJson = localStorage.getItem(`minddeck_boost_save_${currentUser.id}`);
-            let isRestored = false;
-            
-            if (savedJson) {
-                try {
-                    const data = JSON.parse(savedJson);
-                    const hoursPassed = (Date.now() - data.timestamp) / (1000 * 60 * 60);
-                    if (hoursPassed < 2 && currentDeckName === data.deckName) {
-                        sessionCards = data.sessionCards;
-                        boostState = data.boostState;
-                        currentIndex = data.currentIndex;
-                        isRestored = true;
-                        console.log("MindDeck: Phục hồi trạng thái Boost Mode dở dang thành công.");
-                    }
-                } catch(e) { 
-                    console.error("Lỗi đọc file save Boost:", e); 
-                }
-            }
-            
-            if (!isRestored) {
-                sessionCards.sort(() => Math.random() - 0.5);
-                currentIndex = 0;
-                boostState = { selectedGame: null }; 
-            }
         }
 
-        // Chốt chặn kiểm tra danh sách rỗng
         if (!sessionCards || sessionCards.length === 0) {
             hideLoading();
             return customAlert("Chúc mừng! Bạn đã hoàn thành hết các thẻ.", "🎉");
         }
 
-        // Kích hoạt hiển thị giao diện học
         showPage('reviewPage'); 
-
-        if (mode === 'boost') {
-            if (boostState && boostState.selectedGame) {
-                document.getElementById('boostIntroModal').style.display = 'none';
-                showCard();
-            } else {
-                document.getElementById('boostIntroModal').style.display = 'flex';
-            }
-        } else {
-            showCard();
-        }
-        
+        showCard();
         hideLoading();
-
-        // Kích hoạt hướng dẫn Onboarding cho người dùng mới
-        if (sessionStorage.getItem('show_onboarding_tutorial') === 'true') {
-            sessionStorage.removeItem('show_onboarding_tutorial');
-            setTimeout(() => {
-                openSettingsSpotlight();
-                localStorage.setItem(`minddeck_seen_spotlight_${currentUser.id}`, 'true');
-            }, 400); 
-        }
 
     } catch (err) {
         hideLoading();
@@ -9815,6 +9698,7 @@ async function loadCards(d, skipHash = false) {
         customAlert("Lỗi kết nối hoặc xử lý dữ liệu bộ bài.", "❌");
     }
 }
+
 let isReverseCardMode = false; // Biến toàn cục mới
 
 function toggleReverseMode() {
@@ -9923,6 +9807,8 @@ async function showCard() {
                             sessionCards[idx] = mergedCard;
                             if (window.rawDeckCache[currentDeckName]) {
                                 window.rawDeckCache[currentDeckName][idx] = mergedCard;
+                                // Cập nhật đồng bộ sessionStorage
+                                syncDeckToSessionStorage(currentDeckName, window.rawDeckCache[currentDeckName]);
                             }
                         }
                     });
@@ -13804,6 +13690,10 @@ async function saveQuickEdit() {
                 });
             }
 
+            // 🟢 ĐỒNG BỘ SESSION STORAGE CHỐNG F5 (SỬA LỖI LOGIC 2)
+            if (window.rawDeckCache && window.rawDeckCache[currentDeckName]) {
+                syncDeckToSessionStorage(currentDeckName, window.rawDeckCache[currentDeckName]);
+            }
             // Đồng bộ LocalStorage nếu đang thi Sát hạch
             if (mode === 'assessment' || currentDeckName === 'GLOBAL_REVIEW') {
                 if (typeof saveAssessmentStateToLocal === 'function') {
@@ -13876,6 +13766,10 @@ async function deleteQuickCard() {
             window.rawDeckCache[currentDeckName] = window.rawDeckCache[currentDeckName].filter(card => card.id !== c.id);
         }
 
+        // 🟢 ĐỒNG BỘ SESSION STORAGE CHỐNG F5 (SỬA LỖI LOGIC 2)
+        if (window.rawDeckCache && window.rawDeckCache[currentDeckName]) {
+            syncDeckToSessionStorage(currentDeckName, window.rawDeckCache[currentDeckName]);
+        }
         // 3. Nếu Modal Danh sách thẻ đang mở (inline list) -> XÓA TRỰC TIẾP TRÊN DOM
         if (document.getElementById('studyOptionsModal').style.display === 'flex') {
             const cardItemEl = document.getElementById(`inline-card-${c.id}`);
@@ -23454,7 +23348,15 @@ async function silentSyncRomajiToCloud(cardId, exIndex, romajiText) {
         console.error("Lỗi đồng bộ ngầm Romaji:", err);
     }
 }
-
+function syncDeckToSessionStorage(deckId, cardsArray) {
+    try {
+        sessionStorage.setItem(`minddeck_deck_cache_${deckId}`, JSON.stringify(cardsArray));
+    } catch (e) {
+        if (e.name === 'QuotaExceededError') {
+            console.warn("MindDeck: sessionStorage đã đầy, bỏ qua ghi đè cache.");
+        }
+    }
+}
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
