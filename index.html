@@ -18799,22 +18799,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 window.startGlobalReview = async function(skipHash = false) {
     if (!currentUser) return;
-    // 🟢 Dọn sạch rác trước khi bắt đầu Sát hạch
     if (typeof prefetchPromises !== 'undefined') prefetchPromises.clear();
 
     if (!skipHash) history.pushState(null, null, '#study/GLOBAL_REVIEW/assessment');
     
     showLoading("Đang chuẩn bị Sát hạch...");
-        // 🟢 MỞ KHÓA AUDIO CHO iOS/SAFARI NGAY KHI BẤM NÚT
-        if ('speechSynthesis' in window) {
-            let unlockAudio = new SpeechSynthesisUtterance('');
-            unlockAudio.volume = 0;
-            window.speechSynthesis.speak(unlockAudio);
-        }
+    if ('speechSynthesis' in window) {
+        let unlockAudio = new SpeechSynthesisUtterance('あ');
+        unlockAudio.volume = 0;
+        window.speechSynthesis.speak(unlockAudio);
+    }
+    
     try {
         const now = new Date().toISOString();
 
-        // 1. Lấy 15 thẻ trễ hạn thông qua hàm RPC siêu tốc
+        // 1. Lấy 15 thẻ trễ hạn từ Cloud
         const { data: dueCards, error } = await sb.rpc('get_global_review_cards', {
             p_user_id: currentUser.id,
             p_now: now,
@@ -18828,10 +18827,9 @@ window.startGlobalReview = async function(skipHash = false) {
             return showToast("Tuyệt vời! Bạn không còn thẻ nào cần ôn hôm nay. 🎉");
         }
 
-        // 2. Gắn State riêng cho TỪNG THẺ và đánh dấu đã tải để tránh gọi mạng dư thừa
+        // 2. Gắn trạng thái hoạt động ban đầu cho các thẻ
         sessionCards = dueCards.map(card => {
             const matrix = generateAspectMatrixForCard(card);
-            
             return {
                 ...card,
                 matrix: matrix,
@@ -18839,28 +18837,40 @@ window.startGlobalReview = async function(skipHash = false) {
                 isMeaningFailed: false,
                 isFailed: false, 
                 isProcessed: false,
-                isLoaded: true // 🌟 ĐÁNH DẤU ĐÃ NẠP TOÀN BỘ ĐỂ CHẶN TUYỆT ĐỐI PREFETCH TRÙNG LẶP!
+                isLoaded: true 
             };
         });
 
-        // 🟢 ĐỒNG BỘ BỘ NHỚ ĐỆM CHỐNG LỖI HIỂN THỊ KHI NGƯỜI DÙNG F5/RELOAD
+        // =========================================================================
+        // ⚡ BƯỚC TỐI ƯU MỚI: TẢI TRƯỚC TOÀN BỘ KANJI CỦA PHIÊN (SESSION PREFETCH)
+        // =========================================================================
+        const allSessionKanji = [];
+        sessionCards.forEach(card => {
+            const kanjis = card.front.match(/[\u4e00-\u9faf]/g) || [];
+            allSessionKanji.push(...kanjis);
+        });
+        const uniqueSessionKanji = [...new Set(allSessionKanji)];
+
+        if (uniqueSessionKanji.length > 0) {
+            document.getElementById('loadingText').innerText = "Đang tối ưu kho gạch xây chữ...";
+            // Gom toàn bộ Kanji của 15 thẻ sát hạch để gọi duy nhất 1 Batch Request lên Supabase
+            await getBatchKanjiBuilderData(uniqueSessionKanji);
+        }
+        // =========================================================================
+
         window.rawDeckCache['GLOBAL_REVIEW'] = JSON.parse(JSON.stringify(sessionCards));
         syncDeckToSessionStorage('GLOBAL_REVIEW', sessionCards);
 
-        // 3. Thiết lập State tổng cho Vòng lặp Round-Robin
         mode = 'assessment';
         currentDeckName = 'GLOBAL_REVIEW'; 
         
         boostState = {
-            currentRound: 1, // Đang ở Chặng mấy (1, 2, 3)
-            activeQueue: [], // Hàng đợi chứa index của các thẻ còn sống sót
+            currentRound: 1,
+            activeQueue: sessionCards.map((_, i) => i).sort(() => Math.random() - 0.5),
             passedCards: [], 
             remedialCards: []
         };
         
-        // Nạp tất cả thẻ vào hàng đợi của Chặng 1 và Xáo trộn
-        boostState.activeQueue = sessionCards.map((_, i) => i).sort(() => Math.random() - 0.5);
-
         updateBreadcrumb([
             { label: 'Tổng quan', action: 'showDashboard()' },
             { label: 'Sát hạch: ' + sessionCards.length + ' Thẻ' }
@@ -18871,7 +18881,6 @@ window.startGlobalReview = async function(skipHash = false) {
         document.getElementById('boostArea').classList.remove('hidden');
         showPage('reviewPage');
         
-        // Bắt đầu
         showCard();
         saveAssessmentStateToLocal();
 
