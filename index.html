@@ -12170,45 +12170,6 @@ async function answerCurrent(q) {
         }
     }
 
-    // Cập nhật Heatmap Kanji
-    if (!currentUser.kanji_peaks) currentUser.kanji_peaks = {}; // Đảm bảo tồn tại
-
-    const kMatches = c.front.match(/[\u4e00-\u9faf]/g) || [];
-    kMatches.forEach(k => {
-        let currentInt = userKanjiMasteryMap[k] || 0;
-        let currentPeak = currentUser.kanji_peaks[k] || 0; // 🟢 FIX
-        
-        if (q < 2) { 
-            let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
-            userKanjiMasteryMap[k] = pen;
-        } else {
-            userKanjiMasteryMap[k] = Math.max(currentInt, interval);
-            currentUser.kanji_peaks[k] = Math.max(currentPeak, interval); // 🟢 FIX
-        }
-    });
-
-    // Cập nhật Heatmap Ngữ pháp
-    if (globalGrammarData && globalGrammarData.length > 0) {
-        if (!currentUser.grammar_peaks) currentUser.grammar_peaks = {}; // Đảm bảo tồn tại
-        
-        globalGrammarData.forEach(g => {
-            const cleanPoint = g.grammar_point.replace(/～/g, '');
-            if (c.front.includes(cleanPoint)) {
-                let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
-                let currentPeak = currentUser.grammar_peaks[g.grammar_point] || 0; // 🟢 FIX
-                
-                if (q >= 2) {
-                    userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
-                    currentUser.grammar_peaks[g.grammar_point] = Math.max(currentPeak, interval); // 🟢 FIX
-                }
-            }
-        });
-    }
-
-    // Lưu Heatmap vào LocalStorage để chống mất khi F5
-    // localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap));
-    // localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap));
-    // sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
 
     // CHUYỂN THẺ & MỞ KHÓA NÚT NGAY LẬP TỨC (Người dùng không cảm thấy độ trễ của mạng)
     nextCard();
@@ -12241,12 +12202,6 @@ async function flushSrsQueue() {
     
     const payloadsToSend = [...srsPendingQueue];
     srsPendingQueue = [];
-    
-    // 🟢 BẢN VÁ LỖI: Bọc || {} chống lỗi undefined string
-    localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap || {}));
-    localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap || {}));
-    localStorage.setItem(`minddeck_kanji_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser?.kanji_peaks || {}));
-    localStorage.setItem(`minddeck_grammar_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser?.grammar_peaks || {}));
     sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
 
     try {
@@ -12268,12 +12223,6 @@ async function flushSrsQueue() {
 
         console.log(`MindDeck: Đã đồng bộ lô ${payloadsToSend.length} thẻ SRS lên Cloud.`);
         forceDashboardRefresh = true;
-
-        // Cập nhật checkpoint vi sai ngay sau khi nộp thẻ thành công
-        if (rpcData && rpcData.new_timestamp) {
-            localStorage.setItem(`minddeck_delta_sync_time_${currentUser.id}`, rpcData.new_timestamp);
-            console.log(`[Zero-Bloat Sync] Đã đồng bộ mốc thời gian vi sai: ${rpcData.new_timestamp}`);
-        }
 
     } catch (err) {
         console.warn("Mất mạng! Đã đưa tiến trình vào Hàng đợi Offline.");
@@ -19167,45 +19116,6 @@ async function processBatchAssessmentResults() {
         if (q < 3) boostState.remedialCards.push(card);
         else boostState.passedCards.push(card);
 
-        // ==============================================================
-        // 🚀 CẬP NHẬT TRỰC TIẾP KANJI VÀ NGỮ PHÁP VÀO RAM (OPTIMISTIC UI)
-        // ==============================================================
-        if (!currentUser.kanji_peaks) currentUser.kanji_peaks = {}; // Đảm bảo object tồn tại
-
-        const kMatches = card.front.match(/[\u4e00-\u9faf]/g) || [];
-        kMatches.forEach(k => {
-            let currentInt = userKanjiMasteryMap[k] || 0;
-            let currentPeak = currentUser.kanji_peaks[k] || 0; // Lấy kỷ lục hiện tại
-            
-            if (q < 3) { 
-                let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
-                userKanjiMasteryMap[k] = pen;
-            } else {
-                userKanjiMasteryMap[k] = Math.max(currentInt, interval);
-                currentUser.kanji_peaks[k] = Math.max(currentPeak, interval); // Phá kỷ lục
-            }
-            hasMasteryChanges = true;
-        });
-
-        if (globalGrammarData && globalGrammarData.length > 0) {
-            if (!currentUser.grammar_peaks) currentUser.grammar_peaks = {};
-            
-            globalGrammarData.forEach(g => {
-                const cleanPoint = g.grammar_point.replace(/～/g, '');
-                if (card.front.includes(cleanPoint)) {
-                    let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
-                    let currentPeak = currentUser.grammar_peaks[g.grammar_point] || 0; 
-                    
-                    if (q >= 3) {
-                        userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
-                        currentUser.grammar_peaks[g.grammar_point] = Math.max(currentPeak, interval); 
-                    }
-                    hasMasteryChanges = true;
-                }
-            });
-        }
-        // ==============================================================
-
         let payload = { 
             user_id: currentUser.id, 
             card_id: card.id, 
@@ -19238,14 +19148,6 @@ async function processBatchAssessmentResults() {
 
             // 🟢 FIX: Giải phóng cache RAM Sát hạch để tránh lặp lại hàng đợi cũ
             window.invalidateDeckCache('GLOBAL_REVIEW');
-
-            if (hasMasteryChanges) {
-                localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap || {}));
-                localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap || {}));
-                localStorage.setItem(`minddeck_kanji_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser?.kanji_peaks || {}));
-                localStorage.setItem(`minddeck_grammar_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser?.grammar_peaks || {}));
-                sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
-            }
 
             forceDashboardRefresh = true;
 
