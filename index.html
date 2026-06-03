@@ -19596,29 +19596,24 @@ async function toggleInlineDeckList() {
     // Nếu đã tải dữ liệu trước đó thì không tải lại
     if (isInlineListLoaded) return;
 
-    // 🟢 CẬP NHẬT MỚI: CHỐT CHẶN TÁI SỬ DỤNG RAM CACHE (Nếu mở bộ bài lần 2)
+    // Khôi phục từ RAM cache nếu có sẵn
     if (window.rawDeckCache && window.rawDeckCache[deckToStudyId]) {
         console.log("MindDeck: ⚡ Khôi phục Danh sách thẻ trực tiếp từ RAM (0ms)");
-        
-        // Nạp thẳng từ RAM ra mảng hoạt động
         sessionCards = JSON.parse(JSON.stringify(window.rawDeckCache[deckToStudyId]));
-        
-        // Vẽ lại giao diện
         renderInlineDeckListUI();
         isInlineListLoaded = true;
-        return; // Thoát hàm luôn, không cho gọi xuống Supabase bên dưới nữa
+        return;
     }
 
-    // NẾU LÀ LẦN ĐẦU TIÊN MỞ: Hiện Loading và gọi Supabase như cũ
     listContainer.innerHTML = `
         <div style="text-align:center; padding: 20px; color:#8c8c8c;">
             <div class="spinner" style="margin: 0 auto 10px auto; width: 24px; height: 24px; border-top-color: #0067c0;"></div>
-            Đang tối ưu danh sách...
+            Đang tải danh sách...
         </div>
     `;
 
     try {
-        // QUERY 1: Tải bộ khung xương (Skeleton) để dựng giao diện danh sách nhanh gọn
+        // CHỈ CHẠY DUY NHẤT QUERY 1: Tải bộ khung xương (Skeleton) để dựng giao diện danh sách nhanh gọn
         const { data: skeletonCards, error: err1 } = await sb.from('cards')
             .select(`
                 id, 
@@ -19627,7 +19622,7 @@ async function toggleInlineDeckList() {
             `) 
             .eq('deck_id', deckToStudyId)
             .eq('progress.user_id', currentUser.id)  // Cô lập bảo mật theo User ID
-            .limit(1, { foreignTable: 'progress' })   // Tối ưu hóa băng thông bằng cách lấy 1 bản ghi tiến trình gần nhất
+            .limit(1, { foreignTable: 'progress' })   
             .order('id', { ascending: true });
 
         if (err1) throw err1;
@@ -19637,32 +19632,10 @@ async function toggleInlineDeckList() {
             return;
         }
 
-        // CHỐT CHẶN TỐI ƯU BĂNG THÔNG: Trích xuất chính xác 30 ID đầu tiên để chuẩn bị nạp chồng dữ liệu
-        const skeletonIds = skeletonCards.map(s => s.id);
-        const top30Ids = skeletonIds.slice(0, 30);
+        // Đánh dấu tất cả các thẻ ở trạng thái chưa nạp chi tiết (chờ nạp ngầm hoặc lazy load khi click)
+        sessionCards = skeletonCards.map(s => ({ ...s, isLoaded: false }));
 
-        // QUERY 2: Chỉ tải dữ liệu chi tiết của đúng 30 thẻ này (Hydration) bằng toán tử .in() tinh gọn
-        const { data: fullCards, error: err2 } = await sb.from('cards')
-            .select('id, front, back, info, tags, progress(id, ef, interval, interval_count, due)')
-            .in('id', top30Ids)
-            .eq('progress.user_id', currentUser.id)
-            .order('due', { foreignTable: 'progress', ascending: false })
-            .limit(1, { foreignTable: 'progress' });
-
-        if (err2) throw err2;
-
-        // Chuyển đổi mảng chi tiết thành Map để tra cứu nhanh với độ phức tạp O(1)
-        const fullCardsMap = new Map(fullCards.map(c => [c.id, c]));
-        
-        // Lắp ráp mảng dữ liệu hoàn chỉnh trong RAM
-        sessionCards = skeletonCards.map(s => {
-            if (fullCardsMap.has(s.id)) {
-                return { ...fullCardsMap.get(s.id), isLoaded: true };
-            }
-            return { ...s, isLoaded: false }; // Đánh dấu thẻ rỗng chờ tải ngầm sau
-        });
-
-        // Backup mảng dữ liệu thô vào RAM cache toàn cục
+        // Backup mảng khung xương vào RAM cache toàn cục
         window.rawDeckCache[deckToStudyId] = JSON.parse(JSON.stringify(sessionCards));
 
         // Tiến hành kết xuất giao diện danh sách
