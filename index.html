@@ -19814,36 +19814,43 @@ window.filterInlineDeckList = function() {
 };
 // Thêm hàm này vào JS
 function exitStudySession() {
-    // 1. Dọn dẹp event listener của các Game
-    if (typeof window.shodoCleanup === 'function') window.shodoCleanup();
-    // 🟢 THÊM DÒNG NÀY: Dọn rác tải ngầm
-    if (typeof prefetchPromises !== 'undefined') prefetchPromises.clear();
-    // 2. Dọn dẹp cờ trạng thái của phiên học ảo (AI Thematic)
+    // 1. Dọn dẹp event listener của các Game (Shodo vẽ chữ)
+    if (typeof window.shodoCleanup === 'function') {
+        window.shodoCleanup();
+    }
+    
+    // 2. Dọn dẹp mảng tải ngầm để tránh rò rỉ luồng mạng
+    if (typeof prefetchPromises !== 'undefined') {
+        prefetchPromises.clear();
+    }
+    
+    // 3. Dọn dẹp trạng thái phiên học ảo (AI Thematic / Học theo chủ đề)
     isVirtualSession = false; 
     sessionStorage.removeItem('minddeck_virtual_cards');
     hasUnsavedChanges = false; 
-    // 🟢 VÁ LỖI: TUYỆT ĐỐI KHÔNG XÓA `window.rawDeckCache`.
-    // Cứ để nó tồn tại trong RAM. Trình duyệt sẽ tự hủy nó khi User tắt Tab.
     
-    // 3. Dọn dẹp trạng thái cài đặt học tập
+    // 4. Dọn dẹp trạng thái cấu hình của phiên học dở dang
     sessionStorage.removeItem('minddeck_cram_level');
     sessionStorage.removeItem('minddeck_prev_mode');
 
-    // 4. Xóa các tệp save dở dang (Sát hạch / Minigames)
+    // 5. Xử lý xóa tệp lưu tạm (Save State) tùy theo loại phiên học
     if (currentDeckName === 'GLOBAL_REVIEW') {
-        clearAssessmentStateFromLocal(); 
+        clearAssessmentStateFromLocal(); // Xóa file lưu dở dang trong localStorage để lần sau khởi động mới tinh
     }
-    clearBoostStateFromLocal();
+    clearBoostStateFromLocal(); // Xóa file lưu dở dang của Boost Mode tự do
 
-    // 5. Điều hướng về màn hình phù hợp
-    if (currentDeckName === 'GLOBAL_REVIEW') {
-        showDashboard();
+    // 6. Lưu tạm lại tên bộ bài hiện tại trước khi chuyển hướng trang
+    const previousDeckName = currentDeckName;
+
+    // 7. Kích hoạt chuyển hướng trang (showDashboard/showHome sẽ tự động gọi showPage)
+    if (previousDeckName === 'GLOBAL_REVIEW') {
+        showDashboard(); // Gọi hàm này -> showPage('dashboardPage') -> Tự động kích hoạt dọn dẹp RAM của Sát hạch trong showPage
     } else {
-        showHome(); // VIRTUAL_SESSION cũng sẽ về lại trang Home
+        showHome(); // Gọi hàm này -> showPage('homePage')
     }
     
-    // 6. Xử lý mở lại Modal cài đặt bộ bài (nếu thoát từ Minigames về)
-    if (pendingModalReturn && currentDeckName !== 'GLOBAL_REVIEW' && currentDeckName !== 'VIRTUAL_SESSION') {
+    // 8. Tự động phục hồi lại Modal cấu hình bộ bài đích (nếu không phải là phiên học ảo hoặc Sát hạch)
+    if (pendingModalReturn && previousDeckName !== 'GLOBAL_REVIEW' && previousDeckName !== 'VIRTUAL_SESSION') {
         setTimeout(() => {
             openStudyOptionsModal(pendingModalReturn.id, pendingModalReturn.name, pendingModalReturn.type);
         }, 150);
