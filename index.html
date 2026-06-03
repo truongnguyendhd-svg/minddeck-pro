@@ -9744,124 +9744,17 @@ function switchToBoostMode() {
     document.getElementById('boostIntroModal').style.display = 'flex';
 }
 async function showCard() {
+    // 1. KIỂM TRA SỰ TỒN TẠI CỦA THẺ TRONG DANH SÁCH (ĐỒNG BỘ)
     const c = sessionCards[currentIndex];
     if (!c) return;
 
-    // =========================================================================
-    // 🚀 [MỚI] GIAI ĐOẠN A: NẠP CHỒNG THẺ KHẨN CẤP (PROMISE CACHING)
-    // Chạy khi người dùng spam Next trúng thẻ chưa kịp tải xong
-    // =========================================================================
-    if (c.isLoaded === false) {
-        showLoading("Đang tải dữ liệu thẻ học...");
-        try {
-            // KIỂM TRA PROMISE CACHE: Thẻ này có đang được tiến trình ngầm tải không?
-            if (prefetchPromises.has(c.id)) {
-                console.log(`MindDeck: Đang xin đi nhờ Promise của thẻ [${c.id}]... 🚗`);
-                // Nếu có, chỉ việc "đứng đợi" tiến trình ngầm hoàn thành (Không bắn API)
-                await prefetchPromises.get(c.id);
-            } else {
-                console.log(`MindDeck: Tải khẩn cấp thẻ [${c.id}] 🚑`);
-                // Nếu không ai tải nó cả (hãn hữu), tự bắn Request khẩn cấp
-                const { data, error } = await sb.from('cards')
-                    .select('id, back, info, tags, progress(id, ef, interval, interval_count, due)')
-                    .eq('id', c.id)
-                    .single();
-                if (error) throw error;
-                
-                const fullCardData = { ...c, ...data, isLoaded: true };
-                sessionCards[currentIndex] = fullCardData;
-                
-                // Đồng bộ ngược vào RAM cache toàn cục
-                if (window.rawDeckCache[currentDeckName]) {
-                    window.rawDeckCache[currentDeckName][currentIndex] = fullCardData;
-                }
-            }
-            hideLoading();
-        } catch (err) {
-            hideLoading();
-            console.error("Lỗi nạp thẻ trực tiếp:", err);
-            showToast("Lỗi kết nối mạng, đang thử nạp lại câu này...");
-            return;
-        }
-    }
-
-    // =========================================================================
-    // 🚀 [MỚI] GIAI ĐOẠN B: TỰ ĐỘNG QUÉT VÀ TẢI NGẦM THEO LÔ (BATCH PREFETCH)
-    // =========================================================================
-    const prefetchBatchSize = 10; // 🟢 Tải một mẻ 10 thẻ thay vì lắt nhắt
-    const safeZone = 3;           // 🟢 Khi nào thẻ dự trữ còn <= 3 thì mới kích hoạt tải
-    
-    let idsToPrefetch = [];
-    let indexesToPrefetch = [];
-    let loadedCardsAhead = 0;
-
-    // 1. Quét về phía trước để xem hàng đợi còn bao nhiêu thẻ ĐÃ TẢI SẴN
-    for (let i = currentIndex + 1; i < sessionCards.length; i++) {
-        if (sessionCards[i].isLoaded) {
-            loadedCardsAhead++;
-        } else if (!prefetchPromises.has(sessionCards[i].id)) {
-            // Nạp sẵn ID vào mảng chờ gộp
-            idsToPrefetch.push(sessionCards[i].id);
-            indexesToPrefetch.push(i);
-        }
-        
-        // Nếu mảng chờ đã gom đủ 1 mẻ (10 thẻ) thì dừng quét
-        if (idsToPrefetch.length >= prefetchBatchSize) break;
-    }
-
-    // 2. CHỈ BẮN API KHI HÀNG ĐỢI SẮP CẠN VÀ CÓ THẺ CẦN TẢI
-    if (loadedCardsAhead <= safeZone && idsToPrefetch.length > 0) {
-        console.log(`[Prefetch] Hàng đợi sắp cạn. Đang tải ngầm lô ${idsToPrefetch.length} thẻ tiếp theo... 📥`);
-        
-        // Tạo Promise tải mảng thẻ
-        const fetchPromise = sb.from('cards')
-            .select('id, back, info, tags, progress(id, ef, interval, interval_count, due)')
-            .in('id', idsToPrefetch)
-            .eq('progress.user_id', currentUser.id)
-            .order('due', { foreignTable: 'progress', ascending: false })
-            .limit(1, { foreignTable: 'progress' })
-            .then(({ data, error }) => {
-                if (!error && data) {
-                    const dataMap = new Map(data.map(item => [item.id, item]));
-                    indexesToPrefetch.forEach(idx => {
-                        const targetId = sessionCards[idx].id;
-                        if (dataMap.has(targetId)) {
-                            const mergedCard = { ...sessionCards[idx], ...dataMap.get(targetId), isLoaded: true };
-                            sessionCards[idx] = mergedCard;
-                            
-                            // 🟢 ĐỒNG BỘ AN TOÀN THEO ID CHỨ KHÔNG DÙNG INDEX TRỘN
-                            if (window.rawDeckCache[currentDeckName]) {
-                                const cacheIdx = window.rawDeckCache[currentDeckName].findIndex(x => x.id === targetId);
-                                if (cacheIdx !== -1) {
-                                    window.rawDeckCache[currentDeckName][cacheIdx] = mergedCard;
-                                }
-                                
-                                // Cập nhật đồng bộ sessionStorage
-                                syncDeckToSessionStorage(currentDeckName, window.rawDeckCache[currentDeckName]);
-                            }
-                        }
-                    });
-                    console.log(`[Prefetch] Đã đồng bộ ngầm lô ${idsToPrefetch.length} thẻ thành công 🧠`);
-                }
-            })
-            .finally(() => {
-                // Nhả khóa
-                idsToPrefetch.forEach(id => prefetchPromises.delete(id));
-            });
-
-        // Lưu Promise vào Map
-        idsToPrefetch.forEach(id => prefetchPromises.set(id, fetchPromise));
-    }
-    // =========================================================================
-
-    showBack = false; // Trả lại cờ trạng thái của code cũ
-
+    // 2. ĐỒNG BỘ GIAO DIỆN & LỚP LAYOUT NGAY LẬP TỨC (0MS - CHỐNG GÃY BỐ CỤC)
     const isCram = (mode === 'cram');
     const isReview = (mode === 'review'); // Trạng thái nhận diện SRS
     const isBoost = (mode === 'boost' || mode === 'assessment');
     const isRemedial = (mode === 'remedial');
     
-    // --- BẬT/TẮT FULLSCREEN MODE (ẨN HEADER KHI CHƠI GAME HOẶC ÔN TẬP SRS) ---
+    // --- BẬT/TẮT FULLSCREEN MODE (ẨN HEADER KHI CHƠI GAME HOẶC LUYỆN SÁT HẠCH) ---
     if (isBoost || isCram || isReview || isRemedial) {
         document.body.classList.add('game-fullscreen-mode');
     } else {
@@ -9874,33 +9767,33 @@ async function showCard() {
     const boostArea = document.getElementById('boostArea');
     if (boostArea) {
         boostArea.classList.toggle('hidden', !isBoost);
-        boostArea.style.display = ''; // 🟢 CHỐT CHẶN: Dọn sạch mọi inline style gây kẹt tàng hình
+        boostArea.style.display = ''; // CHỐT CHẶN: Dọn sạch inline style cũ để tránh lỗi kẹt tàng hình
     }
     
     const summaryPage = document.getElementById('boostSummaryPage');
     if (summaryPage) {
         summaryPage.classList.add('hidden');
-        summaryPage.style.display = ''; // 🟢 CHỐT CHẶN
+        summaryPage.style.display = ''; // CHỐT CHẶN: Trả về hiển thị mặc định
     }
     
     const studyHeaderRow = document.querySelector('.study-header-row');
-    if(studyHeaderRow) studyHeaderRow.style.display = isBoost ? 'none' : 'flex';
+    if (studyHeaderRow) {
+        studyHeaderRow.style.display = isBoost ? 'none' : 'flex';
+    }
     
     const srsGroup = document.getElementById('answer-group-standard');
     
-    // Ẩn cụm nút SRS nếu đang ở chế độ Boost
+    // Ẩn cụm nút SRS nếu đang ở chế độ Boost / Assessment
     if (srsGroup) srsGroup.classList.toggle('hidden', isBoost);
 
-    // ĐIỀU KHIỂN UI RIÊNG CHO CRAM & REVIEW (ĐỒNG BỘ GIAO DIỆN)
+    // ĐIỀU KHIỂN UI RIÊNG CHO CÁC PHÂN HỆ ĐỒNG BỘ
     const progressEl = document.getElementById('progressText');
     const optionsRow = document.getElementById('studyOptionsRow');
     const btnList = document.getElementById('btnStudyList');
     const btnExitCram = document.getElementById('btnExitCram');
-    
-    // Lấy nút Cài đặt mới
     const btnSettings = document.getElementById('btnStudySettings');
 
-    // ÁP DỤNG CHUNG LOGIC ẨN NÚT CHO CRAM, REVIEW VÀ REMEDIAL
+    // ÁP DỤNG LOGIC ẨN/HIỆN NÚT TRÊN THANH CÔNG CỤ
     if (isCram || isReview || isRemedial) {
         // Ẩn nút Danh sách, Hiện nút Thoát
         if (btnList) btnList.classList.add('hidden');
@@ -9909,7 +9802,7 @@ async function showCard() {
         // Ẩn nguyên hàng chứa nút Boost dưới đáy
         if (optionsRow) optionsRow.classList.add('hidden');
         
-        // Hiện nút cài đặt (Trừ phi đang bị thi lại - remedial)
+        // Hiện nút cài đặt (Trừ phi đang ở chế độ thi lại hoặc đánh giá sát hạch)
         if (btnSettings) btnSettings.classList.toggle('hidden', mode === 'remedial' || mode === 'assessment');
         
     } else {
@@ -9930,14 +9823,116 @@ async function showCard() {
         }
     }
 
-    // 6. Render nội dung thẻ theo logic riêng của từng mode
+    showBack = false; // Trả lại cờ trạng thái lật thẻ mặc định
+
+    // 3. GIAI ĐOẠN A: NẠP CHỒNG THẺ KHẨN CẤP (PROMISE CACHING - BẤT ĐỒNG BỘ)
+    // Thực thi khi người dùng spam nút chuyển thẻ trước khi hàng đợi kịp tải xong
+    if (c.isLoaded === false) {
+        showLoading("Đang tải dữ liệu thẻ học...");
+        try {
+            // KIỂM TRA PROMISE CACHE: Thẻ này có đang được tiến trình ngầm tải không?
+            if (prefetchPromises.has(c.id)) {
+                console.log(`MindDeck: Đang xin đi nhờ Promise của thẻ [${c.id}]... 🚗`);
+                // Nếu có, chỉ việc đứng đợi tiến trình ngầm hoàn thành (Không bắn thêm API trùng lặp)
+                await prefetchPromises.get(c.id);
+            } else {
+                console.log(`MindDeck: Tải khẩn cấp thẻ [${c.id}] 🚑`);
+                // Nếu không có tiến trình nào đang tải, tự khởi chạy yêu cầu khẩn cấp lên Cloud
+                const { data, error } = await sb.from('cards')
+                    .select('id, back, info, tags, progress(id, ef, interval, interval_count, due)')
+                    .eq('id', c.id)
+                    .single();
+                if (error) throw error;
+                
+                const fullCardData = { ...c, ...data, isLoaded: true };
+                sessionCards[currentIndex] = fullCardData;
+                
+                // Đồng bộ ngược kết quả chi tiết vào bộ nhớ RAM cache toàn cục
+                if (window.rawDeckCache[currentDeckName]) {
+                    window.rawDeckCache[currentDeckName][currentIndex] = fullCardData;
+                }
+            }
+            hideLoading();
+        } catch (err) {
+            hideLoading();
+            console.error("Lỗi nạp thẻ trực tiếp:", err);
+            showToast("Lỗi kết nối mạng, đang thử nạp lại câu này...");
+            return;
+        }
+    }
+
+    // 4. GIAI ĐOẠN B: TỰ ĐỘNG QUÉT VÀ TẢI NGẦM THEO LÔ (BATCH PREFETCH)
+    const prefetchBatchSize = 10; // Tải một mẻ 10 thẻ thay vì gọi lắt nhắt từng câu
+    const safeZone = 3;           // Khi số lượng thẻ dự trữ đã tải sẵn còn dưới mốc này thì mới kích hoạt
+    
+    let idsToPrefetch = [];
+    let indexesToPrefetch = [];
+    let loadedCardsAhead = 0;
+
+    // Quét các thẻ phía trước để xác định số lượng thẻ đã loaded chi tiết
+    for (let i = currentIndex + 1; i < sessionCards.length; i++) {
+        if (sessionCards[i].isLoaded) {
+            loadedCardsAhead++;
+        } else if (!prefetchPromises.has(sessionCards[i].id)) {
+            // Nạp sẵn ID chưa tải vào mảng chờ gộp để truy vấn theo lô
+            idsToPrefetch.push(sessionCards[i].id);
+            indexesToPrefetch.push(i);
+        }
+        
+        if (idsToPrefetch.length >= prefetchBatchSize) break;
+    }
+
+    // Chỉ thực hiện gọi mạng nếu hàng đợi sắp cạn và có thẻ cần được nạp
+    if (loadedCardsAhead <= safeZone && idsToPrefetch.length > 0) {
+        console.log(`[Prefetch] Hàng đợi sắp cạn. Đang tải ngầm lô ${idsToPrefetch.length} thẻ tiếp theo... 📥`);
+        
+        const fetchPromise = sb.from('cards')
+            .select('id, back, info, tags, progress(id, ef, interval, interval_count, due)')
+            .in('id', idsToPrefetch)
+            .eq('progress.user_id', currentUser.id)
+            .order('due', { foreignTable: 'progress', ascending: false })
+            .limit(1, { foreignTable: 'progress' })
+            .then(({ data, error }) => {
+                if (!error && data) {
+                    const dataMap = new Map(data.map(item => [item.id, item]));
+                    indexesToPrefetch.forEach(idx => {
+                        const targetId = sessionCards[idx].id;
+                        if (dataMap.has(targetId)) {
+                            const mergedCard = { ...sessionCards[idx], ...dataMap.get(targetId), isLoaded: true };
+                            sessionCards[idx] = mergedCard;
+                            
+                            // Đồng bộ trực tiếp vào RAM cache toàn cục
+                            if (window.rawDeckCache[currentDeckName]) {
+                                const cacheIdx = window.rawDeckCache[currentDeckName].findIndex(x => x.id === targetId);
+                                if (cacheIdx !== -1) {
+                                    window.rawDeckCache[currentDeckName][cacheIdx] = mergedCard;
+                                }
+                                
+                                // Ghi nhận bộ nhớ đệm xuống sessionStorage phòng trường hợp F5
+                                syncDeckToSessionStorage(currentDeckName, window.rawDeckCache[currentDeckName]);
+                            }
+                        }
+                    });
+                    console.log(`[Prefetch] Đã đồng bộ ngầm lô ${idsToPrefetch.length} thẻ thành công 🧠`);
+                }
+            })
+            .finally(() => {
+                // Nhả khóa tiến trình cho các ID đã xử lý xong
+                idsToPrefetch.forEach(id => prefetchPromises.delete(id));
+            });
+
+        // Đánh dấu các ID này đang nằm trong hàng đợi xử lý của Promise
+        idsToPrefetch.forEach(id => prefetchPromises.set(id, fetchPromise));
+    }
+
+    // 5. RENDER NỘI DUNG THẺ THEO CHẾ ĐỘ ĐANG LUYỆN TẬP
     if (isBoost) {
         renderBoostCard();
     } else {
         renderStudy();
     }
     
-    // 7. Cập nhật màu giao diện (Dark/Light mode) dựa trên trạng thái đã lưu
+    // 6. CẬP NHẬT MÀU GIAO DIỆN (DARK/LIGHT) THEO THIẾT LẬP ĐÃ LƯU
     if (typeof applyCardTheme === 'function') applyCardTheme();
 }
 
@@ -19175,19 +19170,19 @@ async function processBatchAssessmentResults() {
         // ==============================================================
         // 🚀 CẬP NHẬT TRỰC TIẾP KANJI VÀ NGỮ PHÁP VÀO RAM (OPTIMISTIC UI)
         // ==============================================================
-         if (!currentUser.kanji_peaks) currentUser.kanji_peaks = {}; // Đảm bảo object tồn tại
+        if (!currentUser.kanji_peaks) currentUser.kanji_peaks = {}; // Đảm bảo object tồn tại
 
         const kMatches = card.front.match(/[\u4e00-\u9faf]/g) || [];
         kMatches.forEach(k => {
             let currentInt = userKanjiMasteryMap[k] || 0;
-            let currentPeak = currentUser.kanji_peaks[k] || 0; // 🟢 FIX: Lấy kỷ lục hiện tại
+            let currentPeak = currentUser.kanji_peaks[k] || 0; // Lấy kỷ lục hiện tại
             
             if (q < 3) { 
                 let pen = currentInt > 45 ? 45 : (currentInt > 20 ? 20 : (currentInt > 6 ? 6 : 1));
                 userKanjiMasteryMap[k] = pen;
             } else {
                 userKanjiMasteryMap[k] = Math.max(currentInt, interval);
-                currentUser.kanji_peaks[k] = Math.max(currentPeak, interval); // 🟢 FIX: Phá kỷ lục
+                currentUser.kanji_peaks[k] = Math.max(currentPeak, interval); // Phá kỷ lục
             }
             hasMasteryChanges = true;
         });
@@ -19199,11 +19194,11 @@ async function processBatchAssessmentResults() {
                 const cleanPoint = g.grammar_point.replace(/～/g, '');
                 if (card.front.includes(cleanPoint)) {
                     let currentInt = userGrammarMasteryMap[g.grammar_point] || 0;
-                    let currentPeak = currentUser.grammar_peaks[g.grammar_point] || 0; // 🟢 FIX
+                    let currentPeak = currentUser.grammar_peaks[g.grammar_point] || 0; 
                     
                     if (q >= 3) {
                         userGrammarMasteryMap[g.grammar_point] = Math.max(currentInt, interval);
-                        currentUser.grammar_peaks[g.grammar_point] = Math.max(currentPeak, interval); // 🟢 FIX
+                        currentUser.grammar_peaks[g.grammar_point] = Math.max(currentPeak, interval); 
                     }
                     hasMasteryChanges = true;
                 }
@@ -19227,7 +19222,7 @@ async function processBatchAssessmentResults() {
         try {
             const mySessionId = localStorage.getItem(`current_session_id_${currentUser.id}`);
             
-            // 🌟 Gọi duy nhất 1 RPC gộp mới để hoàn tất quy trình
+            // Gọi duy nhất 1 RPC gộp mới để hoàn tất quy trình
             const { data: rpcData, error } = await sb.rpc('process_assessment_results_v2', {
                 p_user_id: currentUser.id,
                 p_session_id: mySessionId,
@@ -19240,6 +19235,9 @@ async function processBatchAssessmentResults() {
 
             clearAssessmentStateFromLocal();
             hasUnsavedChanges = false;
+
+            // 🟢 FIX: Giải phóng cache RAM Sát hạch để tránh lặp lại hàng đợi cũ
+            window.invalidateDeckCache('GLOBAL_REVIEW');
 
             if (hasMasteryChanges) {
                 localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap || {}));
@@ -19254,7 +19252,6 @@ async function processBatchAssessmentResults() {
             showToast("✅ Đã lưu tiến độ và chuyển thẻ hổng kiến thức vào bộ Remedial thành công!");
 
         } catch (err) {
-            hideLoading();
             console.error("Lỗi đồng bộ ngầm Sát hạch:", err);
             
             sessionCards.forEach(card => card.isProcessed = false);
@@ -21375,6 +21372,7 @@ function saveAssessmentStateToLocal() {
 
 function clearAssessmentStateFromLocal() {
     if (!currentUser) return;
+    clearTimeout(autoSaveDebounceTimer); // 🟢 FIX: Triệt tiêu bộ đếm thời gian đang chạy ngầm
     localStorage.removeItem(`minddeck_assessment_save_${currentUser.id}`);
 }
 // ================= AUTOSAVE CHO BOOST MODE (CHỐNG F5) =================
@@ -21400,6 +21398,7 @@ function saveBoostStateToLocal() {
 
 function clearBoostStateFromLocal() {
     if (!currentUser) return;
+    clearTimeout(autoSaveDebounceTimer); // 🟢 FIX: Triệt tiêu bộ đếm thời gian đang chạy ngầm
     localStorage.removeItem(`minddeck_boost_save_${currentUser.id}`);
 }
 // hết================= AUTOSAVE CHO BOOST MODE (CHỐNG F5) =================
