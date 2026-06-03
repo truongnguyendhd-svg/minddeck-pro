@@ -21450,24 +21450,36 @@ async function resumeAssessmentFromLocal(data) {
     history.pushState(null, null, '#study/GLOBAL_REVIEW/assessment');
     try {
         if (data.isReadyToSubmit) {
-            sessionCards = data.sessionCards;
-            boostState = data.boostState;
+            // 🟢 KHẮC PHỤC LỖI KẸT PHIÊN: Giải phóng trạng thái isProcessed về false
+            // để hàm processBatchAssessmentResults có thể tính toán lại chính xác danh sách payloads gửi lên Cloud
+            sessionCards = data.sessionCards.map(card => ({
+                ...card,
+                isProcessed: false
+            }));
+            
+            // Khôi phục và làm trống danh sách phân loại để tránh bị nhân đôi dữ liệu khi tính toán lại
+            boostState = {
+                ...data.boostState,
+                passedCards: [],
+                remedialCards: []
+            };
+            
             mode = 'assessment';
             currentDeckName = 'GLOBAL_REVIEW';
+            
             // 🟢 FIX 2: BẮT BUỘC PHẢI CHUYỂN TRANG TRƯỚC KHI NỘP BÀI
-            // Nếu không, màn hình Tổng kết sẽ bị vẽ trong trạng thái tàng hình
             showPage('reviewPage'); 
             showLoading("Đang nộp lại kết quả sát hạch bị gián đoạn do rớt mạng...");
             return processBatchAssessmentResults(); // Nộp thẳng lên DB, bỏ qua UI
         }
-        // 1. Phục hồi dữ liệu RAM
+        
+        // Phục hồi dữ liệu RAM bình thường cho các phiên chưa hoàn thành xong 3 chặng
         sessionCards = data.sessionCards;
         boostState = data.boostState;
         currentIndex = data.currentIndex;
         mode = 'assessment';
         currentDeckName = 'GLOBAL_REVIEW';
 
-        // 2. Mở khóa Audio iOS (FIX: Thay chuỗi rỗng bằng chữ 'あ')
         try {
             if ('speechSynthesis' in window) {
                 let unlockAudio = new SpeechSynthesisUtterance('あ');
@@ -21478,7 +21490,6 @@ async function resumeAssessmentFromLocal(data) {
             console.warn("Bỏ qua lỗi đánh thức Audio trên iOS");
         }
 
-        // 3. Phục hồi UI
         updateBreadcrumb([
             { label: 'Tổng quan', action: 'showDashboard()' },
             { label: 'Sát hạch: ' + sessionCards.length + ' Thẻ (Phục hồi)' }
@@ -21489,7 +21500,6 @@ async function resumeAssessmentFromLocal(data) {
         document.getElementById('boostArea').classList.remove('hidden');
         showPage('reviewPage');
 
-        // 4. Kích hoạt thẻ hiện tại
         showCard();
         hideLoading();
         showToast("Đã khôi phục tiến trình! 🚀");
