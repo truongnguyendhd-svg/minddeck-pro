@@ -19102,8 +19102,7 @@ async function processBatchAssessmentResults() {
     }
 
     let payloads = [];
-    
-    // 🟢 THÊM CỜ ĐÁNH DẤU CÓ SỰ THAY ĐỔI KANJI/NGỮ PHÁP TRONG RAM
+    let failedCardIds = []; // Mảng thu thập ID các thẻ làm sai
     let hasMasteryChanges = false;
 
     sessionCards.forEach(card => {
@@ -19131,6 +19130,9 @@ async function processBatchAssessmentResults() {
             ef = Math.max(1.3, ef - 0.2); 
             interval_count = 0; 
             interval = 1; 
+            
+            // Ghi nhận ID thẻ bị làm sai
+            failedCardIds.push(card.id);
         }
         
         const due = new Date(); 
@@ -19194,45 +19196,36 @@ async function processBatchAssessmentResults() {
         try {
             const mySessionId = localStorage.getItem(`current_session_id_${currentUser.id}`);
             
-            // Gọi RPC
-            const { data: rpcData, error } = await sb.rpc('upsert_progress_safe', {
+            // 🌟 Gọi duy nhất 1 RPC gộp mới để hoàn tất quy trình
+            const { data: rpcData, error } = await sb.rpc('process_assessment_results_v2', {
                 p_user_id: currentUser.id,
                 p_session_id: mySessionId,
-                p_payload: payloads
+                p_payload: payloads,
+                p_failed_card_ids: failedCardIds 
             });
             
             if (error) throw error;
             if (rpcData && rpcData.status === 'error') throw new Error(rpcData.message); 
 
-            // Giải phóng nháp Sát hạch
             clearAssessmentStateFromLocal();
             hasUnsavedChanges = false;
 
-            // Lưu RAM Cache cục bộ
             if (hasMasteryChanges) {
-                // 🟢 BẢN VÁ LỖI: Bọc || {} chống lỗi undefined string
                 localStorage.setItem(`minddeck_kanji_cache_${currentUser.id}`, JSON.stringify(userKanjiMasteryMap || {}));
                 localStorage.setItem(`minddeck_grammar_cache_${currentUser.id}`, JSON.stringify(userGrammarMasteryMap || {}));
                 localStorage.setItem(`minddeck_kanji_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser?.kanji_peaks || {}));
                 localStorage.setItem(`minddeck_grammar_peaks_cache_${currentUser.id}`, JSON.stringify(currentUser?.grammar_peaks || {}));
-                
                 sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
             }
 
-            if (boostState.remedialCards.length > 0) {
-                await saveToRemedialDeck(boostState.remedialCards);
-            }
             forceDashboardRefresh = true;
 
-            // Cập nhật checkpoint vi sai sau khi sát hạch hoàn tất
             if (rpcData && rpcData.new_timestamp) {
                 localStorage.setItem(`minddeck_delta_sync_time_${currentUser.id}`, rpcData.new_timestamp);
-                console.log(`[Zero-Bloat Sát hạch] Đã đồng bộ mốc thời gian vi sai: ${rpcData.new_timestamp}`);
             }
-            showToast("✅ Đã đồng bộ kết quả Sát hạch lên máy chủ thành công!");
+            showToast("✅ Đã lưu tiến độ và chuyển thẻ hổng kiến thức vào bộ Remedial thành công!");
 
         } catch (err) {
-            // ... (Phần logic xử lý lỗi và catch ở dưới giữ nguyên của bạn)
             hideLoading();
             console.error("Lỗi đồng bộ ngầm Sát hạch:", err);
             
