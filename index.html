@@ -19831,11 +19831,40 @@ function openChangeGameModal() {
 }
 
 // Xử lý khi chọn "Thoát luôn"
-function executeExitBoost() {
+async function executeExitBoost() {
     closeModal('boostExitModal');
-    if (mode === 'assessment') endAssessmentSession();
-    else {
-        clearBoostStateFromLocal(); // 🟢 THÊM DÒNG NÀY
+    if (mode === 'assessment') {
+        showLoading("Đang lưu tạm tiến trình sát hạch...");
+        
+        // 1. Thực hiện lưu trạng thái Sát hạch hiện tại xuống LocalStorage
+        saveAssessmentStateToLocal();
+        
+        // Chờ một khoảng trễ nhỏ để đảm bảo tác vụ ghi ổ cứng hoàn tất
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // 2. Dọn dẹp các tiến trình âm thanh và vẽ nháp
+        if (typeof window.shodoCleanup === 'function') {
+            window.shodoCleanup();
+        }
+        if (typeof prefetchPromises !== 'undefined') {
+            prefetchPromises.clear();
+        }
+        
+        // 3. Reset các biến trạng thái phiên học dở dang
+        isVirtualSession = false;
+        sessionStorage.removeItem('minddeck_virtual_cards');
+        hasUnsavedChanges = false;
+        sessionStorage.removeItem('minddeck_cram_level');
+        sessionStorage.removeItem('minddeck_prev_mode');
+        
+        // 🧹 Đặt currentDeckName thành rỗng trước khi chuyển trang để tránh kích hoạt dọn dẹp nháp ngầm
+        currentDeckName = ""; 
+        
+        hideLoading();
+        showDashboard(); // Chuyển về Dashboard chính
+        showToast("💾 Đã lưu tạm tiến trình sát hạch thành công!");
+    } else {
+        clearBoostStateFromLocal();
         endBoostSession();
     }
 }
