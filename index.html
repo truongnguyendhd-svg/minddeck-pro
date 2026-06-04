@@ -8343,7 +8343,7 @@ let isSrsSubmitting = false;
 let lastDashboardSync = 0;
 let cachedDueCount = 0;
 let cachedVocabStudiedCount = 0; // 🟢 THÊM MỚI: Biến cache lưu trữ lượng Flashcard đã học
-let forceDashboardRefresh = true; // Mặc định bằng true
+let forceDashboardRefresh = false; // Mặc định false, chỉ bật khi user thao tác dữ liệu
 let isTabLeader = false;      // Cờ đánh dấu Tab hiện tại có phải là Leader không
 let leaderTimeout = null;     // Bộ đếm thời gian chờ phản hồi bầu cử
 /* ================= 3. UTILITIES ================= */
@@ -8687,21 +8687,32 @@ async function loadDashboardData() {
         const userId = currentUser.id;
         const nowMs = Date.now();
 
-        // Đọc mốc đồng bộ vi sai cuối cùng lưu dưới máy
+        // 1. Đọc mốc đồng bộ vi sai cuối cùng lưu dưới máy
         let lastSyncTime = localStorage.getItem(`minddeck_delta_sync_time_${userId}`);
         
-        // Chuẩn hóa mốc thời gian để phòng lỗi NaN
         if (lastSyncTime) {
             let safeDateStr = lastSyncTime.trim().replace(' ', 'T');
             if (safeDateStr.endsWith('+00')) safeDateStr = safeDateStr.replace('+00', 'Z');
             const parsedDate = new Date(safeDateStr);
             lastSyncTime = isNaN(parsedDate.getTime()) ? '2020-01-01T00:00:00.000Z' : parsedDate.toISOString();
         } else {
-            lastSyncTime = '2020-01-01T00:00:00.000Z'; // Lần đầu tiên tải
+            lastSyncTime = '2020-01-01T00:00:00.000Z'; 
         }
 
-        // 1. GỌI SIÊU HÀM GỘP (3 TRONG 1) - TIẾT KIỆM TỐI ĐA BĂNG THÔNG VÀ KẾT NỐI
-        if (forceDashboardRefresh || (nowMs - lastDashboardSync) > 60000) {
+        // =========================================================
+        // 🟢 CƠ CHẾ CHỐNG SPAM F5 THÔNG MINH BẰNG SESSION STORAGE
+        // =========================================================
+        const dashSyncKey = `minddeck_dash_sync_${userId}`;
+        const lastDashboardSync = parseInt(sessionStorage.getItem(dashSyncKey) || "0");
+        
+        // Kiểm tra xem máy có bị xóa LocalStorage không
+        const isCacheEmpty = Object.keys(globalDeckStatsMap).length === 0 && !localStorage.getItem(`minddeck_decks_stats_${userId}`);
+
+        // 🟢 GỌI API KHI:
+        // 1. Cache rỗng (Máy mới)
+        // 2. forceDashboardRefresh = true (Vừa học xong/xóa/sửa thẻ)
+        // 3. Mới mở Tab HOẶC đã quá 15 phút kể từ lần gọi cuối cùng
+        if (isCacheEmpty || forceDashboardRefresh || (nowMs - lastDashboardSync) > 15 * 60 * 1000) {
             console.log("MindDeck: 🚀 Chạy siêu đồng bộ gộp tại Dashboard...");
             
             const { data, error } = await sb.rpc('get_dashboard_init_data', { 
@@ -8713,8 +8724,6 @@ async function loadDashboardData() {
 
             // A. ÁP DỤNG THAY ĐỔI VI SAI (DELTA PATCH) VÀO RAM VÀ LOCAL STORAGE
             const deltas = data.mastery_changes;
-            let hasMasteryChanges = false;
-
             if (deltas && deltas.length > 0) {
                 console.log(`MindDeck: Nhận về ${deltas.length} cập nhật vi sai.`);
                 if (!currentUser.kanji_peaks) currentUser.kanji_peaks = {};
@@ -8731,36 +8740,36 @@ async function loadDashboardData() {
                         currentUser.grammar_peaks[d.key] = d.peak_val;
                     }
                 });
-                hasMasteryChanges = true;
             }
 
             // B. ĐỒNG BỘ MỤC TIÊU VÀ SỐ LIỆU NGÀY
             currentUser.study_goal = data.study_goal;
             currentUser.daily_stats = data.daily_stats;
-            // 🟢 THÊM MỚI TẠI ĐÂY: HỨNG DỮ LIỆU ĐẾM THẺ VÀO RAM
+            
             if (data.deck_stats) {
-                globalDeckStatsMap = {}; // Reset RAM
+                globalDeckStatsMap = {}; 
                 data.deck_stats.forEach(stat => {
                     globalDeckStatsMap[stat.id] = stat;
                 });
-                // Lưu xuống ổ cứng (Dự phòng F5)
                 localStorage.setItem(`minddeck_decks_stats_${userId}`, JSON.stringify(globalDeckStatsMap));
             }
 
             // C. LƯU TOÀN BỘ CACHE MỚI XUỐNG LOCALSTORAGE
             saveAllToLocalStorage(userId);
 
-            // D. CHỐT SỔ MỐC ĐỒNG BỘ (Bây giờ đã tuyệt đối an toàn vì tải cùng lượt với data)
+            // D. CHỐT SỔ MỐC ĐỒNG BỘ MỚI NHẤT
             localStorage.setItem(`minddeck_delta_sync_time_${userId}`, data.server_now);
 
-            // E. CẬP NHẬT SỐ LIỆU ĐỂ VẼ BẢN ĐỒ
+            // E. CẬP NHẬT CON SỐ LÊN GIAO DIỆN
             cachedDueCount = data.due_count || 0;
             cachedVocabStudiedCount = data.studied_count || 0;
             
-            lastDashboardSync = nowMs;
+            // 🟢 CHỐT ĐIỀU KIỆN CHỐNG SPAM VÀO SESSION STORAGE (Sống sót qua F5)
+            sessionStorage.setItem(dashSyncKey, nowMs.toString());
             forceDashboardRefresh = false; 
+
         } else {
-            console.log("MindDeck: Sử dụng dữ liệu Dashboard từ RAM (Bỏ qua API)");
+            console.log("MindDeck: 🛡️ Chống spam F5 - Sử dụng dữ liệu Dashboard từ RAM/Local Cache (0 Bytes)");
         }
         
         // 2. Cập nhật UI Thẻ cần ôn
