@@ -8687,7 +8687,13 @@ async function loadDashboardData() {
         const userId = currentUser.id;
         const nowMs = Date.now();
 
-        // 1. Đọc mốc đồng bộ vi sai cuối cùng lưu dưới máy
+        // 🟢 THÊM MỚI: Khôi phục 2 con số thống kê từ ổ cứng (Tránh bị RAM reset về 0)
+        const countsCacheKey = `minddeck_dash_counts_${userId}`;
+        const savedCounts = JSON.parse(localStorage.getItem(countsCacheKey) || '{"due": 0, "studied": 0}');
+        cachedDueCount = savedCounts.due;
+        cachedVocabStudiedCount = savedCounts.studied;
+
+        // Đọc mốc đồng bộ vi sai cuối cùng lưu dưới máy
         let lastSyncTime = localStorage.getItem(`minddeck_delta_sync_time_${userId}`);
         
         if (lastSyncTime) {
@@ -8699,19 +8705,11 @@ async function loadDashboardData() {
             lastSyncTime = '2020-01-01T00:00:00.000Z'; 
         }
 
-        // =========================================================
-        // 🟢 CƠ CHẾ CHỐNG SPAM F5 THÔNG MINH BẰNG SESSION STORAGE
-        // =========================================================
         const dashSyncKey = `minddeck_dash_sync_${userId}`;
         const lastDashboardSync = parseInt(sessionStorage.getItem(dashSyncKey) || "0");
         
-        // Kiểm tra xem máy có bị xóa LocalStorage không
         const isCacheEmpty = Object.keys(globalDeckStatsMap).length === 0 && !localStorage.getItem(`minddeck_decks_stats_${userId}`);
 
-        // 🟢 GỌI API KHI:
-        // 1. Cache rỗng (Máy mới)
-        // 2. forceDashboardRefresh = true (Vừa học xong/xóa/sửa thẻ)
-        // 3. Mới mở Tab HOẶC đã quá 15 phút kể từ lần gọi cuối cùng
         if (isCacheEmpty || forceDashboardRefresh || (nowMs - lastDashboardSync) > 15 * 60 * 1000) {
             console.log("MindDeck: 🚀 Chạy siêu đồng bộ gộp tại Dashboard...");
             
@@ -8722,7 +8720,6 @@ async function loadDashboardData() {
         
             if (error) throw error;
 
-            // A. ÁP DỤNG THAY ĐỔI VI SAI (DELTA PATCH) VÀO RAM VÀ LOCAL STORAGE
             const deltas = data.mastery_changes;
             if (deltas && deltas.length > 0) {
                 console.log(`MindDeck: Nhận về ${deltas.length} cập nhật vi sai.`);
@@ -8742,7 +8739,6 @@ async function loadDashboardData() {
                 });
             }
 
-            // B. ĐỒNG BỘ MỤC TIÊU VÀ SỐ LIỆU NGÀY
             currentUser.study_goal = data.study_goal;
             currentUser.daily_stats = data.daily_stats;
             
@@ -8754,17 +8750,14 @@ async function loadDashboardData() {
                 localStorage.setItem(`minddeck_decks_stats_${userId}`, JSON.stringify(globalDeckStatsMap));
             }
 
-            // C. LƯU TOÀN BỘ CACHE MỚI XUỐNG LOCALSTORAGE
             saveAllToLocalStorage(userId);
-
-            // D. CHỐT SỔ MỐC ĐỒNG BỘ MỚI NHẤT
             localStorage.setItem(`minddeck_delta_sync_time_${userId}`, data.server_now);
 
-            // E. CẬP NHẬT CON SỐ LÊN GIAO DIỆN
+            // 🟢 THÊM MỚI: Cập nhật biến RAM và Lưu ngay xuống ổ cứng
             cachedDueCount = data.due_count || 0;
             cachedVocabStudiedCount = data.studied_count || 0;
+            localStorage.setItem(countsCacheKey, JSON.stringify({ due: cachedDueCount, studied: cachedVocabStudiedCount }));
             
-            // 🟢 CHỐT ĐIỀU KIỆN CHỐNG SPAM VÀO SESSION STORAGE (Sống sót qua F5)
             sessionStorage.setItem(dashSyncKey, nowMs.toString());
             forceDashboardRefresh = false; 
 
@@ -8772,7 +8765,7 @@ async function loadDashboardData() {
             console.log("MindDeck: 🛡️ Chống spam F5 - Sử dụng dữ liệu Dashboard từ RAM/Local Cache (0 Bytes)");
         }
         
-        // 2. Cập nhật UI Thẻ cần ôn
+        // Cập nhật UI Thẻ cần ôn
         document.getElementById('dashDueCount').innerText = cachedDueCount;
 
         const btnReview = document.getElementById('btnGlobalReview');
@@ -8790,7 +8783,6 @@ async function loadDashboardData() {
             }
         }
         
-        // 3. Tự động dọn dẹp và Vẽ lại toàn bộ giao diện
         await autoCleanRemedialCards(); 
         
         await Promise.all([
