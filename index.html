@@ -8216,6 +8216,27 @@ body.shadowing-mode #shadowingPage {
     </div>
 </div>
 <script>
+// Lắng nghe và quản lý trạng thái rảnh (Idle/Suspended)
+window.lastUserActivity = Date.now();
+window.isIdleSuspended = false; // Cờ đánh dấu đã tạm ngắt Polling do treo máy lâu
+
+const recordUserActivity = async () => {
+    const now = Date.now();
+    const idleTime = now - window.lastUserActivity;
+    window.lastUserActivity = now;
+
+    // 🟢 KIỂM TRA LƯỜI (Lazy Wake-up): Nếu thức dậy sau khi treo máy lâu (> 15 phút)
+    if (window.isIdleSuspended && idleTime > 15 * 60 * 1000) {
+        window.isIdleSuspended = false;
+        console.log("[Session Sync] Phát hiện hoạt động trở lại sau khi treo máy. Kích hoạt kiểm tra khẩn cấp...");
+        await checkActiveSessionImmediately(); // Kiểm tra nóng ngay lập tức
+    }
+};
+
+// Đăng ký lắng nghe sự kiện
+['click', 'keydown', 'touchstart', 'mousemove'].forEach(evt => {
+    document.addEventListener(evt, recordUserActivity, { passive: true });
+});
 // ==========================================
 // HỆ THỐNG ĐỒNG BỘ CACHE & ĐIỀU HƯỚNG MỚI
 // ==========================================
@@ -9113,13 +9134,37 @@ const SESSION_CHECK_COOLDOWN = 15 * 60 * 1000; // 15 phút (Chốt chặn tĩnh 
 const POLLING_INTERVAL = 3 * 60 * 1000;         // 3 phút (Vòng lặp ngầm dự phòng khi rớt WebSocket)
 
 // 2. CẬP NHẬT LẠI HÀM BẢO VỆ PHIÊN
+// Hàm thực hiện 1 truy vấn kiểm tra duy nhất lên Database
+async function checkActiveSessionImmediately() {
+    if (!currentUser) return;
+    const sessionKey = `current_session_id_${currentUser.id}`;
+    const localSessionId = localStorage.getItem(sessionKey);
+    try {
+        const { data: remoteSession, error } = await sb.from('active_sessions')
+            .select('session_id')
+            .eq('user_id', currentUser.id)
+            .maybeSingle();
+
+        if (!error && remoteSession && remoteSession.session_id !== localSessionId) {
+            console.warn("MindDeck: Phát hiện phiên đăng nhập mới từ thiết bị khác!");
+            if (window.sessionCheckInterval) {
+                clearInterval(window.sessionCheckInterval);
+                window.sessionCheckInterval = null;
+            }
+            handleForcedLogout();
+        }
+    } catch (e) {
+        console.warn("Lỗi kiểm tra session khẩn cấp:", e);
+    }
+}
+
+// Cấu hình lại vòng lặp bảo vệ phiên đăng nhập
 async function setupSingleSessionProtection() {
     if (!currentUser) return;
 
     const sessionKey = `current_session_id_${currentUser.id}`;
     let localSessionId = localStorage.getItem(sessionKey);
     
-    // TRƯỜNG HỢP 1: TẠO PHIÊN NẾU LÀ MÁY MỚI TINH
     if (!localSessionId) {
         localSessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         localStorage.setItem(sessionKey, localSessionId);
@@ -9131,34 +9176,17 @@ async function setupSingleSessionProtection() {
                 updated_at: new Date().toISOString()
             });
     } else {
-        // TRƯỜNG HỢP 2: CHỐT CHẶN WAKE-UP TĨNH KÈM COOLDOWN (Sử dụng SESSION_CHECK_COOLDOWN)
-        // Chuyển sang sử dụng sessionStorage để giữ mốc thời gian khi nhấn F5
         const cooldownKey = `minddeck_last_session_check_${currentUser.id}`;
         const cachedLastCheck = sessionStorage.getItem(cooldownKey);
         const lastSessionCheckTime = cachedLastCheck ? parseInt(cachedLastCheck, 10) : 0;
         const now = Date.now();
         
         if (now - lastSessionCheckTime > SESSION_CHECK_COOLDOWN) {
-            try {
-                const { data: remoteSession } = await sb.from('active_sessions')
-                    .select('session_id')
-                    .eq('user_id', currentUser.id)
-                    .single();
-                
-                // Lưu lại thời điểm check thành công vào sessionStorage
-                sessionStorage.setItem(cooldownKey, now.toString());
-                    
-                if (remoteSession && remoteSession.session_id !== localSessionId) {
-                    console.warn("MindDeck: Phát hiện Session bị chiếm quyền khi khởi chạy!");
-                    return handleForcedLogout(); 
-                }
-            } catch (e) {
-                console.warn("Lỗi kiểm tra session tĩnh:", e);
-            }
+            await checkActiveSessionImmediately();
+            sessionStorage.setItem(cooldownKey, now.toString());
         }
     }
 
-    // TRƯỜNG HỢP 3: THIẾT LẬP VÒNG LẶP CHẠN NGẦM TUẦN HOÀN DỰ PHÒNG
     if (window.sessionCheckInterval) {
         clearInterval(window.sessionCheckInterval);
     }
@@ -9166,25 +9194,29 @@ async function setupSingleSessionProtection() {
     window.sessionCheckInterval = setInterval(async () => {
         if (document.hidden) return;
 
+        const idleTime = Date.now() - (window.lastUserActivity || 0);
+
+        // 🟢 CHỐT CHẶN 1: Hoãn kiểm tra nếu mới tương tác gần đây (dưới 5 phút)
+        if (idleTime < 5 * 60 * 1000) { 
+            return; 
+        }
+
+        // 🟢 CHỐT CHẶN 2: NGẮT HOÀN TOÀN Polling nếu treo máy quá lâu (trên 15 phút)
+        if (idleTime > 15 * 60 * 1000) {
+            if (!window.isIdleSuspended) {
+                window.isIdleSuspended = true;
+                console.log("[Session Sync] Treo máy quá 15 phút. Đã tạm ngắt Polling để bảo vệ tài nguyên.");
+            }
+            return; // Đứng im, không gửi bất kỳ yêu cầu mạng nào nữa!
+        }
+
+        // Nếu có kết nối Realtime ổn định thì không cần chạy Polling dự phòng
         if (realtimeSessionChannel && realtimeSessionChannel.state === 'joined') {
             return; 
         }
 
-        try {
-            const { data: remoteSession, error } = await sb.from('active_sessions')
-                .select('session_id')
-                .eq('user_id', currentUser.id)
-                .maybeSingle();
-
-            if (!error && remoteSession && remoteSession.session_id !== localSessionId) {
-                console.warn("MindDeck (Polling Fallback): Phát hiện phiên hoạt động mới từ thiết bị khác!");
-                clearInterval(window.sessionCheckInterval);
-                window.sessionCheckInterval = null;
-                handleForcedLogout();
-            }
-        } catch (e) {
-            console.warn("Lỗi kiểm tra session tuần hoàn:", e);
-        }
+        // Nếu rớt Realtime và đang trong khung rảnh rỗi từ 5 đến 15 phút -> Chạy Polling định kỳ
+        await checkActiveSessionImmediately();
     }, POLLING_INTERVAL);
 
     startLeaderElection();
