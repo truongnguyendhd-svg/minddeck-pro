@@ -10731,41 +10731,20 @@ async function bulkSaveXRayVocab(kanjiChar) {
     if (!cachedData || !cachedData.mergedVocabList) return;
 
     const list = cachedData.mergedVocabList;
-    const total = list.length;
-    
-    showLoading(`Đang khởi tạo gói dữ liệu...`);
 
-    try {
-        for (let i = 0; i < total; i++) {
-            const v = list[i];
-            if (!v.isDeepFetched) {
-                document.getElementById('loadingText').innerText = `Đang quét và lấy ví dụ (${i + 1}/${total}): ${v.word}...`;
-                await ensureXRayVocabDeepFetched(kanjiChar, i);
-                await new Promise(resolve => setTimeout(resolve, 200));
-            }
-        }
+    // Định dạng dữ liệu trực tiếp từ danh sách hiện có, bỏ qua bước quét sâu từng từ
+    const formattedVocabList = list.map(v => ({
+        word: v.word,
+        reading: v.reading,
+        meaning: v.meaning,
+        hv: v.hv || '',
+        example: (v.examplesList && v.examplesList.length > 0) ? `${v.examplesList[0].jp} (${v.examplesList[0].vn})` : ''
+    }));
 
-        hideLoading();
+    closeModal('xrayModal');
 
-        // Định dạng dữ liệu: bốc câu ví dụ đầu tiên trong mảng
-        const formattedVocabList = list.map(v => ({
-            word: v.word,
-            reading: v.reading,
-            meaning: v.meaning,
-            hv: v.hv || '',
-            example: (v.examplesList && v.examplesList.length > 0) ? `${v.examplesList[0].jp} (${v.examplesList[0].vn})` : ''
-        }));
-
-        closeModal('xrayModal');
-
-        const safeBulkData = encodeURIComponent(JSON.stringify(formattedVocabList)).replace(/'/g, "%27");
-        openBulkSaveKanjiModal(safeBulkData, kanjiChar);
-
-    } catch (err) {
-        hideLoading();
-        console.error("Lỗi Bulk Save X-Ray:", err);
-        customAlert("Gặp sự cố khi quét hàng loạt dữ liệu. Vui lòng thử lại!", "❌");
-    }
+    const safeBulkData = encodeURIComponent(JSON.stringify(formattedVocabList)).replace(/'/g, "%27");
+    openBulkSaveKanjiModal(safeBulkData, kanjiChar);
 }
 
 
