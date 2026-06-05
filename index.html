@@ -12872,7 +12872,79 @@ async function saveNewDeckFromModal() {
     }
 }
 
+async function autoFetchMaziiInfoForCard(event) {
+    if (event) event.stopPropagation(); // Ngăn việc click nút làm lật thẻ
+    const c = sessionCards[currentIndex];
+    if (!c) return;
 
+    const btn = document.getElementById('btnAutoFetchMaziiInfo');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<div class="spinner" style="width:14px; height:14px; border:2px solid rgba(0,0,0,0.1); border-top:2px solid #0067c0; border-radius:50%; display:inline-block; animation:spin 1s linear infinite; margin-right:6px;"></div> Đang nạp...`;
+    }
+
+    try {
+        // Gửi truy vấn tìm kiếm lên API từ điển Mazii
+        const results = await fetchMaziiDictionary(c.front);
+        if (!results || results.length === 0) {
+            showToast("❌ Không tìm thấy thông tin từ vựng trên Mazii.");
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 18px; color: #0067c0;">sync_alt</span> Tự động nạp từ Mazii`;
+            }
+            return;
+        }
+
+        const d = results[0];
+        const hv = d.hv || '';
+        const rawEx = d.example || '';
+        
+        // Tách câu ví dụ mẫu
+        let exJp = "";
+        let exVn = "";
+        if (rawEx) {
+            const parenMatch = rawEx.match(/(.*?)[(（](.*?)[)）]/);
+            if (parenMatch) {
+                exJp = parenMatch[1].trim();
+                exVn = parenMatch[2].trim();
+            } else {
+                exJp = rawEx;
+                exVn = "";
+            }
+        }
+
+        // Tạo mảng thông tin phụ và bảo toàn thẻ [TAGS] cũ nếu có
+        let infoArr = [];
+        if (c.info && c.info.includes('[TAGS]')) {
+            const matchTag = c.info.match(/\[TAGS\](.*?)(?:\n|$)/);
+            if (matchTag) infoArr.push(matchTag[0].trim());
+        }
+
+        if (hv) infoArr.push(`[HV] ${hv}`);
+        if (exJp) infoArr.push(`[EX1] ${exJp}`);
+        if (exVn) infoArr.push(`[VN1] ${exVn}`);
+
+        const newInfoString = infoArr.join('\n');
+
+        // Ghi nhận lên Cloud và cập nhật lại RAM cục bộ
+        showLoading("Đang cập nhật thẻ...");
+        await updateCardInfo(c, newInfoString);
+
+        // Hủy bỏ cache của bộ bài này để các phiên học sau hiển thị thông tin mới
+        window.invalidateDeckCache(currentDeckName || deckToStudyId);
+        window.invalidateDeckListCache();
+
+    } catch (err) {
+        console.error("Lỗi nạp tự động từ Mazii:", err);
+        showToast("❌ Lỗi hệ thống: Không thể đồng bộ dữ liệu.");
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 18px; color: #0067c0;">sync_alt</span> Tự động nạp từ Mazii`;
+        }
+    } finally {
+        hideLoading();
+    }
+}
 
 function showInfoModal() { 
     const c = sessionCards[currentIndex]; 
@@ -12937,13 +13009,19 @@ function showInfoModal() {
     }
     
     if (!hasInfo) {
-        html += `
-            <div style="text-align: center; padding: 25px 10px; color: #86868b; border: 1px dashed rgba(0,0,0,0.1); border-radius: 20px; background: rgba(255,255,255,0.3);">
-                <span class="material-symbols-outlined" style="font-size: 32px; margin-bottom: 10px; opacity: 0.5;">speaker_notes_off</span>
-                <div style="font-size: 14px; font-weight: 500;">Thẻ này chưa có thông tin phụ hoặc ví dụ.</div>
-            </div>
-        `;
-    }
+                html += `
+                    <div style="text-align: center; padding: 25px 10px; color: #86868b; border: 1px dashed rgba(0,0,0,0.1); border-radius: 20px; background: rgba(255,255,255,0.3);">
+                        <span class="material-symbols-outlined" style="font-size: 32px; margin-bottom: 10px; opacity: 0.5;">speaker_notes_off</span>
+                        <div style="font-size: 14px; font-weight: 500;">Thẻ này chưa có thông tin phụ hoặc ví dụ.</div>
+                        
+                        <!-- Nút bấm nạp dữ liệu từ Mazii tự động -->
+                        <button id="btnAutoFetchMaziiInfo" onclick="autoFetchMaziiInfoForCard(event)" class="win11-btn-secondary" style="margin: 15px auto 0 auto; display: flex; align-items: center; gap: 8px; font-weight: 700; border-radius: 50px; justify-content: center; width: fit-content; padding: 10px 20px;">
+                            <span class="material-symbols-outlined" style="font-size: 18px; color: #0067c0;">sync_alt</span>
+                            Tự động nạp từ Mazii
+                        </button>
+                    </div>
+                `;
+            }
 
     // KHỐI 3: NÚT THÊM THÔNG TIN
     html += `
