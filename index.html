@@ -9676,7 +9676,6 @@ async function loadCards(d, skipHash = false) {
         // 3. ĐỊNH HÌNH HÀNG ĐỢI HOẠT ĐỘNG TRƯỚC (Lọc & Trộn mảng ổn định)
         sessionCards = JSON.parse(JSON.stringify(cards)); 
         currentIndex = 0;
-
         const now = new Date().toISOString();
         if (mode === 'review') {
             sessionCards = sessionCards.filter(c => {
@@ -9687,10 +9686,33 @@ async function loadCards(d, skipHash = false) {
         } else if (mode === 'cram') {
             const savedLevel = sessionStorage.getItem('minddeck_cram_level');
             targetCramLevel = savedLevel ? parseInt(savedLevel) : 1;
-            sessionCards = sessionCards.map(c => ({ ...c, cramLevel: 1 }));
-            sessionCards.sort(() => Math.random() - 0.5); // Trộn cố định hàng đợi hiển thị
+            
+            // 1. Gán cấp độ ban đầu cramLevel = 1 cho tất cả các thẻ (chưa xáo trộn lúc này)
+            const mappedCards = sessionCards.map(c => ({ ...c, cramLevel: 1 }));
+            
+            const dueCards = [];
+            const nonDueCards = [];
+            
+            // Phân loại thẻ dựa trên mốc thời gian đến hạn của SRS
+            mappedCards.forEach(c => {
+                const p = (c.progress && c.progress.length > 0) ? c.progress[0] : null;
+                const isDue = !p || p.due <= now;
+                if (isDue) {
+                    dueCards.push(c);
+                } else {
+                    nonDueCards.push(c);
+                }
+            });
+            
+            // 2. Lọc các thẻ đến hạn học, xáo trộn ngẫu nhiên chúng và xếp vào đầu hàng đợi
+            dueCards.sort(() => Math.random() - 0.5);
+            
+            // 3. Lúc này mới xáo trộn các thẻ còn lại rồi xếp vào sau hàng đợi
+            nonDueCards.sort(() => Math.random() - 0.5);
+            
+            // Ghép hàng đợi hỗn hợp: Thẻ cần ôn lên trước, thẻ chưa đến hạn xếp sau
+            sessionCards = [...dueCards, ...nonDueCards];
         }
-
         if (!sessionCards || sessionCards.length === 0) {
             hideLoading();
             return customAlert("Chúc mừng! Bạn đã hoàn thành hết các thẻ.", "🎉");
