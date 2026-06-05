@@ -1,4 +1,3 @@
-
 export const config = {
   runtime: 'edge', // Kích hoạt môi trường Edge để chạy không giới hạn 10s
 };
@@ -53,8 +52,8 @@ export default async function handler(req) {
       const currentKey = apiKeys[currentIndex];
 
       try {
-        // Giữ nguyên model gemini-3-flash-preview theo cấu hình cũ của bạn
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${currentKey}`;
+        // Chuyển đổi endpoint sang ":streamGenerateContent?alt=sse" để kích hoạt luồng dữ liệu thời gian thực
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key=${currentKey}`;
         
         const response = await fetch(geminiUrl, {
           method: 'POST',
@@ -68,18 +67,21 @@ export default async function handler(req) {
           })
         });
 
-        const data = await response.json();
-
+        // Nếu API key này bị lỗi hoặc hết hạn mức, chúng ta parse lỗi để chuyển sang key tiếp theo
         if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
           throw new Error(data.error?.message || 'Lỗi từ Google Gemini');
         }
 
-        const text = data.candidates[0].content.parts[0].text;
-        
-        // Trả kết quả thành công về cho Frontend (Dùng Response chuẩn Web)
-        return new Response(JSON.stringify({ result: text }), {
+        // Trả trực tiếp luồng Stream từ Google về cho Frontend (Passthrough Stream)
+        // Cách này hoạt động cực kỳ mượt mà trên Edge Runtime của Vercel
+        return new Response(response.body, {
           status: 200,
-          headers: { 'Content-Type': 'application/json' }
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache, no-transform',
+            'Connection': 'keep-alive',
+          }
         });
 
       } catch (error) {
