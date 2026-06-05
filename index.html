@@ -9621,9 +9621,13 @@ async function openCopyDeck(event, deckId) {
 window.rawDeckCache = {};
 
 async function loadCards(d, skipHash = false) {
+    // 🟢 ĐỒNG BỘ KHẨN CẤP: Đẩy toàn bộ hàng đợi SRS cũ lên Cloud trước khi tải phiên học mới
+    if (typeof srsPendingQueue !== 'undefined' && srsPendingQueue.length > 0) {
+        await flushSrsQueue();
+    }
+
     if (typeof prefetchPromises !== 'undefined') prefetchPromises.clear();
     window.preventDeckListSyncOnce = true;
-
     if (!skipHash) window.location.hash = `study/${encodeURIComponent(d)}/${mode}`;
     
     let cards = [];
@@ -9754,11 +9758,16 @@ let previousStudyMode = sessionStorage.getItem('minddeck_prev_mode') || 'cram';
 
 function switchToBoostMode() {
     if (!currentDeckName) return;
-    
+
+    // 🟢 CHỐT SỔ KHẨN CẤP: Gửi ngay mảng chờ SRS lên Cloud trước khi người dùng mở bảng chọn Game
+    if (typeof srsPendingQueue !== 'undefined' && srsPendingQueue.length > 0) {
+        flushSrsQueue();
+    }
+
     // Lưu lại chế độ đang học vào cả RAM và SessionStorage (chống F5)
-    previousStudyMode = mode; 
+    previousStudyMode = mode;
     sessionStorage.setItem('minddeck_prev_mode', mode);
-    
+
     // Chỉ mở bảng chọn Game
     document.getElementById('boostIntroModal').style.display = 'flex';
 }
@@ -12216,16 +12225,9 @@ async function answerCurrent(q) {
     
     // Nhét thẻ vừa quẹt vào mảng chờ
     srsPendingQueue.push(payload);
-
-    // Hủy bỏ lệnh hẹn giờ cũ
-    if (srsSyncTimer) clearTimeout(srsSyncTimer);
-
-    // 1. Gửi ngay lập tức nếu mảng chờ đã đạt 20 thẻ
-    if (srsPendingQueue.length >= 20) {
+    // Chỉ tự động gửi lên Cloud khi mảng chờ tích lũy đủ 15 thẻ
+    if (srsPendingQueue.length >= 15) {
         flushSrsQueue();
-    } else {
-        // 2. Hoặc gửi nếu người dùng ngừng thao tác trong 15 giây
-        srsSyncTimer = setTimeout(flushSrsQueue, 15000); 
     }
 } // <-- DẤU NGOẶC ĐÓNG CỦA HÀM answerCurrent
 // ==========================================
