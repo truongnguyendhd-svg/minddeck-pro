@@ -8317,7 +8317,8 @@ async function handleRoute() {
 /* ================= 1. CONFIG ================= */
 const SUPABASE_URL = 'https://qdbvtftixwrpskqmjjrg.supabase.co'; 
 const SUPABASE_KEY = 'sb_publishable_wZNeMpesqSKpLP7OiN3GkQ_1XinDqyc'; 
-
+// 🔴 ĐƯỜNG DẪN API CLOUDFLARE WORKER CỦA BẠN (Thay bằng URL của bạn)
+const DICT_API_URL = 'https://alcohol-dict-api.truong-nguyend-hd.workers.dev';
 // Thiết kế mẫu Singleton: Bảo vệ thực thể Supabase tránh bị khởi tạo trùng lặp
 window.supabaseInstance = window.supabaseInstance || supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const sb = window.supabaseInstance;
@@ -10139,11 +10140,13 @@ window.kanjiDetailCache = window.kanjiDetailCache || {};
  * 1. Hàm nạp từ điển Kanji gốc và gộp mảng khử trùng lặp tĩnh
  */
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    const cacheKey = `mazii_v14_final_${kanjiChar}`; // Đổi key lên v14 để ép dọn sạch cache lỗi cũ trong IndexedDB
+    const cacheKey = `kanji_v14_final_${kanjiChar}`;
     window.kanjiDetailCache = window.kanjiDetailCache || {};
     
+    // 1. Phục hồi nhanh từ RAM
     if (window.kanjiDetailCache[cacheKey]) return window.kanjiDetailCache[cacheKey];
 
+    // 2. Phục hồi từ IndexedDB
     try {
         const localRecord = await dbOps.get(STORE_AI_CACHE, cacheKey);
         if (localRecord && localRecord.data) {
@@ -10151,101 +10154,51 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
             return localRecord.data;
         }
     } catch (e) { 
-        console.warn("Lỗi đọc IndexedDB Mazii:", e); 
+        console.warn("Lỗi đọc IndexedDB:", e); 
     }
     
     try {
-        const response = await fetch('https://mazii.net/api/search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dict: 'javi', type: 'kanji', query: kanjiChar })
-        });
+        // 3. Gọi API gộp (Batch) trên Cloudflare Worker để lấy cả thông tin Kanji lẫn từ ghép
+        const response = await fetch(`${DICT_API_URL}/api/kanji-detail?kanji=${encodeURIComponent(kanjiChar)}`);
+        if (!response.ok) throw new Error("API Hán tự Cloudflare lỗi");
         const data = await response.json();
 
-        const kList = data.results || data.result || [];
-        if (kList.length > 0) {
-            const k = kList[0];
+        if (data && data.kanjiInfo) {
+            const k = data.kanjiInfo;
 
-            let hv = (k.hanviet || '').trim().toUpperCase();
-            if (!hv && k.mean) hv = k.mean.split(/[,、，]/)[0].trim().toUpperCase();
-
-            let meaning = '';
-            if (k.detail) {
-                const lines = k.detail.split('\n').filter(line => line.trim() !== '');
-                if (lines.length > 0) {
-                    let firstLine = lines[0].trim();
-                    firstLine = firstLine.replace(/^\d+[\.\:\s]+/, '').trim();
-                    firstLine = firstLine.split(/VD:|Ví dụ:|e\.g\./i)[0].trim();
-                    meaning = firstLine;
-                }
-            }
-            if (!meaning && k.mean) meaning = k.mean;
-
-            // Nạp mảng thô từ API
-            const rawOnExamples = flattenMaziiExamples(k.on_example || k.example_on);
-            const rawKunExamples = flattenMaziiExamples(k.kun_example || k.example_kun);
-            const rawGeneralExamples = flattenMaziiExamples(k.examples || k.example);
-
-            // =========================================================================
-            // 🧱 THUẬT TOÁN GỘP MẢNG & TỰ ĐỘNG BÙ NƯỚC DỮ LIỆU (DATA ENRICHMENT)
-            // =========================================================================
-            const mergedMap = new Map();
-            const processList = (list, type) => {
-                if (!list || !Array.isArray(list)) return;
-                list.forEach(v => {
-                    const word = v.w || v.word;
-                    if (!word) return;
-
-                    const rawHv = (v.h || v.hanviet || '').trim().toUpperCase();
-                    const rawMeaning = v.m || v.mean || v.meaning || 'Chưa rõ nghĩa';
-                    const rawReading = v.p || v.phonetic || v.reading || '';
-
-                    if (!mergedMap.has(word)) {
-                        // Trường hợp từ chưa có trong Map -> Thêm mới hoàn toàn
-                        mergedMap.set(word, {
-                            word: word,
-                            reading: rawReading,
-                            meaning: rawMeaning,
-                            hv: rawHv,
-                            readingType: type, // 'ON' | 'KUN' | 'GENERAL'
-                            isDeepFetched: false,
-                            exampleJP: '',
-                            exampleVN: ''
-                        });
-                    } else {
-                        // Trường hợp từ ĐÃ CÓ trong Map -> Tiến hành bù nước dữ liệu thiếu
-                        const existing = mergedMap.get(word);
-                        
-                        // 1. Nếu bản ghi cũ thiếu Hán Việt nhưng bản ghi mới có -> Đắp vào ngay
-                        if (!existing.hv && rawHv) {
-                            existing.hv = rawHv;
-                        }
-                        // 2. Nếu bản ghi cũ thiếu Cách đọc nhưng bản ghi mới có -> Đắp vào ngay
-                        if (!existing.reading && rawReading) {
-                            existing.reading = rawReading;
-                        }
-                        // 3. Ưu tiên giữ lại phân loại ON / KUN thay vì GENERAL để tô màu chính xác
-                        if (existing.readingType === 'GENERAL' && type !== 'GENERAL') {
-                            existing.readingType = type;
-                        }
+            // Chuyển đổi danh sách từ ghép từ D1 sang đúng cấu trúc mergedVocabList cũ
+            // ĐẶC BIỆT: Vì D1 đã có sẵn mảng câu ví dụ, chúng ta gán luôn isDeepFetched = true.
+            // Điều này giúp giao diện không cần chạy ngầm tra cứu nghĩa hay ví dụ nữa (mở ra là có ngay lập tức)
+            const mergedVocabList = data.compounds.map(v => {
+                let examplesList = [];
+                if (v.examples) {
+                    try {
+                        examplesList = JSON.parse(v.examples);
+                    } catch (e) {
+                        examplesList = [];
                     }
-                });
-            };
+                }
 
-            // Tiến hành quét mảng tuần tự
-            processList(rawOnExamples, 'ON');
-            processList(rawKunExamples, 'KUN');
-            processList(rawGeneralExamples, 'GENERAL');
+                return {
+                    word: v.word,
+                    reading: v.reading || '',
+                    meaning: v.meaning || '',
+                    hv: v.hv || '',
+                    readingType: 'GENERAL',
+                    isDeepFetched: true, // Đánh dấu đã quét sâu hoàn tất (0ms trễ mạng)
+                    examplesList: examplesList
+                };
+            });
 
             const result = {
-                kanji: k.kanji || kanjiChar,
-                hv: hv || 'CHƯA CÓ',
-                meaning: meaning || 'Chưa rõ nghĩa',
-                onyomi: k.on || '',
-                kunyomi: k.kun || '',
+                kanji: k.kanji,
+                hv: k.hv || 'CHƯA CÓ',
+                meaning: k.meaning || 'Chưa rõ nghĩa',
+                onyomi: k.onyomi || '',
+                kunyomi: k.kunyomi || '',
                 stroke_count: k.stroke_count || 0,
-                tips: normalizeTips(k.tips),
-                mergedVocabList: Array.from(mergedMap.values())
+                tips: k.mnemonics || '', // Sử dụng mnemonics của bạn làm mẹo nhớ
+                mergedVocabList: mergedVocabList
             };
 
             window.kanjiDetailCache[cacheKey] = result;
@@ -10255,7 +10208,7 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
         }
         return null;
     } catch (e) {
-        console.error("Lỗi Mazii Kanji API:", e);
+        console.error("Lỗi gọi API Hán tự Cloudflare:", e);
         return null;
     }
 }
@@ -14007,63 +13960,52 @@ window.addEventListener('hashchange', async function(e) {
 });
 /* ================= CHỨC NĂNG TỪ ĐIỂN ================= */
 /* ================= API TỪ ĐIỂN MỞ RỘNG (MAZII) ================= */
-// Khởi tạo bộ nhớ đệm cho từ điển Mazii trên RAM ngoài phạm vi hàm (nếu chưa có)
+// Khởi tạo bộ nhớ đệm cho từ điển trên RAM
 window.maziiSearchCache = window.maziiSearchCache || {};
 
 async function fetchMaziiDictionary(keyword) {
     if (!keyword) return [];
     
-    const normalizedKey = keyword.trim().toLowerCase();
+    const normalizedKey = keyword.trim();
 
     if (window.maziiSearchCache[normalizedKey]) {
         return window.maziiSearchCache[normalizedKey];
     }
 
     try {
-        const response = await fetch('https://mazii.net/api/search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                dict: 'javi', 
-                type: 'word', 
-                query: normalizedKey, 
-                limit: 15
-            })
-        });
+        // Gửi yêu cầu lên máy chủ Edge Cloudflare D1
+        const response = await fetch(`${DICT_API_URL}/api/dict-search?query=${encodeURIComponent(normalizedKey)}`);
+        if (!response.ok) throw new Error("Không thể kết nối máy chủ từ điển");
 
         const data = await response.json();
         
-        if (!data || !data.data || data.data.length === 0) {
-            window.maziiSearchCache[normalizedKey] = [];
-            return [];
-        }
-
-        const parsedResults = data.data.map(item => {
-            // Lấy 1 ví dụ đầu tiên tìm thấy để dự phòng cho Nút [ + Thêm Flashcard ]
+        // Chuyển đổi (Map) dữ liệu từ D1 sang đúng cấu trúc mà giao diện cũ của bạn đang mong đợi
+        const parsedResults = data.map(item => {
             let firstExample = "";
-            if (item.means && item.means.length > 0) {
-                for (let m of item.means) {
-                    if (m.examples && m.examples.length > 0) {
-                        firstExample = `${m.examples[0].content} (${m.examples[0].mean})`;
-                        break;
+            let examplesList = [];
+            
+            if (item.examples) {
+                try {
+                    examplesList = JSON.parse(item.examples);
+                    if (examplesList.length > 0) {
+                        firstExample = `${examplesList[0].jp} (${examplesList[0].vn})`;
                     }
+                } catch (e) {
+                    examplesList = [];
                 }
             }
 
-            // Gộp tối đa 3 nghĩa đầu tiên thành 1 chuỗi ngắn gọn để dự phòng cho Nút [ + Thêm Flashcard ]
-            let shortMeaningStr = item.short_mean;
-            if (!shortMeaningStr && item.means) {
-                shortMeaningStr = item.means.map(m => m.mean).slice(0, 3).join(', ');
-            }
-
             return {
-                word: item.word || item.phonetic, 
-                reading: item.phonetic || '',
-                meaning: shortMeaningStr || 'Chưa có nghĩa', 
-                hv: item.han || '', 
-                level: Array.isArray(item.level) ? item.level[0] : item.level,   
-                antonyms: Array.isArray(item.opposite_word) ? item.opposite_word.join(', ') : item.opposite_word, 
-                meaningsList: item.means || [], // 🟢 GIỮ NGUYÊN MẢNG NGHĨA VÀ VÍ DỤ CỦA MAZII
+                word: item.word, 
+                reading: item.reading || '',
+                meaning: item.meaning || 'Chưa có nghĩa', 
+                hv: item.hv || '', 
+                level: item.level || 'N3',   
+                antonyms: '', // SQLite tạm thời không lưu trường trái nghĩa
+                meaningsList: [{
+                    mean: item.meaning,
+                    examples: examplesList.map(ex => ({ content: ex.jp, mean: ex.vn }))
+                }], 
                 example: firstExample 
             };
         });
@@ -14072,7 +14014,7 @@ async function fetchMaziiDictionary(keyword) {
         return parsedResults;
 
     } catch (err) {
-        console.error("Mazii API Error:", err);
+        console.error("Lỗi gọi API từ điển Cloudflare:", err);
         return []; 
     }
 }
