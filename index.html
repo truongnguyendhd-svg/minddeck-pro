@@ -9368,13 +9368,15 @@ async function handleForcedLogout() {
         window.sessionCheckInterval = null;
     }
 
+    // Kiểm tra xem người dùng có thực sự đang ở trong màn hình học tập/trò chơi tích cực hay không
+    const isCurrentlyReviewing = !document.getElementById('reviewPage').classList.contains('hidden');
+    const isCurrentlyActiveSession = isCurrentlyReviewing && (mode === 'assessment' || mode === 'boost' || mode === 'remedial');
+
     // =========================================================================
     // ⚠️ TRƯỜNG HỢP 1: THIẾT BỊ ĐANG LÀM VIỆC DỞ DANG -> ĐÓNG BĂNG ĐỂ BẢO VỆ DỮ LIỆU
+    // (Chỉ kích hoạt khi thực sự có thay đổi chưa lưu hoặc đang trong phiên học/chơi hoạt động)
     // =========================================================================
-    const hasAssessmentSave = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
-    const hasBoostSave = localStorage.getItem(`minddeck_boost_save_${currentUser.id}`);
-    
-    if (hasUnsavedChanges || hasAssessmentSave || hasBoostSave) {
+    if (hasUnsavedChanges || isCurrentlyActiveSession) {
         if (realtimeSessionChannel) {
             sb.removeChannel(realtimeSessionChannel);
             realtimeSessionChannel = null;
@@ -9384,9 +9386,9 @@ async function handleForcedLogout() {
         localStorage.removeItem(`current_session_id_${currentUser.id}`);
 
         customAlert(
-            `Hệ thống phát hiện phiên đăng nhập không đồng bộ do rớt mạng hoặc mở nhiều tab.<br><br>
+            `Hệ thống phát hiện phiên đăng nhập không đồng bộ do tài khoản đang được kết nối trên thiết bị khác.<br><br>
             ⚠️ <b>HỆ THỐNG ĐÃ ĐÓNG BĂNG AN TOÀN:</b><br>
-            - Dữ liệu đang gõ dở hoặc bài Sát hạch của bạn <b>vẫn được giữ lại trong máy</b>.<br>
+            - Dữ liệu đang gõ dở hoặc bài học của bạn <b>vẫn được giữ lại trong máy</b>.<br>
             - Hãy bôi đen copy lại nội dung đang gõ (nếu có).<br><br>
             👉 Sau đó, hãy bấm nút dưới đây để <b>Tải lại trang (F5)</b> nhằm đồng bộ lại thiết bị.`,
             "⚠️ MẤT ĐỒNG BỘ PHIÊN",
@@ -9413,26 +9415,31 @@ async function handleForcedLogout() {
     if (currentUser) {
         const userId = currentUser.id;
 
-        // Xóa mã phiên hoạt động cũ
+        // 1. Xóa mã phiên hoạt động cũ
         localStorage.removeItem(`current_session_id_${userId}`);
 
-        // Dọn dẹp cục bộ toàn bộ cache lưu trữ tiến trình dưới máy khách để bảo mật thông tin
+        // 2. Dọn dẹp cục bộ toàn bộ cache lưu trữ tiến trình dưới máy khách để bảo mật thông tin
         localStorage.removeItem(`minddeck_kanji_cache_${userId}`);
         localStorage.removeItem(`minddeck_grammar_cache_${userId}`);
         localStorage.removeItem(`minddeck_kanji_peaks_cache_${userId}`);
         localStorage.removeItem(`minddeck_grammar_peaks_cache_${userId}`);
         localStorage.removeItem(`minddeck_delta_sync_time_${userId}`);        
-        localStorage.removeItem(`minddeck_decks_core_${userId}`);  // Sửa thành decks_core
-        localStorage.removeItem(`minddeck_decks_stats_${userId}`); // Thêm xóa thống kê bộ bài
+        localStorage.removeItem(`minddeck_decks_core_${userId}`);  
+        localStorage.removeItem(`minddeck_decks_stats_${userId}`); 
         localStorage.removeItem(`minddeck_study_goal_${userId}`);
         localStorage.removeItem(`minddeck_daily_stats_${userId}`);
         localStorage.removeItem(`minddeck_assessment_save_${userId}`);
         localStorage.removeItem(`minddeck_boost_save_${userId}`);
 
-        // 🟢 DỌN DẸP TOÀN DIỆN PHIÊN BẢN: Giải phóng sessionStorage tránh rò rỉ dữ liệu sang người dùng sau
+        // 3. CHỐT CHẶN BẢO MẬT: Xóa cứng token xác thực của Supabase để chặn tự động đăng nhập lại sau khi reload
+        const supabaseTokenKey = `sb-qdbvtftixwrpskqmjjrg-auth-token`;
+        localStorage.removeItem(supabaseTokenKey);
+
+        // 4. Giải phóng sessionStorage tránh rò rỉ dữ liệu sang người dùng sau
         sessionStorage.clear(); 
     }
 
+    // Thực hiện đăng xuất chính thức từ phía Supabase Client
     await sb.auth.signOut(); 
     hideLoading();
 
