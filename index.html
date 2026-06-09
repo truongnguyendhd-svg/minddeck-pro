@@ -10251,27 +10251,31 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                     }
                 }
 
-                // 🟢 ĐÃ FIX (Yêu cầu 3): Lọc bỏ số 1, 2, 3 khỏi nghĩa của từ ghép
                 const cleanedWordMeaning = removeNumberedLists(v.meaning || '');
+
+                // 🟢 CẬP NHẬT: Lấy đúng cấp độ JLPT chuẩn từ Database, từ nào không có thì để trống
+                const isJlpt = (lvl) => ['N1', 'N2', 'N3', 'N4', 'N5'].includes(lvl);
+                const realLevel = isJlpt(v.level) ? v.level : '';
 
                 return {
                     word: v.word,
                     reading: v.reading || '',
                     meaning: cleanedWordMeaning,
                     hv: v.hv || '',
+                    level: realLevel, // Sử dụng cấp độ thật của từ ghép
                     readingType: 'GENERAL',
                     isDeepFetched: true,
                     examplesList: examplesList
                 };
             });
 
-            // 🟢 ĐÃ FIX (Yêu cầu 1): Chỉ lấy duy nhất chữ Hán Việt đầu tiên
+            // Chỉ lấy duy nhất chữ Hán Việt đầu tiên
             let hv = (k.hv || 'CHƯA CÓ').trim().toUpperCase();
             if (hv) {
-                hv = hv.split(/\s+/)[0]; // Tách theo khoảng trắng và chỉ lấy chữ đầu tiên
+                hv = hv.split(/\s+/)[0]; 
             }
 
-            // 🟢 ĐÃ FIX (Yêu cầu 2): Loại bỏ tất cả nội dung trong ngoặc vuông [...] ở phần nghĩa chính
+            // Loại bỏ ngoặc vuông ở nghĩa chính
             let meaning = (k.meaning || 'Chưa rõ nghĩa').trim();
             meaning = meaning.replace(/\[.*?\]\s*/g, '').trim();
 
@@ -10282,7 +10286,7 @@ async function fetchMaziiKanjiDetail(kanjiChar) {
                 onyomi: k.onyomi || '',
                 kunyomi: k.kunyomi || '',
                 stroke_count: k.stroke_count || 0,
-                tips: k.mnemonics || '', 
+                tips: k.mnemonics || '',
                 mergedVocabList: mergedVocabList
             };
 
@@ -10441,7 +10445,7 @@ async function showKanjiXRay(event, kanji) {
             </div>
         `;
 
-        // Kho lưu trữ từ ghép (Giảm lề ngoài và lề trong)
+        // Kho lưu trữ từ ghép (Lưu ý: Đã tích hợp huy hiệu JLPT bên cạnh cách đọc)
         const vList = maziiData.mergedVocabList || [];
         if (vList.length > 0) {
             let listRowsHtml = vList.map((v, index) => {
@@ -10449,8 +10453,14 @@ async function showKanjiXRay(event, kanji) {
                 const reading = v.reading;
                 const meaning = v.meaning;
                 const hv = v.hv;
+                const level = v.level; // 🟢 LẤY CẤP ĐỘ JLPT CỦA TỪ GHÉP
                 
                 const readingColor = v.readingType === 'ON' ? '#c50f1f' : (v.readingType === 'KUN' ? '#0071e3' : '#4a5568');
+
+                // 🟢 THIẾT LẬP HUY HIỆU JLPT (Chỉ hiển thị nếu từ vựng đó có level chuẩn)
+                const levelBadge = (level && ['N1', 'N2', 'N3', 'N4', 'N5'].includes(level))
+                    ? `<span style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd; padding:1px 6px; border-radius:4px; font-size:10px; margin-left:8px; font-weight:800; vertical-align: middle; display: inline-block; line-height: 1.2;">${level}</span>`
+                    : '';
 
                 return `
                 <div class="xray-vocab-item" id="xray-vocab-${index}">
@@ -10458,7 +10468,8 @@ async function showKanjiXRay(event, kanji) {
                         <div style="flex: 1; cursor: pointer; overflow: hidden; padding-right: 10px;" onclick="toggleXRayVocabExample('${kanji}', ${index})">
                             <div style="display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 4px;">
                                 <span style="font-size: 20px; font-weight: 800; color: #1a1a1a;">${wrapKanjiWithLink(escapeHTML(word))}</span>
-                                ${reading ? `<span style="font-size: 14px; color: ${readingColor}; font-weight: 800;">${escapeHTML(reading)}</span>` : ''}
+                                <!-- Chèn huy hiệu JLPT ngay đằng sau chữ cách đọc màu đỏ -->
+                                ${reading ? `<span style="font-size: 14px; color: ${readingColor}; font-weight: 800; display: inline-flex; align-items: center;">${escapeHTML(reading)}${levelBadge}</span>` : ''}
                             </div>
                             <div id="xray-meaning-box-${index}" style="font-size: 15px; color: #4a4a4a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                                 ${hv ? `<b style="color: #059669; font-size: 12px; margin-right: 6px;">[${escapeHTML(hv)}]</b>` : ''}${escapeHTML(meaning)}
