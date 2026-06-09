@@ -21704,22 +21704,24 @@ function setAiFabLoading(isLoading) {
     }
 }
 
-// Hàm điều khiển gọi AI trong Info Modal (Đã vá lỗi kẹt Spinner vĩnh viễn)
+// Hàm điều khiển gọi AI trong Info Modal
 async function executeAiAction(actionType) {
     const c = sessionCards[currentIndex];
     if (!c) return;
     const p = parseCardData(c);
     const zone = document.getElementById('aiGenericResultZone');
-    const btn = document.getElementById('btnAiFab'); // Khai báo nút gốc
 
     if (actionType === 'mnemonic' && !p.reading) {
         return customAlert("Từ này chưa có cách đọc (Hiragana) để tạo mẹo!", "⚠️");
     }
 
-    setAiFabLoading(true); // Bật quay tròn ở icon gốc một cách an toàn
+    setAiFabLoading(true); // Bật hiệu ứng quay tròn ở nút AI chính
     zone.style.display = 'none';
 
     try {
+        // ==========================================
+        // CHẾ ĐỘ 1: TẠO MẸO NHỚ CÁCH ĐỌC
+        // ==========================================
         if (actionType === 'mnemonic') {
             const prompt = `Giáo viên tiếng Nhật hài hước. Tạo mẹo nhớ CÁCH ĐỌC bằng âm thanh tương tự tiếng Việt. Ngắn gọn 2-3 câu. Bôi đậm từ khóa bằng dấu **.
             Từ: "${p.front}" | Đọc: "${p.reading}" | Nghĩa: "${p.meaning}"`;
@@ -21727,80 +21729,83 @@ async function executeAiAction(actionType) {
             let res = await callGeminiAI(prompt);
             let formatted = res.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1d1d1f; font-weight: 700;">$1</b>').replace(/\n/g, '<br>');
             
-            window.tempAiData = formatted; // Lưu vào RAM
+            window.tempAiData = formatted; // Lưu kết quả tạm trên RAM
             
             zone.innerHTML = renderAiResultCard('lightbulb', 'MẸO NHỚ ÂM THANH', formatted, 'saveMnemonicToCard()', 'Lưu vào Ghi chú');
             zone.style.display = 'block';
 
+        // ==========================================
+        // CHẾ ĐỘ 2: ĐỔI CÂU VÍ DỤ (TỐI ƯU DÙNG D1)
+        // ==========================================
         } else if (actionType === 'examples') {
-            // =========================================================================
-            // BƯỚC 1: KIỂM TRA SỐ LƯỢNG CÂU HIỆN CÓ TRÊN CLOUD
-            // =========================================================================
-            const { data: cloudCached } = await sb.from('ai_dict_cache')
-                .select('examples')
-                .eq('word', p.front)
-                .maybeSingle();
+            let currentExamples = [];
 
-            let currentExamples = (cloudCached && cloudCached.examples) ? cloudCached.examples : [];
+            // 🟢 BƯỚC A: TRA CỨU NHANH TRÊN D1 XEM TỪ NÀY ĐÃ CÓ SẴN VÍ DỤ CHƯA
+            try {
+                const d1Response = await fetch(`${DICT_API_URL}/api/dict-search?query=${encodeURIComponent(p.front)}`);
+                if (d1Response.ok) {
+                    const searchResults = await d1Response.json();
+                    // Tìm chính xác từ khớp với mặt chữ của thẻ học
+                    const exactMatch = searchResults.find(item => item.word === p.front);
+                    if (exactMatch && exactMatch.examples) {
+                        currentExamples = JSON.parse(exactMatch.examples);
+                    }
+                }
+            } catch (e) {
+                console.warn("[D1 Sync Warning] Không thể kiểm tra ví dụ trên D1, tiến hành gọi AI...", e);
+            }
+
+            // 🛑 CHỐT CHẶN: Đảm bảo không vượt quá giới hạn cứng 15 câu ví dụ
             const currentCount = currentExamples.length;
             const missing = 15 - currentCount;
-
             let finalExamplesList = [...currentExamples];
 
-            // =========================================================================
-            // BƯỚC 2: TỰ ĐỘNG BÙ NƯỚC (HYDRATE) THEO LÔ 5 CÂU HOẶC SỐ CÂU CÒN THIẾU
-            // =========================================================================
-            if (missing > 0) {
-                const countToGen = missing > 5 ? 5 : missing;
-                console.log(`[Cloud Sync] Kho đang có ${currentCount}/15 câu. AI tiến hành viết thêm ${countToGen} câu mới...`);
-
-                // 🟢 ĐÃ FIX: Không ghi đè toàn bộ innerHTML của nút nữa, để setAiFabLoading tự xử lý icon xoay
+            if (missing <= 0) {
+                // Thư viện đã đầy 15 câu -> Chỉ bốc ngẫu nhiên từ kho D1, không gọi AI nữa để tiết kiệm token
+                console.log(`[D1 Sync Cache Hit] Kho đã đầy 15/15 câu. Bốc ngẫu nhiên từ kho D1! 💾`);
+            } else {
+                // Trực tiếp gọi AI viết thêm số câu còn thiếu (Tối đa 5 câu mỗi mẻ)
+                const defaultGen = currentCount === 0 ? 3 : 2;
+                const countToGen = Math.min(missing, defaultGen);
                 
-                // Chống AI tạo trùng với các câu ví dụ đã có sẵn trên Cloud của từ này
+                console.log(`[D1 Sync Cache Miss] AI tiến hành sáng tác thêm ${countToGen} câu mới...`);
+
+                // Chống AI viết trùng với các câu đã có sẵn trên D1
                 const existingSentences = currentExamples.map(ex => ex.jp);
                 const avoidStr = existingSentences.length > 0
                     ? `\nTUYỆT ĐỐI KHÔNG TẠO TRÙNG với các câu ví dụ đã có sau đây: [ ${existingSentences.join(' | ')} ]`
                     : "";
 
-                const prompt = `Hãy tạo thêm đúng ${countToGen} câu ví dụ tiếng Nhật tự nhiên chứa từ "${p.front}" (${p.reading} - ${p.meaning}). ${avoidStr}
+                const aiPrompt = `Hãy tạo thêm đúng ${countToGen} câu ví dụ tiếng Nhật tự nhiên chứa từ "${p.front}" (${p.reading} - ${p.meaning}). ${avoidStr}
                 BẮT BUỘC chỉ trả về duy nhất một mảng JSON (không bọc trong markdown \`\`\`json hay bất cứ ghi chú nào). Định dạng mảng:
                 [
                   {"jp": "Câu JP", "vn": "Dịch VN"}
                 ]`;
 
-                try {
-                    let aiResponse = await callGeminiAI(prompt);
-                    let cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-                    const newExs = JSON.parse(cleanResponse);
+                let aiResponse = await callGeminiAI(aiPrompt);
+                let cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+                const newExs = JSON.parse(cleanResponse);
 
-                    if (Array.isArray(newExs)) {
-                        finalExamplesList = [...finalExamplesList, ...newExs];
-                        finalExamplesList = finalExamplesList.slice(0, 15); // Cắt móng tối đa 15 câu
-                    }
-
-                    // Lưu (upsert) mảng đã gộp mới lên Supabase
-                    await sb.from('ai_dict_cache').upsert({
-                        word: p.front,
-                        reading: p.reading || '',
-                        examples: finalExamplesList,
-                        updated_at: new Date().toISOString()
-                    });
-                    console.log(`[Cloud Sync] Đã đồng bộ mảng ${finalExamplesList.length}/15 câu lên đám mây thành công! 🚀`);
-                    showToast(`✨ AI đã viết thêm ${newExs.length} câu ví dụ mới vào kho!`);
-
-                } catch (err) {
-                    console.error("Lỗi gọi AI trong Info Modal:", err);
-                    if (currentExamples.length === 0) {
-                        throw err; // Chỉ báo lỗi nếu chưa có câu ví dụ nào trong kho
-                    }
+                if (Array.isArray(newExs)) {
+                    // Gộp mảng và cắt cứng tối đa 15 câu [1.1.4]
+                    finalExamplesList = [...finalExamplesList, ...newExs].slice(0, 15);
                 }
-            } else {
-                console.log(`[Cloud Sync Cache Hit] Kho đã đầy 15/15 câu. Bốc ngẫu nhiên không tốn token! 💾`);
+
+                // 🟢 ĐỒNG BỘ GỬI LÊN CLOUDFLARE D1 (Thay thế hoàn toàn Supabase)
+                const syncResponse = await fetch(`${DICT_API_URL}/api/update-examples`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        word: p.front,
+                        examples: finalExamplesList // Gửi mảng ví dụ hoàn chỉnh đã được gộp mới
+                    })
+                });
+
+                if (!syncResponse.ok) throw new Error("Không thể đồng bộ lên D1");
+                console.log(`[D1 Sync] Đã đồng bộ thành công mảng ${finalExamplesList.length} câu ví dụ lên D1! 🚀`);
             }
 
-            // =========================================================================
-            // BƯỚC 3: XÁO TRỘN MẢNG VÀ BỐC RA 2 CÂU NGẪU NHIÊN HIỂN THỊ
-            // =========================================================================
+            // Bốc ra 2 câu ngẫu nhiên từ kho 15 câu để gợi ý cho học viên lưu vào Flashcard riêng
             const shuffledList = [...finalExamplesList].sort(() => 0.5 - Math.random());
             
             window.tempAiData = {
@@ -21813,17 +21818,17 @@ async function executeAiAction(actionType) {
                 htmlPreview += `<br><br><b>2.</b> ${window.tempAiData.jp2}<br><span style="color:#666">${window.tempAiData.vn2}</span>`;
             }
 
-            zone.innerHTML = renderAiResultCard('draw', 'VÍ DỤ TỪ CLOUD', htmlPreview, 'saveExamplesToCard()', 'Lưu đè Ví dụ cũ');
+            zone.innerHTML = renderAiResultCard('draw', 'VÍ DỤ TỪ CLOUD D1', htmlPreview, 'saveExamplesToCard()', 'Lưu đè Ví dụ cũ');
             zone.style.display = 'block';
         }
     } catch (err) {
-        console.error("Lỗi AI:", err);
-        customAlert("Lỗi khi gọi AI. Vui lòng thử lại sau.", "❌");
+        console.error("Lỗi tương tác AI trong Info Modal:", err);
+        customAlert("Không thể thực hiện tác vụ AI do lỗi kết nối mạng.", "❌ Lỗi kết nối");
     } finally {
-        setAiFabLoading(false); // Giải phóng nút bấm về trạng thái "THÊM THÔNG TIN" ban đầu một cách mượt mà
+        setAiFabLoading(false); // Giải phóng nút AI quay tròn về mặc định
         setTimeout(() => {
             const infoText = document.getElementById('infoText');
-            if (infoText) infoText.scrollTop = infoText.scrollHeight;
+            if (infoText) infoText.scrollTop = infoText.scrollHeight; // Tự cuộn xuống đáy
         }, 50);
     }
 }
