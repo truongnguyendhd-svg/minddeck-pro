@@ -10533,23 +10533,22 @@ async function showKanjiXRay(event, kanji) {
  * Hàm lõi: Quét sâu thông tin chi tiết một từ (Hán Việt & Ví dụ) khi người dùng bấm vào
  */
 async function ensureXRayVocabDeepFetched(kanjiChar, index) {
-    const cacheKey = `mazii_v14_final_${kanjiChar}`;
+    const cacheKey = `kanji_v14_final_${kanjiChar}`; // Đã đồng bộ khóa chuẩn
     const cachedData = window.kanjiDetailCache[cacheKey];
     if (!cachedData || !cachedData.mergedVocabList || !cachedData.mergedVocabList[index]) return null;
 
     const v = cachedData.mergedVocabList[index];
-    if (v.isDeepFetched) return v; // Đã quét rồi, trả về luôn
+    if (v.isDeepFetched) return v;
 
     try {
         const results = await fetchMaziiDictionary(v.word);
-        v.examplesList = []; // Khởi tạo mảng ví dụ trống
+        v.examplesList = [];
 
         if (results && results.length > 0) {
             const detail = results[0];
             if (detail.hv && !v.hv) v.hv = detail.hv;
             v.meaning = detail.meaning || v.meaning;
             
-            // 🟢 TRÍCH XUẤT TOÀN BỘ VÍ DỤ CÓ SẴN TỪ MAZII
             if (detail.meaningsList) {
                 detail.meaningsList.forEach(m => {
                     if (m.examples && Array.isArray(m.examples)) {
@@ -10565,7 +10564,6 @@ async function ensureXRayVocabDeepFetched(kanjiChar, index) {
                 });
             }
 
-            // Fallback định dạng cũ của Mazii
             if (v.examplesList.length === 0 && detail.example) {
                 const parenMatch = detail.example.match(/(.*?)[(（](.*?)[)）]/);
                 v.examplesList.push({
@@ -10575,11 +10573,9 @@ async function ensureXRayVocabDeepFetched(kanjiChar, index) {
             }
         }
         
-        // Khống chế tối đa 15 ví dụ
         v.examplesList = v.examplesList.slice(0, 15);
         v.isDeepFetched = true;
 
-        // Lưu cục bộ IndexedDB
         window.kanjiDetailCache[cacheKey] = cachedData;
         await dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: cachedData });
 
@@ -10591,9 +10587,7 @@ async function ensureXRayVocabDeepFetched(kanjiChar, index) {
 }
 async function generateExWithAIOndemand(kanjiChar, index) {
     const btn = document.getElementById(`btnAiGenEx-${index}`);
-    const exContainer = document.getElementById(`xray-vocab-ex-${index}`);
-    
-    const cacheKey = `mazii_v14_final_${kanjiChar}`;
+    const cacheKey = `kanji_v14_final_${kanjiChar}`; // Đã đồng bộ khóa chuẩn
     const cachedData = window.kanjiDetailCache[cacheKey];
     if (!cachedData || !cachedData.mergedVocabList) return;
     
@@ -10605,37 +10599,26 @@ async function generateExWithAIOndemand(kanjiChar, index) {
     }
 
     try {
-        // =========================================================================
-        // 📡 BƯỚC 1: LẤY MẢNG VÍ DỤ TỪ GLOBAL CACHE SUPABASE
-        // =========================================================================
-        const { data: cloudCached, error: cloudErr } = await sb.from('ai_dict_cache')
+        const { data: cloudCached } = await sb.from('ai_dict_cache')
             .select('examples')
             .eq('word', v.word)
             .maybeSingle();
 
         let currentExamples = (cloudCached && cloudCached.examples) ? cloudCached.examples : [];
 
-        // Nếu máy người dùng chưa có ví dụ cục bộ nhưng Cloud ĐÃ CÓ SẴN mảng ví dụ
         if (currentExamples.length > 0 && (!v.examplesList || v.examplesList.length === 0)) {
-            console.log(`[Global Cache Hit] Khôi phục thành công mảng ${currentExamples.length} ví dụ từ Cloud! 💾`);
             v.examplesList = currentExamples;
-
             window.kanjiDetailCache[cacheKey] = cachedData;
             await dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: cachedData });
             
-            // Vẽ lại giao diện và đóng luồng
             await toggleXRayVocabExample(kanjiChar, index); 
-            await toggleXRayVocabExample(kanjiChar, index); // Trigger đóng/mở lại để vẽ dữ liệu
+            await toggleXRayVocabExample(kanjiChar, index); 
             return;
         }
 
-        // =========================================================================
-        // 🧠 BƯỚC 2: GỌI AI SÁNG TÁC (Tự động tính toán số câu cần sinh)
-        // =========================================================================
         const listLength = v.examplesList ? v.examplesList.length : 0;
-        const countToGen = listLength === 0 ? 3 : 2; // Lần đầu tạo 3 câu, các lần sau tạo thêm 2 câu
-        
-        console.log(`[Global Cache Miss] AI tiến hành sáng tác thêm ${countToGen} câu ví dụ cho: [${v.word}]`);
+        const countToGen = listLength === 0 ? 3 : 2; 
+
         if (btn) btn.innerHTML = `<div class="spinner" style="width:12px;height:12px;border-width:2px;border-top-color:#0067c0;"></div> AI đang viết...`;
 
         const aiPrompt = `Hãy tạo thêm đúng ${countToGen} câu ví dụ tiếng Nhật tự nhiên chứa từ "${v.word}" (Đọc: ${v.reading}, Nghĩa: ${v.meaning}).
@@ -10649,31 +10632,22 @@ async function generateExWithAIOndemand(kanjiChar, index) {
         const newExs = JSON.parse(cleanResponse);
 
         if (Array.isArray(newExs)) {
-            // Nối mảng mới tạo vào mảng hiện tại
             v.examplesList = [...(v.examplesList || []), ...newExs];
-            v.examplesList = v.examplesList.slice(0, 15); // Cắt móng tối đa 15 câu
+            v.examplesList = v.examplesList.slice(0, 15);
         }
 
-        // Cập nhật bộ nhớ đệm Offline thiết bị hiện tại
         window.kanjiDetailCache[cacheKey] = cachedData;
         await dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: cachedData });
 
-        // Vẽ lại giao diện ngay cho mượt mà
         await toggleXRayVocabExample(kanjiChar, index);
         await toggleXRayVocabExample(kanjiChar, index);
         showToast(`✨ AI đã viết thêm ${newExs.length} câu ví dụ mới!`);
 
-        // =========================================================================
-        // 📡 BƯỚC 3: ĐỒNG BỘ GỘP MẢNG (UPSERT) LÊN ĐÁM MÂY CHUNG
-        // =========================================================================
-        sb.from('ai_dict_cache').upsert({
+        await sb.from('ai_dict_cache').upsert({
             word: v.word,
             reading: v.reading || '',
             examples: v.examplesList,
             updated_at: new Date().toISOString()
-        }).then(({ error }) => {
-            if (error) console.warn("Lỗi đồng bộ gộp mảng lên Cloud:", error.message);
-            else console.log(`[Global Cache Upserted] Đã đồng bộ mảng ${v.examplesList.length} câu ví dụ lên Cloud! 🚀`);
         });
 
     } catch (err) {
@@ -10703,7 +10677,6 @@ async function toggleXRayVocabExample(kanjiChar, index) {
     const v = await ensureXRayVocabDeepFetched(kanjiChar, index);
 
     if (v) {
-        // Cập nhật Hán Việt ra màn hình chính
         const meaningBox = document.getElementById(`xray-meaning-box-${index}`);
         if (meaningBox) {
             meaningBox.innerHTML = `${v.hv ? `<b style="color: #059669; font-size: 11px; margin-right: 4px;">[${escapeHTML(v.hv)}]</b>` : ''}${escapeHTML(v.meaning)}`;
@@ -10712,7 +10685,6 @@ async function toggleXRayVocabExample(kanjiChar, index) {
         const listLength = v.examplesList ? v.examplesList.length : 0;
 
         if (listLength > 0) {
-            // 🟢 VẼ DANH SÁCH NHIỀU VÍ DỤ PHÂN CÁCH BẰNG NÉT ĐỨT
             let listHtml = v.examplesList.map((ex, i) => `
                 <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: ${i === listLength - 1 ? 'none' : '1px dashed #e2e8f0'};">
                     <div style="font-size: 14px; font-weight: 700; color: #1a1a1a; font-family:'Noto Sans JP', sans-serif; line-height:1.4; margin-bottom:4px;">${wrapKanjiWithLink(escapeHTML(ex.jp))}</div>
@@ -10720,7 +10692,6 @@ async function toggleXRayVocabExample(kanjiChar, index) {
                 </div>
             `).join('');
 
-            // Nút tạo thêm ví dụ (Chỉ hiện nếu dưới 15 câu)
             let appendBtnHtml = listLength < 15 ? `
                 <div style="margin-top: 12px; text-align: right; border-top: 1px solid #f1f3f4; padding-top: 8px;">
                     <button id="btnAiGenEx-${index}" onclick="generateExWithAIOndemand('${kanjiChar}', ${index})" style="background: transparent; color: #0067c0; border: none; font-weight: 700; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
@@ -10731,7 +10702,6 @@ async function toggleXRayVocabExample(kanjiChar, index) {
 
             exContainer.innerHTML = listHtml + appendBtnHtml;
         } else {
-            // Trường hợp rỗng hoàn toàn -> Hiện nút kích hoạt lần đầu
             exContainer.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <span style="font-size:12px; color:#a0aec0;">Không có câu ví dụ cho từ này.</span>
@@ -10779,13 +10749,17 @@ async function addSingleVocabXRay(kanjiChar, index) {
  * Hoạt động 3: Bấm Lưu hàng loạt (Quét nối tiếp các từ chưa deep-fetch)
  */
 async function bulkSaveXRayVocab(kanjiChar) {
-    const cacheKey = `mazii_v14_final_${kanjiChar}`;
+    const cacheKey = `kanji_v14_final_${kanjiChar}`; // Đã đồng bộ khóa chuẩn
     const cachedData = window.kanjiDetailCache[cacheKey];
-    if (!cachedData || !cachedData.mergedVocabList) return;
+    
+    // Kiểm tra an toàn bộ nhớ đệm
+    if (!cachedData || !cachedData.mergedVocabList) {
+        return showToast("⚠️ Không tìm thấy dữ liệu từ ghép để lưu.");
+    }
 
     const list = cachedData.mergedVocabList;
 
-    // Định dạng dữ liệu trực tiếp từ danh sách hiện có, bỏ qua bước quét sâu từng từ
+    // Định dạng dữ liệu thô khớp với yêu cầu của Modal lưu hàng loạt
     const formattedVocabList = list.map(v => ({
         word: v.word,
         reading: v.reading,
