@@ -8534,6 +8534,74 @@ function getCleanName(id) {
     if (parts.length >= 3) return parts.slice(1, -1).join(':'); 
     return parts.length === 2 ? parts[1] : id;
 }
+// Hàm phân tích và thiết lập giao diện nghĩa từ điển nhanh (Apple Style)
+function parseAndFormatMeanings(meaningStr) {
+    if (!meaningStr) return "";
+
+    // Tách chuỗi nghĩa thô bằng dấu chấm phẩy ';' hoặc '；' thành các nghĩa riêng lẻ
+    let rawParts = meaningStr.split(/;|；/).map(p => p.trim()).filter(Boolean);
+
+    // Hàm tiện ích viết hoa chữ cái đầu tiên
+    const capitalize = (str) => {
+        if (!str) return "";
+        return str.charAt(0).toUpperCase() + str.slice(1);
+    };
+
+    // ==========================================
+    // TRƯỜNG HỢP 1: CHỈ CÓ DUY NHẤT 1 NGHĨA
+    // ==========================================
+    if (rawParts.length === 1) {
+        let singleMean = rawParts[0];
+        
+        // Loại bỏ hoàn toàn số thứ tự ở đầu dòng (Ví dụ: "1. ", "1) ", "① ")
+        let cleanMean = singleMean.replace(/^\d+[\.\)\s-]+\s*/, '').replace(/[①②③④⑤⑥⑦⑧⑨⑩]\s*/, '').trim();
+        
+        // Viết hoa chữ cái đầu dòng và trả về 1 dòng không chứa số
+        return `
+            <div class="qd-meaning-row-single" style="font-size: 15px; color: #1d1d1f; font-weight: 600; line-height: 1.5; padding: 10px 0;">
+                ${escapeHTML(capitalize(cleanMean))}
+            </div>
+        `;
+    }
+
+    // ==========================================
+    // TRƯỜNG HỢP 2: CÓ NHIỀU NGHĨA (2 NGHĨA TRỞ LÊN)
+    // ==========================================
+    // Tạo container chứa các hàng nghĩa dạng lưới xếp dọc mượt mà
+    let html = '<div class="qd-meanings-list" style="display: flex; flex-direction: column; gap: 8px; width: 100%; box-sizing: border-box; margin-top: 8px;">';
+    
+    rawParts.forEach((part, index) => {
+        // Tách số thứ tự gốc ở đầu (nếu có)
+        let numberMatch = part.match(/^(\d+[\.\)\s-]+\s*|[①②③④⑤⑥⑦⑧⑨⑩]\s*)/);
+        let numPrefix = "";
+        let cleanText = part;
+
+        if (numberMatch) {
+            numPrefix = numberMatch[0]; // Giữ lại số thứ tự (ví dụ: "2. ")
+            cleanText = part.substring(numPrefix.length).trim(); // Trích xuất nghĩa thô phía sau
+        } else {
+            // Nếu dữ liệu gốc bị thiếu số thứ tự, tự điền số tương ứng
+            numPrefix = `${index + 1}. `;
+        }
+
+        // Viết hoa chữ cái đầu của phần số thứ tự và phần nghĩa chính
+        const formattedNum = capitalize(numPrefix.trim());
+        const formattedText = capitalize(cleanText);
+
+        // Render mỗi nghĩa trên một dòng riêng biệt có Border và nền trắng bo tròn mượt mà
+        html += `
+            <div class="qd-meaning-line-item" style="padding: 10px 14px; border: 1px solid #e5e5ea; border-radius: 10px; background: #ffffff; font-size: 14px; color: #1d1d1f; font-weight: 600; line-height: 1.4; display: flex; align-items: baseline; gap: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.01);">
+                <!-- Số thứ tự viết hoa đầu dòng -->
+                <span style="color: #86868b; font-size: 12px; font-weight: 700; flex-shrink: 0; min-width: 18px;">${escapeHTML(formattedNum)}</span>
+                <!-- Nghĩa chính viết hoa sau số thứ tự -->
+                <span style="flex: 1; text-align: left;">${escapeHTML(formattedText)}</span>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+    return html;
+}
 // Hàm tiện ích loại bỏ các số thứ tự 1., 2., 3., 1), ①, ② khỏi chuỗi nghĩa
 function removeNumberedLists(text) {
     if (!text) return "";
@@ -14132,32 +14200,34 @@ async function executeHybridSearch(input, resDiv) {
     try {
         const maziiRes = await fetchMaziiDictionary(input);
 
-        // Nếu Mazii không có kết quả
+        // Nếu không có kết quả
         if (maziiRes.length === 0) {
             resDiv.innerHTML = `<div style="text-align:center; color:#718096; padding: 30px; background:#fff; border-radius:12px;">Không tìm thấy kết quả nào cho "<b>${escapeHTML(input)}</b>".</div>`;
             return;
         }
 
-        // 🟢 INJECT CSS MỚI: Thêm class cho Nút Glassmorphism và Fix tràn lề Khối lưới
+        // Khởi tạo các CSS bổ trợ mượt mà
         const stylesHTML = `
             <style>
                 .qd-meanings-wrapper {
-                    border: 1px solid #e5e5ea;
-                    border-radius: 12px;
-                    overflow: hidden;
-                    background: #ffffff;
-                    margin-top: 12px;
+                    border: none !important; /* Loại bỏ viền bọc thô kệch bên ngoài */
+                    background: transparent !important; /* Biến nền bọc ngoài thành trong suốt */
+                    margin-top: 10px;
                     width: 100%;
                     box-sizing: border-box;
                 }
-                .qd-accordion, .qd-meaning-row { border-bottom: 1px solid #e5e5ea; }
-                .qd-accordion:last-child, .qd-meaning-row:last-child { border-bottom: none; }
+                .qd-accordion { 
+                    border: 1px solid #e5e5ea; 
+                    border-radius: 12px; 
+                    overflow: hidden; 
+                    background: #ffffff; 
+                    margin-bottom: 10px; 
+                }
                 .qd-accordion summary::-webkit-details-marker { display: none; }
                 .qd-accordion summary { list-style: none; }
                 .qd-accordion[open] .qd-acc-icon { transform: rotate(180deg); color: #1d1d1f !important; }
                 .qd-accordion[open] summary { background: #f9fafb; } 
 
-                /* 🟢 Nút Glass Xám Tròn Tối Giản */
                 .btn-qd-glass-add {
                     width: 36px; height: 36px;
                     border-radius: 50%;
@@ -14179,32 +14249,27 @@ async function executeHybridSearch(input, resDiv) {
             </style>
         `;
 
-        // 🟢 HÀM PHỤ TRỢ 1: Viết hoa chữ cái đầu tiên
         const capitalizeFirstLetter = (str) => {
             if (!str) return '';
-            const trimmed = str.trim();
-            return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+            return str.trim().charAt(0).toUpperCase() + str.trim().slice(1);
         };
 
-        // 🟢 HÀM PHỤ TRỢ 2: Dọn dẹp mảng từ loại (Lọc trùng lặp "vt, vt, vt")
         const formatKindBadge = (rawKind) => {
             if (!rawKind) return '';
             let parts = rawKind.split(',').map(k => k.trim().toUpperCase()).filter(Boolean);
             return [...new Set(parts)].join(', ');
         };
 
-        // 3. RENDER GIAO DIỆN TỪ MAZII
+        // Render danh sách thẻ kết quả
         const cardsHTML = maziiRes.map(d => {
             const safeWord = escapeHTML(d.word);
             const safeReading = escapeHTML(d.reading || '');
-            const safeMeaning = escapeHTML(capitalizeFirstLetter(d.meaning)); 
-            const safeExample = escapeHTML(d.example || ''); 
             const safeHv = escapeHTML(d.hv);
             const safeLevel = escapeHTML(d.level);
             const safeAntonyms = escapeHTML(d.antonyms);
 
             const btnHTML = `<button class="btn-qd-glass-add" title="Thêm vào bộ bài" 
-                onclick="openSaveDictWordModal('${encodeURIComponent(safeWord)}', '${encodeURIComponent(safeReading)}', '${encodeURIComponent(safeMeaning)}', '${encodeURIComponent(safeHv)}', '${encodeURIComponent(safeExample)}')">
+                onclick="openSaveDictWordModal('${encodeURIComponent(safeWord)}', '${encodeURIComponent(safeReading)}', '${encodeURIComponent(escapeHTML(removeNumberedLists(d.meaning)))}', '${encodeURIComponent(safeHv)}', '${encodeURIComponent(escapeHTML(d.example || ''))}')">
                 <span class="material-symbols-outlined" style="font-size: 20px;">add</span>
             </button>`;
 
@@ -14216,8 +14281,7 @@ async function executeHybridSearch(input, resDiv) {
                     const cleanKindText = formatKindBadge(m.kind);
                     const kindBadge = cleanKindText ? `<span onclick="showPosExplanation(event, '${escapeHTML(cleanKindText)}')" title="Nhấn để xem giải thích" style="background:transparent; color:#64748b; padding:2px 6px; border-radius:4px; font-size:10px; margin-right:8px; font-weight:800; border: 1px solid #cbd5e0; vertical-align: middle; letter-spacing: 0.5px; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#f1f5f9'; this.style.color='#1d1d1f';" onmouseout="this.style.background='transparent'; this.style.color='#64748b';">${escapeHTML(cleanKindText)}</span>` : '';
                     
-                    const capitalizedMean = capitalizeFirstLetter(m.mean);
-
+                    // Kiểm tra xem nghĩa thô của từ này có chứa câu ví dụ không
                     if (m.examples && m.examples.length > 0) {
                         const examplesHTML = m.examples.map((ex, exIdx) => `
                             <div style="padding: 10px 0; border-bottom: ${exIdx === m.examples.length - 1 ? 'none' : '1px dashed #e5e5ea'};">
@@ -14228,11 +14292,13 @@ async function executeHybridSearch(input, resDiv) {
 
                         const isOpen = index === firstExIndex ? 'open' : '';
 
+                        // 🟢 TÍCH HỢP BỘ PHÂN TÁCH NGHĨA MỚI VÀO ACCORDION CÓ VÍ DỤ
                         return `
                         <details class="qd-accordion" ${isOpen}>
                             <summary style="padding: 12px 14px; display: flex; align-items: flex-start; cursor: pointer; outline: none; transition: background 0.2s;">
-                                <div style="flex: 1; font-size: 15px; color: #1d1d1f; font-weight: 600; line-height: 1.4;">
-                                    ${kindBadge}${escapeHTML(capitalizedMean)}
+                                <div style="flex: 1;">
+                                    ${kindBadge}
+                                    ${parseAndFormatMeanings(m.mean)}
                                 </div>
                                 <span class="material-symbols-outlined qd-acc-icon" style="color: #a0aec0; font-size: 20px; margin-left: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);">expand_more</span>
                             </summary>
@@ -14241,16 +14307,18 @@ async function executeHybridSearch(input, resDiv) {
                             </div>
                         </details>`;
                     } else {
+                        // 🟢 TÍCH HỢP BỘ PHÂN TÁCH NGHĨA MỚI VÀO ĐOẠN KHÔNG CÓ VÍ DỤ
                         return `
-                        <div class="qd-meaning-row" style="padding: 12px 14px; font-size: 15px; color: #1d1d1f; font-weight: 600; line-height: 1.4;">
-                            ${kindBadge}${escapeHTML(capitalizedMean)}
+                        <div style="width: 100%; box-sizing: border-box;">
+                            ${kindBadge ? `<div style="padding: 0 14px; margin-bottom: 4px;">${kindBadge}</div>` : ''}
+                            ${parseAndFormatMeanings(m.mean)}
                         </div>`;
                     }
                 }).join('');
 
                 detailedMeaningsHTML = `<div class="qd-meanings-wrapper">${rowsHTML}</div>`;
             } else {
-                detailedMeaningsHTML = `<div style="font-size: 15px; color:#1d1d1f; margin-top:10px;">${safeMeaning}</div>`;
+                detailedMeaningsHTML = `<div style="width: 100%; box-sizing: border-box;">${parseAndFormatMeanings(d.meaning)}</div>`;
             }
 
             return `
@@ -14282,12 +14350,11 @@ async function executeHybridSearch(input, resDiv) {
             </div>`;
         }).join('');
 
-        // Không còn cộng adminHintHTML vào resDiv nữa
         resDiv.innerHTML = stylesHTML + cardsHTML;
 
     } catch (err) {
         console.error("Lỗi tra từ:", err);
-        resDiv.innerHTML = `<div style="color:#e53e3e; text-align:center; padding: 20px; background:#fff; border-radius:12px;">Có lỗi xảy ra khi gọi từ điển mở rộng.</div>`;
+        resDiv.innerHTML = `<div style="color:#e53e3e; text-align:center; padding: 20px; background:#fff; border-radius:12px;">Có lỗi xảy ra khi gọi từ điển Cloudflare.</div>`;
     }
 }
 
