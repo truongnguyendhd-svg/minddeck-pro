@@ -10585,13 +10585,28 @@ async function ensureXRayVocabDeepFetched(kanjiChar, index) {
         return v;
     }
 }
+// 4. HÀM TẠO THÊM CÂU VÍ DỤ BẰNG AI TRÊN KANJI X-RAY (GIỚI HẠN CỨNG TỐI ĐA 15 CÂU)
 async function generateExWithAIOndemand(kanjiChar, index) {
     const btn = document.getElementById(`btnAiGenEx-${index}`);
-    const cacheKey = `kanji_v14_final_${kanjiChar}`; // Đã đồng bộ khóa chuẩn
+    const cacheKey = `kanji_v14_final_${kanjiChar}`; // Khóa cache chuẩn
     const cachedData = window.kanjiDetailCache[cacheKey];
     if (!cachedData || !cachedData.mergedVocabList) return;
     
     const v = cachedData.mergedVocabList[index];
+
+    // Đảm bảo v.examplesList luôn tồn tại ở dạng mảng
+    if (!v.examplesList || !Array.isArray(v.examplesList)) {
+        v.examplesList = [];
+    }
+
+    const listLength = v.examplesList.length;
+
+    // 🛑 CHỐT CHẶN FRONTEND: Nếu đã có đủ hoặc thừa 15 câu, dừng ngay lập tức
+    if (listLength >= 15) {
+        showToast("Dữ liệu ví dụ cho từ này đã đạt giới hạn tối đa (15 câu)!");
+        if (btn) btn.style.display = 'none'; // Ẩn luôn nút tạo thêm
+        return;
+    }
 
     if (btn) {
         btn.disabled = true;
@@ -10599,25 +10614,10 @@ async function generateExWithAIOndemand(kanjiChar, index) {
     }
 
     try {
-        const { data: cloudCached } = await sb.from('ai_dict_cache')
-            .select('examples')
-            .eq('word', v.word)
-            .maybeSingle();
-
-        let currentExamples = (cloudCached && cloudCached.examples) ? cloudCached.examples : [];
-
-        if (currentExamples.length > 0 && (!v.examplesList || v.examplesList.length === 0)) {
-            v.examplesList = currentExamples;
-            window.kanjiDetailCache[cacheKey] = cachedData;
-            await dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: cachedData });
-            
-            await toggleXRayVocabExample(kanjiChar, index); 
-            await toggleXRayVocabExample(kanjiChar, index); 
-            return;
-        }
-
-        const listLength = v.examplesList ? v.examplesList.length : 0;
-        const countToGen = listLength === 0 ? 3 : 2; 
+        // 🧠 TÍNH TOÁN THÔNG MINH: Chỉ yêu cầu AI tạo đủ số câu còn thiếu để đạt tối đa 15 câu
+        // Bình thường tạo 3 câu (lần đầu) hoặc 2 câu. Nhưng nếu sắp chạm mốc 15, chỉ tạo số câu còn lại.
+        const defaultGen = listLength === 0 ? 3 : 2;
+        const countToGen = Math.min(15 - listLength, defaultGen);
 
         if (btn) btn.innerHTML = `<div class="spinner" style="width:12px;height:12px;border-width:2px;border-top-color:#0067c0;"></div> AI đang viết...`;
 
@@ -10632,23 +10632,31 @@ async function generateExWithAIOndemand(kanjiChar, index) {
         const newExs = JSON.parse(cleanResponse);
 
         if (Array.isArray(newExs)) {
-            v.examplesList = [...(v.examplesList || []), ...newExs];
-            v.examplesList = v.examplesList.slice(0, 15);
+            // Gộp mảng mới sinh vào mảng đang có trên RAM và cắt cứng 15 câu [1.1.4]
+            v.examplesList = [...v.examplesList, ...newExs].slice(0, 15);
         }
 
+        // Cập nhật bộ đệm cục bộ thiết bị ngay lập tức (RAM & IndexedDB)
         window.kanjiDetailCache[cacheKey] = cachedData;
         await dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: cachedData });
 
+        // Vẽ lại giao diện tức thì
         await toggleXRayVocabExample(kanjiChar, index);
         await toggleXRayVocabExample(kanjiChar, index);
         showToast(`✨ AI đã viết thêm ${newExs.length} câu ví dụ mới!`);
 
-        await sb.from('ai_dict_cache').upsert({
-            word: v.word,
-            reading: v.reading || '',
-            examples: v.examplesList,
-            updated_at: new Date().toISOString()
+        // ĐỒNG BỘ GỬI LÊN CLOUDFLARE D1 (Gửi mảng đã cắt gọn tối đa 15 câu)
+        const response = await fetch(`${DICT_API_URL}/api/update-examples`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                word: v.word,
+                examples: v.examplesList
+            })
         });
+
+        if (!response.ok) throw new Error("Không thể đồng bộ lên máy chủ D1");
+        console.log(`[D1 Sync] Đã lưu thành công mảng ${v.examplesList.length} câu ví dụ lên D1! 🚀`);
 
     } catch (err) {
         console.error("Lỗi quy trình bốc ví dụ On-demand:", err);
@@ -10656,7 +10664,7 @@ async function generateExWithAIOndemand(kanjiChar, index) {
             btn.disabled = false;
             btn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 14px; color: #e53e3e;">error</span> Lỗi. Thử lại`;
         }
-        showToast("Có lỗi xảy ra. Vui lòng thử lại!");
+        showToast("Có lỗi xảy ra khi nạp ví dụ từ AI!");
     }
 }
 /**
