@@ -10764,7 +10764,7 @@ async function addSingleVocabXRay(kanjiChar, index) {
  * Hoạt động 3: Bấm Lưu hàng loạt (Quét nối tiếp các từ chưa deep-fetch)
  */
 async function bulkSaveXRayVocab(kanjiChar) {
-    const cacheKey = `kanji_v14_final_${kanjiChar}`; // Đã đồng bộ khóa chuẩn
+    const cacheKey = `kanji_v14_final_${kanjiChar}`; // Khóa cache chuẩn
     const cachedData = window.kanjiDetailCache[cacheKey];
     
     // Kiểm tra an toàn bộ nhớ đệm
@@ -10774,12 +10774,34 @@ async function bulkSaveXRayVocab(kanjiChar) {
 
     const list = cachedData.mergedVocabList;
 
-    // Định dạng dữ liệu thô khớp với yêu cầu của Modal lưu hàng loạt
+    // 🟢 BẢN NÂNG CẤP: Quét và tự động nạp sâu ví dụ cho TOÀN BỘ từ ghép chưa tải dở dang
+    showLoading(`Đang quét dữ liệu từ điển để nạp ví dụ cho tất cả từ ghép...`);
+    try {
+        // Lọc ra các từ chưa được nạp ví dụ và tạo danh sách Promise chạy song song
+        const fetchPromises = list.map(async (v, index) => {
+            if (!v.isDeepFetched || !v.examplesList || v.examplesList.length === 0) {
+                // Gọi hàm nạp chi tiết (hàm này sẽ tự ghi đè vào RAM và IndexedDB)
+                return ensureXRayVocabDeepFetched(kanjiChar, index);
+            }
+            return v;
+        });
+
+        // Kích hoạt nạp song song (Cloudflare D1 chịu tải cực tốt nên chạy song song 30 từ rất nhanh)
+        await Promise.all(fetchPromises);
+    } catch (e) {
+        console.error("Lỗi khi quét nạp ví dụ hàng loạt:", e);
+        // Vẫn tiếp tục chạy để không chặn đứng thao tác lưu của bạn
+    } finally {
+        hideLoading();
+    }
+
+    // Định dạng dữ liệu hoàn chỉnh sau khi đã nạp xong ví dụ cho toàn bộ danh sách
     const formattedVocabList = list.map(v => ({
         word: v.word,
         reading: v.reading,
         meaning: v.meaning,
         hv: v.hv || '',
+        // Lấy ví dụ đầu tiên đã được nạp đầy đủ từ luồng trên
         example: (v.examplesList && v.examplesList.length > 0) ? `${v.examplesList[0].jp} (${v.examplesList[0].vn})` : ''
     }));
 
