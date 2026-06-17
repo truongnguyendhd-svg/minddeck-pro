@@ -14540,14 +14540,15 @@ async function generateAutoJLPTDeck() {
     showLoading(`Hệ thống đang quét và bốc từ vựng ${level} mới từ D1...`);
 
     try {
-        // 1. Tải danh sách các từ mặt trước (front) đã có trong hệ thống của User để lọc trùng
-        const { data: existing, error: existErr } = await sb.from('cards')
-            .select('front');
-            
+        // 1. Gọi hàm RPC để lấy mảng phẳng chứa tất cả các từ đã học của user (tối ưu hóa tốc độ và giảm dung lượng gói tin)
+        const { data: fronts, error: existErr } = await sb.rpc('get_user_fronts', {
+            p_user_id: currentUser.id
+        });
+        
         if (existErr) throw existErr;
-        const existingSet = new Set(existing ? existing.map(c => c.front) : []);
+        const existingSet = new Set(fronts || []);
 
-        // 2. Gọi API Cloudflare D1 lấy từ ngẫu nhiên (Lấy dôi dư gấp 3 lần để bù đắp các từ bị loại trừ)
+        // 2. Gọi API Cloudflare D1 để lấy từ ngẫu nhiên (Lấy dôi dư gấp 3 lần để bù đắp các từ bị loại trừ)
         const fetchLimit = amount * 3;
         const response = await fetch(`${DICT_API_URL}/api/jlpt-random?level=${level}&limit=${fetchLimit}`);
         if (!response.ok) throw new Error("Không thể kết nối với dịch vụ từ điển Cloudflare D1.");
@@ -14583,7 +14584,7 @@ async function generateAutoJLPTDeck() {
 
         // 5. Đóng gói dữ liệu thẻ (Mapping sang cấu trúc bảng cards của Supabase)
         const cardsToInsert = selectedWords.map(w => {
-            // 🟢 TIẾN TRÌNH KHỬ SỐ THỨ TỰ (1., 2., ①,...) TRONG PHẦN NGHĨA
+            // Loại bỏ các con số thứ tự thừa khỏi phần nghĩa (meaning) bằng hàm removeNumberedLists
             const cleanMeaning = removeNumberedLists(w.meaning || '');
             const backPacked = `${w.reading || ''}\n${cleanMeaning}`.trim();
             
@@ -14623,7 +14624,7 @@ async function generateAutoJLPTDeck() {
             await sb.from('decks').delete().eq('id', deckId);
             localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
             hideLoading();
-            return customAlert("Không có thẻ mới nào được thêm do trùng lặp.", "⚠️ Đã trùng lặp", "warning");
+            return customAlert("Không có thẻ mới nào được thêm do trùng lặp dữ liệu.", "⚠️ Đã trùng lặp", "warning");
         }
 
         // Xóa bộ nhớ đệm danh sách bộ bài cũ
