@@ -20512,90 +20512,17 @@ let currentGeneratedStoryData = null;
 async function generateDailyStoryWithAI() {
     if (!currentUser) return customAlert("Vui lòng đăng nhập!", "⚠️");
 
-    let targetLevel = "N3"; 
-    if (currentUser && currentUser.study_goal && currentUser.study_goal.level) {
-        targetLevel = currentUser.study_goal.level; // Đọc trực tiếp từ RAM
-    } else {
-        const cachedGoal = localStorage.getItem(`minddeck_study_goal_${currentUser?.id}`);
-        if (cachedGoal) {
-            try {
-                const parsed = JSON.parse(cachedGoal);
-                targetLevel = parsed.level || "N3"; // Đọc từ bộ nhớ đệm
-            } catch (e) {}
-        }
-    }
-
-    showLoading(`AI đang viết bài Đọc hiểu ${targetLevel} độc bản cho bạn...\nVui lòng đợi 15-20 giây ☕`);
-
-    // ==========================================
-    // 🟢 THÊM LOGIC "RANDOM SEED" (TRỘN BỐI CẢNH)
-    // ==========================================
-    const genres = [
-        "Sci-Fi (Viễn tưởng, du hành vũ trụ, robot, AI tương lai)",
-        "Mystery (Trinh thám, vụ án bí ẩn, suy luận logic)",
-        "Slice of Life (Câu chuyện hài hước, đời thường chốn công sở, tình huống éo le)",
-        "Fantasy (Phiêu lưu kỳ ảo, phép thuật, dị giới Isekai)",
-        "Business (Cuộc đàm phán thương mại căng thẳng, khởi nghiệp, quản lý rủi ro)",
-        "Psychological (Tâm lý học, khám phá nội tâm con người, những cú twist bất ngờ)",
-        "History (Câu chuyện dã sử về Samurai, thời kỳ Edo hoặc Meiji)",
-        "Horror (Chuyện ma quái, tâm linh Nhật Bản, hồi hộp rùng rợn)"
-    ];
-    
-    // Chọn ngẫu nhiên 1 thể loại
-    const randomGenre = genres[Math.floor(Math.random() * genres.length)];
-
-    // ĐÃ SỬA PROMPT: ÉP THỂ LOẠI VÀ YÊU CẦU NGẪU NHIÊN
-    const prompt = `Đóng vai trò là người ra đề thi JLPT ${targetLevel}. Hãy sáng tác MỘT ĐOẠN VĂN NGẮN (Dokkai) cực kỳ thú vị, độc đáo và lôi cuốn (khoảng 5-8 câu).
-    
-    ĐIỀU KIỆN TIÊN QUYẾT: 
-    - Thể loại và bối cảnh của câu chuyện BẮT BUỘC PHẢI LÀ: **${randomGenre}**. 
-    - Tuyệt đối KHÔNG viết về chủ đề học thuật nhàm chán như "Xã hội hiện đại", "Tự do", "Giáo dục". Phải có nhân vật, tình huống hoặc sự kiện cụ thể.
-    
-    Yêu cầu Đọc hiểu:
-    1. Đoạn văn BẮT BUỘC chứa khoảng 10 từ vựng/kanji và 2-3 ngữ pháp tiêu chuẩn của ${targetLevel} (Phù hợp với bối cảnh ${randomGenre}).
-    2. Đặt 1 câu hỏi trắc nghiệm đọc hiểu liên quan (có 4 đáp án).
-    3. Đưa ra lời giải thích ngắn gọn bằng tiếng Việt.
-    4. Trích xuất Từ vựng và Ngữ pháp thành 2 mảng riêng biệt.
-    
-    TRẢ VỀ DUY NHẤT 1 KHỐI JSON. Định dạng chuẩn xác như sau:
-    {
-      "title_jp": "Tiêu đề tiếng Nhật",
-      "story_jp": "Nội dung đoạn văn tiếng Nhật.",
-      "story_vn": "Bản dịch toàn bộ đoạn văn sang tiếng Việt.",
-      "quiz": {
-        "question": "Câu hỏi trắc nghiệm",
-        "correct_answer": "Đáp án đúng",
-        "wrong_answers": ["Sai 1", "Sai 2", "Sai 3"],
-        "explanation": "Giải thích ngắn gọn"
-      },
-      "vocab": [
-        {
-          "front": "Từ vựng (Kanji)",
-          "reading": "Cách đọc Hiragana",
-          "meaning": "Ý nghĩa tiếng Việt",
-          "hv": "Nghĩa Hán Việt (Nếu có)",
-          "ex_jp": "1 Câu ví dụ tiếng Nhật rút ra từ bài",
-          "ex_vn": "Nghĩa câu ví dụ"
-        }
-      ],
-      "grammar": [
-        {
-          "point": "Cấu trúc ngữ pháp",
-          "level": "${targetLevel}",
-          "meaning": "Nghĩa tiếng Việt",
-          "structure": "Cách ghép (VD: Vru + わけだ)",
-          "nuance": "Sắc thái & Lưu ý",
-          "ex_jp": "1 Câu ví dụ tiếng Nhật rút ra từ bài",
-          "ex_vn": "Nghĩa câu ví dụ"
-        }
-      ]
-    }`;
+    showLoading(`Đang tải bài báo tiếng Nhật thực tế và dịch bằng Mistral AI...\nVui lòng đợi 15-20 giây ☕`);
 
     try {
-        let aiResponse = await callGeminiAI(prompt);
-        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-        const data = JSON.parse(aiResponse);
-
+        // Gọi trực tiếp đến Worker xử lý bóc tách bài báo thực tế
+        const response = await fetch(`${DICT_API_URL}/api/daily-news`);
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || "Không thể nạp bài viết mới.");
+        }
+        
+        const data = await response.json();
         currentGeneratedStoryData = data; 
         const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
 
@@ -20669,13 +20596,12 @@ async function generateDailyStoryWithAI() {
         }
         cardsZone.innerHTML = cardsHTML;
 
-// Khóa lại trạng thái UI trước khi chơi
+        // Khóa lại trạng thái UI trước khi chơi
         document.getElementById('dokkaiUnlockZone').classList.remove('unlocked');
         const btnSave = document.getElementById('btnSaveStory');
         btnSave.disabled = true;
         btnSave.style.opacity = '0.5';
 
-        // 🟢 CẤU HÌNH TÊN BỘ BÀI MẶC ĐỊNH THEO NGÀY THÁNG
         const now = new Date();
         const dateStr = `${now.getDate()}/${now.getMonth() + 1}`;
         document.getElementById('storyDeckNameInput').value = `Bài đọc Dokkai (${dateStr})`;
@@ -20685,8 +20611,8 @@ async function generateDailyStoryWithAI() {
 
     } catch (err) {
         hideLoading();
-        console.error("AI Story Error:", err);
-        customAlert("AI trả về sai định dạng. Vui lòng nhấn nút thử lại!", "❌");
+        console.error("Lỗi bốc bài báo bằng Mistral AI:", err);
+        customAlert("Không thể thiết lập bài đọc lúc này. Vui lòng thử lại!", "❌");
     }
 }
 
