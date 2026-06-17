@@ -14537,15 +14537,42 @@ async function generateAutoJLPTDeck() {
     const amount = parseInt(document.getElementById('autoJlptAmount').value);
     
     closeModal('autoJLPTModal');
-    showLoading(`Hệ thống đang quét và bốc từ vựng ${level} mới...`);
+    showLoading(`Hệ thống đang quét và bốc từ vựng ${level} mới từ D1...`);
 
     try {
-        // 1. TẠO TÊN BỘ BÀI VÀ THIẾT LẬP ID ĐỘC BẢN CHỐNG TRÙNG LẶP
+        // 1. Tải danh sách các từ mặt trước (front) đã có trong hệ thống của User để lọc trùng
+        const { data: existing, error: existErr } = await sb.from('cards')
+            .select('front');
+            
+        if (existErr) throw existErr;
+        const existingSet = new Set(existing ? existing.map(c => c.front) : []);
+
+        // 2. Gọi API Cloudflare D1 lấy từ ngẫu nhiên (Lấy dôi dư gấp 3 lần để bù đắp các từ bị loại trừ)
+        const fetchLimit = amount * 3;
+        const response = await fetch(`${DICT_API_URL}/api/jlpt-random?level=${level}&limit=${fetchLimit}`);
+        if (!response.ok) throw new Error("Không thể kết nối với dịch vụ từ điển Cloudflare D1.");
+        const d1Words = await response.json();
+
+        // 3. Tiến hành lọc trùng lặp ở Frontend (Độ phức tạp O(1) nhờ Set)
+        const filteredWords = d1Words.filter(w => !existingSet.has(w.word));
+        
+        if (filteredWords.length === 0) {
+            hideLoading();
+            return customAlert(
+                `Bạn đã nạp toàn bộ từ vựng cấp độ ${level} có trong từ điển D1 vào các học phần của mình. Không còn từ mới để tạo thêm!`, 
+                "🎉 Hoàn tất cấp độ", 
+                "success"
+            );
+        }
+
+        // Cắt lấy đúng số lượng thẻ mà học viên yêu cầu
+        const selectedWords = filteredWords.slice(0, amount);
+
+        // 4. Khởi tạo vỏ bộ bài rỗng trên Supabase
         const deckName = `Bộ từ vựng ${level} (Tự động)`;
         const uniqueName = await generateUniqueDeckName(deckName, 'flashcard');
         const deckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
 
-        // 2. KHỞI TẠO VỎ BỘ BÀI TRÊN CLOUD (CHƯA CÓ THẺ BÊN TRONG)
         const { error: deckErr } = await sb.from('decks').insert({
             id: deckId,
             owner_id: currentUser.id,
@@ -14554,55 +14581,67 @@ async function generateAutoJLPTDeck() {
         });
         if (deckErr) throw deckErr;
 
-        // 3. 🚀 GỌI RPC: SQL TỰ LÀM HẾT (BĂNG THÔNG = 0 BYTES)
-        const { data: finalAmount, error: rpcErr } = await sb.rpc('generate_auto_jlpt_deck_direct', {
-            p_user_id: currentUser.id,
-            p_deck_id: deckId,
-            p_level: level,
-            p_limit: amount
+        // 5. Đóng gói dữ liệu thẻ (Mapping sang cấu trúc bảng cards của Supabase)
+        const cardsToInsert = selectedWords.map(w => {
+            const backPacked = `${w.reading || ''}\n${w.meaning || ''}`.trim();
+            let infoArr = [];
+            if (w.hv) infoArr.push(`[HV] ${w.hv}`);
+            
+            // Trích xuất câu ví dụ đầu tiên từ mảng JSON examples trong D1 nếu có
+            let examplesList = [];
+            if (w.examples) {
+                try {
+                    examplesList = typeof w.examples === 'string' ? JSON.parse(w.examples) : w.examples;
+                } catch(e) { examplesList = []; }
+            }
+            if (examplesList && examplesList.length > 0) {
+                infoArr.push(`[EX1] ${examplesList[0].jp}`);
+                if (examplesList[0].vn) infoArr.push(`[VN1] ${examplesList[0].vn}`);
+            }
+
+            return {
+                deck_id: deckId,
+                front: w.word,
+                back: backPacked,
+                info: infoArr.join('\n'),
+                tags: []
+            };
         });
 
-        if (rpcErr) throw rpcErr;
+        // 6. Đẩy hàng loạt thẻ đã lọc lên Supabase qua RPC an toàn
+        const { data: dbResult, error: dbErr } = await sb.rpc('bulk_insert_cards_safe', {
+            p_user_id: currentUser.id, 
+            p_cards: cardsToInsert
+        });
+        if (dbErr) throw dbErr;
 
-        // 4. CHỐT CHẶN CỨU HỘ: NẾU KHÔNG CÓ THẺ MỚI (Trùng lặp 100% với kho bài cũ)
-        if (!finalAmount || finalAmount === 0) {
-            // Tự dọn rác vỏ bộ bài rỗng
-            await sb.from('decks').delete().eq('id', deckId); 
+        // Thu hồi bộ bài nếu xảy ra xung đột làm số thẻ thêm thực tế bằng 0
+        if (dbResult.inserted_count === 0) {
+            await sb.from('decks').delete().eq('id', deckId);
             localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
-            
             hideLoading();
-            return customAlert(
-                `Bạn đã nạp TOÀN BỘ từ vựng cấp độ ${level} có trong hệ thống vào các bộ bài của mình.<br><br>Không còn từ mới nào để tạo thêm!`, 
-                "🎉 Hoàn tất cấp độ", 
-                "success"
-            );
+            return customAlert("Không có thẻ mới nào được tạo do trùng lặp.", "⚠️ Đã trùng lặp", "warning");
         }
 
-        // 🟢 ĐÃ XÓA BƯỚC ĐỒNG BỘ KANJI THỪA THÃI Ở ĐÂY!
-        // Dữ liệu sẽ tự động đồng bộ khi người dùng bắt đầu học thẻ.
-
-        // Xóa cache danh sách bộ bài cũ để nạp mảng mới
+        // Xóa bộ nhớ đệm danh sách bộ bài cũ
         localStorage.removeItem(`minddeck_decks_cache_${currentUser.id}`);
         hideLoading();
 
-        // 5. HIỂN THỊ THÔNG BÁO THEO SỐ LƯỢNG THỰC TẾ ĐH ĐÃ CHÈN
-        if (finalAmount < amount) {
-            customAlert(
-                `Hệ thống chỉ tìm thấy <b>${finalAmount}</b> từ vựng ${level} mới tinh chưa từng có trong kho của bạn. Đã đóng gói thành công!`, 
-                "ℹ️ Thông báo", 
-                "success"
-            );
+        // 7. Hiển thị thông báo kết quả dựa trên số lượng nạp thực tế
+        if (dbResult.inserted_count < amount) {
+            const skippedWords = dbResult.duplicate_words.slice(0, 5).join(', ');
+            const moreStr = dbResult.duplicate_words.length > 5 ? `... và ${dbResult.duplicate_words.length - 5} từ khác` : '';
+            customAlert(`Hệ thống chỉ tìm thấy <b>${dbResult.inserted_count}</b> từ vựng ${level} mới tinh chưa từng có trong kho của bạn.<br><br>⏭️ <b>Bỏ qua:</b> ${dbResult.duplicate_words.length} thẻ trùng:<br><span style="color:#d97706; font-size:13px; line-height:1.6; display:inline-block; margin-top:5px;">${skippedWords} ${moreStr}</span>`, "✨ Hoàn tất", "success");
         } else {
-            showToast(`🎉 Đã bốc thành công ${finalAmount} từ vựng mới tinh!`);
+            showToast(`🎉 Tạo thành công bộ bài gồm ${dbResult.inserted_count} từ vựng ${level} mới tinh!`);
         }
 
-        // Quay về trang chủ
         window.invalidateDeckListCache();
         showHome();
 
     } catch (e) {
         hideLoading();
-        console.error("Lỗi tạo bộ bài tự động:", e);
+        console.error("Lỗi tạo bộ bài tự động từ D1:", e);
         customAlert("Lỗi tạo bộ bài: " + e.message, "❌");
     }
 }
