@@ -14869,11 +14869,161 @@ function updateHeaderTitle(title) {
     const el = document.getElementById('headerPageTitle');
     if(el) el.innerText = title;
 }
+// 🟢 HÀM 1: KIỂM TRA PHIÊN BẢN CACHE (HARD RESET)
+async function checkGrammarCacheVersion() {
+    if (!currentUser) return;
+    const localVerKey = `minddeck_grammar_version_${currentUser.id}`;
+    const localVersion = localStorage.getItem(localVerKey);
+    
+    // Nếu phát hiện lệch phiên bản so với hằng số trong code
+    if (localVersion !== GRAMMAR_DICT_VERSION) {
+        console.log("MindDeck: Phát hiện phiên bản Ngữ pháp mới từ Admin! Tiến hành dọn dẹp cache...");
+        
+        // 1. Giải phóng RAM đang chạy
+        globalGrammarData = [];
+        
+        try {
+            // 2. Xóa sạch kho lưu trữ cũ trong IndexedDB
+            await dbOps.clear(STORE_GRAMMAR);
+            
+            // 3. Xóa các mốc thời gian đồng bộ cũ để ép tải lại từ đầu
+            localStorage.removeItem(`minddeck_dict_grammar_sync_${currentUser.id}`);
+            localStorage.removeItem(`minddeck_auto_sync_grammar_${currentUser.id}`);
+            
+            // 4. Ghi nhận phiên bản mới vào ổ cứng
+            localStorage.setItem(localVerKey, GRAMMAR_DICT_VERSION);
+            console.log("MindDeck: Đã hoàn tất dọn dẹp cache Ngữ pháp cũ.");
+        } catch (e) {
+            console.error("Lỗi dọn dẹp phiên bản Ngữ pháp:", e);
+        }
+    }
+}
+
+// 🟢 HÀM 2: TỰ ĐỘNG ĐỒNG BỘ NGẦM (SILENT AUTO-SYNC & AUTO-DELETE)
+async function autoSyncGrammarOnLoad() {
+    if (!currentUser) return;
+    const lastAutoSyncKey = `minddeck_auto_sync_grammar_${currentUser.id}`;
+    const lastAutoSync = localStorage.getItem(lastAutoSyncKey);
+    const now = Date.now();
+
+    // Giới hạn tần suất: Chỉ tự động kiểm tra ngầm 3 tiếng một lần để tiết kiệm băng thông Supabase
+    if (lastAutoSync && (now - parseInt(lastAutoSync)) < 3 * 60 * 60 * 1000) {
+        return; 
+    }
+
+    try {
+        console.log("MindDeck: 📡 Đang tự động kiểm tra cập nhật ngữ pháp ngầm...");
+        
+        // 1. Tải mốc cấu trúc phẳng hiện tại trên Cloud
+        const { data: cloudGrammar, error: err1 } = await sb.rpc('get_all_grammar_points_flat');
+        if (err1) throw err1;
+
+        const localGrammars = await dbOps.getAll(STORE_GRAMMAR);
+        const localGrammarSet = new Set(localGrammars.map(g => g.grammar_point));
+        
+        // Lọc ra các cấu trúc có trên Cloud nhưng máy cục bộ chưa có
+        const missingGrammars = cloudGrammar.filter(g => !localGrammarSet.has(g));
+
+        // Lọc ra các cấu trúc đã bị xóa trên Cloud nhưng máy cục bộ vẫn giữ
+        const cloudGrammarSet = new Set(cloudGrammar);
+        const deletedGrammars = localGrammars.filter(g => !cloudGrammarSet.has(g.grammar_point));
+
+        let hasChanges = false;
+
+        // Xử lý A: Xóa phần tử lỗi thời khỏi IndexedDB và RAM Cache
+        if (deletedGrammars.length > 0) {
+            console.log(`MindDeck: Phát hiện và xóa ${deletedGrammars.length} cấu trúc đã bị Admin gỡ bỏ.`);
+            for (let dg of deletedGrammars) {
+                await dbOps.delete(STORE_GRAMMAR, dg.id);
+                globalGrammarData = globalGrammarData.filter(item => item.id !== dg.id);
+                
+                // Xóa cả cache giải thích AI của cấu trúc đó
+                const aiCacheKey = `grammar_${currentUser.id}_${dg.id}`;
+                await dbOps.delete(STORE_AI_CACHE, aiCacheKey);
+                if (window.aiGrammarExpansionCache) delete window.aiGrammarExpansionCache[dg.id];
+            }
+            hasChanges = true;
+        }
+
+        // Xử lý B: Tải bổ sung cấu trúc mới tinh
+        if (missingGrammars.length > 0) {
+            console.log(`MindDeck: Phát hiện và tải bổ sung ${missingGrammars.length} cấu trúc mới.`);
+            const { data: newGrammarData, error: err2 } = await sb.from('grammar_dict')
+                .select('id, grammar_point, level, meaning')
+                .in('grammar_point', missingGrammars);
+
+            if (!err2 && newGrammarData) {
+                await dbOps.putBatch(STORE_GRAMMAR, newGrammarData);
+                globalGrammarData = deduplicateGrammarList([...globalGrammarData, ...newGrammarData]);
+                hasChanges = true;
+            }
+        }
+
+        // Xử lý C: Cập nhật vi sai những cấu trúc bị sửa đổi nội dung
+        const lastSyncKey = `minddeck_dict_grammar_sync_${currentUser.id}`;
+        const lastSyncTime = localStorage.getItem(lastSyncKey) || '2020-01-01T00:00:00.000Z';
+
+        const { data: modifiedGrammars, error: err3 } = await sb.from('grammar_dict')
+            .select('id, grammar_point, level, meaning, updated_at')
+            .gt('updated_at', lastSyncTime)
+            .order('updated_at', { ascending: true });
+
+        if (!err3 && modifiedGrammars && modifiedGrammars.length > 0) {
+            console.log(`MindDeck: Phát hiện và cập nhật bản vá cho ${modifiedGrammars.length} cấu trúc bị sửa.`);
+            for (let g of modifiedGrammars) {
+                await dbOps.put(STORE_GRAMMAR, {
+                    id: g.id,
+                    grammar_point: g.grammar_point,
+                    level: g.level,
+                    meaning: g.meaning
+                });
+
+                // Giải phóng ruột ví dụ/chi tiết cũ để ép tải lại khi người dùng bấm vào xem
+                const aiCacheKey = `grammar_${currentUser.id}_${g.id}`;
+                await dbOps.delete(STORE_AI_CACHE, aiCacheKey);
+                if (window.aiGrammarExpansionCache) delete window.aiGrammarExpansionCache[g.id];
+
+                const idx = globalGrammarData.findIndex(item => item.id === g.id);
+                if (idx !== -1) {
+                    globalGrammarData[idx] = { ...globalGrammarData[idx], ...g, isLoaded: false };
+                } else {
+                    globalGrammarData.push(g);
+                }
+            }
+
+            globalGrammarData.sort((a, b) => (a.level > b.level ? -1 : 1));
+            const newestTime = modifiedGrammars[modifiedGrammars.length - 1].updated_at;
+            localStorage.setItem(lastSyncKey, newestTime);
+            hasChanges = true;
+        }
+
+        // Nếu có bất cứ biến động nào -> Vẽ lại giao diện ngay trong chế độ ngầm
+        if (hasChanges) {
+            const isGrammarVisible = !document.getElementById('grammarPage').classList.contains('hidden');
+            if (isGrammarVisible) {
+                const activePill = document.querySelector('#grammarFilterBar .grammar-pill.active');
+                const currentFilter = activePill ? activePill.innerText.trim() : 'ALL';
+                let displayData = globalGrammarData;
+                if (currentFilter !== 'ALL' && currentFilter !== 'Tất cả') {
+                    displayData = globalGrammarData.filter(g => g.level === currentFilter);
+                }
+                renderGrammarGrid(displayData);
+            }
+            showToast("✨ Đã tự động cập nhật dữ liệu ngữ pháp mới nhất!");
+        }
+
+        localStorage.setItem(lastAutoSyncKey, now.toString());
+
+    } catch (e) {
+        console.warn("Lỗi kiểm tra cập nhật ngữ pháp ngầm:", e);
+    }
+}
 /* ================= HỆ THỐNG NGỮ PHÁP (GRAMMAR VAULT) ================= */
 let globalGrammarData = []; // Lưu cache RAM
 let currentGrammarObj = null; // Lưu ngữ pháp đang mở để tạo Flashcard
 
 let userGrammarMasteryMap = {}; // Lưu { '～に違いない': 25, '～に応じて': 5 }
+const GRAMMAR_DICT_VERSION = '2026-06-18_v1';
 // HÀM XỬ LÝ NÚT THU GỌN BANNER NGỮ PHÁP
 function toggleGrammarBanner() {
     const banner = document.getElementById('grammarBanner');
@@ -14901,27 +15051,34 @@ async function showGrammarVault(skipHash = false) {
     updateHeaderTitle("BỘ SƯU TẬP NGỮ PHÁP"); 
     
     document.getElementById('grammarSearchInput').value = '';
-    // 🔄 CHỐT CHẶN TỰ CHỮA LÀNH
+    
+    // 🔄 CHỐT CHẶN TỰ CHỮA LÀNH TIẾN TRÌNH HỌC
     if (userGrammarMasteryMap === null) {
         showLoading("Đang cập nhật lại dữ liệu ngữ pháp...");
         await calculateGrammarMastery(true); // Ép buộc nạp trực tiếp từ Cloud
         hideLoading();
     }
 
-    // Check quyền Admin để hiện nút Auto Gen
+    // Kiểm tra quyền Admin để hiện nút Auto Gen
     const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
     const autoGenBtn = document.getElementById('btnAdminAutoGenGrammar');
     if (autoGenBtn) autoGenBtn.style.display = isAdmin ? 'flex' : 'none';
 
+    // 🟢 CHỐT CHẶN PHIÊN BẢN: Kiểm tra trước xem có cần Hard Reset cache do Admin thay đổi cấu trúc không
+    await checkGrammarCacheVersion();
+
     // 1. Quét tiến trình người dùng trước để lấy "Heatmap"
     await calculateGrammarMastery();
 
-    // 2. Tải dữ liệu nếu chưa có, có rồi thì render luôn
+    // 2. Tải dữ liệu từ IndexedDB, nếu trống thì tải Cloud
     if (globalGrammarData.length === 0) {
-        loadGrammarData('ALL');
+        await loadGrammarData('ALL');
     } else {
         renderGrammarGrid(globalGrammarData); 
     }
+
+    // 🟢 ĐỒNG BỘ NGẦM: Tự động chạy quét ngầm để cập nhật bản vá từ Admin và dọn dẹp các mục bị xóa
+    autoSyncGrammarOnLoad();
 }
 
 // =====================================================================
@@ -15061,6 +15218,7 @@ async function loadGrammarData(level, btnElement = null) {
     grid.innerHTML = '<div style="text-align:center; padding:50px; grid-column:1/-1;"><div class="spinner" style="margin:auto; border-top-color:#1d1d1f;"></div><p style="color:#718096; margin-top:15px;">Đang nạp dữ liệu ngữ pháp...</p></div>';
 
     try {
+        await checkGrammarCacheVersion();
         // 1. Đọc dữ liệu tĩnh từ IndexedDB
         if (globalGrammarData.length === 0) {
             const localGrammars = await dbOps.readAll ? await dbOps.getAll(STORE_GRAMMAR) : await dbOps.getAll(STORE_GRAMMAR);
