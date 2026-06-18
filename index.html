@@ -17423,9 +17423,15 @@ async function executeAutoGrammarGen() {
         ]`;
 
         let aiResponse = await callGeminiAI(prompt);
-        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
         
-        let generatedData = JSON.parse(aiResponse);
+        // Cải tiến 1: Trích xuất mảng JSON an toàn dựa vào dấu ngoặc vuông
+        const jsonStart = aiResponse.indexOf('[');
+        const jsonEnd = aiResponse.lastIndexOf(']');
+        if (jsonStart === -1 || jsonEnd === -1) {
+            throw new Error("AI không trả về một mảng JSON hợp lệ.");
+        }
+        const jsonString = aiResponse.substring(jsonStart, jsonEnd + 1);
+        let generatedData = JSON.parse(jsonString);
 
         if (!Array.isArray(generatedData) || generatedData.length === 0) {
             throw new Error("AI trả về sai format mảng.");
@@ -17459,31 +17465,31 @@ async function executeAutoGrammarGen() {
             return customAlert(`Toàn bộ ${duplicatePoints.length} cấu trúc AI tạo ra đều ĐÃ CÓ trong hệ thống. Vui lòng thử lại!`, "⚠️ Trùng lặp hoàn toàn");
         }
 
-        const { error: insertErr } = await sb.from('grammar_dict').insert(validGrammars);
+        // Cải tiến 2: Thêm .select() để Supabase trả về bản ghi chứa id tự động sinh ra
+        const { data: insertedData, error: insertErr } = await sb
+            .from('grammar_dict')
+            .insert(validGrammars)
+            .select('id, grammar_point, level, meaning');
+            
         if (insertErr) throw insertErr;
 
         hideLoading();
 
         if (duplicatePoints.length > 0) {
             customAlert(`
-                🎉 <b>Đã tạo và lưu thành công:</b> ${validGrammars.length} cấu trúc mới.<br><br>
-                ⏭️ <b>Bỏ qua do trùng lặp:</b> ${duplicatePoints.length} cấu trúc:<br>
+                🎉 <b>Đã tạo và lưu thành công:</b> ${insertedData.length} cấu trúc mới.<br><br>
+                Bỏ qua do trùng lặp: <b>${duplicatePoints.length}</b> cấu trúc:<br>
                 <span style="color:#d97706; font-size:13px;">${duplicatePoints.join(', ')}</span>
             `, "✨ Hoàn tất Auto Gen", "success");
         } else {
-            showToast(`🎉 Thành công! Đã bơm ${validGrammars.length} ngữ pháp mới vào Database.`);
+            showToast(`🎉 Thành công! Đã bơm ${insertedData.length} ngữ pháp mới vào Database.`);
         }
 
-        // Đồng bộ dữ liệu mẻ mới trực tiếp xuống IndexedDB cục bộ
-        const lightNewData = validGrammars.map(g => ({
-            id: g.id,
-            grammar_point: g.grammar_point,
-            level: g.level,
-            meaning: g.meaning
-        }));
-        await dbOps.putBatch(STORE_GRAMMAR, lightNewData);
+        // Cải tiến 3: Lưu các bản ghi hoàn chỉnh (đã có id) vào IndexedDB cục bộ
+        await dbOps.putBatch(STORE_GRAMMAR, insertedData);
 
-        globalGrammarData = deduplicateGrammarList([...localGrammars, ...lightNewData]);
+        // Đồng bộ lên RAM hệ thống đang chạy
+        globalGrammarData = deduplicateGrammarList([...localGrammars, ...insertedData]);
         globalGrammarData.sort((a, b) => (a.level > b.level ? -1 : 1));
 
         if (!document.getElementById('grammarPage').classList.contains('hidden')) {
