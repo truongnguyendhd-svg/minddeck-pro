@@ -1,26 +1,37 @@
 export const config = {
-  runtime: 'edge', // Kích hoạt môi trường Edge để chạy không giới hạn 10s
+  runtime: 'edge', // Kích hoạt môi trường Edge chạy không giới hạn 10s
 };
 
 export default async function handler(req) {
+  // Cấu hình CORS Headers tiêu chuẩn giống Worker
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+
+  // Xử lý Preflight Request từ trình duyệt
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
   // 1. CHỈ CHẤP NHẬN PHƯƠNG THỨC POST
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
       status: 405,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 
   try {
-    // LẤY PROMPT VÀ MẢNG IMAGE(S) TỪ FRONTEND (Sử dụng await req.json())
     const body = await req.json();
     const { prompt, images } = body;
 
     const keysString = process.env.GEMINI_API_KEYS; 
     if (!keysString) {
-      return new Response(JSON.stringify({ error: 'Lỗi Server: Chưa cấu hình GEMINI_API_KEYS' }), {
+      return new Response(JSON.stringify({ error: 'Lỗi Server: Chưa cấu hình biến môi trường GEMINI_API_KEYS' }), {
         status: 500,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
@@ -31,12 +42,9 @@ export default async function handler(req) {
     // 2. CHUẨN BỊ DỮ LIỆU GỬI LÊN GOOGLE
     let partsArray = [{ text: prompt }];
 
-    // NẾU CÓ ẢNH (MẢNG) -> DÙNG VÒNG LẶP ĐỂ THÊM VÀO
     if (images && Array.isArray(images) && images.length > 0) {
       images.forEach(imgString => {
-        // Lọc chuỗi base64 (Cắt bỏ 'data:image/jpeg;base64,')
         const cleanBase64 = imgString.includes(',') ? imgString.split(',')[1] : imgString;
-        
         partsArray.push({
           inlineData: {
             mimeType: "image/jpeg",
@@ -52,8 +60,9 @@ export default async function handler(req) {
       const currentKey = apiKeys[currentIndex];
 
       try {
-        // Chuyển đổi endpoint sang ":streamGenerateContent?alt=sse" để kích hoạt luồng dữ liệu thời gian thực
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key=${currentKey}`;
+        // Mẹo tự động hạ cấp xuống model ổn định nếu model preview bị chặn
+        const modelName = i > 0 ? "gemini-3.5-flash" : "gemini-3-flash-preview";
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${currentKey}`;
         
         const response = await fetch(geminiUrl, {
           method: 'POST',
@@ -62,22 +71,22 @@ export default async function handler(req) {
             contents: [{ parts: partsArray }], 
             generationConfig: { 
               temperature: 0.2,
-              maxOutputTokens: 8192 // Cho phép AI trả lời dài tối đa
+              maxOutputTokens: 8192 
             } 
           })
         });
 
-        // Nếu API key này bị lỗi hoặc hết hạn mức, chúng ta parse lỗi để chuyển sang key tiếp theo
+        // Nếu API key lỗi, parse lỗi chi tiết để đưa vào log
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
-          throw new Error(data.error?.message || 'Lỗi từ Google Gemini');
+          throw new Error(data.error?.message || `Lỗi HTTP ${response.status} từ Google Gemini`);
         }
 
-        // Trả trực tiếp luồng Stream từ Google về cho Frontend (Passthrough Stream)
-        // Cách này hoạt động cực kỳ mượt mà trên Edge Runtime của Vercel
+        // Trả trực tiếp luồng Stream kèm CORS headers đầy đủ
         return new Response(response.body, {
           status: 200,
           headers: {
+            ...corsHeaders,
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache, no-transform',
             'Connection': 'keep-alive',
@@ -96,13 +105,13 @@ export default async function handler(req) {
       detail: lastErrorMessage 
     }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 }
