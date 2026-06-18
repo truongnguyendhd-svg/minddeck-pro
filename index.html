@@ -17537,52 +17537,72 @@ async function saveAdminGrammar() {
     }
 }
 /* ================= AUTO GENERATE NGỮ PHÁP VỚI AI (CHỐT CHẶN KÉP) ================= */
+/* ================= AUTO GENERATE NGỮ PHÁP VỚI AI (CHỐT CHẶN KÉP) ================= */
 
-function openAdminAutoGrammarModal() {
-    document.getElementById('adminAutoGrammarModal').style.display = 'flex';
+// 🟢 1. Hàm mở hộp thoại xác nhận nhanh (Bỏ qua modal Win11 cũ để tăng tốc trải nghiệm)
+async function openAdminAutoGrammarModal() {
+    if (!currentUser) return;
+    
+    const ok = await showConfirm(
+        "Tự động bổ sung Ngữ pháp? 🚀",
+        "Hệ thống sẽ quét cơ sở dữ liệu Supabase để tìm <b>5 cấu trúc ngữ pháp</b> bị trống chi tiết (chỉ có point và level) và gọi AI Gemini tự động điền nốt các cột còn lại. Bạn có muốn tiếp tục?",
+        "Bắt đầu bổ sung",
+        "Hủy bỏ"
+    );
+    
+    if (ok) {
+        executeAutoGrammarReplenish();
+    }
 }
 
-async function executeAutoGrammarGen() {
-    const level = document.getElementById('autoGrammarLevel').value;
-    const amount = document.getElementById('autoGrammarAmount').value;
+// 🟢 2. Hàm lõi tự bốc 5 dòng trống, gọi AI bồi đắp thông tin và đồng bộ hóa đa tầng
+async function executeAutoGrammarReplenish() {
+    showLoading("Đang quét tìm các cấu trúc trống trên Supabase...");
     
-    closeModal('adminAutoGrammarModal');
-    showLoading(`AI đang tạo ${amount} ngữ pháp ${level}... Vui lòng đợi!`);
-
     try {
-        const localGrammars = await dbOps.getAll(STORE_GRAMMAR);
-        const existingPoints = localGrammars
-            .filter(g => g.level === level)
-            .map(g => g.grammar_point.replace(/～/g, ''));
-            
-        const avoidStr = existingPoints.length > 0 
-            ? `\nTUYỆT ĐỐI KHÔNG TẠO LẠI CÁC CẤU TRÚC SAU: [${existingPoints.join(', ')}]` 
-            : "";
+        // 1. Quét tìm tối đa 5 dòng trong grammar_dict có meaning bị null hoặc rỗng
+        const { data: incompleteRows, error: fetchErr } = await sb.from('grammar_dict')
+            .select('id, grammar_point, level')
+            .or('meaning.is.null,meaning.eq.""')
+            .limit(5);
 
+        if (fetchErr) throw fetchErr;
+
+        // Nếu không còn cấu trúc nào bị trống
+        if (!incompleteRows || incompleteRows.length === 0) {
+            hideLoading();
+            return customAlert(
+                "Không tìm thấy cấu trúc ngữ pháp nào bị trống thông tin trong Database! Toàn bộ kho ngữ pháp của bạn đã đầy đủ chi tiết.", 
+                "💡 Thông báo", 
+                "info"
+            );
+        }
+
+        // 2. Cập nhật giao diện loading báo số lượng tìm thấy
+        showLoading(`Đang gửi ${incompleteRows.length} cấu trúc sang Gemini AI để bồi đắp thông tin...`);
+
+        // 3. Thiết kế Prompt tinh chỉnh độ chính xác cao bám sát cấu trúc bảng
         const prompt = `Bạn là chuyên gia biên soạn giáo trình ngữ pháp JLPT uy tín.
-        Hãy tạo ra ĐÚNG ${amount} cấu trúc ngữ pháp thuộc cấp độ ${level}. ${avoidStr}
-        
-        YÊU CẦU NGHIÊM NGẶT VỀ TÍNH XÁC THỰC VÀ CHỐNG LÁCH LUẬT TRÙNG LẶP:
-        1. CẤM BỊA ĐẶT NGỮ PHÁP: Tất cả cấu trúc phải là cấu trúc chính thức, có thật trong giáo trình JLPT chuẩn. Tuyệt đối không tự sáng tác ngữ pháp không tồn tại.
-        2. CẤM TIỂU XẢO LÁCH LUẬT: 
-           - Tuyệt đối không tạo lại cấu trúc đã có trong danh sách cấm dưới mọi biến thể.
-           - CẤM cố tình thêm bớt khoảng trắng, dấu ngoặc, chữ Romaji vào trường "point".
-           - CẤM thay thế dấu sóng toàn chiều "～" bằng dấu sóng nửa chiều "~", dấu gạch ngang "-", dấu ba chấm "..." để né bộ lọc.
-        3. QUY CHUẨN TRƯỜNG "point":
-           - Chỉ viết cấu trúc ngữ pháp chuẩn bằng tiếng Nhật.
-           - Chỉ được dùng duy nhất ký hiệu sóng toàn chiều "～" (Full-width tilde) ở vị trí liên kết từ (ví dụ: "～に違いない", "～さえ～ば"). Không dùng bất kỳ ký tự đặc biệt hay khoảng trắng nào khác.
+        Dưới đây là danh sách ${incompleteRows.length} cấu trúc ngữ pháp cần bổ sung thông tin chi tiết:
+        ${JSON.stringify(incompleteRows.map(r => ({ id: r.id, point: r.grammar_point, level: r.level })))}
 
-        LƯU Ý CỰC KỲ QUAN TRỌNG ĐỂ TRÁNH QUÁ TẢI THỜI GIAN CHỜ (TIMEOUT):
-        1. Giải thích "meaning", "structure", "nuance" phải THẬT NGẮN GỌN.
-        2. Các câu ví dụ "ex" phải là những câu ngắn, đơn giản, vào thẳng vấn đề.
-        3. Tuyệt đối KHÔNG sử dụng dấu nháy kép (") bên trong nội dung các câu văn để tránh lỗi JSON.
+        Nhiệm vụ của bạn:
+        Hãy bổ sung các thông tin chi tiết còn thiếu cho từng cấu trúc trên bao gồm: Ý nghĩa (meaning), cách dùng (structure), sắc thái lưu ý (nuance) và 2 câu ví dụ tiếng Nhật - Việt (ex1_jp, ex1_vn, ex2_jp, ex2_vn).
         
-        BẮT BUỘC TRẢ VỀ DUY NHẤT 1 MẢNG JSON (Không bọc trong markdown \`\`\`json).
-        Định dạng BẮT BUỘC:
+        Yêu cầu trình bày:
+        - "meaning" (Ý nghĩa): Cực kỳ ngắn gọn, dễ hiểu bằng tiếng Việt.
+        - "structure" (Cách dùng/Cấu trúc): Ghi rõ cách kết hợp từ (V-ru/V-ta... + cấu trúc).
+        - "nuance" (Sắc thái & Lưu ý): Viết ngắn gọn 1-2 câu về hoàn cảnh sử dụng.
+        - Ví dụ "ex1_jp", "ex1_vn", "ex2_jp", "ex2_vn": Câu ngắn, tự nhiên, không chứa ký tự đặc biệt hay dấu ngoặc kép rác để tránh lỗi cú pháp JSON.
+        - BẮT BUỘC giữ nguyên "id" của từng cấu trúc tương ứng như danh sách đầu vào.
+        
+        BẮT BUỘC TRẢ VỀ DUY NHẤT 1 MẢNG JSON (Không bọc Markdown):
         [
             {
-                "point": "Cấu trúc ngữ pháp chuẩn",
-                "meaning": "Nghĩa VN",
+                "id": "Bắt buộc giữ nguyên ID truyền vào ở trên",
+                "grammar_point": "Bắt buộc giữ nguyên cấu trúc truyền vào",
+                "level": "Bắt buộc giữ nguyên cấp độ",
+                "meaning": "Ý nghĩa VN",
                 "structure": "Cách ghép",
                 "nuance": "Sắc thái",
                 "ex1_jp": "Ví dụ 1 JP",
@@ -17592,86 +17612,83 @@ async function executeAutoGrammarGen() {
             }
         ]`;
 
+        // 4. Gọi Gemini AI
         let aiResponse = await callGeminiAI(prompt);
+        let cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
         
-        // Cải tiến 1: Trích xuất mảng JSON an toàn dựa vào dấu ngoặc vuông
-        const jsonStart = aiResponse.indexOf('[');
-        const jsonEnd = aiResponse.lastIndexOf(']');
-        if (jsonStart === -1 || jsonEnd === -1) {
-            throw new Error("AI không trả về một mảng JSON hợp lệ.");
-        }
-        const jsonString = aiResponse.substring(jsonStart, jsonEnd + 1);
-        let generatedData = JSON.parse(jsonString);
+        // Sử dụng máy "cứu hộ" JSON an toàn của bạn đề phòng lỗi đứt gãy kết quả
+        let generatedData = safeParseJSON(cleanResponse);
 
         if (!Array.isArray(generatedData) || generatedData.length === 0) {
-            throw new Error("AI trả về sai format mảng.");
+            throw new Error("AI trả về sai định dạng mảng JSON.");
         }
 
-        const allExistingPoints = localGrammars.map(g => g.grammar_point.replace(/～/g, '').trim());
-        const validGrammars = [];
-        const duplicatePoints = [];
+        showLoading("Đang ghi nhận dữ liệu mới lên Supabase...");
 
-        generatedData.forEach(item => {
-            const cleanPoint = item.point.replace(/～/g, '').trim();
-            if (allExistingPoints.includes(cleanPoint)) {
-                duplicatePoints.push(item.point);
+        // 5. Lưu đè (Upsert) ngược lại Supabase grammar_dict dựa trên ID
+        const { error: upsertErr } = await sb.from('grammar_dict').upsert(generatedData);
+        if (upsertErr) throw upsertErr;
+
+        // 6. Cập nhật IndexedDB cục bộ (Dành cho việc render lưới bên ngoài)
+        const localPayload = generatedData.map(g => ({
+            id: g.id,
+            grammar_point: g.grammar_point,
+            level: g.level,
+            meaning: g.meaning
+        }));
+        await dbOps.putBatch(STORE_GRAMMAR, localPayload);
+
+        // 7. Cập nhật và kích hoạt Hydrate lên RAM Cache hoạt động
+        generatedData.forEach(g => {
+            const idx = globalGrammarData.findIndex(item => item.id === g.id);
+            if (idx !== -1) {
+                // Đắp đầy đủ thịt và đánh dấu đã load xong chi tiết
+                globalGrammarData[idx] = { ...globalGrammarData[idx], ...g, isLoaded: true };
             } else {
-                validGrammars.push({
-                    grammar_point: item.point,
-                    level: level,
-                    meaning: item.meaning,
-                    structure: item.structure || "",
-                    nuance: item.nuance || "",
-                    ex1_jp: item.ex1_jp || "",
-                    ex1_vn: item.ex1_vn || "",
-                    ex2_jp: item.ex2_jp || "",
-                    ex2_vn: item.ex2_vn || ""
-                });
+                globalGrammarData.push({ ...g, isLoaded: true });
             }
+
+            // Dọn sạch cả cache giải thích học sâu AI cũ của cấu trúc này
+            const aiCacheKey = `grammar_${currentUser.id}_${g.id}`;
+            dbOps.delete(STORE_AI_CACHE, aiCacheKey).catch(e => e);
+            if (window.aiGrammarExpansionCache) delete window.aiGrammarExpansionCache[g.id];
         });
 
-        if (validGrammars.length === 0) {
-            hideLoading();
-            return customAlert(`Toàn bộ ${duplicatePoints.length} cấu trúc AI tạo ra đều ĐÃ CÓ trong hệ thống. Vui lòng thử lại!`, "⚠️ Trùng lặp hoàn toàn");
-        }
-
-        // Cải tiến 2: Thêm .select() để Supabase trả về bản ghi chứa id tự động sinh ra
-        const { data: insertedData, error: insertErr } = await sb
-            .from('grammar_dict')
-            .insert(validGrammars)
-            .select('id, grammar_point, level, meaning');
-            
-        if (insertErr) throw insertErr;
-
-        hideLoading();
-
-        if (duplicatePoints.length > 0) {
-            customAlert(`
-                🎉 <b>Đã tạo và lưu thành công:</b> ${insertedData.length} cấu trúc mới.<br><br>
-                Bỏ qua do trùng lặp: <b>${duplicatePoints.length}</b> cấu trúc:<br>
-                <span style="color:#d97706; font-size:13px;">${duplicatePoints.join(', ')}</span>
-            `, "✨ Hoàn tất Auto Gen", "success");
-        } else {
-            showToast(`🎉 Thành công! Đã bơm ${insertedData.length} ngữ pháp mới vào Database.`);
-        }
-
-        // Cải tiến 3: Lưu các bản ghi hoàn chỉnh (đã có id) vào IndexedDB cục bộ
-        await dbOps.putBatch(STORE_GRAMMAR, insertedData);
-
-        // Đồng bộ lên RAM hệ thống đang chạy
-        globalGrammarData = deduplicateGrammarList([...localGrammars, ...insertedData]);
+        // Sắp xếp lại RAM
         globalGrammarData.sort((a, b) => (a.level > b.level ? -1 : 1));
 
+        // 8. Vẽ lại giao diện tức thì nếu người dùng đang ở trang Ngữ pháp
         if (!document.getElementById('grammarPage').classList.contains('hidden')) {
-            renderGrammarGrid(globalGrammarData);
+            const activePill = document.querySelector('#grammarFilterBar .grammar-pill.active');
+            const currentFilter = activePill ? activePill.innerText.trim() : 'ALL';
+            let displayData = globalGrammarData;
+            if (currentFilter !== 'ALL' && currentFilter !== 'Tất cả') {
+                displayData = globalGrammarData.filter(g => g.level === currentFilter);
+            }
+            renderGrammarGrid(displayData);
         }
+
+        hideLoading();
+        
+        // Bắn pháo hoa vinh quang
+        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, zIndex: 10000 });
+        
+        customAlert(
+            `🎉 <b>Hoàn tất bổ sung dữ liệu!</b><br><br>Đã bồi đắp thông tin thành công cho <b>${generatedData.length}</b> cấu trúc ngữ pháp trống:<br><br>
+            <span style="color: #059669; font-size: 13.5px; font-weight: 700; line-height: 1.7; display: inline-block; text-align: left;">
+                ${generatedData.map(g => `• ${g.grammar_point} (${g.level})`).join('<br>')}
+            </span>`,
+            "✨ Thành công",
+            "success"
+        );
 
     } catch (err) {
         hideLoading();
-        console.error("Lỗi Auto Gen Ngữ Pháp:", err);
-        customAlert("Có lỗi xảy ra: " + err.message, "❌");
+        console.error("Lỗi AutoGen Replenish:", err);
+        customAlert("Có lỗi xảy ra trong quá trình tự động bổ sung dữ liệu: " + err.message, "❌ Lỗi hệ thống");
     }
 }
+
 /* Hết================= AUTO GENERATE NGỮ PHÁP VỚI AI (CHỐT CHẶN KÉP) ================= */
 
 /* ================= SMART PDF READER (LOGIC CORE & OFFLINE STORAGE) ================= */
