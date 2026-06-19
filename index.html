@@ -6061,7 +6061,27 @@ body.shadowing-mode #shadowingPage {
 #grammarDetailModal .modal-content {
     width: 95% !important;
     max-width: 95% !important;
+    container-type: inline-size;
 }
+#grammarDetailModal #gdPoint {
+    font-size: clamp(22px, 4cqw, 36px) !important; /* Co giãn mượt mà theo cqw */
+}
+#grammarDetailModal #gdMeaning {
+    font-size: clamp(14px, 2.2cqw, 20px) !important;
+}
+#grammarDetailModal .example-jp-text,
+#grammarDetailModal .g-example-jp {
+    font-size: clamp(15px, 2.4cqw, 22px) !important;
+}
+#grammarDetailModal .g-example-vn,
+#grammarDetailModal .example-sentence-block div:not(.example-jp-text) {
+    font-size: clamp(11px, 1.8cqw, 15px) !important;
+}
+#grammarDetailModal #gdStructure,
+#grammarDetailModal #gdNuance {
+    font-size: clamp(12px, 1.8cqw, 16px) !important;
+}
+
 /* Bảo toàn chiều ngang hiển thị trên máy tính (PC/Laptop) */
 #aiStoryModal .modal-content { max-width: 850px !important; }
 #infoModal .modal-content { max-width: 800px !important; }
@@ -15301,27 +15321,23 @@ let combinedGrammarDataForBulk = [];
 
 // 1. Cập nhật lại giao diện khi mở Modal Ngữ pháp
 async function openGrammarDetail(grammarId) {
-    // 1. Tìm thẻ ngữ pháp trong RAM
     let g = globalGrammarData.find(x => x.id === grammarId);
     if (!g) return;
 
-    // 2. LAZY HYDRATION: Kiểm tra xem thẻ đã được tải "Thịt" (chi tiết) chưa?
-    // Bằng cách kiểm tra thuộc tính isLoaded (Giống hệt thuật toán Flashcard bạn đã làm)
     if (g.isLoaded !== true) {
         showLoading("Đang tải chi tiết ngữ pháp...");
         try {
+            // Nạp đầy đủ 15 cặp cột ví dụ từ Supabase
             const { data, error } = await sb.from('grammar_dict')
-                .select('id, grammar_point, meaning, level, structure, nuance, ex1_jp, ex1_vn, ex2_jp, ex2_vn')
+                .select('id, grammar_point, meaning, level, structure, nuance, ex1_jp, ex1_vn, ex2_jp, ex2_vn, ex3_jp, ex3_vn, ex4_jp, ex4_vn, ex5_jp, ex5_vn, ex6_jp, ex6_vn, ex7_jp, ex7_vn, ex8_jp, ex8_vn, ex9_jp, ex9_vn, ex10_jp, ex10_vn, ex11_jp, ex11_vn, ex12_jp, ex12_vn, ex13_jp, ex13_vn, ex14_jp, ex14_vn, ex15_jp, ex15_vn')
                 .eq('id', grammarId)
                 .single();
 
             if (error) throw error;
 
-            // 🟢 Đắp dữ liệu mới tải về vào chính Object đang nằm trong RAM
             Object.assign(g, data);
-            g.isLoaded = true; // Đánh dấu là đã đầy đủ thịt
+            g.isLoaded = true;
 
-            // Ghi đè lại LocalStorage để lần sau vào web không cần tải lại thẻ này nữa (Cache trọn đời)
             localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
             
         } catch (err) {
@@ -15332,9 +15348,8 @@ async function openGrammarDetail(grammarId) {
         hideLoading();
     }
 
-    currentGrammarObj = g; // Cập nhật biến toàn cục để AI Deep Dive sử dụng
+    currentGrammarObj = g;
 
-    // 3. Đổ dữ liệu vào Modal (Logic giữ nguyên)
     document.getElementById('gdLevel').innerText = g.level || 'N?';
     document.getElementById('gdPoint').innerText = g.grammar_point;
     document.getElementById('gdMeaning').innerText = g.meaning;
@@ -15345,36 +15360,42 @@ async function openGrammarDetail(grammarId) {
     const exContainer = document.getElementById('gdExamples');
     exContainer.innerHTML = '';
     let hasExamples = false;
+    let filledCount = 0;
 
     for (let i = 1; i <= 15; i++) {
         const jpText = g[`ex${i}_jp`];
         const vnText = g[`ex${i}_vn`];
         if (jpText && jpText.trim() !== '') {
             hasExamples = true;
-            // Đối với Ngữ pháp, ta dùng grammarId làm gốc của thẻ ID để quản lý
+            filledCount++;
             exContainer.innerHTML += buildExampleSentenceBlock(grammarId, i, jpText, "", vnText);
         }
     }
-    if (!hasExamples) exContainer.innerHTML = '<p style="color:#86868b; font-size: 14px;">Chưa có ví dụ cho cấu trúc này.</p>';
+    
+    if (!hasExamples) {
+        exContainer.innerHTML = '<p style="color:#86868b; font-size: 14px;">Chưa có ví dụ cho cấu trúc này.</p>';
+    }
 
-    // RESET LẠI GIAO DIỆN NẾU TRƯỚC ĐÓ CÓ MỞ AI
+    // Kiểm soát ẩn/hiện nút "Thêm ví dụ" dựa trên số lượng thực tế
+    const btnMoreEx = document.getElementById('btnMoreExamples');
+    if (btnMoreEx) {
+        if (filledCount < 15) {
+            btnMoreEx.style.display = 'flex';
+            btnMoreEx.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">add</span> Thêm ví dụ';
+            btnMoreEx.disabled = false;
+        } else {
+            btnMoreEx.style.display = 'none';
+        }
+    }
+
     document.getElementById('gdAiExpansionZone').style.display = 'none';
     document.getElementById('gdAiExpansionZone').innerHTML = '';
     document.getElementById('gdBasicActions').style.display = 'block';
     document.querySelector('#grammarDetailModal .modal-content').style.maxWidth = '95%';
     
-    // Reset nút AI
     const aiBtn = document.getElementById('btnExpandAIGrammar');
     aiBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 20px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> HỌC SÂU VỚI AI';
     aiBtn.disabled = false;
-
-    // Reset nút Thêm Ví Dụ
-    const btnMoreEx = document.getElementById('btnMoreExamples');
-    if (btnMoreEx) {
-        btnMoreEx.style.display = 'flex';
-        btnMoreEx.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">add</span> Thêm ví dụ';
-        btnMoreEx.disabled = false;
-    }
 
     document.getElementById('grammarDetailModal').style.display = 'flex';
 }
@@ -15384,51 +15405,118 @@ async function generateMoreGrammarExamples() {
     const exContainer = document.getElementById('gdExamples');
 
     if (!currentGrammarObj) return;
+    const g = currentGrammarObj;
+
+    // 1. Tính toán số lượng ví dụ hiện tại và tìm vị trí trống đầu tiên
+    let filledCount = 0;
+    let firstEmptyIndex = 16;
+    for (let i = 1; i <= 15; i++) {
+        if (g[`ex${i}_jp`] && g[`ex${i}_jp`].trim() !== '') {
+            filledCount++;
+        } else if (firstEmptyIndex === 16) {
+            firstEmptyIndex = i;
+        }
+    }
+
+    const remainingSlots = 15 - filledCount;
+    if (remainingSlots <= 0) {
+        btn.style.display = 'none';
+        return;
+    }
+
+    // Giới hạn mỗi lần tạo tối đa 3 câu để phản hồi nhanh và tiết kiệm tài nguyên
+    const countToGenerate = Math.min(3, remainingSlots);
 
     // Đổi trạng thái nút thành Loading
     btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-width:2px;border-top-color:#64748b;margin-right:4px;"></div> Đang tạo...';
     btn.disabled = true;
 
-    const prompt = `Đóng vai trò là giáo viên tiếng Nhật. Hãy tạo thêm 8 câu ví dụ tiếng Nhật cho cấu trúc ngữ pháp: "${currentGrammarObj.grammar_point}" (Nghĩa: ${currentGrammarObj.meaning}).
+    const prompt = `Đóng vai trò là giáo viên tiếng Nhật. Hãy tạo thêm đúng ${countToGenerate} câu ví dụ tiếng Nhật tự nhiên cho cấu trúc ngữ pháp: "${g.grammar_point}" (Nghĩa: ${g.meaning}).
     Đảm bảo câu tự nhiên, đa dạng ngữ cảnh (công sở, đời sống, thi cử...).
     BẮT BUỘC TRẢ VỀ DUY NHẤT 1 MẢNG JSON. Định dạng:
     [
-      {"jp": "Câu tiếng Nhật 1", "vn": "Nghĩa tiếng Việt 1"},
-      {"jp": "Câu tiếng Nhật 2", "vn": "Nghĩa tiếng Việt 2"}
+      {"jp": "Câu tiếng Nhật", "vn": "Nghĩa tiếng Việt"}
     ]`;
 
     try {
-        let aiResponse = await callGeminiAI(prompt);
+        let aiResponse = await callHybridAI(prompt);
         aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-        const examples = JSON.parse(aiResponse);
+        const newExamples = JSON.parse(aiResponse);
 
-        let html = '';
-        examples.forEach(ex => {
-            html += `
-                <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #f0f0f0; animation: popIn 0.4s ease;">
-                    <div style="font-size: 16px; color: #1a1a1a; font-weight: 600; margin-bottom: 4px;">${wrapKanjiWithLink(escapeHTML(ex.jp))}</div>
-                    <div style="font-size: 14px; color: #666666;">${escapeHTML(ex.vn)}</div>
-                </div>
-            `;
-        });
+        if (!Array.isArray(newExamples)) {
+            throw new Error("Mảng JSON trả về từ AI không hợp lệ.");
+        }
 
-        // Thêm một đường phân cách nhỏ và đẩy ví dụ mới vào (Dùng insertAdjacentHTML để chống giật lag DOM)
-        exContainer.insertAdjacentHTML('beforeend', `<div style="text-align: center; margin: 20px 0; color: #cbd5e0; font-size: 20px;">•••</div>` + html);
+        let updatePayload = {};
+        let currentIdx = firstEmptyIndex;
+        let tempFilledCount = filledCount;
 
-        // Ẩn nút sau khi tạo xong để tránh spam API
-        btn.style.display = 'none';
+        // Xóa thông báo trống nếu có
+        if (exContainer.innerHTML.includes("Chưa có ví dụ")) {
+            exContainer.innerHTML = '';
+        }
 
-        // Tự động cuộn xuống dưới một chút để người dùng thấy ví dụ mới
+        for (let newEx of newExamples) {
+            // Đảm bảo không ghi đè nếu trước đó có khoảng trống không đều
+            while (currentIdx <= 15 && g[`ex${currentIdx}_jp`] && g[`ex${currentIdx}_jp`].trim() !== '') {
+                currentIdx++;
+            }
+
+            if (currentIdx > 15) break;
+
+            // Cập nhật RAM cục bộ đối tượng đang mở
+            g[`ex${currentIdx}_jp`] = newEx.jp;
+            g[`ex${currentIdx}_vn`] = newEx.vn;
+
+            // Chuẩn bị payload cập nhật vào Database
+            updatePayload[`ex${currentIdx}_jp`] = newEx.jp;
+            updatePayload[`ex${currentIdx}_vn`] = newEx.vn;
+
+            // Tạo khối hiển thị với cấu trúc đồng nhất
+            const exHtml = buildExampleSentenceBlock(g.id, currentIdx, newEx.jp, "", newEx.vn);
+            exContainer.insertAdjacentHTML('beforeend', exHtml);
+
+            tempFilledCount++;
+            currentIdx++;
+        }
+
+        // 2. Lưu trực tiếp các thay đổi mới lên Supabase
+        const { error: updateErr } = await sb.from('grammar_dict')
+            .update(updatePayload)
+            .eq('id', g.id);
+
+        if (updateErr) throw updateErr;
+
+        // 3. Đồng bộ hóa bộ nhớ RAM danh sách ngữ pháp và lưu LocalStorage
+        const globalIdx = globalGrammarData.findIndex(item => item.id === g.id);
+        if (globalIdx !== -1) {
+            globalGrammarData[globalIdx] = { ...globalGrammarData[globalIdx], ...updatePayload };
+        }
+        localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData));
+
+        showToast(`✨ Đã thêm và lưu thành công ${newExamples.length} ví dụ mới!`);
+
+        // 4. Kiểm tra xem có cần hiển thị nút thêm tiếp hay không
+        if (tempFilledCount < 15) {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">add</span> Thêm ví dụ';
+        } else {
+            btn.style.display = 'none';
+        }
+
+        // Cuộn mượt màn hình xuống dưới để dễ nhìn câu ví dụ mới
         setTimeout(() => {
             const modalBody = document.querySelector('#grammarDetailModal .win11-modal-body');
-            modalBody.scrollBy({ top: 300, behavior: 'smooth' });
+            if (modalBody) {
+                modalBody.scrollBy({ top: 300, behavior: 'smooth' });
+            }
         }, 100);
 
     } catch (err) {
-        console.error("Lỗi tạo ví dụ:", err);
-        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">refresh</span> Thử lại';
+        console.error("Lỗi thêm ví dụ từ AI:", err);
         btn.disabled = false;
-        showToast("Lỗi khi tạo ví dụ. Hãy thử lại!");
+        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">refresh</span> Thử lại';
+        showToast("Có lỗi xảy ra khi tạo ví dụ. Hãy thử lại!");
     }
 }
 // 2. HÀM GỌI AI PHÂN TÍCH SÂU NGỮ PHÁP (TƯƠNG ĐƯƠNG & TRÁI NGHĨA - ĐÃ NÂNG CẤP GLOBAL CACHE)
