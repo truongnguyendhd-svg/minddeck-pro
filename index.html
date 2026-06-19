@@ -16557,7 +16557,7 @@ async function askAIWhyWrong() {
     `;
 
     try {
-        const response = await callGeminiAI(prompt);
+        const response = await callHybridAI(prompt);
         hideLoading();
         // Gọi modal xịn
         showAIModal(response, "Giải thích đáp án");
@@ -16869,8 +16869,8 @@ async function handleSendChatMessage() {
         
         let accumulatedText = "";
 
-        // Gọi hàm stream phía Client
-        await callGeminiAIStream(
+        // Gọi bộ điều phối lai tự động xoay tua Groq/Gemini để lấy kết quả
+        await callHybridAIStream(
             systemPrompt,
             imagesToSend,
             // Callback 1: Đẩy từng từ nhỏ ra UI khi đang nhận dữ liệu từ Google
@@ -17080,7 +17080,116 @@ async function callGeminiAI(promptText, imagesArray = []) {
     );
     return fullText;
 }
+// =========================================================================
+// 🟢 THÊM MỚI: BỘ ĐIỀU PHỐI LAI DẠNG STREAM (PRIMARY: GROQ - FALLBACK: GEMINI)
+// =========================================================================
+async function callHybridAIStream(promptText, imagesArray = [], onChunk, onComplete, options = {}) {
+    const hasImages = (imagesArray && imagesArray.length > 0);
+    const preferModel = options.model || "qwen/qwen3.6-27b";
 
+    // CHỐT CHẶN 1: Nếu có hình ảnh, ưu tiên gọi thẳng sang mắt thần Gemini
+    if (hasImages) {
+        console.log("MindDeck: Phát hiện hình ảnh. Định tuyến thẳng sang Gemini Flash...");
+        return callGeminiAIStream(promptText, imagesArray, onChunk, onComplete);
+    }
+
+    // CHỐT CHẶN 2: Với văn bản thuần, tiến hành gọi Qwen 3.6 27B qua Groq
+    try {
+        console.log(`MindDeck: Gọi Qwen 3.6 27B qua Groq (Primary)...`);
+        const response = await fetch(`${DICT_API_URL}/api/groq`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: promptText, model: preferModel })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Groq Gateway Error (HTTP ${response.status})`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let fullText = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                const cleanLine = line.trim();
+                if (!cleanLine.startsWith('data: ')) continue;
+                
+                const dataStr = cleanLine.replace(/^data:\s*/, '');
+                if (dataStr === '[DONE]') continue; // Bỏ qua nhãn kết thúc sse của Groq
+
+                try {
+                    const parsed = JSON.parse(dataStr);
+                    const chunkText = parsed.choices?.[0]?.delta?.content;
+                    
+                    if (chunkText) {
+                        fullText += chunkText;
+                        
+                        // Thuật toán lọc bỏ ngầm các thẻ suy nghĩ <think>...</think> khi đang stream
+                        let cleanChunkText = chunkText;
+                        if (fullText.includes('<think>') && !fullText.includes('</think>')) {
+                            // AI đang suy nghĩ -> Giữ im lặng không render ra UI
+                            cleanChunkText = '';
+                        } else if (fullText.includes('</think>')) {
+                            // Đã suy nghĩ xong, chỉ cắt lấy phần kết quả sạch sau thẻ đóng </think> để render
+                            const cleanFullText = fullText.split('</think>')[1] || '';
+                            cleanChunkText = cleanFullText.substring(cleanFullText.length - chunkText.length);
+                        }
+                        
+                        if (cleanChunkText) {
+                            onChunk(cleanModelOutputText(cleanChunkText));
+                        }
+                    }
+                } catch (e) {
+                    // Bỏ qua dòng JSON chưa trọn vẹn
+                }
+            }
+        }
+
+        // Dọn sạch hoàn toàn các thẻ <think> còn sót lại trước khi trả về kết quả cuối
+        let finalCleanText = fullText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+        finalCleanText = cleanModelOutputText(finalCleanText);
+        
+        if (onComplete) onComplete(finalCleanText);
+
+    } catch (groqError) {
+        // CHỐT CHẶN DỰ PHÒNG (FALLBACK): Tự kích hoạt khi Groq quá tải (429) hoặc sập mạng
+        console.warn("⚠️ Groq API gặp sự cố. Tự động kích hoạt chốt chặn dự phòng Gemini Flash...", groqError.message);
+        showToast("⚠️ Máy chủ chính bận. Đang tự động chuyển hướng sang Gia sư dự phòng...");
+        
+        // Gọi ngược lại Gemini Stream truyền thống
+        return callGeminiAIStream(promptText, imagesArray, onChunk, onComplete);
+    }
+}
+__name(callHybridAIStream, "callHybridAIStream");
+
+// 🟢 2. BỘ ĐIỀU PHỐI LAI DẠNG ĐỒNG BỘ (TRẢ VỀ FULL TEXT KHÔNG STREAM)
+async function callHybridAI(promptText, imagesArray = []) {
+    let fullText = "";
+    await callHybridAIStream(
+        promptText,
+        imagesArray,
+        (chunk) => { fullText += chunk; },
+        () => {}
+    );
+    return fullText;
+}
+__name(callHybridAI, "callHybridAI");
+
+// Hàm dọn dẹp các ký tự Markdown thừa do mô hình Groq sinh ra để giữ giao diện sạch đẹp
+function cleanModelOutputText(text) {
+    if (!text) return "";
+    return text.replace(/```json/g, '').replace(/```/g, '');
+}
+__name(cleanModelOutputText, "cleanModelOutputText");
 /* ================= QUẢN LÝ TRẠNG THÁI CHẾ ĐỘ AI ================= */
 let currentAiMode = 'analyze'; // Mặc định là chế độ bóc tách
 
@@ -22213,7 +22322,9 @@ async function executeAiAction(actionType) {
             const prompt = `Giáo viên tiếng Nhật hài hước. Tạo mẹo nhớ CÁCH ĐỌC bằng âm thanh tương tự tiếng Việt. Ngắn gọn 2-3 câu. Bôi đậm từ khóa bằng dấu **.
             Từ: "${p.front}" | Đọc: "${p.reading}" | Nghĩa: "${p.meaning}"`;
             
-            let res = await callGeminiAI(prompt);
+            let res = await callGroqAI_NonStream ? await callGroqAI_NonStream(prompt, env, "qwen/qwen3.6-27b") : await callHybridAI(prompt);
+            // Để đồng bộ mượt mà nhất trên Frontend, gọi thẳng hàm đồng bộ lai:
+            let res = await callHybridAI(prompt);
             let formatted = res.replace(/\*\*(.*?)\*\*/g, '<b style="color: #1d1d1f; font-weight: 700;">$1</b>').replace(/\n/g, '<br>');
             
             window.tempAiData = formatted; // Lưu kết quả tạm trên RAM
@@ -22269,7 +22380,7 @@ async function executeAiAction(actionType) {
                   {"jp": "Câu JP", "vn": "Dịch VN"}
                 ]`;
 
-                let aiResponse = await callGeminiAI(aiPrompt);
+                let aiResponse = await callHybridAI(aiPrompt);
                 let cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
                 const newExs = JSON.parse(cleanResponse);
 
