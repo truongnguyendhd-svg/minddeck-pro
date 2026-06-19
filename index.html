@@ -16545,6 +16545,7 @@ window.showHome = function(skipHash = false, keepFolder = false) {
 let currentWrongQuizState = { question: "", correct: "", userWrong: "" };
 
 // HÀM GỌI AI GIẢI THÍCH
+// Tính năng tự động chuyển đổi dự phòng khi giải thích đáp án trắc nghiệm sai
 async function askAIWhyWrong() {
     showLoading("AI đang tìm lời giải thích...");
     const prompt = `
@@ -16557,13 +16558,25 @@ async function askAIWhyWrong() {
     `;
 
     try {
+        // Thử gọi Qwen 3.6 27B trước
         const response = await callHybridAI(prompt);
+        if (!response || response.trim() === "") {
+            throw new Error("Phản hồi trống từ AI chính.");
+        }
         hideLoading();
-        // Gọi modal xịn
         showAIModal(response, "Giải thích đáp án");
     } catch (err) {
-        hideLoading();
-        customAlert("Xin lỗi, AI đang bận. Vui lòng thử lại sau.", "❌");
+        console.warn("⚠️ Groq gặp sự cố khi giải thích trắc nghiệm. Chuyển sang Gemini...", err.message);
+        
+        try {
+            // Tự động lùi về Gemini cứu hộ
+            const response = await callGeminiAI(prompt);
+            hideLoading();
+            showAIModal(response, "Giải thích đáp án");
+        } catch (geminiErr) {
+            hideLoading();
+            customAlert("Xin lỗi, hệ thống AI đang quá tải. Vui lòng thử lại sau.", "❌");
+        }
     }
 }
 // Tính năng tự động giãn chiều cao (Auto-resize) cho khung Chat
@@ -22316,17 +22329,15 @@ async function executeAiAction(actionType) {
             zone.style.display = 'block';
 
         // ==========================================
-        // CHẾ ĐỘ 2: ĐỔI CÂU VÍ DỤ (TỐI ƯU DÙNG D1)
+        // CHẾ ĐỘ 2: ĐỔI CÂU VÍ DỤ (ƯU TIÊN QWEN 3.6 27B QUA GROQ)
         // ==========================================
         } else if (actionType === 'examples') {
             let currentExamples = [];
 
-            // 🟢 BƯỚC A: TRA CỨU NHANH TRÊN D1 XEM TỪ NÀY ĐÃ CÓ SẴN VÍ DỤ CHƯA
             try {
                 const d1Response = await fetch(`${DICT_API_URL}/api/dict-search?query=${encodeURIComponent(p.front)}`);
                 if (d1Response.ok) {
                     const searchResults = await d1Response.json();
-                    // Tìm chính xác từ khớp với mặt chữ của thẻ học
                     const exactMatch = searchResults.find(item => item.word === p.front);
                     if (exactMatch && exactMatch.examples) {
                         currentExamples = JSON.parse(exactMatch.examples);
@@ -22336,49 +22347,58 @@ async function executeAiAction(actionType) {
                 console.warn("[D1 Sync Warning] Không thể kiểm tra ví dụ trên D1, tiến hành gọi AI...", e);
             }
 
-            // 🛑 CHỐT CHẶN: Đảm bảo không vượt quá giới hạn cứng 15 câu ví dụ
             const currentCount = currentExamples.length;
             const missing = 15 - currentCount;
             let finalExamplesList = [...currentExamples];
 
             if (missing <= 0) {
-                // Thư viện đã đầy 15 câu -> Chỉ bốc ngẫu nhiên từ kho D1, không gọi AI nữa để tiết kiệm token
                 console.log(`[D1 Sync Cache Hit] Kho đã đầy 15/15 câu. Bốc ngẫu nhiên từ kho D1! 💾`);
             } else {
-                // Trực tiếp gọi AI viết thêm số câu còn thiếu (Tối đa 5 câu mỗi mẻ)
                 const defaultGen = currentCount === 0 ? 3 : 2;
                 const countToGen = Math.min(missing, defaultGen);
                 
                 console.log(`[D1 Sync Cache Miss] AI tiến hành sáng tác thêm ${countToGen} câu mới...`);
 
-                // Chống AI viết trùng với các câu đã có sẵn trên D1
                 const existingSentences = currentExamples.map(ex => ex.jp);
                 const avoidStr = existingSentences.length > 0
                     ? `\nTUYỆT ĐỐI KHÔNG TẠO TRÙNG với các câu ví dụ đã có sau đây: [ ${existingSentences.join(' | ')} ]`
                     : "";
 
                 const aiPrompt = `Hãy tạo thêm đúng ${countToGen} câu ví dụ tiếng Nhật tự nhiên chứa từ "${p.front}" (${p.reading} - ${p.meaning}). ${avoidStr}
-                BẮT BUỘC chỉ trả về duy nhất một mảng JSON (không bọc trong markdown \`\`\`json hay bất cứ ghi chú nào). Định dạng mảng:
+                BẮT BUỘC chỉ trả về duy nhất một mảng JSON (khó và không bọc trong markdown, không giải thích thêm). Định dạng mảng:
                 [
                   {"jp": "Câu JP", "vn": "Dịch VN"}
                 ]`;
 
-                let aiResponse = await callHybridAI(aiPrompt);
-                let cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-                const newExs = JSON.parse(cleanResponse);
+                let aiResponse = "";
+                let cleanResponse = "";
+                let newExs = null;
+
+                // 🟢 THIẾT LẬP VÒNG LẶP THỬ SAI TỰ ĐỘNG CHUYỂN HƯỚNG SANG GEMINI
+                try {
+                    aiResponse = await callHybridAI(aiPrompt);
+                    cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+                    newExs = JSON.parse(cleanResponse);
+                } catch (groqJsonError) {
+                    console.warn("⚠️ Groq Qwen3.6-27b bị tràn bộ nhớ hoặc lỗi JSON. Tự động chuyển sang Gemini...", groqJsonError.message);
+                    showToast("⚠️ Trình xử lý chính bận. Đang chuyển hướng sang Gia sư dự phòng...");
+                    
+                    // Gọi sang chốt chặn dự phòng Gemini
+                    aiResponse = await callGeminiAI(aiPrompt);
+                    cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+                    newExs = JSON.parse(cleanResponse);
+                }
 
                 if (Array.isArray(newExs)) {
-                    // Gộp mảng và cắt cứng tối đa 15 câu [1.1.4]
                     finalExamplesList = [...finalExamplesList, ...newExs].slice(0, 15);
                 }
 
-                // 🟢 ĐỒNG BỘ GỬI LÊN CLOUDFLARE D1 (Thay thế hoàn toàn Supabase)
                 const syncResponse = await fetch(`${DICT_API_URL}/api/update-examples`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         word: p.front,
-                        examples: finalExamplesList // Gửi mảng ví dụ hoàn chỉnh đã được gộp mới
+                        examples: finalExamplesList
                     })
                 });
 
@@ -22386,7 +22406,6 @@ async function executeAiAction(actionType) {
                 console.log(`[D1 Sync] Đã đồng bộ thành công mảng ${finalExamplesList.length} câu ví dụ lên D1! 🚀`);
             }
 
-            // Bốc ra 2 câu ngẫu nhiên từ kho 15 câu để gợi ý cho học viên lưu vào Flashcard riêng
             const shuffledList = [...finalExamplesList].sort(() => 0.5 - Math.random());
             
             window.tempAiData = {
