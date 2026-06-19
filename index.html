@@ -17669,6 +17669,7 @@ async function openAdminAutoGrammarModal() {
 }
 
 // 🟢 5. Vòng lặp lõi bồi đắp liên tục cho đến khi cạn kiệt dữ liệu
+// 🟢 Hàm lõi xử lý tự bốc 5 dòng trống, gọi AI bồi đắp thông tin và đồng bộ hóa đa tầng (Đã sửa lỗi đếm ngược)
 async function startContinuousReplenish(totalEmpty) {
     createReplenishModalHTML();
     document.getElementById('replenishModal').style.display = 'flex';
@@ -17827,15 +17828,20 @@ async function startContinuousReplenish(totalEmpty) {
             // A. PHÂN TÍCH LỖI QUOTA (RESOURCE_EXHAUSTED / RATE LIMIT)
             if (errText.toLowerCase().includes("quota") || errText.toLowerCase().includes("exhausted") || errText.toLowerCase().includes("limit") || errText.toLowerCase().includes("429")) {
                 
-                // Thuật toán regex bóc tách thời gian đếm ngược từ tin nhắn lỗi của Google
-                const timeMatch = errText.match(/(\d+)\s*(s|sec|second|seconds|m|min|minute|minutes)/i);
+                // Bộ lọc nâng cao bắt số thập phân và dấu phẩy ngăn cách hàng nghìn
+                const timeMatch = errText.match(/(\d+(?:[\.,]\d+)?)\s*(ms|millisecond|milliseconds|s|sec|second|seconds|m|min|minute|minutes)/i);
                 if (timeMatch) {
+                    let valStr = timeMatch[1].replace(/,/g, ''); // Xóa dấu phẩy nếu có (Ví dụ: 60,000)
+                    let val = parseFloat(valStr);
                     let unit = timeMatch[2].toLowerCase();
-                    let val = parseInt(timeMatch[1]);
-                    if (unit.startsWith('m')) {
-                        secondsToWait = val * 1; // Quy đổi phút ra giây
+
+                    if (unit.startsWith('ms') || unit.startsWith('milli')) {
+                        secondsToWait = Math.ceil(val / 1000); // 60000ms -> 60s
+                    } else if (unit.startsWith('min') || unit === 'm') { 
+                        // Chỉ nhân 60 nếu thực sự là phút
+                        secondsToWait = Math.ceil(val * 60);
                     } else {
-                        secondsToWait = val;
+                        secondsToWait = Math.ceil(val); // Giữ nguyên số giây (s/sec/second)
                     }
                 }
                 appendReplenishLog(`[Hạn mức API] Đã chạm giới hạn QPM của Google. Hệ thống tạm dừng...`);
