@@ -7715,7 +7715,7 @@ body.shadowing-mode #shadowingPage {
                 <span class="material-symbols-outlined" style="color: #0067c0; font-size: 20px;">library_add</span>
                 <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: #1a1a1a;">Kiểm tra & Lưu thẻ</h3>
             </div>
-            <button class="win11-close-btn" onclick="closeModal('saveDictWordModal')">
+            <button class="win11-close-btn" onclick="closeSaveDictWordModalDirectly()">
                 <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
             </button>
         </div>
@@ -14550,23 +14550,19 @@ async function confirmSaveWordToDeck() {
 
     showLoading("Đang kiểm tra dữ liệu...");
     try {
-        // 🟢 CHỐT CHẶN 3: QUÉT TRÙNG LẶP TỪ ĐIỂN / AI
         const dupeCheck = await checkDuplicateCards([{ front: front }]);
         if (dupeCheck.hasDuplicate) {
             hideLoading();
             return showDuplicateAlert(dupeCheck);
         }
-        // 🟢 LOGIC TỰ ĐỘNG TẠO BỘ BÀI MỚI NẾU USER CHỌN
+
         if (deckId === '__AUTO_NEW_DECK__') {
             const rawName = document.getElementById('newDeckNameInput_Dict').value.trim();
             if (!rawName) {
                 hideLoading();
                 return customAlert("Vui lòng nhập tên cho bộ bài mới!", "⚠️");
             }
-
-            // Gọi hàm sinh tên chống trùng lặp
             const uniqueName = await generateUniqueDeckName(rawName, 'flashcard');
-            
             deckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
             
             const { error: deckErr } = await sb.from('decks').insert([{
@@ -14591,6 +14587,10 @@ async function confirmSaveWordToDeck() {
         showToast("Đã thêm vào học phần thành công! ✨");
         hasUnsavedChanges = false;
         window.invalidateDeckListCache();
+
+        // Quay trở về modal chi tiết ngữ pháp đang mở thay vì bị thoát hẳn ra ngoài
+        window.checkReturnToGrammarDetail();
+
     } catch (err) {
         console.error("Lỗi lưu thẻ:", err);
         customAlert("Không thể lưu thẻ. Vui lòng thử lại.", "❌");
@@ -15613,27 +15613,23 @@ function saveGrammarToDeck() {
     const g = currentGrammarObj;
     if (!g) return;
 
-    // Chuẩn bị dữ liệu định dạng thẻ
+    // Ghi nhớ ID ngữ pháp đang mở
+    window.returnToGrammarModalId = g.id;
+
     const front = g.grammar_point;
     const reading = ""; 
     const meaning = g.meaning;
-    
-    // Gắn Cấu trúc & Sắc thái vào phần [HV] (Thông tin mở rộng)
     const extraInfo = `Cấu trúc: ${g.structure || ''} | Sắc thái: ${g.nuance || ''}`;
     
-    // Lấy ví dụ số 1 (Nếu có) để đưa vào thẻ Flashcard
     let exampleJP = g.ex1_jp || "";
     let exampleVN = g.ex1_vn || "";
-    
     if (exampleJP) {
-        // Cú pháp đặc biệt để hàm openSaveDictWordModal hiểu được
         exampleJP = `${exampleJP} (${exampleVN})`; 
     }
 
-    // Đóng modal ngữ pháp
-    closeModal('grammarDetailModal');
+    // Ẩn modal chi tiết để nhường màn hình cho modal Lưu
+    document.getElementById('grammarDetailModal').style.display = 'none';
 
-    // Gọi hàm lưu từ điển đã có sẵn của App
     openSaveDictWordModal(
         encodeURIComponent(front),
         encodeURIComponent(reading),
@@ -24458,6 +24454,23 @@ window.exitGrammarGame = function() {
     // Tải lại modal nguyên trạng
     openGrammarDetail(currentGrammarObj.id);
 };
+// Ghi nhớ ID ngữ pháp đang mở để điều hướng quay lại sau khi Lưu/Hủy thẻ
+window.returnToGrammarModalId = null;
+
+// Hàm kiểm tra và kích hoạt quay lại modal cũ
+window.checkReturnToGrammarDetail = function() {
+    if (window.returnToGrammarModalId) {
+        const tempId = window.returnToGrammarModalId;
+        window.returnToGrammarModalId = null; // Xóa cờ để chống lặp vòng lặp vô hạn
+        openGrammarDetail(tempId);
+    }
+};
+
+// Hàm đóng trực tiếp modal Lưu thẻ khi người dùng click nút X
+window.closeSaveDictWordModalDirectly = function() {
+    closeModal('saveDictWordModal');
+    window.checkReturnToGrammarDetail();
+};
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
@@ -24529,8 +24542,8 @@ window.exitGrammarGame = function() {
 
                     <!-- KHỐI 3: DANH SÁCH GAME LUYỆN TẬP -->
                     <div style="background: #ffffff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 12px; margin-bottom: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
-                        <div class="section-title" style="margin-bottom: 10px; display: flex; align-items: center; gap: 6px; color: #9333ea !important;">
-                            <span class="material-symbols-outlined" style="font-size: 18px; color: #9333ea;">sports_esports</span> ĐÁM MÂY LUYỆN TẬP
+                        <div class="section-title" style="margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                            <span class="material-symbols-outlined" style="font-size: 18px; color: #666666;">sports_esports</span> ĐÁM MÂY LUYỆN TẬP
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 8px;">
                             <button class="win11-btn-secondary" onclick="startGrammarGame('matching')" style="justify-content: flex-start; gap: 10px; border-radius: 8px; font-size: 13px; font-weight: 700; width: 100%; padding: 10px 12px;">
@@ -24571,7 +24584,7 @@ window.exitGrammarGame = function() {
                     <!-- PHÂN KHU 2: KHUNG CHƠI MINIGAME GHI NHỚ (ẨN MẶC ĐỊNH) -->
                     <div id="grammarGameWrapper" style="display: none; animation: fadeInChat 0.3s ease;">
                         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e5e5; padding-left: 12px; padding-right: 12px; padding-bottom: 8px; margin-bottom: 12px;">
-                            <div class="section-title" id="grammarGameTitle" style="display: flex; align-items: center; gap: 6px; color: #9333ea !important;">
+                            <div class="section-title" id="grammarGameTitle" style="display: flex; align-items: center; gap: 6px;">
                                 <span class="material-symbols-outlined" id="grammarGameIcon">sports_esports</span> TÊN TRÒ CHƠI
                             </div>
                             <button onclick="exitGrammarGame()" class="btn-exit-game" style="padding: 6px 12px; font-size: 11px; font-weight: 700; border-radius: 50px; background: #fee2e2; color: #c50f1f; border: none; cursor: pointer; display: flex; align-items: center; gap: 4px;">
