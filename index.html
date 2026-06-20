@@ -24352,7 +24352,7 @@ window.renderActiveTypingRound = function() {
 };
 
 
-// 🟢 HÀM PHÂN TÁCH CHỮ ĐANG GÕ DỠ DÀNG SỬ DỤNG RANH GIỚI BẢO VỆ CỨNG
+// 🟢 1. HÀM PHÂN TÁCH CHỮ (TOÁN HỌC CHUỖI ĐƠN GIẢN NHẤT)
 window.handleImeInput = function(inputEl) {
     clearTimeout(imeDebounceTimer);
     
@@ -24367,19 +24367,14 @@ window.handleImeInput = function(inputEl) {
 
     const val = inputEl.value;
 
-    // Chốt chặn 1: Tự động dọn dẹp bộ đệm nếu người dùng xóa toàn bộ ô nhập
+    // Nếu người dùng bấm Backspace xóa lẹm vào phần chữ đã được ghim
     if (!val.startsWith(window.imeCommittedText)) {
-        window.imeCommittedText = ""; 
+        window.imeCommittedText = val; // Ép mốc ghim lùi lại bằng đúng phần còn lại
     }
 
-    // Chốt chặn 2 (Cho di động): Thu ngắn mốc ghim nếu độ dài thực tế ngắn hơn mốc ghim
-    if (val.length < window.imeCommittedText.length) {
-        window.imeCommittedText = val;
-    }
-
-    // Tách chính xác phần Hiragana đang gõ dở dang nằm ở phía sau mốc ghim [2]
+    // Phần đang gõ dở = Tổng chuỗi HIỆN TẠI trừ đi phần ĐÃ GHIM
     const activeComposition = val.substring(window.imeCommittedText.length);
-    window.imeActiveComposition = activeComposition;
+    window.grammarGameState.activeComposition = activeComposition;
 
     if (!activeComposition.trim()) {
         if (bar) bar.style.display = 'none';
@@ -24387,7 +24382,6 @@ window.handleImeInput = function(inputEl) {
         return;
     }
 
-    // Đợi gõ xong 200ms
     imeDebounceTimer = setTimeout(() => {
         fetchGoogleIME(activeComposition, (data) => {
             if (data && data[0] === 'SUCCESS' && data[1] && data[1][0] && data[1][0][1]) {
@@ -24403,16 +24397,17 @@ window.handleImeInput = function(inputEl) {
 };
 
 
-// 🟢 HÀM GHÉP CHỮ VÀ TĂNG ĐỘ DÀI MỐC GHIM CỐ ĐỊNH
+// 🟢 2. HÀM GHÉP CHỮ (CHỐT CHẶN CƠ BẢN: ĐÃ GHIM + TỪ MỚI CHỌN)
 window.selectImeCandidate = function(cand) {
     const input = document.getElementById('gGameTypingInput');
     if (!input) return;
 
-    // Ghép phần đã ghim cũ với ứng viên vừa chọn mới [7]
+    // Ép cứng: Giá trị mới = Phần đã ghim an toàn + Từ Kanji vừa chọn
     const newValue = window.imeCommittedText + cand;
+    
     input.value = newValue;
     
-    // Đóng băng và cập nhật mốc ghim mới chuẩn xác
+    // Đóng băng mốc ghim mới
     window.imeCommittedText = newValue;
     window.imeActiveComposition = "";
     window.imeCandidates = [];
@@ -24421,10 +24416,11 @@ window.selectImeCandidate = function(cand) {
     const bar = document.getElementById('gGameCandidatesBar');
     if (bar) bar.style.display = 'none';
 
+    // Đảm bảo con trỏ nháy vẫn nằm trong ô gõ
     input.focus();
 };
 
-// Kết xuất dải viên thuốc gợi ý Kanji
+// 🟢 3. HÀM HIỂN THỊ GỢI Ý (FIX LỖI MẤT FOCUS CHÍNH MẠNG)
 window.renderCandidates = function(candidates) {
     const bar = document.getElementById('gGameCandidatesBar');
     if (!bar) return;
@@ -24467,8 +24463,9 @@ window.renderCandidates = function(candidates) {
             pill.style.color = '#1d1d1f';
         };
 
-        // Khi người học click chọn bằng chuột/tay [7]
-        pill.onclick = () => {
+        // 🚨 THAY ĐỔI QUAN TRỌNG NHẤT: Dùng mousedown + preventDefault thay vì onclick
+        pill.onmousedown = (e) => {
+            e.preventDefault(); // Chặn việc ô input bị mất Focus (Blur) khi bấm chuột vào thẻ
             selectImeCandidate(cand);
         };
 
