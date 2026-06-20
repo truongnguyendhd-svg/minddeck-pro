@@ -24274,7 +24274,7 @@ window.renderActiveTypingRound = function() {
                        autocapitalize="none"
                        style="-webkit-appearance:none; appearance:none; border: none !important; background:transparent; font-size: 16px; font-weight:600; width:100%; box-sizing:border-box; padding: 12px 10px; margin: 0 !important; outline: none; box-shadow: none !important;">
                 
-                <button id="gGameKanaToggleBtn" style="background: transparent; border: none; font-weight: 800; font-size: 15px; color: #64748b; cursor: pointer; padding: 0 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; user-select: none;">あ</button>
+                <button id="gGameKanaToggleBtn" style="background: transparent; border: none; font-weight: 800; font-size: 15px; color: #a0aec0; cursor: pointer; padding: 0 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; user-select: none;">あ</button>
             </div>
             
             <!-- THANH GỢI Ý KANJI CHUẨN GOOGLE (CANDIDATE BAR) -->
@@ -24314,21 +24314,32 @@ window.renderActiveTypingRound = function() {
         inputEl.focus();
     };
 
-    // 🟢 LẮNG NGHE SỰ KIỆN PHÍM CÁCH (SPACEBAR) ĐỂ CHỌN GỢI Ý SỐ 1
+    // 🟢 1. LẮNG NGHE KEYDOWN PHÍM XÓA (BACKSPACE) ĐỂ THU NGẮN MỐC GHIM TRÊN PC
     inputEl.addEventListener('keydown', function(e) {
-        if (e.key === ' ') { // Phím cách
+        if (e.key === 'Backspace') {
+            const val = inputEl.value;
+            // Nếu độ dài hiện tại nhỏ hơn hoặc bằng mốc ghim, tức là người dùng xóa vào phần đã ghim
+            if (val.length <= window.imeCommittedText.length) {
+                // Thu ngắn phần chữ đã ghim đi 1 ký tự
+                window.imeCommittedText = window.imeCommittedText.slice(0, -1);
+                window.imeActiveComposition = "";
+                window.imeCandidates = [];
+                const bar = document.getElementById('gGameCandidatesBar');
+                if (bar) bar.style.display = 'none';
+            }
+        }
+        
+        // Lắng nghe phím Cách (Space) để chọn ứng viên số 1
+        if (e.key === ' ') {
             const bar = document.getElementById('gGameCandidatesBar');
-            // Nếu khay gợi ý đang hiển thị và có ứng viên khả dụng
             if (bar && bar.style.display === 'flex' && window.imeCandidates && window.imeCandidates.length > 0) {
-                e.preventDefault(); // Chặn hành vi gõ dấu cách trắng thô vào input
-                
-                // Tự động ghim chọn ứng viên số 1 (index 0)
+                e.preventDefault(); // Chặn gõ dấu cách trắng thô
                 selectImeCandidate(window.imeCandidates[0]);
             }
         }
     });
 
-    // Lắng nghe sự kiện gõ chữ để tự động gọi API gợi ý Kanji từ Google
+    // Lắng nghe sự kiện gõ chữ để gọi gợi ý
     inputEl.addEventListener('input', () => {
         handleImeInput(inputEl);
     });
@@ -24340,7 +24351,8 @@ window.renderActiveTypingRound = function() {
     });
 };
 
-// 🟢 HÀM XỬ LÝ LẤY GỢI Ý KHÔNG TRẠNG THÁI (STATELESS)
+
+// 🟢 HÀM PHÂN TÁCH CHỮ ĐANG GÕ DỠ DÀNG SỬ DỤNG RANH GIỚI BẢO VỆ CỨNG
 window.handleImeInput = function(inputEl) {
     clearTimeout(imeDebounceTimer);
     
@@ -24355,10 +24367,19 @@ window.handleImeInput = function(inputEl) {
 
     const val = inputEl.value;
 
-    // Tìm chuỗi ký tự Hiragana/Katakana/Romaji liên tục ở cuối ô nhập liệu
-    const match = val.match(/([a-zA-Zぁ-んァ-ン]+)$/);
-    const activeComposition = match ? match[1] : "";
-    window.grammarGameState.activeComposition = activeComposition;
+    // Chốt chặn 1: Tự động dọn dẹp bộ đệm nếu người dùng xóa toàn bộ ô nhập
+    if (!val.startsWith(window.imeCommittedText)) {
+        window.imeCommittedText = ""; 
+    }
+
+    // Chốt chặn 2 (Cho di động): Thu ngắn mốc ghim nếu độ dài thực tế ngắn hơn mốc ghim
+    if (val.length < window.imeCommittedText.length) {
+        window.imeCommittedText = val;
+    }
+
+    // Tách chính xác phần Hiragana đang gõ dở dang nằm ở phía sau mốc ghim [2]
+    const activeComposition = val.substring(window.imeCommittedText.length);
+    window.imeActiveComposition = activeComposition;
 
     if (!activeComposition.trim()) {
         if (bar) bar.style.display = 'none';
@@ -24382,26 +24403,17 @@ window.handleImeInput = function(inputEl) {
 };
 
 
-// 🟢 HÀM GHÉP CHỮ THÔNG MINH KHI CLICK HOẶC ẤN PHÍM CÁCH
+// 🟢 HÀM GHÉP CHỮ VÀ TĂNG ĐỘ DÀI MỐC GHIM CỐ ĐỊNH
 window.selectImeCandidate = function(cand) {
     const input = document.getElementById('gGameTypingInput');
     if (!input) return;
 
-    const val = input.value;
-    const match = val.match(/([a-zA-Zぁ-んァ-ン]+)$/);
+    // Ghép phần đã ghim cũ với ứng viên vừa chọn mới [7]
+    const newValue = window.imeCommittedText + cand;
+    input.value = newValue;
     
-    if (match) {
-        const activePart = match[1];
-        // Tách và bảo toàn nguyên vẹn phần chữ tĩnh đã gõ xong phía trước
-        const beforeActive = val.substring(0, val.length - activePart.length);
-        
-        // Chỉ thay thế duy nhất phần chữ đang gõ dở dang bằng từ Kanji được chọn
-        input.value = beforeActive + cand;
-    } else {
-        input.value = cand;
-    }
-
-    // Reset trạng thái dở dang
+    // Đóng băng và cập nhật mốc ghim mới chuẩn xác
+    window.imeCommittedText = newValue;
     window.imeActiveComposition = "";
     window.imeCandidates = [];
 
