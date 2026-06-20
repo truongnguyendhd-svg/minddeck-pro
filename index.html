@@ -15373,13 +15373,14 @@ let combinedGrammarDataForBulk = [];
 
 // 1. Cập nhật lại giao diện khi mở Modal Ngữ pháp
 async function openGrammarDetail(grammarId) {
+    // 1. Tìm thẻ ngữ pháp trong RAM
     let g = globalGrammarData.find(x => x.id === grammarId);
     if (!g) return;
 
+    // 2. LAZY HYDRATION: Kiểm tra xem thẻ đã được tải đầy đủ dữ liệu chưa
     if (g.isLoaded !== true) {
         showLoading("Đang tải chi tiết ngữ pháp...");
         try {
-            // Nạp đầy đủ 15 cặp cột ví dụ từ Supabase
             const { data, error } = await sb.from('grammar_dict')
                 .select('id, grammar_point, meaning, level, structure, nuance, ex1_jp, ex1_vn, ex2_jp, ex2_vn, ex3_jp, ex3_vn, ex4_jp, ex4_vn, ex5_jp, ex5_vn, ex6_jp, ex6_vn, ex7_jp, ex7_vn, ex8_jp, ex8_vn, ex9_jp, ex9_vn, ex10_jp, ex10_vn, ex11_jp, ex11_vn, ex12_jp, ex12_vn, ex13_jp, ex13_vn, ex14_jp, ex14_vn, ex15_jp, ex15_vn')
                 .eq('id', grammarId)
@@ -15402,6 +15403,7 @@ async function openGrammarDetail(grammarId) {
 
     currentGrammarObj = g;
 
+    // 3. Đổ dữ liệu vào Modal
     document.getElementById('gdLevel').innerText = g.level || 'N?';
     document.getElementById('gdPoint').innerText = g.grammar_point;
     document.getElementById('gdMeaning').innerText = g.meaning;
@@ -15428,7 +15430,7 @@ async function openGrammarDetail(grammarId) {
         exContainer.innerHTML = '<p style="color:#86868b; font-size: 14px;">Chưa có ví dụ cho cấu trúc này.</p>';
     }
 
-    // Kiểm soát ẩn/hiện nút "Thêm ví dụ" dựa trên số lượng thực tế
+    // Reset hiển thị nút Thêm Ví Dụ phụ thuộc vào số lượng thực tế
     const btnMoreEx = document.getElementById('btnMoreExamples');
     if (btnMoreEx) {
         if (filledCount < 15) {
@@ -15440,15 +15442,8 @@ async function openGrammarDetail(grammarId) {
         }
     }
 
-    document.getElementById('gdAiExpansionZone').style.display = 'none';
-    document.getElementById('gdAiExpansionZone').innerHTML = '';
-    document.getElementById('gdBasicActions').style.display = 'block';
+    // Kích hoạt kích thước và hiển thị
     document.querySelector('#grammarDetailModal .modal-content').style.maxWidth = '95%';
-    
-    const aiBtn = document.getElementById('btnExpandAIGrammar');
-    aiBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 20px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> HỌC SÂU VỚI AI';
-    aiBtn.disabled = false;
-
     document.getElementById('grammarDetailModal').style.display = 'flex';
 }
 // Hàm tự động tạo thêm 8 câu ví dụ bằng AI
@@ -15570,256 +15565,6 @@ async function generateMoreGrammarExamples() {
         btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">refresh</span> Thử lại';
         showToast("Có lỗi xảy ra khi tạo ví dụ. Hãy thử lại!");
     }
-}
-// 2. HÀM GỌI AI PHÂN TÍCH SÂU NGỮ PHÁP (TƯƠNG ĐƯƠNG & TRÁI NGHĨA - ĐÃ NÂNG CẤP GLOBAL CACHE)
-async function expandGrammarWithAI() {
-    const btn = document.getElementById('btnExpandAIGrammar');
-    const zone = document.getElementById('gdAiExpansionZone');
-    const modalContent = document.querySelector('#grammarDetailModal .modal-content');
-
-    if (!currentGrammarObj) return;
-    const grammarId = currentGrammarObj.id; // ID của ngữ pháp hiện hành
-
-    // =========================================================================
-    // 📡 BƯỚC A: KIỂM TRA RAM & INDEXED DB CỦA THIẾT BỊ NÀY TRƯỚC (2ms)
-    // =========================================================================
-    const dbCacheKey = `grammar_${currentUser?.id}_${grammarId}`;
-    let cachedData = window.aiGrammarExpansionCache[grammarId];
-
-    if (!cachedData) {
-        const cachedRecord = await dbOps.get(STORE_AI_CACHE, dbCacheKey);
-        if (cachedRecord && cachedRecord.data) {
-            cachedData = cachedRecord.data;
-            window.aiGrammarExpansionCache[grammarId] = cachedData; 
-        }
-    }
-
-    if (cachedData) {
-        console.log(`[Offline Cache Hit] Khôi phục phân tích Ngữ pháp từ thiết bị 💾`);
-        combinedGrammarDataForBulk = cachedData.bulkData;
-        modalContent.style.maxWidth = "96%";
-        zone.style.display = 'block';
-        document.getElementById('gdBasicActions').style.display = 'none';
-        zone.innerHTML = cachedData.html;
-        return; 
-    }
-
-    btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#9333ea;margin-right:8px;"></div> Đang phân tích...';
-    btn.disabled = true;
-
-    try {
-        // =========================================================================
-        // 📡 BƯỚC B: KIỂM TRA MÂY TOÀN CẦU SUPABASE (0.1 GIÂY - 0 TOKEN)
-        // =========================================================================
-        const { data: cloudCached, error: cloudErr } = await sb.from('ai_grammar_cache')
-            .select('payload')
-            .eq('grammar_id', grammarId)
-            .maybeSingle();
-
-        if (cloudCached && cloudCached.payload) {
-            console.log(`[Global Grammar Cache Hit] Phục hồi phân tích ngữ pháp đám mây vĩnh viễn! ☁️`);
-            const globalPayload = cloudCached.payload;
-
-            // Đồng bộ ngược vào RAM & Thiết bị này
-            window.aiGrammarExpansionCache[grammarId] = globalPayload;
-            await dbOps.put(STORE_AI_CACHE, { id: dbCacheKey, data: globalPayload });
-
-            combinedGrammarDataForBulk = globalPayload.bulkData;
-            modalContent.style.maxWidth = "96%";
-            zone.style.display = 'block';
-            document.getElementById('gdBasicActions').style.display = 'none';
-            zone.innerHTML = globalPayload.html;
-            
-            showToast("✨ Đã tải phân tích từ kho lưu trữ đám mây!");
-            return;
-        }
-
-        // =========================================================================
-        // 🧠 BƯỚC C: GỌI AI SÁNG TÁC NẾU CẢ THẾ GIỚI CHƯA AI TỪNG LÀM (3 GIÂY)
-        // =========================================================================
-        console.log(`[Global Grammar Cache Miss] Gọi AI thiết lập dữ liệu ngữ pháp mới cho: [${grammarId}]`);
-
-        const prompt = `Bạn là chuyên gia luyện thi JLPT. Hãy phân tích cấu trúc ngữ pháp: "${currentGrammarObj.grammar_point}" (Nghĩa: ${currentGrammarObj.meaning}).
-        Mở rộng kiến thức bằng cách tìm ra:
-        1. Tối đa 2 cấu trúc NGỮ PHÁP TƯƠNG ĐƯƠNG (có thể thay thế). Mỗi cấu trúc kèm 2 ví dụ.
-        2. Tối đa 2 cấu trúc NGỮ PHÁP TRÁI NGHĨA (hoặc đối lập ngữ cảnh). Mỗi cấu trúc kèm 2 ví dụ.
-
-        BẮT BUỘC TRẢ VỀ DUY NHẤT 1 KHỐI JSON (Không bọc trong markdown \`\`\`json). Định dạng:
-        {
-          "similar": [
-            {
-              "point": "Cấu trúc", "level": "N?", "meaning": "Nghĩa tiếng Việt", "structure": "Cách ghép", "nuance": "Sắc thái khác biệt",
-              "examples": [ {"jp": "Ví dụ 1 JP", "vn": "Nghĩa VD 1 VN"}, {"jp": "Ví dụ 2 JP", "vn": "Nghĩa VD 2 VN"} ]
-            }
-          ],
-          "opposite": [
-            {
-              "point": "Cấu trúc", "level": "N?", "meaning": "Nghĩa tiếng Việt", "structure": "Cách ghép", "nuance": "Sắc thái",
-              "examples": [ {"jp": "Ví dụ 1 JP", "vn": "Nghĩa VD 1 VN"}, {"jp": "Ví dụ 2 JP", "vn": "Nghĩa VD 2 VN"} ]
-            }
-          ]
-        }`;
-
-        let aiResponse = await callGeminiAI(prompt);
-        aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-        const data = JSON.parse(aiResponse);
-
-        modalContent.style.maxWidth = "96%";
-        zone.style.display = 'block';
-        document.getElementById('gdBasicActions').style.display = 'none';
-
-        combinedGrammarDataForBulk = [currentGrammarObj];
-        const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
-
-        let html = `
-            <div style="font-size: 16px; font-weight: 700; color: #1a1a1a; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
-                <span class="material-symbols-outlined" style="color: #9333ea;">auto_awesome</span> KHÔNG GIAN MỞ RỘNG KIẾN THỨC
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; margin-bottom: 24px;">
-        `;
-
-        const renderGrammarBox = (item, typeStr, icon, colorHex, bgColor) => {
-            combinedGrammarDataForBulk.push({
-                grammar_point: item.point,
-                level: item.level,
-                meaning: item.meaning,
-                structure: item.structure,
-                nuance: item.nuance,
-                ex1_jp: item.examples[0]?.jp || "",
-                ex1_vn: item.examples[0]?.vn || "",
-                ex2_jp: item.examples[1]?.jp || "",
-                ex2_vn: item.examples[1]?.vn || ""
-            });
-
-            let exHtml = item.examples.map(ex => `
-                <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #f0f0f0;">
-                    <div style="font-size: 14px; font-weight: 600; color: #1a1a1a;">${wrapKanjiWithLink(escapeHTML(ex.jp))}</div>
-                    <div style="font-size: 13px; color: #666666;">${escapeHTML(ex.vn)}</div>
-                </div>
-            `).join('');
-
-            let adminBtnHtml = "";
-            if (isAdmin) {
-                const adminSaveObj = {
-                    point: item.point, level: item.level, meaning: item.meaning,
-                    structure: item.structure, nuance: item.nuance,
-                    ex1_jp: item.examples[0]?.jp || "", ex1_vn: item.examples[0]?.vn || "",
-                    ex2_jp: item.examples[1]?.jp || "", ex2_vn: item.examples[1]?.vn || ""
-                };
-                const safeAdminJSON = encodeURIComponent(JSON.stringify(adminSaveObj)).replace(/'/g, "%27");
-                adminBtnHtml = `
-                    <div style="margin-top: 16px; padding-top: 12px; border-top: 1px dashed #e5e5e5; display: flex; justify-content: flex-end;">
-                        <button onclick="openAdminGrammarModal('${safeAdminJSON}')" class="win11-btn-secondary" style="padding: 6px 12px; font-size: 12px; color: #10b981; border-color: #bbf7d0; background: #f0fdf4;">
-                            <span class="material-symbols-outlined" style="font-size: 16px;">cloud_upload</span> THÊM VÀO KHO DB (ADMIN)
-                        </button>
-                    </div>
-                `;
-            }
-
-            return `
-                <div style="background: #ffffff; border: 1px solid #e5e5e5; border-top: 4px solid ${colorHex}; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); padding: 12px;">
-                    <div style="font-size: 11px; font-weight: 800; color: ${colorHex}; text-transform: uppercase; margin-bottom: 12px; display: flex; align-items: center; gap: 4px; background: ${bgColor}; display: inline-flex; padding: 4px 8px; border-radius: 4px;">
-                        <span class="material-symbols-outlined" style="font-size: 14px;">${icon}</span> ${typeStr}
-                    </div>
-                    <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px;">
-                        <span style="font-size: 20px; font-weight: 800; color: #1a1a1a; font-family: 'Noto Sans JP', sans-serif;">${escapeHTML(item.point)}</span>
-                        <span style="font-size: 12px; font-weight: 700; color: #666666; background: #f0f0f0; padding: 2px 6px; border-radius: 4px;">${escapeHTML(item.level)}</span>
-                    </div>
-                    <div style="font-size: 14px; color: #1a1a1a; font-weight: 600; margin-bottom: 12px;">${escapeHTML(item.meaning)}</div>
-                    <div style="background: #fbfbfd; padding: 8px; border-radius: 6px; border: 1px solid #f0f0f0; font-size: 13px; color: #4a4a4a; margin-bottom: 12px;">
-                        <b style="color: #666666;">Cách ghép:</b> ${escapeHTML(item.structure)}<br>
-                        <b style="color: #666666;">Sắc thái:</b> ${escapeHTML(item.nuance)}
-                    </div>
-                    <div style="font-size: 12px; font-weight: 700; color: #8c8c8c; margin-bottom: 8px; border-bottom: 1px solid #f0f0f0; padding-bottom: 4px;">VÍ DỤ MINH HỌA</div>
-                    ${exHtml}
-                    ${adminBtnHtml}
-                </div>
-            `;
-        };
-
-        if (data.similar && data.similar.length > 0) {
-            html += `<div style="display: flex; flex-direction: column; gap: 16px;">
-                        <h4 style="margin: 0; color: #0067c0; font-size: 14px; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined">join</span> Tương đương / Thay thế</h4>`;
-            data.similar.forEach(item => { html += renderGrammarBox(item, "Tương đương", "join", "#0067c0", "#e6f2ff"); });
-            html += `</div>`;
-        }
-
-        if (data.opposite && data.opposite.length > 0) {
-            html += `<div style="display: flex; flex-direction: column; gap: 16px;">
-                        <h4 style="margin: 0; color: #c50f1f; font-size: 14px; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined">alt_route</span> Đối lập / Trái nghĩa</h4>`;
-            data.opposite.forEach(item => { html += renderGrammarBox(item, "Đối lập", "alt_route", "#c50f1f", "#fdf3f4"); });
-            html += `</div>`;
-        }
-
-        html += `</div>`;
-
-        // Nút Lưu toàn bộ vào bộ bài
-        html += `
-            <div style="text-align: center; border-top: 1px solid #f0f0f0; padding-top: 24px;">
-                <button onclick="bulkSaveExpandedGrammar()" class="win11-btn-primary" style="width: 100%; padding: 14px; font-size: 15px; display: inline-flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 15px rgba(0, 103, 192, 0.3); white-space: normal; line-height: 1.4;">
-                    <span class="material-symbols-outlined" style="font-size: 20px; flex-shrink: 0;">library_add</span> 
-                    <span>TẠO BỘ ${combinedGrammarDataForBulk.length} THỂ NGỮ PHÁP NÀY</span>
-                </button>
-            </div>
-        `;
-
-        // Đóng gói cấu trúc lưu trữ
-        const cachePayload = { html: html, bulkData: [...combinedGrammarDataForBulk] };
-        
-        // 1. Lưu RAM máy hiện tại
-        window.aiGrammarExpansionCache[grammarId] = cachePayload;
-        // 2. Lưu Offline máy hiện tại (IndexedDB)
-        await dbOps.put(STORE_AI_CACHE, { id: dbCacheKey, data: cachePayload });
-
-        // 3. 📡 ĐỒNG BỘ LÊN ĐÁM MÂY CHUNG SUPABASE (CHO TOÀN THẾ GIỚI XÀI CHUNG)
-        sb.from('ai_grammar_cache').insert([{
-            grammar_id: grammarId,
-            payload: cachePayload
-        }]).then(({ error }) => {
-            if (!error) console.log(`[Global Cache Contributed] Đã đồng bộ phân tích Ngữ pháp [${grammarId}] lên đám mây! 🚀`);
-        });
-
-        zone.innerHTML = html;
-
-    } catch (err) {
-        console.error("Lỗi AI Expand Grammar:", err);
-        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">error</span> Lỗi mạng. Nhấn thử lại';
-        btn.disabled = false;
-    }
-}
-
-
-// 3. HÀM CHUYỂN DỮ LIỆU SANG MODAL BULK SAVE
-function bulkSaveExpandedGrammar() {
-    // Biến đổi mảng Grammar thành mảng Flashcard chuẩn
-    const mappedData = combinedGrammarDataForBulk.map(g => {
-        const extraInfo = `Cấu trúc: ${g.structure || ''} | Sắc thái: ${g.nuance || ''}`;
-        let combinedExample = "";
-        if (g.ex1_jp) {
-            combinedExample = g.ex1_vn ? `${g.ex1_jp} (${g.ex1_vn})` : g.ex1_jp;
-        }
-        
-        return {
-            word: g.grammar_point, // Lắp vào cột Front
-            reading: "", // Ngữ pháp không cần cột Reading
-            meaning: g.meaning, // Lắp vào cột Meaning
-            hv: extraInfo, // Đẩy Cấu trúc/Sắc thái vào phần [HV] (Thông tin phụ)
-            example: combinedExample // Đẩy vào phần [EX1]/[VN1]
-        };
-    });
-
-    closeModal('grammarDetailModal');
-
-    // Cập nhật text trong Bulk Save Modal cho phù hợp với Ngữ Pháp
-    const noticeText = document.getElementById('bskNoticeText');
-    if (noticeText) {
-        noticeText.innerHTML = `Bạn đang chuẩn bị tạo <b id="bskCount" style="font-size: 18px; color: #1e3a8a;">${mappedData.length}</b> thẻ từ nhóm ngữ pháp <b id="bskKanji" style="font-size: 20px; color: #e53e3e;">${currentGrammarObj.grammar_point}</b>.`;
-    }
-
-    const encodedData = encodeURIComponent(JSON.stringify(mappedData)).replace(/'/g, "%27");
-    
-    // Gọi hàm có sẵn của hệ thống (Tái sử dụng hàm lưu hàng loạt Kanji)
-    openBulkSaveKanjiModal(encodedData, currentGrammarObj.grammar_point);
 }
 
 
@@ -24280,16 +24025,16 @@ window.invalidateDeckCache = function(deckId) {
             </button>
         </div>
 
-        <!-- Body Win 11 -->
+        <!-- Body Win 11 (Bố cục hai cột cố định lý thuyết, cuộn ví dụ) -->
         <div class="win11-modal-body" style="padding: 20px 12px; max-height: 85vh; overflow-y: auto; background: #ffffff;">
             
-            <!-- Khung lưới chia 2 cột co giãn linh hoạt (Tự động nhận diện Container Query) -->
-            <div class="grammar-detail-grid-container" style="margin-bottom: 25px;">
+            <!-- Khung lưới chia 2 cột co giãn linh hoạt -->
+            <div class="grammar-detail-grid-container" style="margin-bottom: 10px;">
                 
                 <!-- CỘT TRÁI (Chiếm 1/3): Chứa Thông tin chính, Cấu trúc & Sắc thái -->
                 <div class="grammar-detail-left-col">
                     
-                    <!-- Khối Thông tin chính đã được dời vào đây (Dịch trái thẳng hàng tuyệt đối) -->
+                    <!-- Khối Thông tin chính -->
                     <div class="grammar-detail-top-section" style="margin-bottom: 20px; text-align: left; padding: 0 12px; box-sizing: border-box;">
                         <span id="gdLevel" style="font-size: 11px; font-weight: 800; color: #0067c0; background: #e6f2ff; padding: 4px 10px; border-radius: 4px; display: inline-block; margin-bottom: 8px;">N3</span>
                         <h2 id="gdPoint" style="font-family: 'Noto Sans JP', sans-serif;"></h2>
@@ -24313,7 +24058,7 @@ window.invalidateDeckCache = function(deckId) {
 
                 <!-- CỘT PHẢI (Chiếm 2/3): Chứa ví dụ minh họa -->
                 <div class="grammar-detail-right-col">
-                    <!-- Tiêu đề ví dụ căn lề thẳng tắp -->
+                    <!-- Tiêu đề ví dụ -->
                     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e5e5; padding-left: 12px; padding-right: 12px; padding-bottom: 8px; margin-bottom: 12px;">
                         <div class="section-title" style="display: flex; align-items: center; gap: 6px;">
                             <span class="material-symbols-outlined" style="font-size: 16px;">chat</span> VÍ DỤ MINH HỌA
@@ -24328,26 +24073,6 @@ window.invalidateDeckCache = function(deckId) {
                     <div id="gdExamples" style="display: flex; flex-direction: column; gap: 15px;"></div>
                 </div>
 
-            </div>
-
-            <!-- 3. Khu vực AI học sâu bên dưới (Luôn tràn ngang toàn bộ chân modal) -->
-            <div class="grammar-detail-bottom-section" style="border-top: 1px solid #f0f0f0; padding-top: 20px;">
-                <div id="gdBasicActions">
-                    <button id="btnExpandAIGrammar" onclick="expandGrammarWithAI()" style="
-                        width: 100%; padding: 16px; background: #fbfbfd; border: 2px dashed #cbd5e0; 
-                        border-radius: 12px; color: #64748b; font-size: 14px; font-weight: 800; letter-spacing: 0.5px;
-                        display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
-                        transition: all 0.2s ease;
-                    " onmouseover="this.style.background='#f1f5f9'; this.style.borderColor='#94a3b8'; this.style.color='#1d1d1f';" 
-                       onmouseout="this.style.background='#fbfbfd'; this.style.borderColor='#cbd5e0'; this.style.color='#64748b';">
-                        <span class="material-symbols-outlined" style="font-size: 20px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> 
-                        HỌC SÂU VỚI AI
-                    </button>
-                </div>
-
-                <div id="gdAiExpansionZone" style="display: none; margin-top: 24px; padding-top: 24px; border-top: 1px dashed #cccccc; animation: fadeInChat 0.3s ease;">
-                    <!-- JS sẽ đổ dữ liệu AI vào đây -->
-                </div>
             </div>
 
         </div>
