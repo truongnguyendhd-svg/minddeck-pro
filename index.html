@@ -6134,6 +6134,46 @@ body.shadowing-mode #shadowingPage {
 #grammarDetailModal #gdNuance {
     font-size: clamp(13px, 1.9cqw, 17px) !important;
 }
+/* --- CSS CHO CÁC THẺ GAME GHÉP CẶP TRONG MODAL --- */
+#grammarDetailModal .sh-card {
+    padding: 12px;
+    border: 1px solid #cbd5e0;
+    background: #ffffff;
+    border-radius: 12px;
+    font-size: clamp(12px, 1.6cqw, 14px);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 70px;
+    word-break: break-word;
+    box-sizing: border-box;
+}
+#grammarDetailModal .sh-card:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 4px 10px rgba(59, 130, 246, 0.1);
+}
+#grammarDetailModal .sh-card.selected {
+    background: #fef08a !important;
+    border-color: #eab308 !important;
+    color: #854d0e !important;
+}
+#grammarDetailModal .sh-card.correct {
+    background: #c6f6d5 !important;
+    border-color: #38a169 !important;
+    color: #22543d !important;
+    pointer-events: none;
+    opacity: 0.5;
+}
+#grammarDetailModal .sh-card.wrong {
+    background: #fff5f5 !important;
+    border-color: #e53e3e !important;
+    color: #e53e3e !important;
+    animation: shake 0.4s;
+}
 /* Bảo toàn chiều ngang hiển thị trên máy tính (PC/Laptop) */
 #aiStoryModal .modal-content { max-width: 850px !important; }
 #infoModal .modal-content { max-width: 800px !important; }
@@ -23986,6 +24026,438 @@ window.invalidateDeckCache = function(deckId) {
     sessionStorage.removeItem(`minddeck_deck_cache_${deckId}`);
     console.log(`[Cache Sync] Đã giải phóng bộ đệm của bộ bài: ${deckId}`);
 };
+// =========================================================================
+// HỆ THỐNG MINIGAMES LỚN CHO CHI TIẾT NGỮ PHÁP (DỊCH ĐUỔI & GHI NHỚ)
+// =========================================================================
+
+// Khai báo quản lý vòng đời bộ game
+window.grammarGameState = {
+    active: false,
+    type: '', // 'matching', 'typing', 'scramble'
+    typingMode: 'audio', // 'audio' hoặc 'vn'
+    examples: [], // Lưu trữ các câu ví dụ thu được từ RAM
+    currentIndex: 0,
+    matchedIndices: [],
+    selectedFirst: null
+};
+
+// Khởi chạy game từ bảng chọn
+window.startGrammarGame = function(type) {
+    if (!currentGrammarObj) return;
+    
+    // Thu thập các câu ví dụ đang có sẵn trong RAM của ngữ pháp này
+    let examples = [];
+    for (let i = 1; i <= 15; i++) {
+        const jp = currentGrammarObj[`ex${i}_jp`];
+        const vn = currentGrammarObj[`ex${i}_vn`];
+        if (jp && jp.trim() !== '') {
+            examples.push({ index: i, jp: jp.trim(), vn: vn.trim() });
+        }
+    }
+
+    if (examples.length === 0) {
+        return showToast("⚠️ Ngữ pháp này chưa có ví dụ để luyện tập!");
+    }
+
+    // Reset trạng thái
+    window.grammarGameState = {
+        active: true,
+        type: type,
+        typingMode: 'audio',
+        examples: examples,
+        currentIndex: 0,
+        matchedIndices: [],
+        selectedFirst: null
+    };
+
+    // Ẩn vùng ví dụ gốc, hiện khung chơi game
+    document.getElementById('gdExamplesWrapper').style.display = 'none';
+    document.getElementById('grammarGameWrapper').style.display = 'block';
+
+    initActiveGrammarGame();
+};
+
+// Khởi tạo giao diện cụ thể cho game đã chọn
+window.initActiveGrammarGame = function() {
+    const playZone = document.getElementById('grammarGamePlayZone');
+    const titleEl = document.getElementById('grammarGameTitle');
+    const state = window.grammarGameState;
+
+    playZone.innerHTML = ''; // Làm sạch
+
+    // ==========================================
+    // GAME 1: GHÉP THẺ GHI NHỚ (MATCHING)
+    // ==========================================
+    if (state.type === 'matching') {
+        titleEl.innerHTML = `<span class="material-symbols-outlined" style="color:#3b82f6;">grid_view</span> GHÉP THẺ GHI NHỚ`;
+        
+        // Tạo các cặp thẻ
+        let pool = [];
+        state.examples.forEach(ex => {
+            pool.push({ type: 'jp', text: ex.jp, pairId: ex.index });
+            pool.push({ type: 'vn', text: ex.vn, pairId: ex.index });
+        });
+        
+        // Trộn ngẫu nhiên các mảnh ghép
+        pool.sort(() => Math.random() - 0.5);
+
+        playZone.innerHTML = `
+            <p style="font-size: 13px; color: #718096; margin-bottom: 12px; font-weight: 700; text-align: left;">Chạm vào cặp Thẻ tiếng Nhật & Nghĩa tiếng Việt tương ứng:</p>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; width: 100%; box-sizing: border-box;" id="kb-sc-grid"></div>
+            <div id="gameRevealArea" style="border-top: 1px dashed #cbd5e0; padding-top: 15px; margin-top: 20px; display: flex; flex-direction: column; gap: 12px;"></div>
+        `;
+
+        const gridBox = document.getElementById('kb-sc-grid');
+        pool.forEach((card, idx) => {
+            let cell = document.createElement('div');
+            cell.className = 'sh-card';
+            cell.innerText = card.text;
+            cell.onclick = () => handleShCardClick(card, cell);
+            gridBox.appendChild(cell);
+        });
+
+        renderGameRevealedItems();
+    }
+
+    // ==========================================
+    // GAME 2: THỬ THÁCH CHÍNH TẢ (TYPING)
+    // ==========================================
+    else if (state.type === 'typing') {
+        titleEl.innerHTML = `<span class="material-symbols-outlined" style="color:#10b981;">keyboard</span> THỬ THÁCH CHÍNH TẢ`;
+        
+        playZone.innerHTML = `
+            <div id="typingSetup" style="display: flex; flex-direction: column; gap: 15px; align-items: center; text-align: center; padding: 20px 10px;">
+                <p style="font-weight: 700; color: #4a5568; font-size: 15px; margin-top: 0;">Chọn chế độ luyện tập chính tả:</p>
+                <div style="display: flex; gap: 12px; width: 100%;">
+                    <button class="win11-btn-primary" onclick="initTypingGamePlay('audio')" style="flex:1; justify-content: center; height: 44px; border-radius: 12px; background: #0067c0; display:flex; align-items:center; gap:8px;">🎧 Nghe đọc câu JP</button>
+                    <button class="win11-btn-secondary" onclick="initTypingGamePlay('vn')" style="flex:1; justify-content: center; height: 44px; border-radius: 12px; display:flex; align-items:center; gap:8px;">🇻🇳 Xem nghĩa Việt</button>
+                </div>
+            </div>
+        `;
+    }
+
+    // ==========================================
+    // GAME 3: KIỂM TRA XẾP CÂU (SCRAMBLE)
+    // ==========================================
+    else if (state.type === 'scramble') {
+        titleEl.innerHTML = `<span class="material-symbols-outlined" style="color:#e53e3e;">extension</span> KIỂM TRA XẾP CÂU`;
+        state.currentIndex = 0;
+        renderActiveScrambleRound();
+    }
+};
+
+// --------------------------------------------------
+// XỬ LÝ GAME GHÉP THẺ (MATCHING LOGIC)
+// --------------------------------------------------
+window.handleShCardClick = function(card, el) {
+    let state = window.grammarGameState;
+    if (el.classList.contains('correct') || el.classList.contains('selected')) return;
+
+    if (!state.selectedFirst) {
+        state.selectedFirst = { card, el };
+        el.classList.add('selected');
+    } else {
+        // Nếu chọn lại cùng 1 loại (JP-JP hoặc VN-VN), chuyển sang chọn cái mới
+        if (state.selectedFirst.card.type === card.type) {
+            state.selectedFirst.el.classList.remove('selected');
+            state.selectedFirst = { card, el };
+            el.classList.add('selected');
+            return;
+        }
+
+        // So khớp ID cặp
+        if (state.selectedFirst.card.pairId === card.pairId) {
+            // ĐÚNG
+            state.selectedFirst.el.classList.remove('selected');
+            state.selectedFirst.el.classList.add('correct');
+            el.classList.add('correct');
+
+            revealMatchedExample(card.pairId); // Bộc lộ câu ví dụ ở khu vực dưới
+            state.matchedIndices.push(card.pairId);
+
+            state.selectedFirst = null;
+
+            // Kiểm tra chiến thắng
+            if (state.matchedIndices.length === state.examples.length) {
+                completeGrammarGame();
+            }
+        } else {
+            // SAI -> Đổ đỏ nháy
+            el.classList.add('wrong');
+            state.selectedFirst.el.classList.add('wrong');
+            
+            setTimeout(() => {
+                el.classList.remove('wrong', 'selected');
+                state.selectedFirst.el.classList.remove('wrong', 'selected');
+                state.selectedFirst = null;
+            }, 500);
+        }
+    }
+};
+
+// --------------------------------------------------
+// XỬ LÝ GAME CHÍNH TẢ (TYPING LOGIC)
+// --------------------------------------------------
+window.initTypingGamePlay = function(mode) {
+    window.grammarGameState.typingMode = mode;
+    window.grammarGameState.currentIndex = 0;
+    renderActiveTypingRound();
+};
+
+window.renderActiveTypingRound = function() {
+    let state = window.grammarGameState;
+    let ex = state.examples[state.currentIndex];
+    let playZone = document.getElementById('grammarGamePlayZone');
+
+    let promptText = state.typingMode === 'audio' ? "🎧 Hãy nghe âm thanh và gõ lại câu Tiếng Nhật" : "🇻🇳 Xem nghĩa Tiếng Việt và gõ lại câu Tiếng Nhật";
+    let questionHTML = "";
+
+    if (state.typingMode === 'audio') {
+        questionHTML = `
+            <div class="audio-btn-huge" onclick="playGrammarGameAudio('${ex.jp.replace(/'/g, "\\'")}')" style="margin: 20px auto 15px auto; width: 70px; height: 70px;">
+                <span class="material-symbols-outlined" style="font-size: 34px;">volume_up</span>
+            </div>
+            <div style="font-size: 13px; color: #718096; margin-bottom: 15px; font-weight: 700; text-align:center;">Nhấn loa để nghe lại</div>
+        `;
+        // Tự động phát âm thanh ở giây đầu tiên
+        setTimeout(() => playGrammarGameAudio(ex.jp), 100);
+    } else {
+        questionHTML = `
+            <div style="font-size: 15px; font-weight: 700; color: #1a1a1a; padding: 20px; background: #f8fafc; border-radius: 12px; border: 1px solid #e5e5e5; margin-bottom: 20px; text-align: center; line-height:1.5;">
+                ${ex.vn}
+            </div>
+        `;
+    }
+
+    playZone.innerHTML = `
+        <p style="font-size: 13px; color: #718096; margin-bottom: 12px; font-weight: 700; text-align: left;">${promptText} (${state.currentIndex + 1}/${state.examples.length}):</p>
+        ${questionHTML}
+        <div style="width: 100%; max-width: 500px; margin: 0 auto 20px auto;">
+            <input type="text" id="gGameTypingInput" 
+                   placeholder="Nhập câu Tiếng Nhật tại đây..." 
+                   autocomplete="off" 
+                   spellcheck="false" 
+                   autocorrect="off" 
+                   autocapitalize="none"
+                   style="-webkit-appearance:none; appearance:none; padding:15px; border-radius:12px; border:2px solid #cbd5e0; background:#ffffff; font-size: 16px; font-weight:600; width:100%; box-sizing:border-box;">
+            
+            <div style="display: flex; gap: 10px; margin-top: 12px;">
+                <button onclick="revealTypingAnswer()" class="win11-btn-secondary" style="flex:1; justify-content: center; height: 44px; border-radius: 12px; font-size:14px; font-weight:700;">Xem đáp án</button>
+                <button id="btnCheckTyping" onclick="checkTypingAnswer()" class="win11-btn-primary" style="flex:2; justify-content: center; height: 44px; border-radius: 12px; background: #0067c0; font-size:14px; font-weight:700;">KIỂM TRA</button>
+            </div>
+        </div>
+        <div id="gameRevealArea" style="border-top: 1px dashed #cbd5e0; padding-top: 15px; margin-top:20px; display: flex; flex-direction: column; gap: 12px;"></div>
+    `;
+
+    renderGameRevealedItems();
+
+    const inputEl = document.getElementById('gGameTypingInput');
+    if (typeof wanakana !== 'undefined') wanakana.bind(inputEl);
+    setTimeout(() => inputEl.focus(), 300);
+
+    inputEl.addEventListener("keypress", function(e) {
+        if (e.key === "Enter") checkTypingAnswer();
+    });
+};
+
+window.playGrammarGameAudio = function(text) {
+    window.safePlayAudio(text, 0.85);
+};
+
+window.revealTypingAnswer = function() {
+    let state = window.grammarGameState;
+    let ex = state.examples[state.currentIndex];
+    const input = document.getElementById('gGameTypingInput');
+    if (input) {
+        input.value = ex.jp;
+        input.style.color = '#c50f1f';
+        input.focus();
+    }
+};
+
+window.checkTypingAnswer = function() {
+    let state = window.grammarGameState;
+    let ex = state.examples[state.currentIndex];
+    const input = document.getElementById('gGameTypingInput');
+    if (!input) return;
+
+    const val = input.value.trim();
+    const cleanInput = val.replace(/[。、！？\s]/g, '');
+    const cleanTarget = ex.jp.replace(/[。、！？\s]/g, '');
+
+    if (cleanInput === cleanTarget) {
+        // ĐÚNG
+        input.style.borderColor = '#38a169';
+        input.style.background = '#c6f6d5';
+        input.style.color = '#22543d';
+        input.disabled = true;
+
+        confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 }, zIndex: 15000 });
+        revealMatchedExample(ex.index);
+
+        setTimeout(() => {
+            state.currentIndex++;
+            if (state.currentIndex < state.examples.length) {
+                renderActiveTypingRound();
+            } else {
+                completeGrammarGame();
+            }
+        }, 800);
+    } else {
+        // SAI -> Rung lắc
+        input.classList.add('shake-error');
+        setTimeout(() => {
+            input.classList.remove('shake-error');
+        }, 400);
+        showToast("Chưa khớp chính xác chính tả. Thử lại nhé! ❌");
+    }
+};
+
+// --------------------------------------------------
+// XỬ LÝ GAME KIỂM TRA XẾP CÂU (SCRAMBLE LOGIC)
+// --------------------------------------------------
+window.renderActiveScrambleRound = function() {
+    let state = window.grammarGameState;
+    let ex = state.examples[state.currentIndex];
+    let playZone = document.getElementById('grammarGamePlayZone');
+
+    // Chia nhỏ câu
+    const chunkData = chunkJapaneseSentence(ex.jp);
+    const targetSentence = chunkData.original;
+    let sentenceChunks = chunkData.chunks.sort(() => 0.5 - Math.random());
+
+    playZone.innerHTML = `
+        <p style="font-size: 13px; color: #718096; margin-bottom: 12px; font-weight: 700; text-align: left;">Sắp xếp các mảnh ghép thành câu Tiếng Nhật hoàn chỉnh (${state.currentIndex + 1}/${state.examples.length}):</p>
+        <div style="font-size: 15px; font-weight: 700; color: #1a1a1a; padding: 15px 20px; background: #f8fafc; border-radius: 12px; border: 1px solid #e5e5e5; margin-bottom: 20px; text-align: center; line-height:1.5;">
+            ${ex.vn}
+        </div>
+        
+        <div style="margin-bottom: 20px; width: 100%;">
+            <div id="gScrambleDrop" class="scramble-zone" style="background:#f0f9ff; border-color:#3182ce; justify-content:flex-start; min-height: 60px; padding: 10px; box-sizing: border-box; display: flex; flex-wrap: wrap; gap: 8px; border-radius: 12px; border: 2px dashed #cbd5e0;"></div>
+            <div id="gScramblePool" class="scramble-pool" style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 15px;"></div>
+        </div>
+
+        <div id="gameRevealArea" style="border-top: 1px dashed #cbd5e0; padding-top: 15px; margin-top:20px; display: flex; flex-direction: column; gap: 12px;"></div>
+    `;
+
+    renderGameRevealedItems();
+
+    const sPool = document.getElementById('gScramblePool');
+    const sDrop = document.getElementById('gScrambleDrop');
+
+    sentenceChunks.forEach((chunk, idx) => {
+        let btn = document.createElement('div');
+        btn.className = 'scramble-piece';
+        btn.innerText = chunk;
+        btn.id = `g-scramble-pool-${idx}`;
+
+        btn.onclick = function() {
+            if (this.style.visibility !== 'hidden') {
+                this.style.visibility = 'hidden';
+
+                let cloneBtn = document.createElement('div');
+                cloneBtn.className = 'scramble-piece';
+                cloneBtn.innerText = chunk;
+                cloneBtn.dataset.originId = this.id;
+
+                cloneBtn.onclick = function() {
+                    const originBtn = document.getElementById(this.dataset.originId);
+                    if (originBtn) originBtn.style.visibility = 'visible';
+                    this.remove();
+                };
+
+                sDrop.appendChild(cloneBtn);
+
+                // Kiểm tra đáp án
+                const currentStr = Array.from(sDrop.children).map(el => el.innerText).join('');
+                if (currentStr.length === targetSentence.length) {
+                    playZone.style.pointerEvents = 'none';
+                    const isCorrect = currentStr === targetSentence;
+
+                    if (isCorrect) {
+                        confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 }, zIndex: 15000 });
+                        revealMatchedExample(ex.index);
+                        
+                        setTimeout(() => {
+                            playZone.style.pointerEvents = 'auto';
+                            state.currentIndex++;
+                            if (state.currentIndex < state.examples.length) {
+                                renderActiveScrambleRound();
+                            } else {
+                                completeGrammarGame();
+                            }
+                        }, 800);
+                    } else {
+                        // Sai -> Rung lắc và trả về rổ
+                        sDrop.classList.add('shake-error');
+                        setTimeout(() => {
+                            sDrop.classList.remove('shake-error');
+                            sDrop.querySelectorAll('.scramble-piece').forEach(p => {
+                                const originBtn = document.getElementById(p.dataset.originId);
+                                if (originBtn) originBtn.style.visibility = 'visible';
+                                p.remove();
+                            });
+                            playZone.style.pointerEvents = 'auto';
+                        }, 500);
+                    }
+                }
+            }
+        };
+        sPool.appendChild(btn);
+    });
+};
+
+// --------------------------------------------------
+// PHÂN HỆ ĐỘC LẬP: BỘC LỘ & KẾT THÚC GAME
+// --------------------------------------------------
+window.revealMatchedExample = function(exIndex) {
+    let ex = window.grammarGameState.examples.find(x => x.index === exIndex);
+    if (!ex) return;
+
+    const revealArea = document.getElementById('gameRevealArea');
+    if (revealArea) {
+        const exHtml = buildExampleSentenceBlock(currentGrammarObj.id, exIndex, ex.jp, "", ex.vn);
+        revealArea.insertAdjacentHTML('beforeend', exHtml);
+        
+        setTimeout(() => {
+            const modalBody = document.querySelector('#grammarDetailModal .win11-modal-body');
+            if (modalBody) {
+                modalBody.scrollTo({ top: modalBody.scrollHeight, behavior: 'smooth' });
+            }
+        }, 100);
+    }
+};
+
+window.renderGameRevealedItems = function() {
+    let state = window.grammarGameState;
+    const revealArea = document.getElementById('gameRevealArea');
+    if (revealArea) {
+        revealArea.innerHTML = `<p style="font-size: 13px; color: #10b981; font-weight: 800; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined">verified</span> ĐÃ HOÀN THÀNH:</p>`;
+        for (let i = 0; i < state.currentIndex; i++) {
+            const ex = state.examples[i];
+            const exHtml = buildExampleSentenceBlock(currentGrammarObj.id, ex.index, ex.jp, "", ex.vn);
+            revealArea.insertAdjacentHTML('beforeend', exHtml);
+        }
+    }
+};
+
+window.completeGrammarGame = function() {
+    confetti({ particleCount: 150, spread: 80, origin: { y: 0.5 }, zIndex: 15000 });
+    showToast("🎉 Xuất sắc! Bạn đã vượt qua tất cả thử thách!");
+
+    setTimeout(() => {
+        exitGrammarGame();
+    }, 1500);
+};
+
+window.exitGrammarGame = function() {
+    window.grammarGameState = { active: false, type: '', examples: [] };
+    document.getElementById('gdExamplesWrapper').style.display = 'block';
+    document.getElementById('grammarGameWrapper').style.display = 'none';
+    
+    // Tải lại modal nguyên trạng
+    openGrammarDetail(currentGrammarObj.id);
+};
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
@@ -24025,13 +24497,13 @@ window.invalidateDeckCache = function(deckId) {
             </button>
         </div>
 
-        <!-- Body Win 11 (Bố cục hai cột cố định lý thuyết, cuộn ví dụ) -->
+        <!-- Body Win 11 -->
         <div class="win11-modal-body" style="padding: 20px 12px; max-height: 85vh; overflow-y: auto; background: #ffffff;">
             
-            <!-- Khung lưới chia 2 cột co giãn linh hoạt -->
+            <!-- Khung lưới chia 2 cột co giãn linh hoạt (Tự động nhận diện Container Query) -->
             <div class="grammar-detail-grid-container" style="margin-bottom: 10px;">
                 
-                <!-- CỘT TRÁI (Chiếm 1/3): Chứa Thông tin chính, Cấu trúc & Sắc thái -->
+                <!-- CỘT TRÁI (Chiếm 1/3): Chứa Thông tin chính, Cấu trúc, Sắc thái, Luyện tập & Lưu bài -->
                 <div class="grammar-detail-left-col">
                     
                     <!-- Khối Thông tin chính -->
@@ -24054,27 +24526,63 @@ window.invalidateDeckCache = function(deckId) {
                         </div>
                         <div id="gdNuance" style="font-size: 14px; color: #4a4a4a; line-height: 1.6;"></div>
                     </div>
+
+                    <!-- KHỐI 3: DANH SÁCH GAME LUYỆN TẬP -->
+                    <div style="background: #ffffff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 12px; margin-bottom: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
+                        <div class="section-title" style="margin-bottom: 10px; display: flex; align-items: center; gap: 6px; color: #9333ea !important;">
+                            <span class="material-symbols-outlined" style="font-size: 18px; color: #9333ea;">sports_esports</span> ĐÁM MÂY LUYỆN TẬP
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <button class="win11-btn-secondary" onclick="startGrammarGame('matching')" style="justify-content: flex-start; gap: 10px; border-radius: 8px; font-size: 13px; font-weight: 700; width: 100%; padding: 10px 12px;">
+                                <span class="material-symbols-outlined" style="color: #3b82f6; font-size: 18px;">grid_view</span> Ghép thẻ ghi nhớ
+                            </button>
+                            <button class="win11-btn-secondary" onclick="startGrammarGame('typing')" style="justify-content: flex-start; gap: 10px; border-radius: 8px; font-size: 13px; font-weight: 700; width: 100%; padding: 10px 12px;">
+                                <span class="material-symbols-outlined" style="color: #10b981; font-size: 18px;">keyboard</span> Thử thách chính tả
+                            </button>
+                            <button class="win11-btn-secondary" onclick="startGrammarGame('scramble')" style="justify-content: flex-start; gap: 10px; border-radius: 8px; font-size: 13px; font-weight: 700; width: 100%; padding: 10px 12px;">
+                                <span class="material-symbols-outlined" style="color: #e53e3e; font-size: 18px;">extension</span> Kiểm tra xếp câu
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- NÚT LƯU BÀI HỌC VÀO KHO (NẰM DƯỚI CÙNG CỘT TRÁI) -->
+                    <button onclick="saveGrammarToDeck()" class="win11-btn-primary" style="width: 100%; justify-content: center; display: flex; align-items: center; gap: 8px; border-radius: 12px; height: 44px; font-weight: 700; background: #1d1d1f; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                        <span class="material-symbols-outlined">library_add</span> LƯU NGỮ PHÁP VÀO BỘ BÀI
+                    </button>
                 </div>
 
-                <!-- CỘT PHẢI (Chiếm 2/3): Chứa ví dụ minh họa -->
-                <div class="grammar-detail-right-col">
-                    <!-- Tiêu đề ví dụ -->
-                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e5e5; padding-left: 12px; padding-right: 12px; padding-bottom: 8px; margin-bottom: 12px;">
-                        <div class="section-title" style="display: flex; align-items: center; gap: 6px;">
-                            <span class="material-symbols-outlined" style="font-size: 16px;">chat</span> VÍ DỤ MINH HỌA
-                        </div>
-                        <!-- Nút Thêm Ví Dụ Nhỏ Gọn -->
-                        <button id="btnMoreExamples" onclick="generateMoreGrammarExamples()" style="background: #f1f5f9; color: #64748b; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#1d1d1f'" onmouseout="this.style.background='#f1f5f9'; this.style.color='#64748b'">
-                            <span class="material-symbols-outlined" style="font-size: 14px;">add</span> Thêm ví dụ
-                        </button>
-                    </div>
+                <!-- CỘT PHẢI (Chiếm 2/3): Chứa ví dụ minh họa & Vùng chơi game co giãn -->
+                <div class="grammar-detail-right-col" style="position: relative;">
                     
-                    <!-- Khay chứa danh sách ví dụ -->
-                    <div id="gdExamples" style="display: flex; flex-direction: column; gap: 15px;"></div>
+                    <!-- PHÂN KHU 1: VÍ DỤ MINH HỌA TIÊU CHUẨN -->
+                    <div id="gdExamplesWrapper">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e5e5; padding-left: 12px; padding-right: 12px; padding-bottom: 8px; margin-bottom: 12px;">
+                            <div class="section-title" style="display: flex; align-items: center; gap: 6px;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">chat</span> VÍ DỤ MINH HỌA
+                            </div>
+                            <!-- Nút Thêm Ví Dụ Nhỏ Gọn -->
+                            <button id="btnMoreExamples" onclick="generateMoreGrammarExamples()" style="background: #f1f5f9; color: #64748b; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#1d1d1f'" onmouseout="this.style.background='#f1f5f9'; this.style.color='#64748b'">
+                                <span class="material-symbols-outlined" style="font-size: 14px;">add</span> Thêm ví dụ
+                            </button>
+                        </div>
+                        <div id="gdExamples" style="display: flex; flex-direction: column; gap: 15px;"></div>
+                    </div>
+
+                    <!-- PHÂN KHU 2: KHUNG CHƠI MINIGAME GHI NHỚ (ẨN MẶC ĐỊNH) -->
+                    <div id="grammarGameWrapper" style="display: none; animation: fadeInChat 0.3s ease;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e5e5; padding-left: 12px; padding-right: 12px; padding-bottom: 8px; margin-bottom: 12px;">
+                            <div class="section-title" id="grammarGameTitle" style="display: flex; align-items: center; gap: 6px; color: #9333ea !important;">
+                                <span class="material-symbols-outlined" id="grammarGameIcon">sports_esports</span> TÊN TRÒ CHƠI
+                            </div>
+                            <button onclick="exitGrammarGame()" class="btn-exit-game" style="padding: 6px 12px; font-size: 11px; font-weight: 700; border-radius: 50px; background: #fee2e2; color: #c50f1f; border: none; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                                <span class="material-symbols-outlined" style="font-size: 14px;">cancel</span> Hủy chơi
+                            </button>
+                        </div>
+                        <div id="grammarGamePlayZone" style="padding: 12px 0;"></div>
+                    </div>
                 </div>
 
             </div>
-
         </div>
     </div>
 </div>
