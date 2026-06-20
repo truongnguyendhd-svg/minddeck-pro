@@ -24200,61 +24200,7 @@ window.initTypingGamePlay = function(mode) {
     renderActiveTypingRound();
 };
 
-window.renderActiveTypingRound = function() {
-    let state = window.grammarGameState;
-    let ex = state.examples[state.currentIndex];
-    let playZone = document.getElementById('grammarGamePlayZone');
 
-    let promptText = state.typingMode === 'audio' ? "🎧 Hãy nghe âm thanh và gõ lại câu Tiếng Nhật" : "🇻🇳 Xem nghĩa Tiếng Việt và gõ lại câu Tiếng Nhật";
-    let questionHTML = "";
-
-    if (state.typingMode === 'audio') {
-        questionHTML = `
-            <div class="audio-btn-huge" onclick="playGrammarGameAudio('${ex.jp.replace(/'/g, "\\'")}')" style="margin: 20px auto 15px auto; width: 70px; height: 70px;">
-                <span class="material-symbols-outlined" style="font-size: 34px;">volume_up</span>
-            </div>
-            <div style="font-size: 13px; color: #718096; margin-bottom: 15px; font-weight: 700; text-align:center;">Nhấn loa để nghe lại</div>
-        `;
-        // Tự động phát âm thanh ở giây đầu tiên
-        setTimeout(() => playGrammarGameAudio(ex.jp), 100);
-    } else {
-        questionHTML = `
-            <div style="font-size: 15px; font-weight: 700; color: #1a1a1a; padding: 20px; background: #f8fafc; border-radius: 12px; border: 1px solid #e5e5e5; margin-bottom: 20px; text-align: center; line-height:1.5;">
-                ${ex.vn}
-            </div>
-        `;
-    }
-
-    playZone.innerHTML = `
-        <p style="font-size: 13px; color: #718096; margin-bottom: 12px; font-weight: 700; text-align: left;">${promptText} (${state.currentIndex + 1}/${state.examples.length}):</p>
-        ${questionHTML}
-        <div style="width: 100%; max-width: 500px; margin: 0 auto 20px auto;">
-            <input type="text" id="gGameTypingInput" 
-                   placeholder="Nhập câu Tiếng Nhật tại đây..." 
-                   autocomplete="off" 
-                   spellcheck="false" 
-                   autocorrect="off" 
-                   autocapitalize="none"
-                   style="-webkit-appearance:none; appearance:none; padding:15px; border-radius:12px; border:2px solid #cbd5e0; background:#ffffff; font-size: 16px; font-weight:600; width:100%; box-sizing:border-box;">
-            
-            <div style="display: flex; gap: 10px; margin-top: 12px;">
-                <button onclick="revealTypingAnswer()" class="win11-btn-secondary" style="flex:1; justify-content: center; height: 44px; border-radius: 12px; font-size:14px; font-weight:700;">Xem đáp án</button>
-                <button id="btnCheckTyping" onclick="checkTypingAnswer()" class="win11-btn-primary" style="flex:2; justify-content: center; height: 44px; border-radius: 12px; background: #0067c0; font-size:14px; font-weight:700;">KIỂM TRA</button>
-            </div>
-        </div>
-        <div id="gameRevealArea" style="border-top: 1px dashed #cbd5e0; padding-top: 15px; margin-top:20px; display: flex; flex-direction: column; gap: 12px;"></div>
-    `;
-
-    renderGameRevealedItems();
-
-    const inputEl = document.getElementById('gGameTypingInput');
-    if (typeof wanakana !== 'undefined') wanakana.bind(inputEl);
-    setTimeout(() => inputEl.focus(), 300);
-
-    inputEl.addEventListener("keypress", function(e) {
-        if (e.key === "Enter") checkTypingAnswer();
-    });
-};
 
 window.playGrammarGameAudio = function(text) {
     window.safePlayAudio(text, 0.85);
@@ -24271,6 +24217,93 @@ window.revealTypingAnswer = function() {
     }
 };
 
+window.renderActiveTypingRound = function() {
+    let state = window.grammarGameState;
+    let ex = state.examples[state.currentIndex];
+    let playZone = document.getElementById('grammarGamePlayZone');
+
+    // Tự động tải trước âm đọc phiên âm (Romaji) của câu ví dụ chạy ngầm để hỗ trợ so khớp Hiragana
+    if (!ex.romaji) {
+        fetchRomajiFromGoogle(ex.jp).then(r => {
+            if (r) ex.romaji = r;
+        });
+    }
+
+    let promptText = state.typingMode === 'audio' ? "🎧 Hãy nghe âm thanh và gõ lại câu Tiếng Nhật" : "🇻🇳 Xem nghĩa Tiếng Việt và gõ lại câu Tiếng Nhật";
+    let questionHTML = "";
+
+    if (state.typingMode === 'audio') {
+        questionHTML = `
+            <div class="audio-btn-huge" onclick="playGrammarGameAudio('${ex.jp.replace(/'/g, "\\'")}')" style="margin: 20px auto 15px auto; width: 70px; height: 70px;">
+                <span class="material-symbols-outlined" style="font-size: 34px;">volume_up</span>
+            </div>
+            <div style="font-size: 13px; color: #718096; margin-bottom: 15px; text-align:center;">Nhấn loa để nghe lại</div>
+        `;
+        setTimeout(() => playGrammarGameAudio(ex.jp), 100);
+    } else {
+        questionHTML = `
+            <div style="font-size: 15px; font-weight: 700; color: #1a1a1a; padding: 20px; background: #f8fafc; border-radius: 12px; border: 1px solid #e5e5e5; margin-bottom: 20px; text-align: center; line-height:1.5;">
+                ${ex.vn}
+            </div>
+        `;
+    }
+
+    playZone.innerHTML = `
+        <p style="font-size: 13px; color: #718096; margin-bottom: 12px; font-weight: 700; text-align: left;">${promptText} (${state.currentIndex + 1}/${state.examples.length}):</p>
+        ${questionHTML}
+        <div style="width: 100%; max-width: 500px; margin: 0 auto 20px auto;">
+            <!-- Khung bọc tích hợp nút gõ あ/A nội tuyến giống thanh Search -->
+            <div style="display: flex; align-items: center; background: #ffffff; border: 2px solid #cbd5e0; border-radius: 12px; padding: 2px 5px; box-sizing: border-box;">
+                <input type="text" id="gGameTypingInput" 
+                       placeholder="Gõ tiếng Nhật (Dùng bàn phím máy hoặc nút あ)..." 
+                       autocomplete="off" 
+                       spellcheck="false" 
+                       autocorrect="off" 
+                       autocapitalize="none"
+                       style="-webkit-appearance:none; appearance:none; border: none !important; background:transparent; font-size: 16px; font-weight:600; width:100%; box-sizing:border-box; padding: 12px 10px; margin: 0 !important; outline: none; box-shadow: none !important;">
+                
+                <button id="gGameKanaToggleBtn" style="background: transparent; border: none; font-weight: 800; font-size: 15px; color: #a0aec0; cursor: pointer; padding: 0 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; user-select: none;">A</button>
+            </div>
+            
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button onclick="revealTypingAnswer()" class="win11-btn-secondary" style="flex:1; justify-content: center; height: 44px; border-radius: 12px; font-size:14px; font-weight:700;">Xem đáp án</button>
+                <button id="btnCheckTyping" onclick="checkTypingAnswer()" class="win11-btn-primary" style="flex:2; justify-content: center; height: 44px; border-radius: 12px; background: #0067c0; font-size:14px; font-weight:700;">KIỂM TRA</button>
+            </div>
+        </div>
+        <div id="gameRevealArea" style="border-top: 1px dashed #cbd5e0; padding-top: 15px; margin-top:20px; display: flex; flex-direction: column; gap: 12px;"></div>
+    `;
+
+    renderGameRevealedItems();
+
+    const inputEl = document.getElementById('gGameTypingInput');
+    const toggleBtn = document.getElementById('gGameKanaToggleBtn');
+    
+    // MẶC ĐỊNH tắt WanaKana để người học sử dụng bàn phím tiếng Nhật hệ điều hành gõ Kanji
+    let localKanaMode = false; 
+
+    toggleBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        localKanaMode = !localKanaMode;
+        if (localKanaMode) {
+            wanakana.bind(inputEl);
+            toggleBtn.innerText = 'あ';
+            toggleBtn.style.color = '#64748b';
+        } else {
+            wanakana.unbind(inputEl);
+            toggleBtn.innerText = 'A';
+            toggleBtn.style.color = '#a0aec0';
+        }
+        inputEl.focus();
+    };
+
+    setTimeout(() => inputEl.focus(), 300);
+
+    inputEl.addEventListener("keypress", function(e) {
+        if (e.key === "Enter") checkTypingAnswer();
+    });
+};
+
 window.checkTypingAnswer = function() {
     let state = window.grammarGameState;
     let ex = state.examples[state.currentIndex];
@@ -24278,15 +24311,27 @@ window.checkTypingAnswer = function() {
     if (!input) return;
 
     const val = input.value.trim();
-    const cleanInput = val.replace(/[。、！？\s]/g, '');
-    const cleanTarget = ex.jp.replace(/[。、！？\s]/g, '');
+    
+    // Phương án 1: So khớp chữ Hán (Kanji) gốc (Loại bỏ khoảng trắng, dấu câu)
+    const cleanInput = val.replace(/[。、！？\s-]/g, '').toLowerCase();
+    const cleanTarget = ex.jp.replace(/[。、！？\s-]/g, '').toLowerCase();
 
-    if (cleanInput === cleanTarget) {
-        // ĐÚNG
+    // Phương án 2: So khớp Romaji (Chốt chặn thông minh giúp gõ Hiragana vẫn vượt qua bài)
+    let userRomaji = typeof wanakana !== 'undefined' ? wanakana.toRomaji(val).toLowerCase() : "";
+    userRomaji = userRomaji.replace(/[。、！？\s-]/g, '');
+
+    let targetRomajiClean = ex.romaji ? ex.romaji.toLowerCase().replace(/[。、！？\s-]/g, '') : "";
+
+    // Chấp nhận đúng nếu khớp 1 trong 2 phương án
+    const isCorrect = (cleanInput === cleanTarget) || (userRomaji && targetRomajiClean && userRomaji === targetRomajiClean);
+
+    if (isCorrect) {
+        // Đúng: Hiển thị trạng thái thành công
         input.style.borderColor = '#38a169';
-        input.style.background = '#c6f6d5';
         input.style.color = '#22543d';
         input.disabled = true;
+        input.parentElement.style.borderColor = '#38a169';
+        input.parentElement.style.background = '#c6f6d5';
 
         confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 }, zIndex: 15000 });
         revealMatchedExample(ex.index);
@@ -24300,10 +24345,11 @@ window.checkTypingAnswer = function() {
             }
         }, 800);
     } else {
-        // SAI -> Rung lắc
-        input.classList.add('shake-error');
+        // Sai: Rung lắc cảnh báo toàn bộ khung nhập liệu
+        const wrapper = input.parentElement;
+        wrapper.classList.add('shake-error');
         setTimeout(() => {
-            input.classList.remove('shake-error');
+            wrapper.classList.remove('shake-error');
         }, 400);
         showToast("Chưa khớp chính xác chính tả. Thử lại nhé! ❌");
     }
