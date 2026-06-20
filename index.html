@@ -24340,7 +24340,7 @@ window.renderActiveTypingRound = function() {
     });
 };
 
-// 🟢 HÀM XỬ LÝ ĐÓNG BĂNG VÀ PHÂN TÁCH CHỮ ĐANG GÕ CHÍNH XÁC
+// 🟢 HÀM THUẬT TOÁN ĐÓNG BĂNG CHIỀU DÀI (LENGTH-BASED) CHUẨN XÁC 100%
 window.handleImeInput = function(inputEl) {
     clearTimeout(imeDebounceTimer);
     
@@ -24355,14 +24355,16 @@ window.handleImeInput = function(inputEl) {
 
     const val = inputEl.value;
 
-    // Tự chữa lành committedText nếu người dùng xóa lẹm vào phần chữ đã ghim trước đó
-    if (!val.startsWith(window.imeCommittedText)) {
-        // Đặt committedText bằng phần đầu của input không chứa các ký tự đang gõ (Hiragana/Katakana/Romaji)
-        const matchNonActive = val.match(/^([^a-zA-Zぁ-んァ-ン]*)/);
-        window.imeCommittedText = matchNonActive ? matchNonActive[1] : "";
+    // Nếu độ dài hiện tại ngắn hơn phần chữ đã ghim -> Người dùng đang nhấn Backspace xóa chữ đã ghim
+    if (val.length < window.imeCommittedText.length) {
+        window.imeCommittedText = val; // Thu ngắn mốc ghim lại bằng đúng giá trị hiện tại lúc đó
+        window.imeActiveComposition = "";
+        window.imeCandidates = [];
+        if (bar) bar.style.display = 'none';
+        return;
     }
 
-    // Tách riêng biệt phần Hiragana đang gõ dở dang (Active Composition) để gửi lên Google [2]
+    // Nếu dài hơn hoặc bằng -> Phần chữ dôi dư ra phía sau chính là phần đang gõ dở dang (Active Composition)
     const activeComposition = val.substring(window.imeCommittedText.length);
     window.imeActiveComposition = activeComposition;
 
@@ -24372,7 +24374,7 @@ window.handleImeInput = function(inputEl) {
         return;
     }
 
-    // Đợi người dùng ngừng gõ 200ms
+    // Đợi gõ xong 200ms
     imeDebounceTimer = setTimeout(() => {
         fetchGoogleIME(activeComposition, (data) => {
             if (data && data[0] === 'SUCCESS' && data[1] && data[1][0] && data[1][0][1]) {
@@ -24387,16 +24389,17 @@ window.handleImeInput = function(inputEl) {
     }, 200);
 };
 
-// 🟢 HÀM GHIM CHỌN KANJI VÀ CẬP NHẬT TRẠNG THÁI KHÓA CHỮ
+
+// 🟢 HÀM GHIM CHỮ KANJI ĐÃ CHỌN VÀ THIẾT LẬP MỐC GHIM MỚI
 window.selectImeCandidate = function(cand) {
     const input = document.getElementById('gGameTypingInput');
     if (!input) return;
 
-    // Ghép nối phần chữ đã lưu cũ với từ Kanji vừa chọn [7]
+    // Ghép nối phần chữ đã lưu cũ (Committed) với từ Kanji vừa chọn mới [7]
     const newValue = window.imeCommittedText + cand;
     input.value = newValue;
     
-    // Cập nhật mốc đóng băng mới
+    // Cập nhật mốc đóng băng mới bằng đúng chuỗi vừa ghép
     window.imeCommittedText = newValue;
     window.imeActiveComposition = "";
     window.imeCandidates = [];
