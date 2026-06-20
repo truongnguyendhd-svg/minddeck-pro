@@ -24219,13 +24219,22 @@ window.revealTypingAnswer = function() {
 
 // Biến kiểm soát bộ đếm thời gian gõ để tránh gọi API liên tục (Debounce)
 let imeDebounceTimer = null;
+// Khai báo các biến quản lý trạng thái bộ gõ chuẩn IME hệ điều hành
+window.imeCommittedText = "";      // Lưu phần chữ đã chọn Kanji xong (Đóng băng)
+window.imeActiveComposition = ""; // Lưu phần Hiragana đang gõ dở dang
+window.imeCandidates = [];        // Danh sách gợi ý hiện tại của Google
 
 window.renderActiveTypingRound = function() {
     let state = window.grammarGameState;
     let ex = state.examples[state.currentIndex];
     let playZone = document.getElementById('grammarGamePlayZone');
 
-    // Tải trước âm đọc phiên âm (Romaji) câu ví dụ chạy ngầm để hỗ trợ so khớp Hiragana
+    // Reset bộ nhớ đệm IME cho vòng chơi mới
+    window.imeCommittedText = "";
+    window.imeActiveComposition = "";
+    window.imeCandidates = [];
+
+    // Tự động tải trước âm đọc phiên âm (Romaji) câu ví dụ chạy ngầm để hỗ trợ so khớp Hiragana
     if (!ex.romaji) {
         fetchRomajiFromGoogle(ex.jp).then(r => {
             if (r) ex.romaji = r;
@@ -24258,7 +24267,7 @@ window.renderActiveTypingRound = function() {
             <!-- Khung nhập liệu tích hợp nút あ/A -->
             <div style="display: flex; align-items: center; background: #ffffff; border: 2px solid #cbd5e0; border-radius: 12px; padding: 2px 5px; box-sizing: border-box;">
                 <input type="text" id="gGameTypingInput" 
-                       placeholder="Gõ tiếng Nhật (Romaji -> Chọn gợi ý chữ Hán)..." 
+                       placeholder="Gõ tiếng Nhật (Nhấn phím Cách Space để chọn gợi ý)..." 
                        autocomplete="off" 
                        spellcheck="false" 
                        autocorrect="off" 
@@ -24268,7 +24277,7 @@ window.renderActiveTypingRound = function() {
                 <button id="gGameKanaToggleBtn" style="background: transparent; border: none; font-weight: 800; font-size: 15px; color: #64748b; cursor: pointer; padding: 0 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; user-select: none;">あ</button>
             </div>
             
-            <!-- 🟢 THANH GỢI Ý KANJI CHUẨN GOOGLE (CANDIDATE BAR) -->
+            <!-- THANH GỢI Ý KANJI CHUẨN GOOGLE (CANDIDATE BAR) -->
             <div id="gGameCandidatesBar" style="display: none; flex-wrap: wrap; gap: 6px; padding: 8px 12px; background: #f1f5f9; border-radius: 8px; border: 1px solid #cbd5e0; margin-top: 6px; font-family: 'Noto Sans JP', sans-serif; box-sizing: border-box; animation: fadeInChat 0.2s ease;"></div>
             
             <div style="display: flex; gap: 10px; margin-top: 15px;">
@@ -24284,7 +24293,7 @@ window.renderActiveTypingRound = function() {
     const inputEl = document.getElementById('gGameTypingInput');
     const toggleBtn = document.getElementById('gGameKanaToggleBtn');
     
-    // Mặc định BẬT WanaKana để người học không có bàn phím Nhật gõ phiên âm Romaji và nhận Kanji gợi ý từ Google
+    // Mặc định BẬT WanaKana
     let localKanaMode = true; 
     wanakana.bind(inputEl);
 
@@ -24300,10 +24309,24 @@ window.renderActiveTypingRound = function() {
             wanakana.unbind(inputEl);
             toggleBtn.innerText = 'A';
             toggleBtn.style.color = '#a0aec0';
-            document.getElementById('gGameCandidatesBar').style.display = 'none'; // Ẩn khi gõ tắt
+            document.getElementById('gGameCandidatesBar').style.display = 'none';
         }
         inputEl.focus();
     };
+
+    // 🟢 LẮNG NGHE SỰ KIỆN PHÍM CÁCH (SPACEBAR) ĐỂ CHỌN GỢI Ý SỐ 1
+    inputEl.addEventListener('keydown', function(e) {
+        if (e.key === ' ') { // Phím cách
+            const bar = document.getElementById('gGameCandidatesBar');
+            // Nếu khay gợi ý đang hiển thị và có ứng viên khả dụng
+            if (bar && bar.style.display === 'flex' && window.imeCandidates && window.imeCandidates.length > 0) {
+                e.preventDefault(); // Chặn hành vi gõ dấu cách trắng thô vào input
+                
+                // Tự động ghim chọn ứng viên số 1 (index 0)
+                selectImeCandidate(window.imeCandidates[0]);
+            }
+        }
+    });
 
     // Lắng nghe sự kiện gõ chữ để tự động gọi API gợi ý Kanji từ Google
     inputEl.addEventListener('input', () => {
@@ -24317,7 +24340,7 @@ window.renderActiveTypingRound = function() {
     });
 };
 
-// Hàm điều phối lấy gợi ý từ Google IME
+// 🟢 HÀM XỬ LÝ ĐÓNG BĂNG VÀ PHÂN TÁCH CHỮ ĐANG GÕ CHÍNH XÁC
 window.handleImeInput = function(inputEl) {
     clearTimeout(imeDebounceTimer);
     
@@ -24325,30 +24348,171 @@ window.handleImeInput = function(inputEl) {
     const isKanaActive = toggleBtn && toggleBtn.innerText === 'あ';
     const bar = document.getElementById('gGameCandidatesBar');
 
-    // Chỉ gọi Google gợi ý nếu bộ gõ "あ" đang kích hoạt
     if (!isKanaActive) {
         if (bar) bar.style.display = 'none';
         return;
     }
 
     const val = inputEl.value;
-    if (!val.trim()) {
+
+    // Tự chữa lành committedText nếu người dùng xóa lẹm vào phần chữ đã ghim trước đó
+    if (!val.startsWith(window.imeCommittedText)) {
+        // Đặt committedText bằng phần đầu của input không chứa các ký tự đang gõ (Hiragana/Katakana/Romaji)
+        const matchNonActive = val.match(/^([^a-zA-Zぁ-んァ-ン]*)/);
+        window.imeCommittedText = matchNonActive ? matchNonActive[1] : "";
+    }
+
+    // Tách riêng biệt phần Hiragana đang gõ dở dang (Active Composition) để gửi lên Google [2]
+    const activeComposition = val.substring(window.imeCommittedText.length);
+    window.imeActiveComposition = activeComposition;
+
+    if (!activeComposition.trim()) {
         if (bar) bar.style.display = 'none';
+        window.imeCandidates = [];
         return;
     }
 
-    // Đợi người dùng ngắt nhịp gõ 200ms rồi mới gửi yêu cầu (Debounce chống quá tải API)
+    // Đợi người dùng ngừng gõ 200ms
     imeDebounceTimer = setTimeout(() => {
-        fetchGoogleIME(val, (data) => {
+        fetchGoogleIME(activeComposition, (data) => {
             if (data && data[0] === 'SUCCESS' && data[1] && data[1][0] && data[1][0][1]) {
-                const candidates = data[1][0][1].slice(0, 5); // Lấy tối đa 5 từ khóa đúng nhất
+                const candidates = data[1][0][1].slice(0, 5);
+                window.imeCandidates = candidates;
                 renderCandidates(candidates);
             } else {
                 if (bar) bar.style.display = 'none';
+                window.imeCandidates = [];
             }
         });
     }, 200);
 };
+
+// 🟢 HÀM GHIM CHỌN KANJI VÀ CẬP NHẬT TRẠNG THÁI KHÓA CHỮ
+window.selectImeCandidate = function(cand) {
+    const input = document.getElementById('gGameTypingInput');
+    if (!input) return;
+
+    // Ghép nối phần chữ đã lưu cũ với từ Kanji vừa chọn [7]
+    const newValue = window.imeCommittedText + cand;
+    input.value = newValue;
+    
+    // Cập nhật mốc đóng băng mới
+    window.imeCommittedText = newValue;
+    window.imeActiveComposition = "";
+    window.imeCandidates = [];
+
+    // Ẩn thanh gợi ý
+    const bar = document.getElementById('gGameCandidatesBar');
+    if (bar) bar.style.display = 'none';
+
+    input.focus();
+};
+
+// Kết xuất dải viên thuốc gợi ý Kanji
+window.renderCandidates = function(candidates) {
+    const bar = document.getElementById('gGameCandidatesBar');
+    if (!bar) return;
+
+    if (!candidates || candidates.length === 0) {
+        bar.style.display = 'none';
+        return;
+    }
+
+    bar.innerHTML = '';
+    bar.style.display = 'flex';
+
+    candidates.forEach((cand, index) => {
+        const pill = document.createElement('span');
+        pill.style.cssText = `
+            background: #ffffff;
+            border: 1px solid #cbd5e0;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 700;
+            color: #1d1d1f;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.15s ease;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+            display: flex;
+            align-items: center;
+        `;
+        pill.innerHTML = `<span style="color:#86868b; font-size:11px; margin-right:5px; font-weight:800;">${index + 1}</span>${cand}`;
+        
+        pill.onmouseover = () => {
+            pill.style.background = '#e6f2ff';
+            pill.style.borderColor = '#0067c0';
+            pill.style.color = '#0067c0';
+        };
+        pill.onmouseout = () => {
+            pill.style.background = '#ffffff';
+            pill.style.borderColor = '#cbd5e0';
+            pill.style.color = '#1d1d1f';
+        };
+
+        // Khi người học click chọn bằng chuột/tay [7]
+        pill.onclick = () => {
+            selectImeCandidate(cand);
+        };
+
+        bar.appendChild(pill);
+    });
+};
+
+window.checkTypingAnswer = function() {
+    let state = window.grammarGameState;
+    let ex = state.examples[state.currentIndex];
+    const input = document.getElementById('gGameTypingInput');
+    if (!input) return;
+
+    const val = input.value.trim();
+    
+    // 1. So khớp chữ Hán (Kanji) gốc (Loại bỏ khoảng trắng, dấu câu)
+    const cleanInput = val.replace(/[。、！？\s-]/g, '').toLowerCase();
+    const cleanTarget = ex.jp.replace(/[。、！？\s-]/g, '').toLowerCase();
+
+    // 2. So khớp Romaji (Chốt chặn thông minh giúp gõ Hiragana vẫn vượt qua bài)
+    let userRomaji = typeof wanakana !== 'undefined' ? wanakana.toRomaji(val).toLowerCase() : "";
+    userRomaji = userRomaji.replace(/[。、！？\s-]/g, '');
+
+    let targetRomajiClean = ex.romaji ? ex.romaji.toLowerCase().replace(/[。、！？\s-]/g, '') : "";
+
+    const isCorrect = (cleanInput === cleanTarget) || (userRomaji && targetRomajiClean && userRomaji === targetRomajiClean);
+
+    if (isCorrect) {
+        input.style.borderColor = '#38a169';
+        input.style.color = '#22543d';
+        input.disabled = true;
+        input.parentElement.style.borderColor = '#38a169';
+        input.parentElement.style.background = '#c6f6d5';
+
+        // Ẩn thanh gợi ý khi hoàn thành câu
+        const bar = document.getElementById('gGameCandidatesBar');
+        if (bar) bar.style.display = 'none';
+
+        confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 }, zIndex: 15000 });
+        revealMatchedExample(ex.index);
+
+        setTimeout(() => {
+            state.currentIndex++;
+            if (state.currentIndex < state.examples.length) {
+                renderActiveTypingRound();
+            } else {
+                completeGrammarGame();
+            }
+        }, 800);
+    } else {
+        const wrapper = input.parentElement;
+        wrapper.classList.add('shake-error');
+        setTimeout(() => {
+            wrapper.classList.remove('shake-error');
+        }, 400);
+        showToast("Chưa khớp chính xác chính tả. Thử lại nhé! ❌");
+    }
+};
+
+
 
 // Gọi ngầm API bằng cấu trúc JSONP an toàn để lách qua rào chắn CORS của trình duyệt
 window.fetchGoogleIME = function(text, callback) {
@@ -24425,56 +24589,7 @@ window.renderCandidates = function(candidates) {
     });
 };
 
-window.checkTypingAnswer = function() {
-    let state = window.grammarGameState;
-    let ex = state.examples[state.currentIndex];
-    const input = document.getElementById('gGameTypingInput');
-    if (!input) return;
 
-    const val = input.value.trim();
-    
-    // Phương án 1: So khớp chữ Hán (Kanji) gốc (Loại bỏ khoảng trắng, dấu câu)
-    const cleanInput = val.replace(/[。、！？\s-]/g, '').toLowerCase();
-    const cleanTarget = ex.jp.replace(/[。、！？\s-]/g, '').toLowerCase();
-
-    // Phương án 2: So khớp Romaji (Chốt chặn thông minh giúp gõ Hiragana vẫn vượt qua bài)
-    let userRomaji = typeof wanakana !== 'undefined' ? wanakana.toRomaji(val).toLowerCase() : "";
-    userRomaji = userRomaji.replace(/[。、！？\s-]/g, '');
-
-    let targetRomajiClean = ex.romaji ? ex.romaji.toLowerCase().replace(/[。、！？\s-]/g, '') : "";
-
-    // Chấp nhận đúng nếu khớp 1 trong 2 phương án
-    const isCorrect = (cleanInput === cleanTarget) || (userRomaji && targetRomajiClean && userRomaji === targetRomajiClean);
-
-    if (isCorrect) {
-        // Đúng: Hiển thị trạng thái thành công
-        input.style.borderColor = '#38a169';
-        input.style.color = '#22543d';
-        input.disabled = true;
-        input.parentElement.style.borderColor = '#38a169';
-        input.parentElement.style.background = '#c6f6d5';
-
-        confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 }, zIndex: 15000 });
-        revealMatchedExample(ex.index);
-
-        setTimeout(() => {
-            state.currentIndex++;
-            if (state.currentIndex < state.examples.length) {
-                renderActiveTypingRound();
-            } else {
-                completeGrammarGame();
-            }
-        }, 800);
-    } else {
-        // Sai: Rung lắc cảnh báo toàn bộ khung nhập liệu
-        const wrapper = input.parentElement;
-        wrapper.classList.add('shake-error');
-        setTimeout(() => {
-            wrapper.classList.remove('shake-error');
-        }, 400);
-        showToast("Chưa khớp chính xác chính tả. Thử lại nhé! ❌");
-    }
-};
 
 // --------------------------------------------------
 // XỬ LÝ GAME KIỂM TRA XẾP CÂU (SCRAMBLE LOGIC)
