@@ -24229,12 +24229,11 @@ window.renderActiveTypingRound = function() {
     let ex = state.examples[state.currentIndex];
     let playZone = document.getElementById('grammarGamePlayZone');
 
-    // Reset bộ nhớ đệm IME cho vòng chơi mới
     window.imeCommittedText = "";
     window.imeActiveComposition = "";
     window.imeCandidates = [];
 
-    // Tự động tải trước âm đọc phiên âm (Romaji) câu ví dụ chạy ngầm để hỗ trợ so khớp Hiragana
+    // Tự động tải trước âm đọc phiên âm (Romaji) để hỗ trợ so khớp lúc chấm điểm
     if (!ex.romaji) {
         fetchRomajiFromGoogle(ex.jp).then(r => {
             if (r) ex.romaji = r;
@@ -24260,24 +24259,17 @@ window.renderActiveTypingRound = function() {
         `;
     }
 
+    // LƯỢC BỎ NÚT TOGGLE あ/A, TRẢ LẠI Ô INPUT SẠCH SẼ NHẤT
     playZone.innerHTML = `
         <p style="font-size: 13px; color: #718096; margin-bottom: 12px; font-weight: 700; text-align: left;">${promptText} (${state.currentIndex + 1}/${state.examples.length}):</p>
         ${questionHTML}
         <div style="width: 100%; max-width: 500px; margin: 0 auto 20px auto; position: relative;">
-            <!-- Khung nhập liệu tích hợp nút あ/A -->
-            <div style="display: flex; align-items: center; background: #ffffff; border: 2px solid #cbd5e0; border-radius: 12px; padding: 2px 5px; box-sizing: border-box;">
-                <input type="text" id="gGameTypingInput" 
-                       placeholder="Gõ tiếng Nhật (Nhấn phím Cách Space để chọn gợi ý)..." 
-                       autocomplete="off" 
-                       spellcheck="false" 
-                       autocorrect="off" 
-                       autocapitalize="none"
-                       style="-webkit-appearance:none; appearance:none; border: none !important; background:transparent; font-size: 16px; font-weight:600; width:100%; box-sizing:border-box; padding: 12px 10px; margin: 0 !important; outline: none; box-shadow: none !important;">
-                
-                <button id="gGameKanaToggleBtn" style="background: transparent; border: none; font-weight: 800; font-size: 15px; color: #a0aec0; cursor: pointer; padding: 0 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; user-select: none;">あ</button>
-            </div>
             
-            <!-- THANH GỢI Ý KANJI CHUẨN GOOGLE (CANDIDATE BAR) -->
+            <input type="text" id="gGameTypingInput" 
+                   placeholder="Gõ Romaji hoặc Tiếng Nhật (Nhấn phím Cách để chọn gợi ý)..." 
+                   autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="none"
+                   style="padding: 15px; border-radius: 12px; border: 2px solid #cbd5e0; background: #ffffff; font-size: 16px; font-weight: 600; width: 100%; box-sizing: border-box; outline: none; transition: 0.2s;">
+            
             <div id="gGameCandidatesBar" style="display: none; flex-wrap: wrap; gap: 6px; padding: 8px 12px; background: #f1f5f9; border-radius: 8px; border: 1px solid #cbd5e0; margin-top: 6px; font-family: 'Noto Sans JP', sans-serif; box-sizing: border-box; animation: fadeInChat 0.2s ease;"></div>
             
             <div style="display: flex; gap: 10px; margin-top: 15px;">
@@ -24291,36 +24283,17 @@ window.renderActiveTypingRound = function() {
     renderGameRevealedItems();
 
     const inputEl = document.getElementById('gGameTypingInput');
-    const toggleBtn = document.getElementById('gGameKanaToggleBtn');
     
-    // Mặc định BẬT WanaKana
-    let localKanaMode = true; 
-    wanakana.bind(inputEl);
+    // GỠ BỎ HOÀN TOÀN WANAKANA ĐỂ KHÔNG TRANH CHẤP VỚI GOOGLE
+    if (typeof wanakana !== 'undefined') {
+        wanakana.unbind(inputEl);
+    }
 
-    toggleBtn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        localKanaMode = !localKanaMode;
-        if (localKanaMode) {
-            wanakana.bind(inputEl);
-            toggleBtn.innerText = 'あ';
-            toggleBtn.style.color = '#64748b';
-        } else {
-            wanakana.unbind(inputEl);
-            toggleBtn.innerText = 'A';
-            toggleBtn.style.color = '#a0aec0';
-            document.getElementById('gGameCandidatesBar').style.display = 'none';
-        }
-        inputEl.focus();
-    };
-
-    // 🟢 1. LẮNG NGHE KEYDOWN PHÍM XÓA (BACKSPACE) ĐỂ THU NGẮN MỐC GHIM TRÊN PC
     inputEl.addEventListener('keydown', function(e) {
         if (e.key === 'Backspace') {
             const val = inputEl.value;
-            // Nếu độ dài hiện tại nhỏ hơn hoặc bằng mốc ghim, tức là người dùng xóa vào phần đã ghim
+            // Thu ngắn mốc ghim nếu người dùng xóa lẹm vào chữ đã ghim
             if (val.length <= window.imeCommittedText.length) {
-                // Thu ngắn phần chữ đã ghim đi 1 ký tự
                 window.imeCommittedText = window.imeCommittedText.slice(0, -1);
                 window.imeActiveComposition = "";
                 window.imeCandidates = [];
@@ -24329,17 +24302,15 @@ window.renderActiveTypingRound = function() {
             }
         }
         
-        // Lắng nghe phím Cách (Space) để chọn ứng viên số 1
         if (e.key === ' ') {
             const bar = document.getElementById('gGameCandidatesBar');
             if (bar && bar.style.display === 'flex' && window.imeCandidates && window.imeCandidates.length > 0) {
-                e.preventDefault(); // Chặn gõ dấu cách trắng thô
+                e.preventDefault(); // Chặn gõ phím cách trắng
                 selectImeCandidate(window.imeCandidates[0]);
             }
         }
     });
 
-    // Lắng nghe sự kiện gõ chữ để gọi gợi ý
     inputEl.addEventListener('input', () => {
         handleImeInput(inputEl);
     });
@@ -24347,33 +24318,33 @@ window.renderActiveTypingRound = function() {
     setTimeout(() => inputEl.focus(), 300);
 
     inputEl.addEventListener("keypress", function(e) {
-        if (e.key === "Enter") checkTypingAnswer();
+        if (e.key === "Enter") {
+            // Hỗ trợ Enter để chọn gợi ý nếu đang có thanh gợi ý mở
+            const bar = document.getElementById('gGameCandidatesBar');
+            if (bar && bar.style.display === 'flex' && window.imeCandidates && window.imeCandidates.length > 0) {
+                e.preventDefault();
+                selectImeCandidate(window.imeCandidates[0]);
+            } else {
+                checkTypingAnswer();
+            }
+        }
     });
 };
 
 
-// 🟢 1. HÀM XỬ LÝ CHỮ ĐANG GÕ (THÊM BẢO VỆ MỐC GHIM TỐI ĐA)
+
+// 🟢 HÀM XỬ LÝ NHẬP LIỆU THUẦN TÚY KHÔNG BỊ CAN THIỆP
 window.handleImeInput = function(inputEl) {
     clearTimeout(imeDebounceTimer);
-    
-    const toggleBtn = document.getElementById('gGameKanaToggleBtn');
-    const isKanaActive = toggleBtn && toggleBtn.innerText === 'あ';
     const bar = document.getElementById('gGameCandidatesBar');
-
-    if (!isKanaActive) {
-        if (bar) bar.style.display = 'none';
-        return;
-    }
-
     const val = inputEl.value;
 
-    // Chốt chặn: Nếu người dùng xóa lẹm vào phần đã ghim, hoặc WanaKana giật lag ghi đè sai
-    // Ta tự động ép mốc ghim lùi lại bằng chính giá trị hiện tại để bảo toàn
-    if (val.length < window.imeCommittedText.length || !val.startsWith(window.imeCommittedText)) {
-        window.imeCommittedText = val;
+    // Chốt chặn bảo vệ: Reset mốc ghim nếu người dùng bôi đen xóa sạch cả cụm
+    if (!val.startsWith(window.imeCommittedText)) {
+        window.imeCommittedText = val; 
     }
 
-    // Tách phần chữ dôi dư ra phía sau mốc ghim để gửi cho Google
+    // Tách phần chữ đang gõ mới (Romaji hoặc tiếng Nhật)
     const activeComposition = val.substring(window.imeCommittedText.length);
     window.grammarGameState.activeComposition = activeComposition;
 
@@ -24383,6 +24354,7 @@ window.handleImeInput = function(inputEl) {
         return;
     }
 
+    // Chuyển thẳng Romaji lên Google, Google sẽ tự lo việc parse thành cụm từ
     imeDebounceTimer = setTimeout(() => {
         fetchGoogleIME(activeComposition, (data) => {
             if (data && data[0] === 'SUCCESS' && data[1] && data[1][0] && data[1][0][1]) {
@@ -24398,36 +24370,22 @@ window.handleImeInput = function(inputEl) {
 };
 
 
-// 🟢 2. HÀM CHỌN CHỮ VÀ RESET NÃO BỘ CỦA WANAKANA (FIX LỖI MẤT CHỮ)
+// 🟢 HÀM GHÉP CHỮ KHÔNG BAO GIỜ SAI LỆCH
 window.selectImeCandidate = function(cand) {
     const input = document.getElementById('gGameTypingInput');
     if (!input) return;
 
-    // Ép cứng: Giá trị mới = Phần đã ghim an toàn + Từ Kanji vừa chọn
+    // Phép cộng chuỗi tuyệt đối: Cũ + Mới
     const newValue = window.imeCommittedText + cand;
+    input.value = newValue;
     
-    // Tắt WanaKana -> Sửa chữ -> Bật lại WanaKana để nó học lại bộ nhớ đệm mới
-    const toggleBtn = document.getElementById('gGameKanaToggleBtn');
-    const isKanaActive = toggleBtn && toggleBtn.innerText === 'あ';
-    
-    if (isKanaActive) {
-        wanakana.unbind(input);
-        input.value = newValue;
-        wanakana.bind(input);
-    } else {
-        input.value = newValue;
-    }
-    
-    // Đóng băng mốc ghim mới
     window.imeCommittedText = newValue;
     window.imeActiveComposition = "";
     window.imeCandidates = [];
 
-    // Ẩn thanh gợi ý
     const bar = document.getElementById('gGameCandidatesBar');
     if (bar) bar.style.display = 'none';
 
-    // Đảm bảo con trỏ nháy vẫn nằm trong ô gõ
     input.focus();
 };
 
