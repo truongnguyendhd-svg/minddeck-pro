@@ -16150,43 +16150,39 @@ function selectAutocompleteTopic(tagId, displayName) {
 
 // 1. Hàm mở Modal xem trước chủ đề (Đọc số từ trực tiếp và kiểm tra trùng lặp)
 window.openTagActionModal = function(tagCode, displayName, dummyCount, dummyIsOwned) {
-    // 🟢 1. HIỂN THỊ MODAL NGAY LẬP TỨC (0ms trì hoãn)
     document.getElementById('taModalTitle').innerText = displayName;
     document.getElementById('taTagCode').value = tagCode;
     
     const iconTextEl = document.getElementById('taModalIconText');
     if (iconTextEl) iconTextEl.innerText = displayName.charAt(0).toUpperCase();
 
-    // Hiện vòng xoay quét từ tạm thời ngay trong Modal
     const countEl = document.getElementById('taModalCount');
     countEl.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:#0071e3;margin:auto;display:inline-block;vertical-align:middle;animation:spin 1s linear infinite;"></div> Đang quét số từ...`;
 
-    // 🟢 2. KIỂM TRA SỞ HỮU BỘ BÀI (Đọc từ cache đã sửa lỗi ở Bước 1)
     const isCurriculum = tagCode.startsWith('#curriculum_');
     const defaultDeckName = isCurriculum ? displayName : `Chủ đề: ${displayName}`;
+    
+    // 🟢 CHUẨN HÓA: Tạo tên sạch để so khớp chuẩn xác với Database
+    const sanitizedDefaultDeckName = sanitizeTagName(defaultDeckName);
 
-    // Dự phòng nạp cache nếu RAM trống
     if (Object.keys(globalDeckStatsMap).length === 0) {
         const cachedStats = localStorage.getItem(`minddeck_decks_stats_${currentUser.id}`);
         if (cachedStats) globalDeckStatsMap = JSON.parse(cachedStats);
     }
 
-    const existingDeckId = Object.keys(globalDeckStatsMap).find(id => getCleanName(id) === defaultDeckName);
+    // 🟢 ĐỔI DÒNG NÀY: So sánh sau khi đã lọc sạch ký tự đặc biệt của cả hai bên
+    const existingDeckId = Object.keys(globalDeckStatsMap).find(id => sanitizeTagName(getCleanName(id)) === sanitizedDefaultDeckName);
     const isOwned = !!existingDeckId;
 
-    // Thiết lập vùng thông tin tạo bộ bài mới
     const deckInfoText = `<div style="font-size: 13px; color: #64748b; margin: 10px 0; line-height: 1.5; font-weight: 500;">Hệ thống sẽ tự động tạo bộ bài mới có tên <b style="color: #1d1d1f;">"${defaultDeckName}"</b> khi bạn nhấn bắt đầu học.</div>`;
-
-    // Thiết lập vùng nút bấm tương tác
     const actionZone = document.getElementById('tagActionModal').querySelector('div[style*="display: flex; flex-direction: column; gap: 12px;"]');
     
     let buttonsHTML = "";
 
     if (isOwned) {
-        // ĐÃ SỞ HỮU: Hiện 2 lựa chọn Bổ sung hoặc Tạo bộ mới riêng biệt
         buttonsHTML = `
             <div style="background: #fff8f0; border: 1px solid #fce8cd; padding: 12px; border-radius: 12px; font-size: 13px; color: #b7791f; text-align: left; margin-bottom: 5px; line-height: 1.4;">
-                ⚠️ Bạn đã sở hữu bộ bài trùng tên <b>"${escapeHTML(defaultDeckName)}"</b> trong kho học phần!
+                ⚠️ Bạn đã sở hữu bộ bài <b>"${escapeHTML(getCleanName(existingDeckId))}"</b> trong kho học phần!
             </div>
             <button onclick="supplementPredefinedTag('${tagCode}', '${displayName.replace(/'/g, "\\'")}', '${existingDeckId}')" 
                     style="width: 100%; padding: 14px; background: #0071e3; color: white; border: none; border-radius: 16px; font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,113,227,0.25);">
@@ -16198,7 +16194,6 @@ window.openTagActionModal = function(tagCode, displayName, dummyCount, dummyIsOw
             </button>
         `;
     } else {
-        // CHƯA SỞ HỮU: Hiện thông tin tên bộ bài sẽ tạo và nút Bắt đầu học
         buttonsHTML = `
             ${deckInfoText}
             <button onclick="createNewPredefinedTag('${tagCode}', '${displayName.replace(/'/g, "\\'")}')" 
@@ -16212,11 +16207,9 @@ window.openTagActionModal = function(tagCode, displayName, dummyCount, dummyIsOw
 
     actionZone.innerHTML = buttonsHTML;
 
-    // Mở khóa màn hình nền và hiển thị Modal ngay lập tức
     document.body.classList.add('modal-open-lock');
     document.getElementById('tagActionModal').style.display = 'flex';
 
-    // 🟢 3. CHẠY TRUY VẤN ĐẾM SỐ TỪ SONG SONG Ở NỀN (BACKGROUND QUERY)
     fetch(`${DICT_API_URL}/api/count-by-tag?tag=${encodeURIComponent(tagCode)}`)
         .then(res => res.json())
         .then(data => {
@@ -16228,7 +16221,6 @@ window.openTagActionModal = function(tagCode, displayName, dummyCount, dummyIsOw
             countEl.innerText = `Chủ đề sẵn có từ từ điển.`;
         });
 
-    // Tạo màu Icon Box dạng tròn
     const iconBox = document.getElementById('taModalIconBox');
     if (iconBox) {
         const pastelThemes = [
@@ -16251,7 +16243,6 @@ window.createNewPredefinedTag = async function(tagCode, displayName) {
     showLoading(`Đang kết nối D1 để tải dữ liệu chủ đề: ${displayName}...`);
 
     try {
-        // Tải toàn bộ mảng dữ liệu gốc từ D1
         const response = await fetch(`${DICT_API_URL}/api/get-by-tag?tag=${encodeURIComponent(tagCode)}`);
         if (!response.ok) throw new Error("Không thể kết nối máy chủ D1.");
 
@@ -16264,11 +16255,11 @@ window.createNewPredefinedTag = async function(tagCode, displayName) {
         const isCurriculum = tagCode.startsWith('#curriculum_');
         const defaultDeckName = isCurriculum ? displayName : `Chủ đề: ${displayName}`;
 
-        // Tự động sinh tên độc lập (đảm bảo không ghi đè nếu trùng tên trong kho)
-        const uniqueName = await generateUniqueDeckName(defaultDeckName, 'flashcard');
-        const finalDeckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
+        // 🟢 CHUẨN HÓA: Đưa về tên sạch trước khi gửi vào hàm sinh tên duy nhất
+        const sanitizedDefaultDeckName = sanitizeTagName(defaultDeckName);
+        const uniqueName = await generateUniqueDeckName(sanitizedDefaultDeckName, 'flashcard');
+        const finalDeckId = `${currentUser.id}:${uniqueName}:${Date.now()}`;
 
-        // Khởi tạo vỏ bộ bài rỗng trên Supabase
         const { error: deckErr } = await sb.from('decks').insert({
             id: finalDeckId,
             owner_id: currentUser.id,
@@ -16277,7 +16268,6 @@ window.createNewPredefinedTag = async function(tagCode, displayName) {
         });
         if (deckErr) throw deckErr;
 
-        // Đóng gói Payload cards
         const cardsToInsert = d1Words.map(w => {
             const cleanMeaning = removeNumberedLists(w.meaning || '');
             const backPacked = `${w.reading || ''}\n${cleanMeaning}`.trim();
@@ -16305,7 +16295,6 @@ window.createNewPredefinedTag = async function(tagCode, displayName) {
             };
         });
 
-        // Chia nhỏ Lô (Chunking) để bảo vệ đường truyền Supabase
         const chunkSize = 150;
         let totalInserted = 0;
         let duplicateWords = [];
@@ -16331,12 +16320,14 @@ window.createNewPredefinedTag = async function(tagCode, displayName) {
             }
         }
 
-        // Chốt chặn an toàn dọn rác
-        if (d1Words.length === 0) {
-            await sb.from('decks').delete().eq('id', finalDeckId);
-            hideLoading();
-            return customAlert("Không thể thiết lập bộ bài.", "⚠️ Lỗi");
-        }
+        // 🟢 CẬP NHẬT CACHE STATS NGAY LẬP TỨC: Giúp hệ thống nhận diện bộ bài đã thuộc quyền sở hữu
+        globalDeckStatsMap[finalDeckId] = {
+            id: finalDeckId,
+            total: totalInserted,
+            due: totalInserted,
+            studied: 0
+        };
+        localStorage.setItem(`minddeck_decks_stats_${currentUser.id}`, JSON.stringify(globalDeckStatsMap));
 
         hideLoading();
         window.invalidateDeckListCache();
@@ -16353,7 +16344,7 @@ window.createNewPredefinedTag = async function(tagCode, displayName) {
 
         if (proceedToStudy) {
             mode = 'cram';
-            targetCramLevel = 1; // Thiết lập cấp độ 1 (Học cơ bản)
+            targetCramLevel = 1;
             await loadCards(finalDeckId);
         } else {
             showHome();
@@ -16372,7 +16363,6 @@ window.supplementPredefinedTag = async function(tagCode, displayName, existingDe
     showLoading(`Đang kết nối D1 để tải dữ liệu chủ đề: ${displayName}...`);
 
     try {
-        // Tải mảng dữ liệu gốc từ D1
         const response = await fetch(`${DICT_API_URL}/api/get-by-tag?tag=${encodeURIComponent(tagCode)}`);
         if (!response.ok) throw new Error("Không thể kết nối máy chủ D1.");
 
@@ -16382,7 +16372,6 @@ window.supplementPredefinedTag = async function(tagCode, displayName, existingDe
             return customAlert("Chủ đề này hiện chưa được cấu hình từ vựng trên D1.", "💡 Thông báo");
         }
 
-        // Đóng gói Payload cards ghim trực tiếp vào bộ bài cũ đang có sẵn
         const cardsToInsert = d1Words.map(w => {
             const cleanMeaning = removeNumberedLists(w.meaning || '');
             const backPacked = `${w.reading || ''}\n${cleanMeaning}`.trim();
@@ -16410,7 +16399,6 @@ window.supplementPredefinedTag = async function(tagCode, displayName, existingDe
             };
         });
 
-        // Chia nhỏ Lô (Chunking) đẩy lên Supabase
         const chunkSize = 150;
         let totalInserted = 0;
         let duplicateWords = [];
@@ -16436,7 +16424,20 @@ window.supplementPredefinedTag = async function(tagCode, displayName, existingDe
             }
         }
 
-        // Hoàn tất bổ sung
+        // 🟢 CẬP NHẬT CACHE STATS NGAY LẬP TỨC:
+        if (globalDeckStatsMap[existingDeckId]) {
+            globalDeckStatsMap[existingDeckId].total += totalInserted;
+            globalDeckStatsMap[existingDeckId].due += totalInserted;
+        } else {
+            globalDeckStatsMap[existingDeckId] = {
+                id: existingDeckId,
+                total: totalInserted,
+                due: totalInserted,
+                studied: 0
+            };
+        }
+        localStorage.setItem(`minddeck_decks_stats_${currentUser.id}`, JSON.stringify(globalDeckStatsMap));
+
         hideLoading();
         window.invalidateDeckListCache();
         localStorage.removeItem(`minddeck_thematic_tags_cache_${currentUser.id}`);
