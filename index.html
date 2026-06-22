@@ -5929,25 +5929,27 @@ body.shadowing-mode #shadowingPage {
 /* ================= CSS CHỦ ĐỀ & AI GENERATOR (APPLE STORE STYLE) ================= */
 .thematic-tags-container {
     display: flex;
-    flex-wrap: nowrap !important; /* 🟢 Tuyệt đối không cho phép tự động xuống hàng */
-    overflow-x: auto !important;  /* 🟢 Kích hoạt cuộn ngang khi vượt quá khung chứa */
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
     gap: 10px;
-    
-    /* Thêm đệm trên dưới và trái phải để khi hover viên gạch (scale/shadow) không bị cắt mép */
-    padding: 6px 4px 15px 4px !important; 
-    margin-bottom: 20px;
-    
-    /* Hỗ trợ thao tác vuốt cảm ứng mượt mà và có độ quán tính (đặc trưng của iOS/Safari) */
-    -webkit-overflow-scrolling: touch; 
-    
-    /* Ẩn hoàn toàn thanh cuộn thô cứng để giao diện sạch sẽ chuẩn phẳng */
-    scrollbar-width: none; /* Dành cho Firefox */
-    -ms-overflow-style: none; /* Dành cho IE/Edge */
+    padding: 6px 4px 12px 4px !important;
+    margin-bottom: 0 !important; /* Để margin đáy cho wrapper quản lý */
+    scroll-behavior: smooth;     /* Cuộn mượt mà khi bấm nút */
+    width: 100%;
+    -webkit-overflow-scrolling: touch;
+    box-sizing: border-box;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
 .thematic-tags-container::-webkit-scrollbar {
     display: none;
 }
-
+.thematic-scroll-wrapper {
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: center;
+}
 .thematic-tag-pill {
     background: #ffffff;
     border: 1px solid #e2e8f0;
@@ -5961,7 +5963,12 @@ body.shadowing-mode #shadowingPage {
     display: flex;
     align-items: center;
     gap: 6px;
-    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    
+    /* Chốt chặn đồng bộ chiều cao và chống biến dạng thẻ khi cuộn ngang */
+    flex-shrink: 0 !important;      /* 🟢 Chống bị bóp nghẹt chiều ngang */
+    white-space: nowrap !important;   /* 🟢 Khóa chữ không cho xuống dòng */
+    box-sizing: border-box !important;
 }
 
 .thematic-tag-pill:hover {
@@ -5970,7 +5977,50 @@ body.shadowing-mode #shadowingPage {
     transform: translateY(-3px) scale(1.05);
     box-shadow: 0 8px 20px rgba(59, 130, 246, 0.15);
 }
+.thematic-scroll-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    color: #1d1d1f;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    transition: all 0.25s ease;
+    
+    /* Ẩn nút mặc định trên thiết bị di động/cảm ứng */
+    opacity: 0;
+    pointer-events: none;
+}
+@media (hover: hover) {
+    .thematic-scroll-wrapper:hover .thematic-scroll-btn {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
+.thematic-scroll-btn:hover {
+    background: #ffffff;
+    color: #0071e3;
+    transform: translateY(-50%) scale(1.1);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+}
 
+.thematic-scroll-btn.prev-btn {
+    left: -16px; /* Nhô nhẹ ra ngoài rìa trái */
+}
+
+.thematic-scroll-btn.next-btn {
+    right: -16px; /* Nhô nhẹ ra ngoài rìa phải */
+}
 .apple-store-ai-card {
     background: linear-gradient(135deg, #1d1d1f 0%, #43434d 100%);
     border-radius: 24px;
@@ -16081,24 +16131,48 @@ async function renderThematicTagCloud() {
             }
         }
 
-        // Ghép nối cấu trúc UI hoàn thiện
+        // Ghép nối cấu trúc UI hoàn thiện tích hợp nút bấm điều hướng
         let finalHTML = `
             <div style="width: 100%; text-align: left; margin-bottom: 20px;">
                 <div style="font-size: 12px; font-weight: 800; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
                     <span class="material-symbols-outlined" style="font-size: 16px;">explore</span> CHỦ ĐỀ GIAO TIẾP & ĐỜI SỐNG SẴN CÓ
                 </div>
-                <div class="thematic-tags-container" style="margin-bottom: 20px;">${htmlGeneral}</div>
+                <div class="thematic-scroll-wrapper" style="margin-bottom: 20px;">
+                    <button class="thematic-scroll-btn prev-btn" onclick="scrollThematic(this, -1)" title="Cuộn sang trái">
+                        <span class="material-symbols-outlined" style="font-weight: 800 !important;">chevron_left</span>
+                    </button>
+                    <div class="thematic-tags-container">${htmlGeneral}</div>
+                    <button class="thematic-scroll-btn next-btn" onclick="scrollThematic(this, 1)" title="Cuộn sang phải">
+                        <span class="material-symbols-outlined" style="font-weight: 800 !important;">chevron_right</span>
+                    </button>
+                </div>
 
                 <div style="font-size: 12px; font-weight: 800; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
                     <span class="material-symbols-outlined" style="font-size: 16px;">menu_book</span> HỌC THEO GIÁO TRÌNH NĂNG LỰC
                 </div>
-                <div class="thematic-tags-container" style="margin-bottom: 20px;">${htmlCurriculum}</div>
+                <div class="thematic-scroll-wrapper" style="margin-bottom: 20px;">
+                    <button class="thematic-scroll-btn prev-btn" onclick="scrollThematic(this, -1)" title="Cuộn sang trái">
+                        <span class="material-symbols-outlined" style="font-weight: 800 !important;">chevron_left</span>
+                    </button>
+                    <div class="thematic-tags-container">${htmlCurriculum}</div>
+                    <button class="thematic-scroll-btn next-btn" onclick="scrollThematic(this, 1)" title="Cuộn sang phải">
+                        <span class="material-symbols-outlined" style="font-weight: 800 !important;">chevron_right</span>
+                    </button>
+                </div>
 
                 ${userActiveTagsCount > 0 ? `
                 <div style="font-size: 12px; font-weight: 800; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
                     <span class="material-symbols-outlined" style="font-size: 16px;">smart_toy</span> CHỦ ĐỀ TỰ TẠO CỦA BẠN
                 </div>
-                <div class="thematic-tags-container">${htmlUserActive}</div>` : ''}
+                <div class="thematic-scroll-wrapper">
+                    <button class="thematic-scroll-btn prev-btn" onclick="scrollThematic(this, -1)" title="Cuộn sang trái">
+                        <span class="material-symbols-outlined" style="font-weight: 800 !important;">chevron_left</span>
+                    </button>
+                    <div class="thematic-tags-container">${htmlUserActive}</div>
+                    <button class="thematic-scroll-btn next-btn" onclick="scrollThematic(this, 1)" title="Cuộn sang phải">
+                        <span class="material-symbols-outlined" style="font-weight: 800 !important;">chevron_right</span>
+                    </button>
+                </div>` : ''}
             </div>
         `;
 
@@ -16108,6 +16182,22 @@ async function renderThematicTagCloud() {
         console.error("Lỗi dựng đám mây tag:", e);
     }
 }
+// Hàm xử lý cuộn mượt mà dành cho PC
+window.scrollThematic = function(btnElement, direction) {
+    const wrapper = btnElement.closest('.thematic-scroll-wrapper');
+    if (!wrapper) return;
+    
+    const container = wrapper.querySelector('.thematic-tags-container');
+    if (!container) return;
+    
+    // Tính toán khoảng cách cuộn bằng 60% độ rộng khung hiển thị hiện tại để tránh trượt quá đà
+    const scrollAmount = container.clientWidth * 0.6;
+    
+    container.scrollBy({
+        left: direction * scrollAmount,
+        behavior: 'smooth'
+    });
+};
 // 3. Hàm kích hoạt tìm kiếm gợi ý Autocomplete (Chạy cục bộ 0ms)
 function handleCustomTopicAutocomplete(val) {
     const dropdown = document.getElementById('aiPromptAutocompleteDropdown');
