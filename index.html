@@ -8638,11 +8638,10 @@ function sanitizeTagName(tag) {
     
     return cleanTag || "untitled-deck";
 }
-// HÀM MỚI: Tự động đánh số (1), (2) nếu tên bộ bài đã tồn tại
+// HÀM MỚI: Tự động bổ sung hậu tố (1), (2) và tự chữa lành cache rỗng
 async function generateUniqueDeckName(baseName, deckType) {
-    // Đọc thẳng từ RAM/Local Cache (0 byte băng thông mạng, 0ms delay)
-    const cacheKey = `minddeck_decks_core_${currentUser.id}`; // 🟢 Đã sửa thành _core_
-    const cachedDecks = JSON.parse(localStorage.getItem(cacheKey) || "[]");
+    // 🟢 SỬ SỬA: Dùng getCachedDeckList() để tự nạp dữ liệu từ Cloud nếu cache bị rỗng/bị xóa
+    const cachedDecks = await getCachedDeckList();
     
     // Lọc ra danh sách tên
     const existingNames = cachedDecks
@@ -12951,56 +12950,58 @@ function openCreateDeckModal() {
     }, 150);
 }
 
-// Hàm lưu học phần mới lên Supabase (Đã cải tiến: Chống tự động thêm hậu tố & cho phép Ghi đè)
+// Hàm lưu học phần mới lên Supabase (Đã sửa lỗi đồng bộ cache lần 2)
 async function saveNewDeckFromModal() {
     const name = document.getElementById('createDeckNameInput').value.trim();
     const isPublic = document.getElementById('createDeckVisibility').value === 'true';
 
     if (!name) return customAlert("Vui lòng nhập tên bộ bài!", "⚠️");
 
-    // 🟢 1. KIỂM TRA SỰ TỒN TẠI CỦA TÊN BỘ BÀI TRONG CACHE ĐỒNG NHẤT
-    const cacheKey = `minddeck_decks_core_${currentUser.id}`;
-    const cachedDecks = JSON.parse(localStorage.getItem(cacheKey) || "[]");
-    const existingNames = cachedDecks
-        .filter(d => d.type === 'flashcard')
-        .map(d => getCleanName(d.id));
+    showLoading("Đang kiểm tra dữ liệu bộ bài...");
 
-    let deckId = null;
-    let uniqueName = name;
-    let isExisting = false;
-
-    if (existingNames.includes(name)) {
-        // Tắt tạm modal tạo bộ bài để nhường chỗ cho confirm
-        closeModal('createDeckModal');
-
-        // Gọi hộp thoại xác nhận tuỳ chọn của bạn
-        const ok = await showConfirm(
-            "Bộ bài đã tồn tại ⚠️",
-            `Bộ bài "${name}" đã có sẵn trong thư viện. Bạn muốn tiếp tục ghi thêm thẻ mới vào bộ bài này hay tạo học phần mới hoàn toàn?`,
-            "Ghi thêm thẻ vào bộ cũ",
-            "Tạo học phần mới"
-        );
-
-        if (ok) {
-            // Trường hợp: Ghi thêm vào bộ bài cũ đã có
-            const existingDeck = cachedDecks.find(d => d.type === 'flashcard' && getCleanName(d.id) === name);
-            deckId = existingDeck.id;
-            uniqueName = name;
-            isExisting = true;
-        } else {
-            // Trường hợp: Tạo bộ bài mới riêng biệt (lúc này mới sinh hậu tố)
-            uniqueName = await generateUniqueDeckName(name, 'flashcard');
-            deckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
-        }
-    } else {
-        // Nếu tên hoàn toàn mới, tiến hành tạo mới bình thường
-        deckId = `${currentUser.id}:${sanitizeTagName(name)}:${Date.now()}`;
-    }
-
-    showLoading("Đang thiết lập học phần...");
     try {
+        // 🟢 SỬA LỖI: Sử dụng getCachedDeckList() thay vì đọc thô localStorage để tự phục hồi khi cache rỗng
+        const cachedDecks = await getCachedDeckList();
+        const existingNames = cachedDecks
+            .filter(d => d.type === 'flashcard')
+            .map(d => getCleanName(d.id));
+
+        let deckId = null;
+        let uniqueName = name;
+        let isExisting = false;
+
+        if (existingNames.includes(name)) {
+            // Tắt LOADING để hiển thị hộp thoại lựa chọn
+            hideLoading();
+            closeModal('createDeckModal');
+
+            const ok = await showConfirm(
+                "Bộ bài đã tồn tại ⚠️",
+                `Bộ bài "${name}" đã có sẵn trong thư viện. Bạn muốn tiếp tục ghi thêm thẻ mới vào bộ bài này hay tạo học phần mới hoàn toàn?`,
+                "Ghi thêm thẻ vào bộ cũ",
+                "Tạo học phần mới"
+            );
+
+            if (ok) {
+                // Trường hợp: Ghi thêm vào bộ bài cũ đã có
+                const existingDeck = cachedDecks.find(d => d.type === 'flashcard' && getCleanName(d.id) === name);
+                deckId = existingDeck.id;
+                uniqueName = name;
+                isExisting = true;
+                showLoading("Đang chuẩn bị ghi thêm...");
+            } else {
+                // Trường hợp: Tạo học phần mới (AI sinh hậu tố)
+                showLoading("Đang khởi tạo học phần mới...");
+                uniqueName = await generateUniqueDeckName(name, 'flashcard');
+                deckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
+            }
+        } else {
+            // Nếu tên hoàn toàn mới, tiến hành tạo mới
+            deckId = `${currentUser.id}:${sanitizeTagName(name)}:${Date.now()}`;
+        }
+
         if (!isExisting) {
-            // Chỉ gửi lệnh INSERT lên Supabase nếu người học chọn Tạo mới học phần
+            // Chỉ gửi lệnh tạo bộ bài lên Supabase nếu người học chọn Tạo mới học phần
             const { error } = await sb.from('decks').insert([{
                 id: deckId,
                 owner_id: currentUser.id,
@@ -13010,17 +13011,20 @@ async function saveNewDeckFromModal() {
             }]);
 
             if (error) throw error;
-            await fetchAndCacheDeckCore(); // Cập nhật danh sách từ Cloud
+            await fetchAndCacheDeckCore(); // Cập nhật và lưu đè cache mới lên ổ cứng
         }
 
         closeModal('createDeckModal');
         showToast(isExisting ? `✏️ Đang bổ sung thẻ vào bộ bài: ${uniqueName}` : "🎉 Đã tạo học phần mới thành công!");
+        
+        // Huỷ mốc thời gian đồng bộ cũ
         window.invalidateDeckListCache();
 
-        await renderManageDeckList(true); // Cập nhật giao diện quản lý
+        // 🟢 SỬA LỖI: Tải lại và vẽ lại giao diện từ cache thật để đồng bộ dữ liệu ngay lập tức
+        await renderManageDeckList(); 
         hasUnsavedChanges = false;
 
-        // Tự động mở Modal tuỳ chọn học và kích hoạt luôn trạng thái thêm thẻ mới
+        // Tự động mở Modal tuỳ chọn học và thêm thẻ
         openStudyOptionsModal(deckId, uniqueName, 'flashcard');
         
         setTimeout(() => {
