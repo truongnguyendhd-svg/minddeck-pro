@@ -9009,28 +9009,22 @@ async function autoCleanRemedialCards() {
     const lastClean = localStorage.getItem(cleanupKey);
     const now = Date.now();
 
-    // 🟢 CHỈ CHẠY DỌN RÁC NẾU CHƯA CHẠY TRONG VÒNG 24 TIẾNG QUA
-    if (lastClean && (now - parseInt(lastClean)) < 24 * 60 * 60 * 1000) {
-        console.log("MindDeck: Bỏ qua dọn rác Remedial (Đã chạy trong 24h qua).");
-        return; 
-    }
+    if (lastClean && (now - parseInt(lastClean)) < 24 * 60 * 60 * 1000) return; 
 
     try {
         const remedialDeckId = `${currentUser.id}:Remedial`;
         const limitDate = new Date(now - 48 * 60 * 60 * 1000).toISOString();
         
-        await sb.from('cards').delete()
+        // 🟢 ĐÃ SỬA: Xóa trên Tầng 2 (deck_cards)
+        await sb.from('deck_cards').delete()
             .eq('deck_id', remedialDeckId)
             .lt('created_at', limitDate);
 
-        // Ghi mốc thời gian đã dọn dẹp thành công
         localStorage.setItem(cleanupKey, now.toString());
-        console.log("MindDeck: Đã hoàn tất dọn rác Remedial tự động.");
     } catch (e) {
         console.error("Lỗi dọn rác Remedial:", e);
     }
 }
-
 // -------------------------------------------------------------
 // ĐÃ SỬA: HÀM SHOW HOME (TRANG CHỦ BÂY GIỜ LÀ QUẢN LÝ DỮ LIỆU)
 // -------------------------------------------------------------
@@ -14451,12 +14445,19 @@ async function confirmSaveWordToDeck() {
             if (deckErr) throw deckErr;
         }
 
-        const { error } = await sb.from('cards').insert([{
+        // 🟢 ĐÃ SỬA: Đóng gói thành mảng và gửi qua RPC 2 tầng
+        const payload = [{
             deck_id: deckId,
             front: front,
             back: backData,
-            info: infoData
-        }]);
+            info: infoData,
+            tags: []
+        }];
+
+        const { error } = await sb.rpc('bulk_insert_cards_safe', {
+            p_user_id: currentUser.id, 
+            p_cards: payload
+        });
 
         if (error) throw error;
 
@@ -14465,7 +14466,6 @@ async function confirmSaveWordToDeck() {
         hasUnsavedChanges = false;
         window.invalidateDeckListCache();
 
-        // Quay trở về modal chi tiết ngữ pháp đang mở thay vì bị thoát hẳn ra ngoài
         window.checkReturnToGrammarDetail();
 
     } catch (err) {
@@ -15784,13 +15784,10 @@ async function popoverActionQuickAdd(e) {
     
     showLoading("Đang lưu vào Inbox...");
     try {
-        // Tên Inbox cố định cho từng User
         const inboxDeckId = `${currentUser.id}:Inbox_QuickAdd`;
         
-        // 1. Kiểm tra xem bộ bài Inbox đã tồn tại chưa
         const { data: deckCheck } = await sb.from('decks').select('id').eq('id', inboxDeckId).single();
         
-        // 2. Nếu chưa có -> Tạo bộ bài Inbox mới
         if (!deckCheck) {
             await sb.from('decks').insert([{
                 id: inboxDeckId,
@@ -15800,20 +15797,25 @@ async function popoverActionQuickAdd(e) {
             }]);
         }
 
-        // 3. Insert thẻ mới (Chỉ lưu mặt trước, mặt sau để trống chờ user edit sau)
-        const { error } = await sb.from('cards').insert([{
+        // 🟢 ĐÃ SỬA: Dùng RPC để lưu thẻ Popover
+        const payload = [{
             deck_id: inboxDeckId,
             front: globalSelectedText,
             back: "Lưu nhanh từ Popover\n(Cần cập nhật nghĩa)",
-            info: ""
-        }]);
+            info: "",
+            tags: []
+        }];
+
+        const { error } = await sb.rpc('bulk_insert_cards_safe', {
+            p_user_id: currentUser.id, 
+            p_cards: payload
+        });
 
         if (error) throw error;
         
         hideLoading();
         showToast("📥 Đã lưu nhanh cụm từ vào bộ bài 'Inbox'!");
         
-        // Mẹo UX: Tự động mở Modal để user điền nghĩa luôn nếu họ rảnh
         openSaveDictWordModal(encodeURIComponent(globalSelectedText), '', '', '', '');
         
     } catch (err) {
@@ -15971,10 +15973,8 @@ async function generateThematicDeckWithAI() {
 
     if (!promptInput) return showToast("Vui lòng nhập chủ đề!");
 
-    // Tạo Hashtag cho chủ đề này
     const newTag = createHashtagFromText(promptInput);
     
-    // 🛑 CHỐT CHẶN TRÙNG LẶP: Nếu tag này đã có trong máy, lập tức chặn lại và báo lỗi
     if (window.existingThematicTags && window.existingThematicTags.includes(newTag)) {
         return customAlert(`Chủ đề <b>"${escapeHTML(promptInput)}"</b> đã có sẵn trong danh sách phía trên.<br><br>Hãy bấm vào nó để học hoặc yêu cầu AI mở rộng thêm từ vựng nhé!`, "⚠️ Đã có chủ đề này", "warning");
     }
@@ -16002,7 +16002,6 @@ async function generateThematicDeckWithAI() {
         let aiResult = await callGeminiAI(systemPrompt);
         aiResult = aiResult.replace(/```json/g, '').replace(/```/g, '').trim();
         
-        // 🟢 FIX LỖI: Dùng hàm cấp cứu JSON thay vì JSON.parse thông thường
         let cardsArr = safeParseJSON(aiResult);
         
         if (!Array.isArray(cardsArr) || cardsArr.length === 0) throw new Error("AI trả về sai định dạng");
@@ -16020,16 +16019,18 @@ async function generateThematicDeckWithAI() {
         });
 
         const uniqueFronts = new Set(formattedCards.map(c => c.front));
-        const { data: existingCards } = await sb.from('cards')
-            .select('id, front, info, decks!inner()')
-            .eq('decks.owner_id', currentUser.id)
-            .in('front', Array.from(uniqueFronts));
+        
+        // 🟢 ĐÃ SỬA: Quét bảng user_vocabulary_mastery thay vì bảng cards
+        const { data: dbCards } = await sb.from('user_vocabulary_mastery')
+            .select('id, word_text, info, tags')
+            .eq('user_id', currentUser.id)
+            .in('word_text', Array.from(uniqueFronts));
 
         const existingFrontsMap = {};
-        if (existingCards) existingCards.forEach(c => existingFrontsMap[c.front] = c);
+        if (dbCards) dbCards.forEach(c => existingFrontsMap[c.word_text] = c);
 
         let cardsToInsert = [];
-        let cardsToUpdate = [];
+        let updatedCount = 0;
         const vaultDeckId = `${currentUser.id}:AI_Vault`;
         await sb.from('decks').upsert({ id: vaultDeckId, owner_id: currentUser.id, type: 'flashcard', is_public: false });
 
@@ -16037,6 +16038,7 @@ async function generateThematicDeckWithAI() {
             if (existingFrontsMap[newCard.front]) {
                 let oldInfo = existingFrontsMap[newCard.front].info || "";
                 let currentTags = existingFrontsMap[newCard.front].tags || [];
+                
                 if (!oldInfo.includes(newTag)) {
                     let updatedInfo = oldInfo.startsWith('[TAGS]') 
                         ? oldInfo.replace(/\[TAGS\]/, `[TAGS] ${newTag} | ${displayTagName} ,`) 
@@ -16044,27 +16046,32 @@ async function generateThematicDeckWithAI() {
                     if (!currentTags.includes(newTag)) {
                         currentTags.push(newTag);
                     }
-                    cardsToUpdate.push({ id: existingFrontsMap[newCard.front].id, info: updatedInfo,
-                        tags: currentTags });
+                    
+                    // 🟢 ĐÃ SỬA: Cập nhật thẳng vào Tầng 1
+                    sb.from('user_vocabulary_mastery')
+                      .update({ info: updatedInfo, tags: currentTags })
+                      .eq('id', existingFrontsMap[newCard.front].id).then();
+                      
+                    updatedCount++;
                 }
             } else {            
                 cardsToInsert.push({ 
                     ...newCard, 
                     deck_id: vaultDeckId,
-                    tags: [newTag] // Thêm cột tags cho thẻ mới tinh
+                    tags: [newTag]
                 });
             }
         });
 
         document.getElementById('loadingText').innerText = "Đang lưu lên hệ thống...";
 
+        // 🟢 ĐÃ SỬA: Dùng hàm RPC để nạp an toàn 2 tầng
         if (cardsToInsert.length > 0) {
-            const { error: insErr } = await sb.from('cards').insert(cardsToInsert);
+            const { error: insErr } = await sb.rpc('bulk_insert_cards_safe', {
+                p_user_id: currentUser.id, 
+                p_cards: cardsToInsert
+            });
             if (insErr) throw insErr;
-        }
-        if (cardsToUpdate.length > 0) {
-            const { error: updErr } = await sb.from('cards').upsert(cardsToUpdate);
-            if (updErr) throw updErr;
         }
 
         hideLoading();
@@ -16072,15 +16079,14 @@ async function generateThematicDeckWithAI() {
         customAlert(`
             🎉 <b>Đã gom thành công bộ chủ đề!</b><br><br>
             ✨ Tạo mới: <b>${cardsToInsert.length}</b> thẻ<br>
-            ♻️ Kết nối từ bộ bài cũ: <b>${cardsToUpdate.length}</b> thẻ<br><br>
+            ♻️ Kết nối từ bộ bài cũ: <b>${updatedCount}</b> thẻ<br><br>
             Bấm vào Tag vừa tạo trên màn hình để học ngay nhé!
         `, "✨ Hoàn tất", "success");
 
         document.getElementById('aiPromptInput').value = ''; 
-        toggleAIGeneratorZone(); // Tự động đóng Form AI lại cho gọn
-        // 🟢 THÊM DÒNG NÀY: Dọn sạch Cache cũ để ép hàm render gọi API lấy Tag mới
+        toggleAIGeneratorZone(); 
         localStorage.removeItem(`minddeck_thematic_tags_cache_${currentUser.id}`);
-        renderThematicTagCloud(); // Tải lại mây Tag
+        renderThematicTagCloud(); 
 
     } catch (err) {
         hideLoading();
@@ -16134,17 +16140,22 @@ async function startStudyFromTagModal() {
     showLoading(`Đang gom các thẻ thuộc chủ đề: ${displayName}...`);
     
     try {
-        const { data: cards, error } = await sb.from('cards')
-            .select('id, front, back, info, tags, progress(id, ef, interval, interval_count, due), decks!inner()')
-
-            .eq('decks.owner_id', currentUser.id)
+        // 🟢 ĐÃ SỬA: Quét thẳng trên Tầng 1
+        const { data: rawCards, error } = await sb.from('user_vocabulary_mastery')
+            .select('id, word_text, back, info, tags, ef, interval, interval_count, due')
+            .eq('user_id', currentUser.id)
             .contains('tags', [tagCode]);
 
         if (error) throw error;
 
-        if (cards && cards.length > 0) {
+        if (rawCards && rawCards.length > 0) {
+            // Chuyển đổi dữ liệu tương thích
+            const cards = rawCards.map(c => ({
+                id: c.id, front: c.word_text, back: c.back, info: c.info, tags: c.tags,
+                progress: [{ id: c.id, ef: c.ef, interval: c.interval, interval_count: c.interval_count, due: c.due }]
+            }));
             hideLoading();
-            startVirtualSession(cards); // Gọi hàm học ảo
+            startVirtualSession(cards); 
         } else {
             hideLoading();
             customAlert("Chủ đề này không còn thẻ nào.", "⚠️");
@@ -16218,23 +16229,23 @@ async function expandTagWithAI() {
         });
 
         const uniqueFronts = new Set(formattedCards.map(c => c.front));
-        const { data: dbCards } = await sb.from('cards')
-            .select('id, front, info, decks!inner()')
-            .eq('decks.owner_id', currentUser.id)
-            .in('front', Array.from(uniqueFronts));
+        const { data: dbCards } = await sb.from('user_vocabulary_mastery')
+            .select('id, word_text, info, tags')
+            .eq('user_id', currentUser.id)
+            .in('word_text', Array.from(uniqueFronts));
 
         const existingFrontsMap = {};
-        if (dbCards) dbCards.forEach(c => existingFrontsMap[c.front] = c);
+        if (dbCards) dbCards.forEach(c => existingFrontsMap[c.word_text] = c);
 
         let cardsToInsert = [];
-        let cardsToUpdate = [];
+        let updatedCount = 0;
         const vaultDeckId = `${currentUser.id}:AI_Vault`;
 
         formattedCards.forEach(newCard => {
             if (existingFrontsMap[newCard.front]) {
                 let oldInfo = existingFrontsMap[newCard.front].info || "";
                 let currentTags = existingFrontsMap[newCard.front].tags || [];
-                // Chỉ Update nếu thẻ cũ chưa gắn cái Tag này
+                
                 if (!oldInfo.includes(tagCode)) {
                     let updatedInfo = oldInfo.startsWith('[TAGS]') 
                         ? oldInfo.replace(/\[TAGS\]/, `[TAGS] ${tagCode} | ${displayName} ,`) 
@@ -16242,36 +16253,35 @@ async function expandTagWithAI() {
                     if (!currentTags.includes(tagCode)) {
                         currentTags.push(tagCode);
                     }
-                    cardsToUpdate.push({ 
-                        id: existingFrontsMap[newCard.front].id, 
-                        info: updatedInfo,
-                        tags: currentTags // Đồng bộ mảng tags
-                    });
+                    // Bắn API update ngầm cho thẻ cũ trên Tầng 1
+                    sb.from('user_vocabulary_mastery')
+                      .update({ info: updatedInfo, tags: currentTags })
+                      .eq('id', existingFrontsMap[newCard.front].id).then();
+                    updatedCount++;
                 }
             } else {
-                // Nếu chưa có trên DB -> Chuẩn bị Insert
                 cardsToInsert.push({ 
                     ...newCard, 
                     deck_id: vaultDeckId,
-                    tags: [tagCode] // Đồng bộ tags cho thẻ mới tinh
+                    tags: [tagCode]
                 });
             }
         });
 
-        // 🟢 THUẬT TOÁN "BẪY TRÙNG LẶP": KIỂM TRA CHẠM NGƯỠNG
-        if (cardsToInsert.length === 0 && cardsToUpdate.length === 0) {
+        if (cardsToInsert.length === 0 && updatedCount === 0) {
             hideLoading();
-            return customAlert(`
-                🎉 <b>Chúc mừng! Bạn đã "phá đảo" chủ đề này!</b><br><br>
-                Hệ thống xác nhận rằng chủ đề <b>"${displayName}"</b> đã cạn kiệt các từ vựng thông dụng.<br>Kho từ vựng của bạn về lĩnh vực này đã cực kỳ đầy đủ.<br><br>
-                Hãy bấm <b>Luyện tập</b> hoặc chuyển sang khám phá chủ đề khác nhé!
-            `, "🏆 Chạm ngưỡng từ vựng", "success");
+            return customAlert(`🎉 <b>Chúc mừng! Bạn đã "phá đảo" chủ đề này!</b>`, "🏆 Chạm ngưỡng từ vựng", "success");
         }
 
-        // Bơm lên Database
         document.getElementById('loadingText').innerText = "Đang lưu lên hệ thống...";
-        if (cardsToInsert.length > 0) await sb.from('cards').insert(cardsToInsert);
-        if (cardsToUpdate.length > 0) await sb.from('cards').upsert(cardsToUpdate);
+        
+        // 🟢 ĐÃ SỬA: Dùng hàm RPC nạp hàng loạt cực an toàn
+        if (cardsToInsert.length > 0) {
+            await sb.rpc('bulk_insert_cards_safe', {
+                p_user_id: currentUser.id, 
+                p_cards: cardsToInsert
+            });
+        }
 
         hideLoading();
         
@@ -20023,12 +20033,10 @@ window.startRemedialReview = function() {
 // =========================================================================
 // HỆ THỐNG HIỂN THỊ DANH SÁCH THẺ TRONG MODAL (ĐÃ TỐI ƯU HÓA 100% FLASHCARD)
 // =========================================================================
-
 async function toggleInlineDeckList() {
     const listContainer = document.getElementById('inlineDeckListContainer');
     const toggleIcon = document.getElementById('toggleListIcon');
 
-    // Nếu đang mở thì đóng lại
     if (listContainer.style.display === 'block') {
         listContainer.style.display = 'none';
         toggleIcon.innerText = 'expand_more';
@@ -20037,53 +20045,40 @@ async function toggleInlineDeckList() {
 
     listContainer.style.display = 'block';
     toggleIcon.innerText = 'expand_less';
-
-    // Nếu đã tải dữ liệu trước đó thì không tải lại
     if (isInlineListLoaded) return;
 
-    // Khôi phục từ RAM cache nếu có sẵn
     if (window.rawDeckCache && window.rawDeckCache[deckToStudyId]) {
-        console.log("MindDeck: ⚡ Khôi phục Danh sách thẻ trực tiếp từ RAM (0ms)");
         sessionCards = JSON.parse(JSON.stringify(window.rawDeckCache[deckToStudyId]));
         renderInlineDeckListUI();
         isInlineListLoaded = true;
         return;
     }
 
-    listContainer.innerHTML = `
-        <div style="text-align:center; padding: 20px; color:#8c8c8c;">
-            <div class="spinner" style="margin: 0 auto 10px auto; width: 24px; height: 24px; border-top-color: #0067c0;"></div>
-            Đang tải danh sách...
-        </div>
-    `;
+    listContainer.innerHTML = '<div style="text-align:center; padding: 20px; color:#8c8c8c;"><div class="spinner" style="margin: 0 auto 10px auto; width: 24px; height: 24px; border-top-color: #0067c0;"></div>Đang tải danh sách...</div>';
 
     try {
-        // CHỈ CHẠY DUY NHẤT QUERY 1: Tải bộ khung xương (Skeleton) để dựng giao diện danh sách nhanh gọn
-        const { data: skeletonCards, error: err1 } = await sb.from('cards')
-            .select(`
-                id, 
-                front, 
-                progress(due)
-            `) 
-            .eq('deck_id', deckToStudyId)
-            .eq('progress.user_id', currentUser.id)  // Cô lập bảo mật theo User ID
-            .limit(1, { foreignTable: 'progress' })   
-            .order('id', { ascending: true });
+        // 🟢 ĐÃ SỬA: Gọi RPC của Tầng 2 thay vì bảng cards
+        const { data: skeletonData, error: err1 } = await sb.rpc('prepare_deck_skeleton', {
+            p_user_id: currentUser.id,
+            p_deck_id: deckToStudyId
+        });
 
         if (err1) throw err1;
 
-        if (!skeletonCards || skeletonCards.length === 0) {
+        if (!skeletonData || skeletonData.length === 0) {
             listContainer.innerHTML = '<div style="text-align:center; padding: 15px; color:#c50f1f; font-weight:600;">Bộ bài này chưa có thẻ nào!</div>';
             return;
         }
 
-        // Đánh dấu tất cả các thẻ ở trạng thái chưa nạp chi tiết (chờ nạp ngầm hoặc lazy load khi click)
-        sessionCards = skeletonCards.map(s => ({ ...s, isLoaded: false }));
+        // Ép kiểu về cấu trúc tương thích với UI
+        sessionCards = skeletonData.map(c => ({
+            id: c.id,
+            front: c.front,
+            isLoaded: false,
+            progress: [{ due: c.due }]
+        }));
 
-        // Backup mảng khung xương vào RAM cache toàn cục
         window.rawDeckCache[deckToStudyId] = JSON.parse(JSON.stringify(sessionCards));
-
-        // Tiến hành kết xuất giao diện danh sách
         renderInlineDeckListUI();
         isInlineListLoaded = true;
 
@@ -20166,34 +20161,34 @@ async function expandInlineCard(headerEl, cardId, index) {
         `;
         
         try {
-            const { data, error } = await sb.from('cards')
-                .select('id, front, back, info, tags, progress(id, ef, interval, interval_count, due)')
+            // 🟢 Gọi thẳng Tầng 1 cực nhẹ
+            const { data, error } = await sb.from('user_vocabulary_mastery')
+                .select('id, word_text, back, info, tags, ef, interval, interval_count, due')
                 .eq('id', cardId)
                 .single();
             if (error) throw error;
 
-            // Cập nhật dữ liệu thật vào RAM
-            sessionCards[index] = { ...data, isLoaded: true };
-            
-            // Đảm bảo cấu trúc cache được khởi tạo chính xác
-            if (!window.rawDeckCache || Array.isArray(window.rawDeckCache)) {
-                window.rawDeckCache = {};
-            }
-            if (!window.rawDeckCache[deckToStudyId]) {
-                window.rawDeckCache[deckToStudyId] = [];
-            }
-            
-            window.rawDeckCache[deckToStudyId][index] = { ...data, isLoaded: true }; // Đồng bộ cache cứng
+            // Chuyển word_text thành front để khớp với UI
+            const hydratedData = { 
+                ...data, 
+                front: data.word_text,
+                progress: [{ ef: data.ef, interval: data.interval, interval_count: data.interval_count, due: data.due }],
+                isLoaded: true 
+            };
 
-            // Vẽ nội dung chi tiết của thẻ
+            sessionCards[index] = hydratedData;
+            
+            if (!window.rawDeckCache) window.rawDeckCache = {};
+            if (!window.rawDeckCache[deckToStudyId]) window.rawDeckCache[deckToStudyId] = [];
+            window.rawDeckCache[deckToStudyId][index] = hydratedData;
+
             renderInlineCardBody(bodyEl, sessionCards[index], index);
 
         } catch (err) {
-            console.error("Lỗi khi tải chi tiết thẻ mục lẻ:", err);
+            console.error("Lỗi tải chi tiết:", err);
             bodyEl.innerHTML = '<span style="color:#e53e3e; font-size:13px; font-weight:600;">⚠️ Không thể tải dữ liệu chi tiết.</span>';
         }
     } else {
-        // Đã có dữ liệu sẵn trong RAM, vẽ ngay tức thì (0ms)
         renderInlineCardBody(bodyEl, card, index);
     }
 }
@@ -21819,49 +21814,38 @@ window.addToFavorites = async function(event, btnElement) {
     const c = sessionCards[currentIndex];
     if (!c) return;
 
-    // ID đặc biệt chỉ dành cho bộ Yêu thích
     const favDeckId = `${currentUser.id}:Favorites`;
-    
-    // Đổi UI ngôi sao ngay lập tức để tạo phản hồi nhanh
     btnElement.classList.add('favorited');
 
     try {
-        // 1. Kiểm tra xem bộ Yêu thích đã tồn tại chưa, chưa thì tạo
         const { data: deckCheck } = await sb.from('decks').select('id').eq('id', favDeckId).single();
         if (!deckCheck) {
             await sb.from('decks').insert([{
-                id: favDeckId,
-                owner_id: currentUser.id,
-                type: 'flashcard',
-                is_public: false,
-                sort_order: -9999 // Ép sort order thấp nhất để luôn đứng đầu nếu DB sort
+                id: favDeckId, owner_id: currentUser.id, type: 'flashcard', is_public: false, sort_order: -9999
             }]);
         }
 
-        // 2. Kiểm tra chống spam (Xem thẻ này ĐÃ CÓ trong bộ Yêu thích chưa)
-        const { data: existingFav } = await sb.from('cards')
+        // 🟢 ĐÃ SỬA: Quét chống trùng lặp chỉ trên Tầng 2 (deck_cards)
+        const { data: existingFav } = await sb.from('deck_cards')
             .select('id')
             .eq('deck_id', favDeckId)
-            .eq('front', c.front)
+            .eq('word_text', c.front)
             .single();
 
-        if (existingFav) {
-            return showToast("⭐ Thẻ này đã có trong mục Yêu thích rồi!");
-        }
+        if (existingFav) return showToast("⭐ Thẻ này đã có trong mục Yêu thích rồi!");
 
-        // 3. Đẩy thẳng vào Database (KHÔNG GỌI HÀM checkDuplicateCards)
-        const { error } = await sb.from('cards').insert([{
-            deck_id: favDeckId,
-            front: c.front,
-            back: c.back,
-            info: c.info
-        }]);
+        // 🟢 ĐÃ SỬA: Dùng hàm RPC nạp vào 2 tầng
+        const payload = [{ deck_id: favDeckId, front: c.front, back: c.back, info: c.info, tags: [] }];
+        const { error } = await sb.rpc('bulk_insert_cards_safe', {
+            p_user_id: currentUser.id,
+            p_cards: payload
+        });
 
         if (error) throw error;
         showToast("⭐ Đã ghim thẻ vào Bộ Yêu Thích!");
 
     } catch (err) {
-        btnElement.classList.remove('favorited'); // Trả lại nếu lỗi
+        btnElement.classList.remove('favorited'); 
         console.error("Lỗi thêm Yêu thích:", err);
         showToast("Lỗi khi thêm thẻ: " + err.message);
     }
@@ -22290,13 +22274,13 @@ function buildInfoString(hv, jp1, vn1, jp2, vn2) {
 
 // Hàm phụ trợ gọi Supabase
 async function updateCardInfo(card, newInfoString) {
-    const { error } = await sb.from('cards').update({ info: newInfoString }).eq('id', card.id);
+    const { error } = await sb.from('user_vocabulary_mastery').update({ info: newInfoString }).eq('id', card.id);
     if (error) throw error;
-    card.info = newInfoString; // Update RAM
-    window.tempAiData = null; // Clear biến tạm
+    card.info = newInfoString; 
+    window.tempAiData = null; 
     hideLoading();
     showToast("✨ Đã cập nhật thẻ thành công!");
-    showInfoModal(); // Reload giao diện
+    showInfoModal(); 
 }
 /* Hết================= HỆ THỐNG AI CHO INFO MODAL (MNEMONIC & EXAMPLES) ================= */
 
@@ -22306,11 +22290,9 @@ window.clearFavoriteDeck = async function(event, deckId) {
     event.preventDefault();
     event.stopPropagation();
 
-    // 1. Đóng dropdown menu lại cho gọn màn hình
     const menu = document.getElementById(`deck-menu-${deckId}`);
     if (menu) menu.classList.remove('show');
 
-    // 2. Hiển thị hộp thoại xác nhận (Cảnh báo màu đỏ)
     const ok = await showConfirm(
         "Dọn sạch Yêu thích?", 
         "Hành động này sẽ xóa <b>TOÀN BỘ</b> thẻ bên trong mục Yêu thích. Bộ bài sẽ trở về trạng thái trống. Bạn có chắc chắn không?", 
@@ -22320,13 +22302,12 @@ window.clearFavoriteDeck = async function(event, deckId) {
     if (ok) {
         showLoading("Đang dọn dẹp thẻ...");
         try {
-            // 3. Chỉ xóa thẻ (bảng cards) có chứa deck_id này, TUYỆT ĐỐI KHÔNG xóa bộ bài (bảng decks)
-            const { error } = await sb.from('cards').delete().eq('deck_id', deckId);
+            // 🟢 ĐÃ SỬA: Xóa trên bảng ánh xạ deck_cards thay vì bảng cards
+            const { error } = await sb.from('deck_cards').delete().eq('deck_id', deckId);
             if (error) throw error;
 
             showToast("✨ Đã dọn sạch bộ thẻ Yêu thích!");
             window.invalidateDeckListCache();
-            // 4. Load lại giao diện (Thẻ sẽ tự động chuyển viền về màu xám vì đã trống)
             renderManageDeckList(); 
             triggerSilentBackgroundSync(null, true);
 
@@ -23875,7 +23856,8 @@ async function silentSyncRomajiToCloud(cardId, exIndex, romajiText) {
     
     // Gọi Supabase lưu ngầm lên cơ sở dữ liệu
     try {
-        await sb.from('cards')
+        // 🟢 ĐÃ SỬA
+        await sb.from('user_vocabulary_mastery')
             .update({ info: newInfoString })
             .eq('id', cardId);
         console.log(`[Silent Sync] Đã lưu thành công Romaji${exIndex} lên Supabase.`);
