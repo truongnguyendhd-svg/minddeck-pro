@@ -16067,7 +16067,12 @@ function selectAutocompleteTopic(tagId, displayName) {
     openTagActionModal(tagId, displayName, 0, false);
 }
 // 5. Nâng cấp hàm mở Modal Chủ đề (Hỗ trợ đổi trạng thái Nạp/Học ngay dựa trên quyền sở hữu)
-window.openTagActionModal = function(tagCode, displayName, count, isOwned = false) {
+// =========================================================================
+// 🚀 PHÂN HỆ QUẢN LÝ CHỦ ĐỀ SẴN CÓ: ĐỒNG BỘ D1 & SUPABASE
+// =========================================================================
+
+// 1. Hàm mở Modal xem trước chủ đề (Đọc số từ trực tiếp và kiểm tra trùng lặp)
+window.openTagActionModal = async function(tagCode, displayName, dummyCount, dummyIsOwned) {
     document.getElementById('taModalTitle').innerText = displayName;
     document.getElementById('taTagCode').value = tagCode;
     
@@ -16075,48 +16080,62 @@ window.openTagActionModal = function(tagCode, displayName, count, isOwned = fals
     if (iconTextEl) iconTextEl.innerText = displayName.charAt(0).toUpperCase();
 
     const isCurriculum = tagCode.startsWith('#curriculum_');
+    const defaultDeckName = isCurriculum ? displayName : `Chủ đề: ${displayName}`;
+
+    // Kiểm tra xem người học thực tế đã sở hữu bộ bài trùng tên này trong kho chưa
+    const existingDeckId = Object.keys(globalDeckStatsMap).find(id => getCleanName(id) === defaultDeckName);
+    const isOwned = !!existingDeckId;
+
+    // Hiển thị vòng xoay loading đếm số lượng từ ngầm từ D1
+    const countEl = document.getElementById('taModalCount');
+    countEl.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:#0071e3;margin:auto;"></div> Đang quét số từ...`;
+
+    // Gọi API siêu tốc lên D1 chỉ để đếm số lượng từ, không tải dữ liệu nặng
+    let wordCount = 0;
+    try {
+        const res = await fetch(`${DICT_API_URL}/api/count-by-tag?tag=${encodeURIComponent(tagCode)}`);
+        if (res.ok) {
+            const data = await res.json();
+            wordCount = data.total || 0;
+        }
+    } catch (e) {
+        console.error("Lỗi đếm số từ:", e);
+    }
+    countEl.innerText = `Chủ đề này gồm có ${wordCount} từ vựng.`;
 
     const actionZone = document.getElementById('tagActionModal').querySelector('div[style*="display: flex; flex-direction: column; gap: 12px;"]');
     
-    // Tạo cấu trúc nút điều động tương ứng
     let buttonsHTML = "";
 
     if (isOwned) {
-        // NẾU ĐÃ SỞ HỮU: Hiện nút vào luyện tập bình thường
+        // ĐÃ SỞ HỮU BỘ BÀI TRÙNG TÊN TRONG KHO -> Cho phép chọn Bổ sung hoặc Tạo mới
         buttonsHTML = `
-            <button onclick="startStudyFromTagModal()" style="width: 100%; padding: 16px; background: #1d1d1f; color: white; border: none; border-radius: 16px; font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; box-shadow: 0 8px 20px rgba(0,0,0,0.15); transition: 0.2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
-                <span class="material-symbols-outlined" style="font-size: 20px;">sports_esports</span> LUYỆN TẬP NGAY
+            <div style="background: #fff8f0; border: 1px solid #fce8cd; padding: 12px; border-radius: 12px; font-size: 13px; color: #b7791f; text-align: left; margin-bottom: 5px; line-height: 1.4;">
+                ⚠️ Bạn đã sở hữu bộ bài trùng tên <b>"${escapeHTML(defaultDeckName)}"</b> trong kho học phần!
+            </div>
+            <button onclick="supplementPredefinedTag('${tagCode}', '${displayName.replace(/'/g, "\\'")}', '${existingDeckId}')" 
+                    style="width: 100%; padding: 14px; background: #0071e3; color: white; border: none; border-radius: 16px; font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,113,227,0.25);">
+                <span class="material-symbols-outlined">add_moderator</span> BỔ SUNG TỪ MỚI CHƯA CÓ VÀO BỘ BÀI
             </button>
-        `;
-        
-        // Chỉ hiện nút AI mở rộng cho các tag đời sống chung, không hiện với giáo trình tĩnh
-        if (!isCurriculum) {
-            buttonsHTML += `
-                <button onclick="expandTagWithAI()" style="width: 100%; padding: 16px; background: #f3f8fd; border: 2px dashed #0067c0; color: #0067c0; border-radius: 16px; font-weight: 800; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#ebf8ff'" onmouseout="this.style.background='#f3f8fd'">
-                    <span class="material-symbols-outlined" style="font-size: 20px; background: linear-gradient(135deg, #a8c0ff, #ff8a00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">auto_awesome</span> AI BỔ SUNG THÊM TỪ MỚI
-                </button>
-            `;
-        }
-
-        buttonsHTML += `
+            <button onclick="createNewPredefinedTag('${tagCode}', '${displayName.replace(/'/g, "\\'")}')" 
+                    style="width: 100%; padding: 14px; background: #1d1d1f; color: white; border: none; border-radius: 16px; font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                <span class="material-symbols-outlined">add_box</span> TẠO BỘ BÀI RIÊNG BIỆT MỚI
+            </button>
             <div style="border-top: 1px solid rgba(0,0,0,0.05); margin: 5px 0;"></div>
-            <button onclick="deleteThematicTag()" style="width: 100%; padding: 12px; background: transparent; color: #e53e3e; border: none; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: 0.2s; border-radius: 12px;" onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background='transparent'">
-                <span class="material-symbols-outlined" style="font-size: 18px;">delete</span> Xóa chủ đề này khỏi kho bài
+            <button onclick="deleteThematicTag()" style="width: 100%; padding: 12px; background: transparent; color: #e53e3e; border: none; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; border-radius: 12px;" onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background='transparent'">
+                <span class="material-symbols-outlined" style="font-size: 18px;">delete</span> Gỡ liên kết chủ đề
             </button>
         `;
-        document.getElementById('taModalCount').innerText = count > 0 ? `Chủ đề này đang có ${count} thẻ` : `Bộ bài này đã có trong kho học của bạn.`;
-
     } else {
-        // NẾU CHƯA SỞ HỮU: Hiện nút nạp bài trọn gói (Import) từ D1
+        // CHƯA SỞ HỮU BỘ BÀI -> Nút bắt đầu học
         buttonsHTML = `
-            <button onclick="importPredefinedTagFromD1('${tagCode}', '${displayName.replace(/'/g, "\\'")}')" 
+            <button onclick="createNewPredefinedTag('${tagCode}', '${displayName.replace(/'/g, "\\'")}')" 
                     style="width: 100%; padding: 16px; background: #0071e3; color: white; border: none; border-radius: 16px; font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; box-shadow: 0 8px 20px rgba(0,113,227,0.25); transition: 0.2s;" 
                     onmouseover="this.style.transform='translateY(-2px)'" 
                     onmouseout="this.style.transform='none'">
-                <span class="material-symbols-outlined" style="font-size: 20px;">download</span> NẠP BỘ BÀI NÀY VỀ MÁY (FREE)
+                <span class="material-symbols-outlined" style="font-size: 20px;">play_circle</span> BẮT ĐẦU HỌC
             </button>
         `;
-        document.getElementById('taModalCount').innerText = `Chủ đề sẵn có từ D1. Nhấp nạp để học ngay!`;
     }
 
     actionZone.innerHTML = buttonsHTML;
@@ -16126,7 +16145,7 @@ window.openTagActionModal = function(tagCode, displayName, count, isOwned = fals
     if (iconBox) {
         const pastelThemes = [
             { bg: '#ebf8ff', text: '#3b82f6', shadow: 'rgba(59, 130, 246, 0.15)' },
-            { bg: '#ecfdf5', text: '#10b981', shadow: 'rgba(16, 185, 129, 0.15)' },
+            { bg: '#ecfdf4', text: '#10b981', shadow: 'rgba(16, 185, 129, 0.15)' },
             { bg: '#fffbeb', text: '#f59e0b', shadow: 'rgba(245, 158, 11, 0.15)' },
             { bg: '#fef2f2', text: '#ef4444', shadow: 'rgba(239, 68, 68, 0.15)' },
             { bg: '#f5f3ff', text: '#8b5cf6', shadow: 'rgba(139, 92, 246, 0.15)' }
@@ -16139,13 +16158,14 @@ window.openTagActionModal = function(tagCode, displayName, count, isOwned = fals
 
     document.getElementById('tagActionModal').style.display = 'flex';
 }
-// 6. MỚI: LUỒNG NẠP BÀI CHỦ ĐỀ SẴN CÓ TỪ D1 LÊN SUPABASE (CHUNKING)
-async function importPredefinedTagFromD1(tagCode, displayName) {
+
+// 2. Hàm Tạo mới bộ bài hoàn chỉnh khi bắt đầu học
+window.createNewPredefinedTag = async function(tagCode, displayName) {
     closeModal('tagActionModal');
-    showLoading(`Đang kết nối D1 để tải từ vựng thuộc chủ đề: ${displayName}...`);
+    showLoading(`Đang kết nối D1 để tải dữ liệu chủ đề: ${displayName}...`);
 
     try {
-        // A. Gọi Worker lấy danh sách từ thuộc tag này từ D1
+        // Tải toàn bộ mảng dữ liệu gốc từ D1
         const response = await fetch(`${DICT_API_URL}/api/get-by-tag?tag=${encodeURIComponent(tagCode)}`);
         if (!response.ok) throw new Error("Không thể kết nối máy chủ D1.");
 
@@ -16155,12 +16175,14 @@ async function importPredefinedTagFromD1(tagCode, displayName) {
             return customAlert("Chủ đề này hiện chưa được cấu hình từ vựng trên D1.", "💡 Thông báo");
         }
 
-        // B. Khởi tạo tên bộ bài và sinh ID an toàn trên Supabase
-        const deckName = tagCode.startsWith('#curriculum_') ? displayName : `Chủ đề: ${displayName}`;
-        const uniqueName = await generateUniqueDeckName(deckName, 'flashcard');
+        const isCurriculum = tagCode.startsWith('#curriculum_');
+        const defaultDeckName = isCurriculum ? displayName : `Chủ đề: ${displayName}`;
+
+        // Tự động sinh tên độc lập (đảm bảo không ghi đè nếu trùng tên trong kho)
+        const uniqueName = await generateUniqueDeckName(defaultDeckName, 'flashcard');
         const finalDeckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
 
-        // Tạo vỏ bộ bài rỗng
+        // Khởi tạo vỏ bộ bài rỗng trên Supabase
         const { error: deckErr } = await sb.from('decks').insert({
             id: finalDeckId,
             owner_id: currentUser.id,
@@ -16169,7 +16191,7 @@ async function importPredefinedTagFromD1(tagCode, displayName) {
         });
         if (deckErr) throw deckErr;
 
-        // C. Định dạng và gộp mảng payload
+        // Đóng gói Payload cards
         const cardsToInsert = d1Words.map(w => {
             const cleanMeaning = removeNumberedLists(w.meaning || '');
             const backPacked = `${w.reading || ''}\n${cleanMeaning}`.trim();
@@ -16177,19 +16199,15 @@ async function importPredefinedTagFromD1(tagCode, displayName) {
             let infoArr = [];
             if (w.hv) infoArr.push(`[HV] ${w.hv}`);
             
-            // Trích xuất câu ví dụ
             let examplesList = [];
             if (w.examples) {
-                try {
-                    examplesList = typeof w.examples === 'string' ? JSON.parse(w.examples) : w.examples;
-                } catch(e) { examplesList = []; }
+                try { examplesList = typeof w.examples === 'string' ? JSON.parse(w.examples) : w.examples; } catch(e) {}
             }
             if (examplesList && examplesList.length > 0) {
                 infoArr.push(`[EX1] ${examplesList[0].jp}`);
                 if (examplesList[0].vn) infoArr.push(`[VN1] ${examplesList[0].vn}`);
             }
 
-            // Gắn tag chủ đề hệ thống này vào thẻ
             infoArr.unshift(`[TAGS] ${tagCode} | ${displayName}`);
 
             return {
@@ -16201,7 +16219,7 @@ async function importPredefinedTagFromD1(tagCode, displayName) {
             };
         });
 
-        // D. THỰC THI CHUNKING PHÍA FRONTEND (MỖI LÔ 150 THẺ CHỐNG TIMEOUT)
+        // Chia nhỏ Lô (Chunking) để bảo vệ đường truyền Supabase
         const chunkSize = 150;
         let totalInserted = 0;
         let duplicateWords = [];
@@ -16210,9 +16228,8 @@ async function importPredefinedTagFromD1(tagCode, displayName) {
             const chunk = cardsToInsert.slice(i, i + chunkSize);
             const currentCount = Math.min(i + chunkSize, cardsToInsert.length);
             
-            showLoading(`Đang đóng gói và nạp thẻ: ${currentCount} / ${cardsToInsert.length}...`);
+            showLoading(`Đang xử lý và ghim thẻ vào bộ bài mới: ${currentCount} / ${cardsToInsert.length}...`);
 
-            // Gọi RPC lưu hàng loạt
             const { data: dbResult, error: dbErr } = await sb.rpc('bulk_insert_cards_safe', {
                 p_user_id: currentUser.id,
                 p_cards: chunk
@@ -16228,37 +16245,25 @@ async function importPredefinedTagFromD1(tagCode, displayName) {
             }
         }
 
-        // Chốt chặn dọn rác bộ bài nếu tất cả thẻ nạp vào đều bị trùng lặp
-        if (totalInserted === 0) {
+        // Chốt chặn an toàn dọn rác
+        if (d1Words.length === 0) {
             await sb.from('decks').delete().eq('id', finalDeckId);
             hideLoading();
-            return customAlert(`Toàn bộ <b>${duplicateWords.length}</b> từ vựng trong chủ đề này đều đã có sẵn trong tài khoản của bạn.`, "⚠️ Trùng lặp", "warning");
+            return customAlert("Không thể thiết lập bộ bài.", "⚠️ Lỗi");
         }
 
-        // E. Hoàn tất quy trình
         hideLoading();
         window.invalidateDeckListCache();
         localStorage.removeItem(`minddeck_thematic_tags_cache_${currentUser.id}`);
 
         confetti({ particleCount: 150, spread: 80, origin: { y: 0.5 }, zIndex: 15000 });
-        
-        let proceedToStudy = true;
-        if (duplicateWords.length > 0) {
-            const skippedWords = duplicateWords.slice(0, 5).join(', ');
-            const moreStr = duplicateWords.length > 5 ? `... và ${duplicateWords.length - 5} từ khác` : '';
-            
-            proceedToStudy = await showConfirm(
-                "✨ Nạp bài hoàn tất!",
-                `🎉 <b>Nạp thành công:</b> ${totalInserted} thẻ mới.<br><br>⏭️ <b>Bỏ qua:</b> ${duplicateWords.length} thẻ trùng đã có sẵn:<br><span style="color:#d97706; font-size:13px; line-height:1.6; display:inline-block; margin-top:5px; margin-bottom:15px;">${skippedWords} ${moreStr}</span><br>Bạn có muốn vào học ngay bộ bài này không?`,
-                "Học ngay", "Ở lại"
-            );
-        } else {
-            proceedToStudy = await showConfirm(
-                "✨ Nạp bài hoàn tất!",
-                `🎉 Đã nạp thành công toàn bộ <b>${totalInserted} thẻ</b> thuộc chủ đề <b>${displayName}</b> vào tài khoản của bạn!<br><br>Bạn muốn vào học ngay bây giờ chứ?`,
-                "Học ngay", "Ở lại"
-            );
-        }
+
+        const alertMsg = `🎉 Đã khởi tạo thành công bộ bài mới <b>"${escapeHTML(getCleanName(finalDeckId))}"</b> gồm có <b>${d1Words.length} thẻ từ vựng</b>!`;
+        const proceedToStudy = await showConfirm(
+            "Tạo bộ bài thành công!",
+            `${alertMsg}<br><br>Bạn có muốn bắt đầu vào học bộ bài này ngay bây giờ không?`,
+            "Học ngay", "Ở lại"
+        );
 
         if (proceedToStudy) {
             mode = 'review';
@@ -16269,11 +16274,108 @@ async function importPredefinedTagFromD1(tagCode, displayName) {
 
     } catch (err) {
         hideLoading();
-        console.error("Lỗi Import chủ đề chuẩn hóa:", err);
+        console.error("Lỗi tạo mới bộ bài chủ đề:", err);
         customAlert("Không thể nạp dữ liệu: " + err.message, "❌ Lỗi hệ thống");
     }
-}
+};
 
+// 3. Hàm bổ sung từ vựng mới vào bộ bài cũ đang có sẵn
+window.supplementPredefinedTag = async function(tagCode, displayName, existingDeckId) {
+    closeModal('tagActionModal');
+    showLoading(`Đang kết nối D1 để tải dữ liệu chủ đề: ${displayName}...`);
+
+    try {
+        // Tải mảng dữ liệu gốc từ D1
+        const response = await fetch(`${DICT_API_URL}/api/get-by-tag?tag=${encodeURIComponent(tagCode)}`);
+        if (!response.ok) throw new Error("Không thể kết nối máy chủ D1.");
+
+        const d1Words = await response.json();
+        if (!d1Words || d1Words.length === 0) {
+            hideLoading();
+            return customAlert("Chủ đề này hiện chưa được cấu hình từ vựng trên D1.", "💡 Thông báo");
+        }
+
+        // Đóng gói Payload cards ghim trực tiếp vào bộ bài cũ đang có sẵn
+        const cardsToInsert = d1Words.map(w => {
+            const cleanMeaning = removeNumberedLists(w.meaning || '');
+            const backPacked = `${w.reading || ''}\n${cleanMeaning}`.trim();
+            
+            let infoArr = [];
+            if (w.hv) infoArr.push(`[HV] ${w.hv}`);
+            
+            let examplesList = [];
+            if (w.examples) {
+                try { examplesList = typeof w.examples === 'string' ? JSON.parse(w.examples) : w.examples; } catch(e) {}
+            }
+            if (examplesList && examplesList.length > 0) {
+                infoArr.push(`[EX1] ${examplesList[0].jp}`);
+                if (examplesList[0].vn) infoArr.push(`[VN1] ${examplesList[0].vn}`);
+            }
+
+            infoArr.unshift(`[TAGS] ${tagCode} | ${displayName}`);
+
+            return {
+                deck_id: existingDeckId,
+                front: w.word,
+                back: backPacked,
+                info: infoArr.join('\n'),
+                tags: [tagCode]
+            };
+        });
+
+        // Chia nhỏ Lô (Chunking) đẩy lên Supabase
+        const chunkSize = 150;
+        let totalInserted = 0;
+        let duplicateWords = [];
+
+        for (let i = 0; i < cardsToInsert.length; i += chunkSize) {
+            const chunk = cardsToInsert.slice(i, i + chunkSize);
+            const currentCount = Math.min(i + chunkSize, cardsToInsert.length);
+            
+            showLoading(`Đang xử lý và bổ sung thẻ vào bộ bài cũ: ${currentCount} / ${cardsToInsert.length}...`);
+
+            const { data: dbResult, error: dbErr } = await sb.rpc('bulk_insert_cards_safe', {
+                p_user_id: currentUser.id,
+                p_cards: chunk
+            });
+
+            if (dbErr) throw dbErr;
+
+            if (dbResult) {
+                totalInserted += (dbResult.inserted_count || 0);
+                if (dbResult.duplicate_words) {
+                    duplicateWords.push(...dbResult.duplicate_words);
+                }
+            }
+        }
+
+        // Hoàn tất bổ sung
+        hideLoading();
+        window.invalidateDeckListCache();
+        localStorage.removeItem(`minddeck_thematic_tags_cache_${currentUser.id}`);
+
+        confetti({ particleCount: 150, spread: 80, origin: { y: 0.5 }, zIndex: 15000 });
+
+        const alertMsg = `🎉 Đã bổ sung thành công thêm <b>${totalInserted} từ vựng mới</b> chưa có vào bộ bài <b>"${escapeHTML(getCleanName(existingDeckId))}"</b>!`;
+        const proceedToStudy = await showConfirm(
+            "Bổ sung thành công!",
+            `${alertMsg}<br><br>Bạn có muốn bắt đầu vào học bộ bài này ngay bây giờ không?`,
+            "Học ngay", "Ở lại"
+        );
+
+        if (proceedToStudy) {
+            mode = 'review';
+            await loadCards(existingDeckId);
+        } else {
+            showHome();
+        }
+
+    } catch (err) {
+        hideLoading();
+        console.error("Lỗi bổ sung thẻ chủ đề:", err);
+        customAlert("Không thể bổ sung dữ liệu: " + err.message, "❌ Lỗi hệ thống");
+    }
+};
 // 7. Ghi đè hàm sinh chủ đề mới bằng AI (Bản nâng cấp bốc tách từ thô & Quét D1)
 async function generateThematicDeckWithAI() {
     if (!currentUser) return customAlert("Vui lòng đăng nhập để sử dụng AI!", "⚠️");
