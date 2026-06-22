@@ -7701,12 +7701,21 @@ body.shadowing-mode #shadowingPage {
             </div>
 
             <!-- NÚT THAO TÁC (FOOTER) - Giảm margin trên -->
-            <div style="display: flex; gap: 12px; margin-top: 15px; padding-top: 12px; border-top: 1px solid #f0f0f0;">
-                <button onclick="deleteQuickCard()" class="win11-btn-secondary" style="flex: 1; justify-content: center; color: #4a5568; background: #f1f5f9; border: none; border-radius: 16px; padding: 14px; transition: 0.2s;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">delete</span> XÓA
-                </button>
-                <button onclick="saveQuickEdit()" class="win11-btn-primary" style="flex: 1; justify-content: center; display: flex; align-items: center; gap: 8px; background: #1d1d1f; color: #ffffff; border: none; border-radius: 16px; padding: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); transition: 0.2s;" onmouseover="this.style.background='#000000'; this.style.transform='translateY(-2px)';" onmouseout="this.style.background='#1d1d1f'; this.style.transform='none';">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">save</span> LƯU
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 15px; padding-top: 12px; border-top: 1px solid #f0f0f0;">
+                <!-- Nhóm nút xóa (Ẩn đi khi ở chế độ tạo thẻ mới) -->
+                <div id="qeDeleteGroup" style="display: flex; gap: 10px; width: 100%;">
+                    <!-- Nút gỡ thẻ khỏi bộ (Tầng 2) -->
+                    <button onclick="deleteQuickCard()" class="win11-btn-secondary" style="flex: 1; justify-content: center; color: #4a5568; background: #f1f5f9; border: none; border-radius: 12px; padding: 12px; transition: 0.2s; display: flex; align-items: center; gap: 6px;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">backspace</span> GỠ KHỎI BỘ
+                    </button>
+                    <!-- Nút xóa vĩnh viễn khỏi toàn hệ thống (Tầng 1 + Tầng 2) -->
+                    <button id="btnHardDeleteCard" onclick="hardDeleteQuickCard()" class="win11-btn-secondary" style="flex: 1; justify-content: center; color: #c53030; background: #fff5f5; border: 1px solid #fed7d7; border-radius: 12px; padding: 12px; transition: 0.2s; display: flex; align-items: center; gap: 6px;" onmouseover="this.style.background='#ffebeb'" onmouseout="this.style.background='#fff5f5'">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">delete_forever</span> XÓA VĨNH VIỄN
+                    </button>
+                </div>
+                <!-- Nút lưu thay đổi -->
+                <button onclick="saveQuickEdit()" class="win11-btn-primary" style="width: 100%; justify-content: center; display: flex; align-items: center; gap: 8px; background: #1d1d1f; color: #ffffff; border: none; border-radius: 12px; padding: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); transition: 0.2s;" onmouseover="this.style.background='#000000'; this.style.transform='translateY(-2px)';" onmouseout="this.style.background='#1d1d1f'; this.style.transform='none';">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">save</span> LƯU THAY ĐỔI
                 </button>
             </div>
         </div>
@@ -13680,9 +13689,9 @@ function openQuickAddCardModal() {
     // Đổi Tiêu đề và Nút bấm
     document.querySelector('#quickEditModal .win11-modal-header h3').innerText = 'Thêm thẻ mới';
     document.querySelector('#quickEditModal .win11-btn-primary').innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">add_circle</span> TẠO THẺ NÀY';
-    // Ẩn nút Xóa
-    const btnDel = document.querySelector('#quickEditModal .win11-btn-secondary');
-    if(btnDel) btnDel.style.display = 'none';
+    // Ẩn nhóm nút Xóa (Cả gỡ thẻ và xóa vĩnh viễn)
+    const deleteGroup = document.getElementById('qeDeleteGroup');
+    if (deleteGroup) deleteGroup.style.display = 'none';
 
     document.getElementById('qeFlashcardFields').style.display = isQuiz ? 'none' : 'flex';
     document.getElementById('qeQuizFields').style.display = isQuiz ? 'flex' : 'none';
@@ -25052,6 +25061,86 @@ window.closeSaveDictWordModalDirectly = function() {
     closeModal('saveDictWordModal');
     window.checkReturnToGrammarDetail();
 };
+async function hardDeleteQuickCard() {
+    if (mode === 'boost' || mode === 'assessment') {
+        return customAlert("Không thể xóa thẻ khi game đang chạy. Hãy thoát ra ngoài để xóa nhé!", "⚠️");
+    }
+
+    const c = sessionCards[currentIndex];
+    if (!c) return;
+
+    // 1. Hiển thị hộp thoại xác nhận cảnh báo cực kỳ chi tiết
+    const ok = await showConfirm(
+        "XÓA VĨNH VIỄN KHỎI TOÀN HỆ THỐNG?", 
+        `Xác nhận xóa hoàn toàn từ vựng <b style="color: #c53030; font-size: 18px;">"${escapeHTML(c.front)}"</b>.<br><br>` + 
+        `⚠️ <b>Cảnh báo nghiêm trọng:</b><br>` +
+        `- Từ này và tiến trình học SRS của nó sẽ bị <b>xóa sạch ở Tầng 1</b>.<br>` +
+        `- Thẻ sẽ biến mất khỏi <b>tất cả bộ bài khác</b> đang chứa nó.<br>` +
+        `- Hành động này hoàn toàn không thể khôi phục.`, 
+        "Xóa vĩnh viễn",
+        "Hủy bỏ"
+    );
+    if (!ok) return;
+
+    showLoading("Đang thực hiện xóa vĩnh viễn...");
+    try {
+        // 2. Xóa triệt để ở Tầng 1 (user_vocabulary_mastery)
+        const { error: err1 } = await sb.from('user_vocabulary_mastery')
+            .delete()
+            .eq('user_id', currentUser.id)
+            .eq('word_text', c.front);
+        if (err1) throw err1;
+
+        // 3. Xóa sạch liên kết ở Tầng 2 (deck_cards) cho tất cả các bộ bài của user này
+        const allDecks = await getCachedDeckList(false);
+        const userDeckIds = allDecks.filter(d => d.owner_id === currentUser.id).map(d => d.id);
+        
+        if (userDeckIds.length > 0) {
+            const { error: err2 } = await sb.from('deck_cards')
+                .delete()
+                .eq('word_text', c.front)
+                .in('deck_id', userDeckIds);
+            if (err2) throw err2;
+        }
+
+        // 4. Giải phóng hoàn toàn bộ nhớ đệm (Cache Eviction)
+        closeModal('quickEditModal');
+        showToast("🗑️ Đã xóa vĩnh viễn thẻ khỏi hệ thống!");
+        forceDashboardRefresh = true;
+
+        // Xóa thẻ khỏi RAM phiên học hiện tại
+        sessionCards.splice(currentIndex, 1);
+        
+        // Hủy cache bộ bài đang học
+        window.invalidateDeckCache(currentDeckName || deckToStudyId);
+        
+        // Hủy cache danh sách chung để cập nhật lại số lượng (stats)
+        window.invalidateDeckListCache();
+
+        // Kích hoạt dọn dẹp ngầm cấu trúc tiến trình
+        if (typeof triggerSilentBackgroundSync === 'function') {
+            triggerSilentBackgroundSync(null, true);
+        }
+
+        // Cập nhật lại giao diện học tập
+        if (!document.getElementById('reviewPage').classList.contains('hidden')) {
+            if (sessionCards.length === 0) {
+                exitStudySession(); // Nếu hết thẻ thì thoát về trang chủ
+            } else {
+                if (currentIndex >= sessionCards.length) {
+                    currentIndex = sessionCards.length - 1;
+                }
+                showCard(); // Render lại thẻ kế tiếp
+            }
+        }
+
+    } catch (err) {
+        console.error("Lỗi thực thi xóa vĩnh viễn:", err);
+        customAlert("Không thể xóa vĩnh viễn thẻ vào lúc này. Vui lòng kiểm tra lại kết nối mạng.", "❌ Lỗi hệ thống");
+    } finally {
+        hideLoading();
+    }
+}
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
