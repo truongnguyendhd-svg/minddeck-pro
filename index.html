@@ -12951,43 +12951,78 @@ function openCreateDeckModal() {
     }, 150);
 }
 
-// Hàm lưu học phần mới lên Supabase và tự động kích hoạt Modal Thêm thẻ nhanh
+// Hàm lưu học phần mới lên Supabase (Đã cải tiến: Chống tự động thêm hậu tố & cho phép Ghi đè)
 async function saveNewDeckFromModal() {
     const name = document.getElementById('createDeckNameInput').value.trim();
     const isPublic = document.getElementById('createDeckVisibility').value === 'true';
 
     if (!name) return customAlert("Vui lòng nhập tên bộ bài!", "⚠️");
 
-    showLoading("Đang khởi tạo học phần...");
+    // 🟢 1. KIỂM TRA SỰ TỒN TẠI CỦA TÊN BỘ BÀI TRONG CACHE ĐỒNG NHẤT
+    const cacheKey = `minddeck_decks_core_${currentUser.id}`;
+    const cachedDecks = JSON.parse(localStorage.getItem(cacheKey) || "[]");
+    const existingNames = cachedDecks
+        .filter(d => d.type === 'flashcard')
+        .map(d => getCleanName(d.id));
+
+    let deckId = null;
+    let uniqueName = name;
+    let isExisting = false;
+
+    if (existingNames.includes(name)) {
+        // Tắt tạm modal tạo bộ bài để nhường chỗ cho confirm
+        closeModal('createDeckModal');
+
+        // Gọi hộp thoại xác nhận tuỳ chọn của bạn
+        const ok = await showConfirm(
+            "Bộ bài đã tồn tại ⚠️",
+            `Bộ bài "${name}" đã có sẵn trong thư viện. Bạn muốn tiếp tục ghi thêm thẻ mới vào bộ bài này hay tạo học phần mới hoàn toàn?`,
+            "Ghi thêm thẻ vào bộ cũ",
+            "Tạo học phần mới"
+        );
+
+        if (ok) {
+            // Trường hợp: Ghi thêm vào bộ bài cũ đã có
+            const existingDeck = cachedDecks.find(d => d.type === 'flashcard' && getCleanName(d.id) === name);
+            deckId = existingDeck.id;
+            uniqueName = name;
+            isExisting = true;
+        } else {
+            // Trường hợp: Tạo bộ bài mới riêng biệt (lúc này mới sinh hậu tố)
+            uniqueName = await generateUniqueDeckName(name, 'flashcard');
+            deckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
+        }
+    } else {
+        // Nếu tên hoàn toàn mới, tiến hành tạo mới bình thường
+        deckId = `${currentUser.id}:${sanitizeTagName(name)}:${Date.now()}`;
+    }
+
+    showLoading("Đang thiết lập học phần...");
     try {
-        const uniqueName = await generateUniqueDeckName(name, 'flashcard');
-        const deckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
+        if (!isExisting) {
+            // Chỉ gửi lệnh INSERT lên Supabase nếu người học chọn Tạo mới học phần
+            const { error } = await sb.from('decks').insert([{
+                id: deckId,
+                owner_id: currentUser.id,
+                type: 'flashcard',
+                is_public: isPublic,
+                folder_id: null
+            }]);
 
-        const { error } = await sb.from('decks').insert([{
-            id: deckId,
-            owner_id: currentUser.id,
-            type: 'flashcard',
-            is_public: isPublic,
-            folder_id: null
-        }]);
-
-        if (error) throw error;
-
-        // Đóng modal khởi tạo học phần
-        await fetchAndCacheDeckCore(); // Cập nhật Vỏ từ Cloud
+            if (error) throw error;
+            await fetchAndCacheDeckCore(); // Cập nhật danh sách từ Cloud
+        }
 
         closeModal('createDeckModal');
-        showToast("🎉 Đã tạo học phần mới thành công!");
+        showToast(isExisting ? `✏️ Đang bổ sung thẻ vào bộ bài: ${uniqueName}` : "🎉 Đã tạo học phần mới thành công!");
         window.invalidateDeckListCache();
 
-        await renderManageDeckList(true); // Truyền true để CHẶN gọi mạng
-        hasUnsavedChanges = false
+        await renderManageDeckList(true); // Cập nhật giao diện quản lý
+        hasUnsavedChanges = false;
 
-        
-        // Tự động mở Modal Tuỳ chọn học của chính học phần vừa tạo
+        // Tự động mở Modal tuỳ chọn học và kích hoạt luôn trạng thái thêm thẻ mới
         openStudyOptionsModal(deckId, uniqueName, 'flashcard');
         
-        // UX cải tiến: Tự động bung danh sách thẻ và kích hoạt luôn trạng thái "Thêm thẻ mới"
         setTimeout(() => {
             toggleInlineDeckList();
             setTimeout(() => {
@@ -12996,8 +13031,8 @@ async function saveNewDeckFromModal() {
         }, 300);
 
     } catch (err) {
-        console.error("Lỗi tạo bộ bài:", err);
-        customAlert("Lỗi khi tạo bộ bài: " + err.message, "❌");
+        console.error("Lỗi thiết lập bộ bài:", err);
+        customAlert("Lỗi khi thiết lập bộ bài: " + err.message, "❌");
     } finally {
         hideLoading();
     }
