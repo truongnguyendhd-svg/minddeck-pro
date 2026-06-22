@@ -16072,43 +16072,41 @@ function selectAutocompleteTopic(tagId, displayName) {
 // =========================================================================
 
 // 1. Hàm mở Modal xem trước chủ đề (Đọc số từ trực tiếp và kiểm tra trùng lặp)
-window.openTagActionModal = async function(tagCode, displayName, dummyCount, dummyIsOwned) {
+window.openTagActionModal = function(tagCode, displayName, dummyCount, dummyIsOwned) {
+    // 🟢 1. HIỂN THỊ MODAL NGAY LẬP TỨC (0ms trì hoãn)
     document.getElementById('taModalTitle').innerText = displayName;
     document.getElementById('taTagCode').value = tagCode;
     
     const iconTextEl = document.getElementById('taModalIconText');
     if (iconTextEl) iconTextEl.innerText = displayName.charAt(0).toUpperCase();
 
+    // Hiện vòng xoay quét từ tạm thời ngay trong Modal
+    const countEl = document.getElementById('taModalCount');
+    countEl.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:#0071e3;margin:auto;display:inline-block;vertical-align:middle;animation:spin 1s linear infinite;"></div> Đang quét số từ...`;
+
+    // 🟢 2. KIỂM TRA SỞ HỮU BỘ BÀI (Đọc từ cache đã sửa lỗi ở Bước 1)
     const isCurriculum = tagCode.startsWith('#curriculum_');
     const defaultDeckName = isCurriculum ? displayName : `Chủ đề: ${displayName}`;
 
-    // Kiểm tra xem người học thực tế đã sở hữu bộ bài trùng tên này trong kho chưa
+    // Dự phòng nạp cache nếu RAM trống
+    if (Object.keys(globalDeckStatsMap).length === 0) {
+        const cachedStats = localStorage.getItem(`minddeck_decks_stats_${currentUser.id}`);
+        if (cachedStats) globalDeckStatsMap = JSON.parse(cachedStats);
+    }
+
     const existingDeckId = Object.keys(globalDeckStatsMap).find(id => getCleanName(id) === defaultDeckName);
     const isOwned = !!existingDeckId;
 
-    // Hiển thị vòng xoay loading đếm số lượng từ ngầm từ D1
-    const countEl = document.getElementById('taModalCount');
-    countEl.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:#0071e3;margin:auto;"></div> Đang quét số từ...`;
+    // Thiết lập vùng thông tin tạo bộ bài mới
+    const deckInfoText = `<div style="font-size: 13px; color: #64748b; margin: 10px 0; line-height: 1.5; font-weight: 500;">Hệ thống sẽ tự động tạo bộ bài mới có tên <b style="color: #1d1d1f;">"${defaultDeckName}"</b> khi bạn nhấn bắt đầu học.</div>`;
 
-    // Gọi API siêu tốc lên D1 chỉ để đếm số lượng từ, không tải dữ liệu nặng
-    let wordCount = 0;
-    try {
-        const res = await fetch(`${DICT_API_URL}/api/count-by-tag?tag=${encodeURIComponent(tagCode)}`);
-        if (res.ok) {
-            const data = await res.json();
-            wordCount = data.total || 0;
-        }
-    } catch (e) {
-        console.error("Lỗi đếm số từ:", e);
-    }
-    countEl.innerText = `Chủ đề này gồm có ${wordCount} từ vựng.`;
-
+    // Thiết lập vùng nút bấm tương tác
     const actionZone = document.getElementById('tagActionModal').querySelector('div[style*="display: flex; flex-direction: column; gap: 12px;"]');
     
     let buttonsHTML = "";
 
     if (isOwned) {
-        // ĐÃ SỞ HỮU BỘ BÀI TRÙNG TÊN TRONG KHO -> Cho phép chọn Bổ sung hoặc Tạo mới
+        // ĐÃ SỞ HỮU: Hiện 2 lựa chọn Bổ sung hoặc Tạo bộ mới riêng biệt
         buttonsHTML = `
             <div style="background: #fff8f0; border: 1px solid #fce8cd; padding: 12px; border-radius: 12px; font-size: 13px; color: #b7791f; text-align: left; margin-bottom: 5px; line-height: 1.4;">
                 ⚠️ Bạn đã sở hữu bộ bài trùng tên <b>"${escapeHTML(defaultDeckName)}"</b> trong kho học phần!
@@ -16121,14 +16119,11 @@ window.openTagActionModal = async function(tagCode, displayName, dummyCount, dum
                     style="width: 100%; padding: 14px; background: #1d1d1f; color: white; border: none; border-radius: 16px; font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
                 <span class="material-symbols-outlined">add_box</span> TẠO BỘ BÀI RIÊNG BIỆT MỚI
             </button>
-            <div style="border-top: 1px solid rgba(0,0,0,0.05); margin: 5px 0;"></div>
-            <button onclick="deleteThematicTag()" style="width: 100%; padding: 12px; background: transparent; color: #e53e3e; border: none; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; border-radius: 12px;" onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background='transparent'">
-                <span class="material-symbols-outlined" style="font-size: 18px;">delete</span> Gỡ liên kết chủ đề
-            </button>
         `;
     } else {
-        // CHƯA SỞ HỮU BỘ BÀI -> Nút bắt đầu học
+        // CHƯA SỞ HỮU: Hiện thông tin tên bộ bài sẽ tạo và nút Bắt đầu học
         buttonsHTML = `
+            ${deckInfoText}
             <button onclick="createNewPredefinedTag('${tagCode}', '${displayName.replace(/'/g, "\\'")}')" 
                     style="width: 100%; padding: 16px; background: #0071e3; color: white; border: none; border-radius: 16px; font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; box-shadow: 0 8px 20px rgba(0,113,227,0.25); transition: 0.2s;" 
                     onmouseover="this.style.transform='translateY(-2px)'" 
@@ -16140,7 +16135,23 @@ window.openTagActionModal = async function(tagCode, displayName, dummyCount, dum
 
     actionZone.innerHTML = buttonsHTML;
 
-    // Phối màu Icon Box dựa vào mã chữ cái
+    // Mở khóa màn hình nền và hiển thị Modal ngay lập tức
+    document.body.classList.add('modal-open-lock');
+    document.getElementById('tagActionModal').style.display = 'flex';
+
+    // 🟢 3. CHẠY TRUY VẤN ĐẾM SỐ TỪ SONG SONG Ở NỀN (BACKGROUND QUERY)
+    fetch(`${DICT_API_URL}/api/count-by-tag?tag=${encodeURIComponent(tagCode)}`)
+        .then(res => res.json())
+        .then(data => {
+            const wordCount = data.total || 0;
+            countEl.innerText = `Chủ đề này gồm có ${wordCount} từ vựng.`;
+        })
+        .catch(e => {
+            console.error("Lỗi đếm số từ:", e);
+            countEl.innerText = `Chủ đề sẵn có từ từ điển.`;
+        });
+
+    // Tạo màu Icon Box dạng tròn
     const iconBox = document.getElementById('taModalIconBox');
     if (iconBox) {
         const pastelThemes = [
@@ -16155,8 +16166,6 @@ window.openTagActionModal = async function(tagCode, displayName, dummyCount, dum
         iconBox.style.color = theme.text;
         iconBox.style.boxShadow = `0 10px 20px ${theme.shadow}`;
     }
-
-    document.getElementById('tagActionModal').style.display = 'flex';
 }
 
 // 2. Hàm Tạo mới bộ bài hoàn chỉnh khi bắt đầu học
