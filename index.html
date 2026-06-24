@@ -25759,13 +25759,29 @@ async function executeSaveSingleSection(event, tagCode, displayName) {
     // Mở nhanh modal gán nhãn sẵn có của bạn để lưu
     openTagActionModal(tagCode, displayName, 0, false);
 }
+
 // =========================================================================
 // PHÂN HỆ QUẢN TRỊ VIÊN: ADMIN PANEL ENGINE (BẢN UNIFIED ĐẦY ĐỦ 100%)
 // =========================================================================
 const adminPanelApp = {
     allThematicMetadata: [], // Biến đệm lưu trữ danh sách tag hệ thống trên RAM
     collapsedParentTags: new Set(), // Lưu danh sách các tag Cha đang ở trạng thái thu gọn
-
+    generateTagIdFromTitle(parentTagId, title) {
+        let cleanTitle = title.trim().toLowerCase();
+        
+        // Thuật toán băm chuỗi 32-bit đơn giản nhưng hiệu quả
+        let hash = 0;
+        for (let i = 0; i < cleanTitle.length; i++) {
+            let chr = cleanTitle.charCodeAt(i);
+            hash = ((hash << 5) - hash) + chr;
+            hash |= 0; // Ép về số nguyên 32-bit
+        }
+        
+        // Chuyển số nguyên dương sang chuỗi hệ cơ số 36 (Alphanumeric ngắn gọn)
+        const titleHash = Math.abs(hash).toString(36); 
+        
+        return `${parentTagId}_${titleHash}`;
+    },
     // 1. Kiểm duyệt quyền hạn và ẩn/hiện nút truy cập trên Sidebar
     checkAdminPrivileges() {
         const adminBtn = document.getElementById('sideMenuAdminBtn');
@@ -26136,7 +26152,7 @@ const adminPanelApp = {
         reader.readAsText(file);
     },
 
-    // 13. Thực thi đồng bộ và gán nhãn hàng loạt từ JSON
+    // 13. Thực thi đồng bộ và gán nhãn hàng loạt từ JSON (Bản nâng cấp băm tiêu đề)
     async importHierarchicalThematicJSON(jsonData) {
         const secret = localStorage.getItem('minddeck_admin_secret');
         if (!secret) return customAlert("Chưa cấu hình Khóa Bảo Mật Admin trên thiết bị này!", "🔑");
@@ -26147,10 +26163,11 @@ const adminPanelApp = {
         showLoading("Đang chuẩn bị quét dữ liệu sơ đồ gốc...");
 
         try {
+            // Bước A: Kiểm tra nhanh sơ đồ đã có trên RAM/Cache để định hình công việc
             const currentMetadata = await ensureThematicMetadataLoaded();
             const existingTagsSet = new Set(currentMetadata.map(m => m.tag_id));
 
-            // A. Khởi tạo Chủ đề Cha gốc
+            // 1. Tạo/Cập nhật Chủ đề Cha gốc (UPSERT phía SQLite D1)
             document.getElementById('loadingText').innerText = "Đang khởi tạo danh mục Cha gốc...";
             const parentRes = await fetch(`${DICT_API_URL}/api/admin/update-metadata`, {
                 method: 'POST',
@@ -26169,10 +26186,11 @@ const adminPanelApp = {
                 throw new Error(`Lỗi tạo bài Cha: ${err.error || parentRes.status}`);
             }
 
-            // B. Khởi tạo các Bài học con
+            // 2. Tạo/Cập nhật các bài học con tuần tự (Sử dụng Thuật toán Băm mới)
             for (let i = 0; i < jsonData.sections.length; i++) {
                 const sec = jsonData.sections[i];
-                const childTagId = `${parentTagId}_s${i + 1}`;
+                // Gọi hàm băm mới để sinh ID con an toàn chống trùng
+                const childTagId = this.generateTagIdFromTitle(parentTagId, sec.title);
                 
                 const exists = existingTagsSet.has(childTagId);
                 document.getElementById('loadingText').innerText = exists 
@@ -26210,10 +26228,11 @@ const adminPanelApp = {
             });
             if (!d1Response.ok) throw new Error("Không thể kết nối máy chủ từ điển D1.");
 
-            // D. Gán nhãn con và tự động dọn dẹp nhãn cha thừa
+            // D. Gán nhãn con và tự động dọn dẹp nhãn cha thừa (Sử dụng Thuật toán Băm mới)
             for (let i = 0; i < jsonData.sections.length; i++) {
                 const sec = jsonData.sections[i];
-                const childTagId = `${parentTagId}_s${i + 1}`;
+                // Gọi hàm băm mới để sinh ID con khớp với cấu trúc bước trên
+                const childTagId = this.generateTagIdFromTitle(parentTagId, sec.title);
                 
                 document.getElementById('loadingText').innerText = `Đang gán liên kết bài học con (${i+1}/${jsonData.sections.length})...`;
 
