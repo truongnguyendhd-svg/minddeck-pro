@@ -26458,28 +26458,56 @@ const adminPanelApp = {
         }
     },
 
-    // 15. Tìm kiếm từ vựng từ từ điển D1 kèm checkbox lựa chọn
+    // 15. Tìm kiếm từ vựng D1 (Tự động nhận diện dán Đoạn văn để bóc tách hàng loạt từ vựng)
     async executeWordSearch() {
         const query = document.getElementById('adminWordQueryInput').value.trim();
         const resultsBox = document.getElementById('adminWordSearchResults');
         
-        if (!query) return showToast("Nhập từ khóa cần tìm!");
+        if (!query) return showToast("Nhập từ hoặc dán đoạn văn bản cần bóc tách!");
 
-        resultsBox.innerHTML = '<div style="text-align:center; padding:20px; color:#718096;"><div class="spinner" style="margin:auto; border-top-color:#1d1d1f; width:24px; height:24px;"></div></div>';
+        resultsBox.innerHTML = '<div style="text-align:center; padding:20px; color:#718096;"><div class="spinner" style="margin:auto; border-top-color:#1d1d1f; width:24px; height:24px;"></div><p style="font-size:12px; margin-top:8px;">AI đang bóc tách và tra cứu từ vựng...</p></div>';
         document.getElementById('adminSelectAllWords').checked = false;
 
         try {
-            const response = await fetch(`${DICT_API_URL}/api/dict-search?query=${encodeURIComponent(query)}`);
-            if (!response.ok) throw new Error("Mất kết nối máy chủ D1");
+            // 1. SỬ DỤNG BỘ PHÂN TÁCH TỪ VỰNG NATIVE (INTL.SEGMENTER) CÓ SẴN TRÊN TRÌNH DUYỆT
+            const segmenter = new Intl.Segmenter("ja", { granularity: "word" });
+            const segments = [...segmenter.segment(query)];
+            
+            // Lọc bỏ dấu câu, khoảng trắng, chỉ giữ lại các từ có nghĩa thực sự
+            const words = segments.filter(s => s.isWordLike).map(s => s.segment.trim()).filter(Boolean);
+            const uniqueWords = [...new Set(words)];
 
-            const data = await response.json();
-            if (!data || data.length === 0) {
-                resultsBox.innerHTML = '<div style="text-align:center; color:#a0aec0; padding:30px; font-size:13px;">Không tìm thấy từ nào phù hợp.</div>';
+            let results = [];
+
+            // 2. PHÂN LUỒNG XỬ LÝ THÔNG MINH BẰNG JS
+            if (uniqueWords.length > 1) {
+                console.log(`[Admin Studio] Phát hiện văn bản dài. Kích hoạt bóc tách tự động cho ${uniqueWords.length} từ... 🚀`);
+                
+                // Gọi POST bulk-lookup để tra cứu nghĩa toàn bộ danh sách từ trong 1 nốt nhạc
+                const response = await fetch(`${DICT_API_URL}/api/bulk-lookup`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(uniqueWords)
+                });
+                if (!response.ok) throw new Error("Không thể kết nối máy chủ D1");
+                results = await response.json();
+            } else {
+                console.log(`[Admin Studio] Tra cứu đơn lẻ từ điển cho: "${query}" 🔍`);
+                
+                // Gọi GET tìm kiếm toàn văn FTS5 như cũ
+                const response = await fetch(`${DICT_API_URL}/api/dict-search?query=${encodeURIComponent(query)}`);
+                if (!response.ok) throw new Error("Không thể kết nối máy chủ D1");
+                results = await response.json();
+            }
+
+            // 3. VẼ KẾT QUẢ RA GIAO DIỆN
+            if (!results || results.length === 0) {
+                resultsBox.innerHTML = '<div style="text-align:center; color:#a0aec0; padding:30px; font-size:13px;">Không tìm thấy từ vựng tương thích trong từ điển hệ thống.</div>';
                 return;
             }
 
             let html = '';
-            data.forEach(w => {
+            results.forEach(w => {
                 const safeWord = w.word.replace(/'/g, "\\'");
                 html += `
                     <label style="display: flex; align-items: center; justify-content: space-between; background: #ffffff; border: 1px solid #edf2f7; border-radius: 8px; padding: 10px 15px; cursor: pointer; user-select: none;">
@@ -26500,7 +26528,7 @@ const adminPanelApp = {
 
         } catch (e) {
             console.error(e);
-            resultsBox.innerHTML = '<div style="text-align:center; color:#e53e3e; padding:15px; font-size:13px;">Tìm kiếm thất bại.</div>';
+            resultsBox.innerHTML = '<div style="text-align:center; color:#e53e3e; padding:15px; font-size:13px;">Đồng bộ dữ liệu bóc tách thất bại. Vui lòng thử lại!</div>';
         }
     },
 
