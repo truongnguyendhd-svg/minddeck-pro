@@ -25765,7 +25765,7 @@ async function executeSaveSingleSection(event, tagCode, displayName) {
 // =========================================================================
 const adminPanelApp = {
     allThematicMetadata: [], // Biến đệm lưu trữ danh sách tag hệ thống trên RAM
-    collapsedParentTags: new Set(), // Lưu danh sách các tag Cha đang ở trạng thái thu gọn
+    expandedParentTags: new Set(), 
     generateTagIdFromTitle(parentTagId, title) {
         let cleanTitle = title.trim().toLowerCase();
         
@@ -25853,33 +25853,35 @@ const adminPanelApp = {
         }
     },
 
-    // 5. Cơ chế Đóng/Mở nhanh Accordion danh mục cha
+    // Cơ chế Đóng/Mở nhanh Accordion danh mục cha (Mặc định thu gọn)
     toggleParentCollapse(tagId) {
         const container = document.getElementById(`children-container-${tagId}`);
         const chevron = document.querySelector(`.parent-chevron-${tagId}`);
         
         if (!container) return;
         
-        const isCurrentlyCollapsed = this.collapsedParentTags.has(tagId);
+        const isCurrentlyExpanded = this.expandedParentTags.has(tagId);
         
-        if (isCurrentlyCollapsed) {
-            this.collapsedParentTags.delete(tagId);
-            container.style.display = 'flex';
-            if (chevron) {
-                chevron.innerText = 'expand_more';
-                chevron.style.transform = 'rotate(0deg)';
-            }
-        } else {
-            this.collapsedParentTags.add(tagId);
+        if (isCurrentlyExpanded) {
+            // Đang mở -> Thu gọn lại (Đóng)
+            this.expandedParentTags.delete(tagId);
             container.style.display = 'none';
             if (chevron) {
                 chevron.innerText = 'chevron_right';
                 chevron.style.transform = 'rotate(-90deg)';
             }
+        } else {
+            // Đang đóng -> Mở ra
+            this.expandedParentTags.add(tagId);
+            container.style.display = 'flex';
+            if (chevron) {
+                chevron.innerText = 'expand_more';
+                chevron.style.transform = 'rotate(0deg)';
+            }
         }
     },
 
-    // 6. Dựng cấu trúc Sơ đồ Cây Giáo trình có tính năng Thu gọn/Mở rộng
+    // Dựng cấu trúc Sơ đồ Cây Giáo trình có tính năng Thu gọn mặc định
     renderMetadataTree() {
         const treeBox = document.getElementById('adminMetadataTree');
         const data = this.allThematicMetadata;
@@ -25902,9 +25904,10 @@ const adminPanelApp = {
             const safeParentId = p.tag_id.replace(/'/g, "\\'");
             const safeDisplayName = p.display_name.replace(/'/g, "\\'");
             
-            const isCollapsed = this.collapsedParentTags.has(p.tag_id);
-            const chevronIcon = isCollapsed ? 'chevron_right' : 'expand_more';
-            const rotateAngle = isCollapsed ? '-90deg' : '0deg';
+            // Mặc định là đóng (false) trừ khi có trong Set expandedParentTags
+            const isExpanded = this.expandedParentTags.has(p.tag_id);
+            const chevronIcon = isExpanded ? 'expand_more' : 'chevron_right';
+            const rotateAngle = isExpanded ? '0deg' : '-90deg';
 
             html += `
                 <!-- KHỐI KHAY CHỨA NHÓM SƠ ĐỒ CHA - CON -->
@@ -25932,8 +25935,8 @@ const adminPanelApp = {
                         </div>
                     </div>
                     
-                    <!-- CONTAINER CHỨA CÁC BÀI CON (ĐÓNG/MỞ KHÔNG GIAN THEO COllAPSE) -->
-                    <div id="children-container-${safeParentId}" style="display: ${isCollapsed ? 'none' : 'flex'}; flex-direction: column; gap: 8px;">
+                    <!-- CONTAINER CHỨA CÁC BÀI CON (MẶC ĐỊNH LÀ ĐÓNG - NONE) -->
+                    <div id="children-container-${safeParentId}" style="display: ${isExpanded ? 'flex' : 'none'}; flex-direction: column; gap: 8px;">
             `;
 
             // Vẽ các bài học con thụt lề bên trong container
