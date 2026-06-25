@@ -26458,7 +26458,7 @@ const adminPanelApp = {
         }
     },
 
-    // 15. Tìm kiếm từ vựng D1 (Tự động nhận diện dán Đoạn văn để bóc tách hàng loạt từ vựng)
+    // 15. Tìm kiếm từ vựng D1 (Bản nâng cấp bộc lộ nhãn gán hệ thống dịch dịch sang tiếng Việt)
     async executeWordSearch() {
         const query = document.getElementById('adminWordQueryInput').value.trim();
         const resultsBox = document.getElementById('adminWordSearchResults');
@@ -26469,21 +26469,16 @@ const adminPanelApp = {
         document.getElementById('adminSelectAllWords').checked = false;
 
         try {
-            // 1. SỬ DỤNG BỘ PHÂN TÁCH TỪ VỰNG NATIVE (INTL.SEGMENTER) CÓ SẴN TRÊN TRÌNH DUYỆT
+            // 1. Phân tách từ vựng tự động từ văn bản dán vào
             const segmenter = new Intl.Segmenter("ja", { granularity: "word" });
             const segments = [...segmenter.segment(query)];
-            
-            // Lọc bỏ dấu câu, khoảng trắng, chỉ giữ lại các từ có nghĩa thực sự
             const words = segments.filter(s => s.isWordLike).map(s => s.segment.trim()).filter(Boolean);
             const uniqueWords = [...new Set(words)];
 
             let results = [];
 
-            // 2. PHÂN LUỒNG XỬ LÝ THÔNG MINH BẰNG JS
+            // 2. Phân luồng xử lý truy vấn
             if (uniqueWords.length > 1) {
-                console.log(`[Admin Studio] Phát hiện văn bản dài. Kích hoạt bóc tách tự động cho ${uniqueWords.length} từ... 🚀`);
-                
-                // Gọi POST bulk-lookup để tra cứu nghĩa toàn bộ danh sách từ trong 1 nốt nhạc
                 const response = await fetch(`${DICT_API_URL}/api/bulk-lookup`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -26492,15 +26487,11 @@ const adminPanelApp = {
                 if (!response.ok) throw new Error("Không thể kết nối máy chủ D1");
                 results = await response.json();
             } else {
-                console.log(`[Admin Studio] Tra cứu đơn lẻ từ điển cho: "${query}" 🔍`);
-                
-                // Gọi GET tìm kiếm toàn văn FTS5 như cũ
                 const response = await fetch(`${DICT_API_URL}/api/dict-search?query=${encodeURIComponent(query)}`);
                 if (!response.ok) throw new Error("Không thể kết nối máy chủ D1");
                 results = await response.json();
             }
 
-            // 3. VẼ KẾT QUẢ RA GIAO DIỆN
             if (!results || results.length === 0) {
                 resultsBox.innerHTML = '<div style="text-align:center; color:#a0aec0; padding:30px; font-size:13px;">Không tìm thấy từ vựng tương thích trong từ điển hệ thống.</div>';
                 return;
@@ -26509,15 +26500,56 @@ const adminPanelApp = {
             let html = '';
             results.forEach(w => {
                 const safeWord = w.word.replace(/'/g, "\\'");
+                
+                // 3. THUẬT TOÁN BÓC TÁCH VÀ DỊCH NHÃN TAG SANG TIẾNG VIỆT
+                let tagsHTML = '';
+                if (w.tags && w.tags.trim() !== '') {
+                    // Tách chuỗi tag lưu trên D1 cách nhau bằng dấu phẩy
+                    const rawTags = w.tags.split(',').map(t => t.trim()).filter(Boolean);
+                    
+                    if (rawTags.length > 0) {
+                        tagsHTML = `<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; margin-bottom: 4px;">`;
+                        rawTags.forEach(tagId => {
+                            // Tra cứu chéo tên hiển thị tiếng Việt từ RAM sơ đồ cây
+                            const metaItem = adminPanelApp.allThematicMetadata.find(m => m.tag_id === tagId);
+                            const displayName = metaItem ? metaItem.display_name : tagId.replace(/^#/, '');
+                            
+                            tagsHTML += `
+                                <span style="background: #eff6ff; color: #0071e3; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; line-height: 1.2;" title="${escapeHTML(tagId)}">
+                                    ${escapeHTML(displayName)}
+                                </span>
+                            `;
+                        });
+                        tagsHTML += `</div>`;
+                    }
+                }
+
+                // Nếu từ chưa được gán nhãn nào từ trước
+                if (!tagsHTML) {
+                    tagsHTML = `
+                        <div style="display: flex; gap: 4px; margin-top: 6px; margin-bottom: 4px;">
+                            <span style="background: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; line-height: 1.2;">
+                                Chưa gán nhãn 🏷️
+                            </span>
+                        </div>
+                    `;
+                }
+
+                // 4. RENDER THẺ TỪ VỰNG PHẲNG (ĐẨY TAGS LÊN ĐẦU, THU NHỎ NGHĨA)
                 html += `
-                    <label style="display: flex; align-items: center; justify-content: space-between; background: #ffffff; border: 1px solid #edf2f7; border-radius: 8px; padding: 10px 15px; cursor: pointer; user-select: none;">
+                    <label style="display: flex; align-items: center; justify-content: space-between; background: #ffffff; border: 1px solid #edf2f7; border-radius: 8px; padding: 12px 15px; cursor: pointer; user-select: none;">
                         <div style="display:flex; flex-direction:column; text-align:left; overflow:hidden; flex:1; padding-right:10px;">
-                            <b style="font-size: 15px; color:#1d1d1f; font-family:'Noto Sans JP', sans-serif;">
+                            <b style="font-size: 15px; color:#1d1d1f; font-family:'Noto Sans JP', sans-serif; line-height: 1.2;">
                                 ${escapeHTML(w.word)} 
                                 ${w.reading ? `<span style="font-weight:600; color:#3b82f6; font-size:12px; margin-left:6px;">(${escapeHTML(w.reading)})</span>` : ''}
                             </b>
-                            <span style="font-size: 13px; color:#718096; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:250px;" title="${escapeHTML(w.meaning)}">
-                                ${escapeHTML(w.meaning)}
+                            
+                            <!-- NHÃN CHỦ ĐỀ ĐANG GÁN (HIỂN THỊ CHÍNH) -->
+                            ${tagsHTML}
+                            
+                            <!-- NGHĨA TỪ ĐIỂN (HIỂN THỊ PHỤ Ở ĐÁY) -->
+                            <span style="font-size: 12px; color:#a0aec0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:250px; margin-top:4px;" title="${escapeHTML(w.meaning)}">
+                                Nghĩa: ${escapeHTML(w.meaning)}
                             </span>
                         </div>
                         <input type="checkbox" class="admin-word-check" value="${escapeHTML(w.word)}" style="width:18px; height:18px; margin: 0; flex-shrink:0;">
