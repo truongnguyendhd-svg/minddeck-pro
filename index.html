@@ -17950,40 +17950,35 @@ function toggleCustomSelect(containerId) {
 
 // 2. Xử lý khi click vào một lựa chọn
 function selectCustomOption(containerId, inputId, textId, value, rawName, iconName) {
-    // Lưu giá trị thật vào input ẩn
     document.getElementById(inputId).value = value;
-    
-    // Đổi text hiển thị (Kèm luôn icon cho đẹp)
-// Đổi text hiển thị (Thêm class chống tràn chữ)
     document.getElementById(textId).innerHTML = `
         <span class="material-symbols-outlined" style="font-size:18px; flex-shrink: 0;">${iconName}</span> 
         <span class="custom-option-text" title="${rawName}">${rawName}</span>
     `;
-    
-    // Ép khung chứa text không được phình ra
-    document.getElementById(textId).style.display = 'flex';
-    document.getElementById(textId).style.alignItems = 'center';
-    document.getElementById(textId).style.gap = '8px';
-    document.getElementById(textId).style.width = '100%';
-    document.getElementById(textId).style.overflow = 'hidden';    
-    // Đóng dropdown
-    document.getElementById(containerId).classList.remove('open');
-    
-    // Xóa class 'selected' ở thẻ cũ, thêm vào thẻ mới
     const container = document.getElementById(containerId);
+    container.classList.remove('open');
     container.querySelectorAll('.custom-option').forEach(el => el.classList.remove('selected'));
-    event.currentTarget.classList.add('selected');
-    // 🟢 CODE MỚI: Ẩn hiện ô nhập Text
+    
+    // ĐỒNG BỘ TRẠNG THÁI CHECKBOX NẾU CÓ (Dành riêng cho bộ chọn Admin)
+    const checkboxes = container.querySelectorAll('.dropdown-tag-checkbox');
+    if (checkboxes.length > 0) {
+        checkboxes.forEach(cb => {
+            cb.checked = (cb.value === value);
+        });
+    }
+
+    // Giữ nguyên các dòng code logic mở rộng phía dưới của hàm...
     let wrapperId = '';
     if (containerId === 'dictDeckContainer') wrapperId = 'newDeckNameWrapper_Dict';
     if (containerId === 'aiQuizContainer') wrapperId = 'newDeckNameWrapper_Quiz';
     if (containerId === 'bskDeckContainer') wrapperId = 'newDeckNameWrapper_Bulk';
+    if (containerId === 'adminTagSelectContainer') wrapperId = ''; // Không cần ô nhập text mới
 
     if (wrapperId) {
         const wrapper = document.getElementById(wrapperId);
         if (value === '__AUTO_NEW_DECK__') {
             wrapper.style.display = 'block';
-            setTimeout(() => document.getElementById(wrapperId.replace('Wrapper', 'Input')).focus(), 50); // Tự động focus vào ô gõ chữ
+            setTimeout(() => document.getElementById(wrapperId.replace('Wrapper', 'Input')).focus(), 50);
         } else {
             wrapper.style.display = 'none';
         }
@@ -26267,7 +26262,7 @@ const adminPanelApp = {
         }
     },
 
-    // 14. Thiết lập Custom Dropdown chứa các tag gán từ (Bản nâng cấp phân cấp mục lục & 1 Icon)
+    // 14. Thiết lập Custom Dropdown chứa các tag gán từ (Mặc định thu gọn, tích chọn Checkbox đầu dòng)
     initTaggingWorkspace() {
         document.getElementById('adminWordQueryInput').value = '';
         document.getElementById('adminWordSearchResults').innerHTML = '<div style="text-align:center; color:#a0aec0; padding:30px; font-size:13px;">Nhập từ khóa bên cạnh để bắt đầu...</div>';
@@ -26280,7 +26275,6 @@ const adminPanelApp = {
         inputEl.value = '';
         textEl.innerText = '-- Chọn chủ đề gán từ --';
 
-        // Tách chủ đề Cha và bài học Con từ RAM
         const parents = this.allThematicMetadata.filter(item => !item.parent_id);
         const children = this.allThematicMetadata.filter(item => item.parent_id);
 
@@ -26290,35 +26284,106 @@ const adminPanelApp = {
             const safeParentId = p.tag_id.replace(/'/g, "\\'");
             const safeParentName = p.display_name.replace(/'/g, "\\'");
 
-            // 1. VẼ DÒNG CHA (Nền xám nhạt nổi bật, chữ đậm, Icon Thư mục xanh dương)
+            // DÒNG CHA: Chỉ bấm ô Checkbox mới kích hoạt chọn. Bấm vào tiêu đề chỉ đóng/mở con
             html += `
-                <div class="custom-option" style="background: #f8fafc; border-bottom: 1px solid #edf2f7; font-weight: 800;" 
-                     onclick="selectCustomOption('adminTagSelectContainer', 'adminTagSelectInput', 'adminTagSelectText', '${p.tag_id}', '${safeParentName}', 'folder')">
-                    <span class="material-symbols-outlined" style="color: #0071e3; margin-right: 8px;">folder</span>
-                    <span class="custom-option-text" style="color: #1d1d1f; font-size: 14px;">${escapeHTML(p.display_name)}</span>
+                <div class="custom-option" style="background: #f8fafc; border-bottom: 1px solid #edf2f7; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: space-between;" 
+                     onclick="adminPanelApp.toggleDropdownParentCollapse(event, '${safeParentId}')">
+                    
+                    <div style="display: flex; align-items: center; gap: 8px;" onclick="event.stopPropagation();">
+                        <!-- Checkbox đầu dòng để chọn -->
+                        <input type="checkbox" class="dropdown-tag-checkbox" value="${safeParentId}" 
+                               onchange="adminPanelApp.handleDropdownCheckboxChange(this, '${safeParentId}', '${safeParentName}', 'folder')">
+                        
+                        <span class="material-symbols-outlined dropdown-chevron-${safeParentId}" style="color: #86868b; transition: transform 0.2s;">chevron_right</span>
+                        <span class="material-symbols-outlined" style="color: #0071e3;">folder</span>
+                        <span class="custom-option-text" style="color: #1d1d1f; font-size: 14px;">${escapeHTML(p.display_name)}</span>
+                    </div>
                 </div>
+                
+                <!-- CONTAINER BÀI HỌC CON (MẶC ĐỊNH ẨN TOÀN BỘkHI MỚI MỞ DROPDOWN) -->
+                <div id="dropdown-children-${safeParentId}" style="display: none; flex-direction: column;">
             `;
 
-            // Lọc ra các bài học con thuộc về chủ đề Cha này và sắp xếp
             const subItems = children.filter(c => c.parent_id === p.tag_id)
                                      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
-            // 2. VẼ DÒNG CON (Thụt lề padding-left, Icon mũi tên rẽ nhánh xám nhạt, không emoji)
+            // DÒNG CON: Bấm vào chữ hoặc tick chọn checkbox đều kích hoạt chọn nhãn
             subItems.forEach(c => {
                 const safeChildId = c.tag_id.replace(/'/g, "\\'");
                 const safeChildName = c.display_name.replace(/'/g, "\\'");
 
                 html += `
-                    <div class="custom-option" style="padding-left: 28px;" 
-                         onclick="selectCustomOption('adminTagSelectContainer', 'adminTagSelectInput', 'adminTagSelectText', '${c.tag_id}', '${safeChildName}', 'subdirectory_arrow_right')">
-                        <span class="material-symbols-outlined" style="color: #cbd5e0; margin-right: 6px; font-size: 18px;">subdirectory_arrow_right</span>
-                        <span class="custom-option-text" style="color: #4a5568; font-size: 13px; font-weight: 500;">${escapeHTML(c.display_name)}</span>
+                    <div class="custom-option" style="padding-left: 28px; display: flex; align-items: center; cursor: pointer;" 
+                         onclick="adminPanelApp.handleDropdownChildClick(event, this, '${safeChildId}', '${safeChildName}')">
+                        <div style="display: flex; align-items: center; gap: 8px;" onclick="event.stopPropagation();">
+                            <input type="checkbox" class="dropdown-tag-checkbox" value="${safeChildId}" 
+                                   onchange="adminPanelApp.handleDropdownCheckboxChange(this, '${safeChildId}', '${safeChildName}', 'subdirectory_arrow_right')">
+                            
+                            <span class="material-symbols-outlined" style="color: #cbd5e0; font-size: 18px;">subdirectory_arrow_right</span>
+                            <span class="custom-option-text" style="color: #4a5568; font-size: 13px; font-weight: 500;">${escapeHTML(c.display_name)}</span>
+                        </div>
                     </div>
                 `;
             });
+
+            html += `</div>`; // Đóng container con
         });
 
         optionsEl.innerHTML = html;
+    },
+// 14.1. Cơ chế đóng/mở danh mục bài con NGAY TRONG DROPDOWN (Không đóng menu)
+    toggleDropdownParentCollapse(event, tagId) {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation(); // Chặn bọt sự kiện để không tự đóng dropdown select
+        }
+        const container = document.getElementById(`dropdown-children-${tagId}`);
+        const chevron = document.querySelector(`.dropdown-chevron-${tagId}`);
+        if (!container) return;
+        
+        const isHidden = container.style.display === 'none';
+        if (isHidden) {
+            container.style.display = 'flex';
+            if (chevron) {
+                chevron.innerText = 'expand_more';
+                chevron.style.transform = 'rotate(0deg)';
+            }
+        } else {
+            container.style.display = 'none';
+            if (chevron) {
+                chevron.innerText = 'chevron_right';
+                chevron.style.transform = 'rotate(-90deg)';
+            }
+        }
+    },
+// 14.2. Xử lý khi click thay đổi trạng thái ô Checkbox (Mutually Exclusive - Chọn 1 ngắt các ô khác)
+    handleDropdownCheckboxChange(checkboxEl, tagId, displayName, iconName) {
+        if (checkboxEl.checked) {
+            // Gỡ bỏ tích chọn ở toàn bộ các ô khác trong dropdown gán nhãn
+            document.querySelectorAll('#adminTagSelectOptions .dropdown-tag-checkbox').forEach(cb => {
+                if (cb !== checkboxEl) cb.checked = false;
+            });
+            
+            // Đổ giá trị được chọn vào Trigger chính và đóng menu
+            selectCustomOption('adminTagSelectContainer', 'adminTagSelectInput', 'adminTagSelectText', tagId, displayName, iconName);
+        } else {
+            // Nếu bỏ tích chọn, đưa bộ lọc về mặc định rỗng
+            document.getElementById('adminTagSelectInput').value = '';
+            document.getElementById('adminTagSelectText').innerHTML = '-- Chọn chủ đề gán từ --';
+        }
+    },
+
+    // 14.3. Xử lý khi click vào thân bài học con (Tự động tích chọn checkbox và nộp dữ liệu)
+    handleDropdownChildClick(event, rowEl, tagId, displayName) {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        const cb = rowEl.querySelector('.dropdown-tag-checkbox');
+        if (cb) {
+            cb.checked = !cb.checked;
+            this.handleDropdownCheckboxChange(cb, tagId, displayName, 'subdirectory_arrow_right');
+        }
     },
 
     // 15. Tìm kiếm từ vựng từ từ điển D1 kèm checkbox lựa chọn
