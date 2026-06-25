@@ -7321,6 +7321,11 @@ body.shadowing-mode #shadowingPage {
                     <span class="material-symbols-outlined" style="font-size: 18px; color: #e53e3e;">key</span> Cấu hình khóa xác thực Admin
                 </div>
                 <div style="font-size: 12px; color: #718096; margin-top: 2px;">Khóa bảo mật sẽ được lưu cục bộ dưới trình duyệt máy khách để ký xác thực các yêu cầu ghi D1.</div>
+                
+                <!-- NÚT LÀM SẠCH DATABASE D1 MỚI THÊM -->
+                <button onclick="adminPanelApp.sanitizeD1Database()" class="win11-btn-secondary" style="margin-top: 10px; display: flex; align-items: center; gap: 6px; color: #e53e3e; border-color: #fee2e2; background: #fff5f5; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700;">
+                    <span class="material-symbols-outlined" style="font-size: 16px; color: #e53e3e;">cleaning_services</span> LÀM SẠCH DATABASE D1
+                </button>
             </div>
             <input type="password" id="adminSecretKeyInput" class="win11-input" placeholder="Nhập ADMIN_SECRET_KEY..." style="max-width: 250px; margin-bottom: 0;" oninput="localStorage.setItem('minddeck_admin_secret', this.value)">
         </div>
@@ -26619,6 +26624,49 @@ const adminPanelApp = {
             hideLoading();
             console.error(err);
             customAlert("Thao tác thất bại: " + err.message, "❌ Lỗi bảo mật");
+        }
+    }
+    // 18. Gửi yêu cầu dọn dẹp và chuẩn hóa nhãn trùng lặp tận gốc dưới Database D1
+    async sanitizeD1Database() {
+        const secret = localStorage.getItem('minddeck_admin_secret');
+        if (!secret) return customAlert("Chưa cấu hình Khóa Bảo Mật Admin để thực hiện tác vụ này!", "🔑");
+
+        const ok = await showConfirm(
+            "Dọn sạch Database D1? 🧹",
+            "Hệ thống sẽ quét toàn bộ cột \`tags\` của từ điển trên máy chủ D1, giải nén và lọc trùng lặp tuyệt đối bằng JS, sau đó lưu đè bản sạch ngược lại SQLite.<br><br>Hành động này giúp loại bỏ hoàn toàn nhãn rác mồ côi.",
+            "Bắt đầu dọn dẹp"
+        );
+        if (!ok) return;
+
+        showLoading("Đang tối ưu và dọn dẹp nhãn trùng lặp dưới D1...");
+
+        try {
+            const response = await fetch(`${DICT_API_URL}/api/admin/sanitize-db-tags`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${secret}`
+                }
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.error || `HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            hideLoading();
+
+            if (data.total_cleaned > 0) {
+                customAlert(`🎉 <b>Dọn dẹp thành công!</b><br><br>Hệ thống đã chuẩn hóa và làm sạch triệt để nhãn trùng lặp cho <b>${data.total_cleaned} từ vựng</b> trên máy chủ SQLite D1!`, "Hoàn tất dọn dẹp", "success");
+            } else {
+                customAlert("✅ <b>Cơ sở dữ liệu đã sạch!</b><br><br>Hệ thống không phát hiện từ vựng nào bị trùng lặp nhãn. Dữ liệu từ điển gốc của bạn đang ở trạng thái tối ưu nhất.", "Thông báo", "success");
+            }
+
+        } catch (err) {
+            hideLoading();
+            console.error("Lỗi dọn dẹp D1:", err);
+            customAlert("Dọn dẹp thất bại: " + err.message, "❌ Lỗi hệ thống");
         }
     }
 };
