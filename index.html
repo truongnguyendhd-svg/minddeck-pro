@@ -26262,7 +26262,7 @@ const adminPanelApp = {
         }
     },
 
-    // 14. Thiết lập Custom Dropdown chứa các tag gán từ (Bản tích hợp Sticky Search Bar)
+    // 14. Thiết lập Custom Dropdown chứa các tag gán từ (Bản vá lỗi tìm kiếm sử dụng data-attribute)
     initTaggingWorkspace() {
         document.getElementById('adminWordQueryInput').value = '';
         document.getElementById('adminWordSearchResults').innerHTML = '<div style="text-align:center; color:#a0aec0; padding:30px; font-size:13px;">Nhập từ khóa bên cạnh để bắt đầu...</div>';
@@ -26278,7 +26278,7 @@ const adminPanelApp = {
         const parents = this.allThematicMetadata.filter(item => !item.parent_id);
         const children = this.allThematicMetadata.filter(item => item.parent_id);
 
-        // VẼ THANH SEARCH GHIM TRẦN (STICKY) Ở NGAY NÓC DROPDOWN
+        // VẼ THANH SEARCH GHIM TRẦN
         let html = `
             <div style="position: sticky; top: -6px; margin-top: -6px; padding-top: 6px; background: #ffffff; padding-bottom: 8px; margin-bottom: 8px; z-index: 100; border-bottom: 1px solid #edf2f7;" onclick="event.stopPropagation();">
                 <div style="display: flex; align-items: center; background: #f1f5f9; border-radius: 8px; padding: 4px 10px; border: 1px solid #e2e8f0;">
@@ -26293,10 +26293,11 @@ const adminPanelApp = {
         parents.forEach(p => {
             const safeParentId = p.tag_id.replace(/'/g, "\\'");
             const safeParentName = p.display_name.replace(/'/g, "\\'");
+            const safeId = p.tag_id.replace('#', ''); // Dọn sạch dấu # ra khỏi ID phần tử HTML
 
-            // DÒNG CHA (Bổ sung class parent-dropdown-row để JS lọc)
+            // DÒNG CHA (Sử dụng data-tag-id độc lập)
             html += `
-                <div class="custom-option parent-dropdown-row parent-option-${safeParentId}" style="background: #f8fafc; border-bottom: 1px solid #edf2f7; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 8px;" 
+                <div class="custom-option parent-dropdown-row" data-tag-id="${safeParentId}" style="background: #f8fafc; border-bottom: 1px solid #edf2f7; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 8px;" 
                      onclick="adminPanelApp.toggleDropdownParentCollapse(event, '${safeParentId}')">
                     
                     <input type="checkbox" class="dropdown-tag-checkbox" value="${safeParentId}" 
@@ -26304,25 +26305,25 @@ const adminPanelApp = {
                            onchange="adminPanelApp.handleDropdownCheckboxChange(this, '${safeParentId}', '${safeParentName}', 'folder')"
                            style="width: 16px; height: 16px; margin: 0; flex-shrink: 0; cursor: pointer;">
                     
-                    <span class="material-symbols-outlined dropdown-chevron-${safeParentId}" style="color: #86868b; flex-shrink: 0;">chevron_right</span>
+                    <span class="material-symbols-outlined dropdown-chevron-${safeId}" style="color: #86868b; flex-shrink: 0;">chevron_right</span>
                     <span class="material-symbols-outlined" style="color: #0071e3; flex-shrink: 0;">folder</span>
                     <span class="custom-option-text" style="color: #1d1d1f; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; text-align: left;">${escapeHTML(p.display_name)}</span>
                 </div>
                 
                 <!-- CONTAINER BÀI HỌC CON -->
-                <div id="dropdown-children-${safeParentId}" style="display: none; flex-direction: column;">
+                <div id="dropdown-children-${safeId}" style="display: none; flex-direction: column;">
             `;
 
             const subItems = children.filter(c => c.parent_id === p.tag_id)
                                      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
-            // DÒNG CON (Bổ sung class child-dropdown-row)
+            // DÒNG CON (Sử dụng data-tag-id độc lập)
             subItems.forEach(c => {
                 const safeChildId = c.tag_id.replace(/'/g, "\\'");
                 const safeChildName = c.display_name.replace(/'/g, "\\'");
 
                 html += `
-                    <div class="custom-option child-dropdown-row child-option-${safeChildId}" style="padding-left: 28px; display: flex; align-items: center; gap: 8px; cursor: pointer;" 
+                    <div class="custom-option child-dropdown-row" data-tag-id="${safeChildId}" style="padding-left: 28px; display: flex; align-items: center; gap: 8px; cursor: pointer;" 
                          onclick="adminPanelApp.handleDropdownChildClick(event, this, '${safeChildId}', '${safeChildName}')">
                         
                         <input type="checkbox" class="dropdown-tag-checkbox" value="${safeChildId}" 
@@ -26341,16 +26342,18 @@ const adminPanelApp = {
 
         optionsEl.innerHTML = html;
     },
-    // Thuật toán lọc trực tiếp trong Dropdown (Gõ con tự động bung rộng Cha)
+    // Thuật toán lọc trực tiếp trong Dropdown (Sửa lỗi sử dụng thuộc tính [data-tag-id])
     filterTagDropdown(query) {
         const cleanQuery = query.toLowerCase().trim();
         const parents = this.allThematicMetadata.filter(item => !item.parent_id);
         const children = this.allThematicMetadata.filter(item => item.parent_id);
 
         parents.forEach(p => {
-            const safeParentId = p.tag_id.replace(/'/g, "\\'");
-            const parentRow = document.querySelector(`.parent-option-${safeParentId}`);
-            const childrenContainer = document.getElementById(`dropdown-children-${safeParentId}`);
+            const safeId = p.tag_id.replace('#', '');
+            
+            // Tìm dòng bằng thuộc tính [data-tag-id] thay vì tìm bằng class có dấu #
+            const parentRow = document.querySelector(`.parent-dropdown-row[data-tag-id="${p.tag_id}"]`);
+            const childrenContainer = document.getElementById(`dropdown-children-${safeId}`);
             if (!parentRow) return;
 
             const parentMatches = p.display_name.toLowerCase().includes(cleanQuery) || p.tag_id.toLowerCase().includes(cleanQuery);
@@ -26359,8 +26362,8 @@ const adminPanelApp = {
             let anyChildMatches = false;
 
             subItems.forEach(c => {
-                const safeChildId = c.tag_id.replace(/'/g, "\\'");
-                const childRow = document.querySelector(`.child-option-${safeChildId}`);
+                // Tìm dòng con bằng thuộc tính [data-tag-id]
+                const childRow = document.querySelector(`.child-dropdown-row[data-tag-id="${c.tag_id}"]`);
                 if (!childRow) return;
 
                 const childMatches = c.display_name.toLowerCase().includes(cleanQuery) || c.tag_id.toLowerCase().includes(cleanQuery);
@@ -26372,16 +26375,25 @@ const adminPanelApp = {
                 }
             });
 
+            // Hiển thị hoặc ẩn khối Cha
             if (parentMatches || anyChildMatches) {
                 parentRow.style.display = 'flex';
                 
-                // NẾU CÓ BÀI CON KHỚP TỪ KHÓA -> TỰ ĐỘNG BUNG RỘNG (EXPAND) THƯ MỤC CHA
+                // Tự động mở rộng (Expand) nếu có con khớp từ khóa
                 if (anyChildMatches && cleanQuery) {
-                    childrenContainer.style.display = 'flex';
-                    const chevron = document.querySelector(`.dropdown-chevron-${safeParentId}`);
+                    if (childrenContainer) childrenContainer.style.display = 'flex';
+                    const chevron = document.querySelector(`.dropdown-chevron-${safeId}`);
                     if (chevron) {
                         chevron.innerText = 'expand_more';
                         chevron.style.transform = 'rotate(0deg)';
+                    }
+                } else if (!cleanQuery) {
+                    // Nếu xóa hết chữ ô tìm kiếm -> tự động thu gọn lại (Collapsed) về mặc định
+                    if (childrenContainer) childrenContainer.style.display = 'none';
+                    const chevron = document.querySelector(`.dropdown-chevron-${safeId}`);
+                    if (chevron) {
+                        chevron.innerText = 'chevron_right';
+                        chevron.style.transform = 'rotate(-90deg)';
                     }
                 }
             } else {
@@ -26390,14 +26402,15 @@ const adminPanelApp = {
             }
         });
     },
-// 14.1. Cơ chế đóng/mở danh mục bài con NGAY TRONG DROPDOWN (Không đóng menu)
+// 14.1. Cơ chế đóng/mở danh mục bài con ngay trong dropdown
     toggleDropdownParentCollapse(event, tagId) {
         if (event) {
             event.preventDefault();
-            event.stopPropagation(); // Chặn bọt sự kiện để không tự đóng dropdown select
+            event.stopPropagation();
         }
-        const container = document.getElementById(`dropdown-children-${tagId}`);
-        const chevron = document.querySelector(`.dropdown-chevron-${tagId}`);
+        const safeId = tagId.replace('#', ''); // Đồng bộ dọn sạch dấu #
+        const container = document.getElementById(`dropdown-children-${safeId}`);
+        const chevron = document.querySelector(`.dropdown-chevron-${safeId}`);
         if (!container) return;
         
         const isHidden = container.style.display === 'none';
