@@ -16254,49 +16254,48 @@ window.toggleAIGeneratorZone = function() {
 };
 
 // 2. Hàm vẽ Đám mây chủ đề trên trang chủ (Home Page)
+// Khai báo biến lưu trạng thái lọc giáo trình toàn cục ở đầu script
+window.currentCurriculumLevelFilter = window.currentCurriculumLevelFilter || 'ALL';
+
 async function renderThematicTagCloud() {
     const zone = document.getElementById('thematicTagsZone');
     if (!currentUser) return;
 
     try {
-        // Tải trước metadata
+        // Tải trước metadata từ bộ nhớ đệm (0ms)
         const metadata = await ensureThematicMetadataLoaded();
         
-        // Quét danh sách các tag học viên ĐANG HỌC thực tế từ RAM
-        const activeMap = userKanjiMasteryMap || {};
-        const userTagsCacheKey = `minddeck_thematic_tags_cache_${currentUser.id}`;
-        
-        // Đọc danh sách tag thực tế của học viên từ cache
-        const cachedUserTags = localStorage.getItem(userTagsCacheKey);
-        let userTagCounts = {};
-        let userTagDisplays = {};
-
-        if (cachedUserTags) {
-            const parsed = JSON.parse(cachedUserTags);
-            userTagCounts = parsed.tagCounts || {};
-            userTagDisplays = parsed.tagDisplays || {};
-        }
-
-        // Tạo cấu trúc phân nhóm
         let htmlGeneral = '';
         let htmlCurriculum = '';
         let htmlUserActive = '';
 
-        // Hàm lọc bỏ biểu tượng cảm xúc ở đầu chuỗi (đảm bảo chỉ hiển thị văn bản thuần túy)
-        const stripLeadingEmoji = (displayName) => {
-            const emojiRegex = /^([\u{1F300}-\u{1F9FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F1E6}-\u{1F1FF}]|[\u{1F900}-\u{1F9FF}]|[\u{1F300}-\u{1F5FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}])/u;
-            return displayName.replace(emojiRegex, '').trim();
+        // Thuật toán tự động nhận diện cấp độ JLPT từ thông tin giáo trình
+        const getJLPTLevel = (item) => {
+            const str = (item.display_name + " " + item.tag_id + " " + (item.search_keywords || "")).toUpperCase();
+            if (str.includes("N1")) return "N1";
+            if (str.includes("N2")) return "N2";
+            if (str.includes("N3")) return "N3";
+            if (str.includes("N4")) return "N4";
+            if (str.includes("N5")) return "N5";
+            return null;
         };
 
-        // 🟢 CHỐT CHẶN BẢO VỆ: Chỉ lấy các chủ đề CHA (parent_id là null/rỗng) để vẽ lên Đám mây
         const parentMetadata = metadata.filter(item => !item.parent_id);
+        const children = metadata.filter(item => item.parent_id);
 
-        // A. VẼ DANH MỤC HỆ THỐNG (PRE-DEFINED TAGS)
         parentMetadata.forEach(item => {
             const tagCode = item.tag_id;
             const displayName = item.display_name;
             const isCurriculum = item.category === 'Giáo trình';
             
+            // 🟢 BỘ LỌC CẤP ĐỘ: Nếu đang chọn lọc cấp độ cụ thể và đây là Giáo trình
+            if (isCurriculum && window.currentCurriculumLevelFilter !== 'ALL') {
+                const itemLvl = getJLPTLevel(item);
+                if (itemLvl !== window.currentCurriculumLevelFilter) {
+                    return; // Bỏ qua không vẽ thẻ này
+                }
+            }
+
             // Kiểm tra sở hữu bộ bài
             const deckName = isCurriculum ? displayName : `Chủ đề: ${displayName}`;
             const isOwned = Object.keys(globalDeckStatsMap).some(id => getCleanName(id) === displayName || getCleanName(id) === deckName);
@@ -16315,10 +16314,20 @@ async function renderThematicTagCloud() {
             else htmlGeneral += pillHTML;
         });
 
-        // B. VẼ DANH MỤC ĐANG HỌC CỦA HỌC VIÊN
+        // Đọc danh sách các tag học viên đang học từ cache
+        const userTagsCacheKey = `minddeck_thematic_tags_cache_${currentUser.id}`;
+        const cachedUserTags = localStorage.getItem(userTagsCacheKey);
+        let userTagCounts = {};
+        let userTagDisplays = {};
+
+        if (cachedUserTags) {
+            const parsed = JSON.parse(cachedUserTags);
+            userTagCounts = parsed.tagCounts || {};
+            userTagDisplays = parsed.tagDisplays || {};
+        }
+
         let userActiveTagsCount = 0;
         for (const [tag, count] of Object.entries(userTagCounts)) {
-            // Chỉ hiện các tag tự tạo bằng AI (không trùng với danh sách hệ thống)
             if (!metadata.some(m => m.tag_id === tag)) {
                 userActiveTagsCount++;
                 const cleanDisplay = (userTagDisplays[tag] || tag).replace(/^#/, '');
@@ -16333,7 +16342,7 @@ async function renderThematicTagCloud() {
             }
         }
 
-        // Ghép nối cấu trúc UI hoàn thiện
+        // DỰNG GIAO DIỆN CHÍNH (TÍCH HỢP BỘ LỌC CHUẨN ACCORDION VÀO HEADER GIÁO TRÌNH)
         let finalHTML = `
             <div style="width: 100%; text-align: left; margin-bottom: 20px;">
                 <div style="font-size: 12px; font-weight: 800; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
@@ -16345,12 +16354,34 @@ async function renderThematicTagCloud() {
                     <button class="carousel-arrow arrow-right" onclick="scrollCarousel('carousel-general', 1)"><span class="material-symbols-outlined">chevron_right</span></button>
                 </div>
 
-                <div style="font-size: 12px; font-weight: 800; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
-                    <span class="material-symbols-outlined" style="font-size: 16px;">menu_book</span> HỌC THEO GIÁO TRÌNH NĂNG LỰC
+                <!-- TIÊU ĐỀ PHÂN HỆ GIÁO TRÌNH VÀ BỘ LỌC LEVEL MỚI -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                    <div style="font-size: 12px; font-weight: 800; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">menu_book</span> HỌC THEO GIÁO TRÌNH NĂNG LỰC
+                    </div>
+                    
+                    <!-- BỘ LỌC PILLS PHẲNG KHÔNG GÂY RỐI MẮT -->
+                    <div class="grammar-filter-bar" id="curriculumFilterBar" style="margin: 0; padding: 0; display: flex; gap: 6px; overflow: visible; border: none; box-shadow: none; background: transparent;">
+                        ${['ALL', 'N1', 'N2', 'N3', 'N4', 'N5'].map(lvl => {
+                            const isActive = window.currentCurriculumLevelFilter === lvl;
+                            const text = lvl === 'ALL' ? 'Tất cả' : lvl;
+                            return `
+                                <div class="grammar-pill ${isActive ? 'active' : ''}" 
+                                     onclick="filterCurriculumByLevel('${lvl}')" 
+                                     style="padding: 4px 12px !important; font-size: 11px !important; font-weight: 700; border-radius: 50px; cursor: pointer; border: 1px solid ${isActive ? '#1d1d1f' : '#cbd5e0'};">
+                                    ${text}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
                 </div>
+
+                <!-- CAROUSEL GIÁO TRÌNH ĐÃ ĐƯỢC LỌC -->
                 <div class="carousel-wrapper">
                     <button class="carousel-arrow arrow-left" onclick="scrollCarousel('carousel-curriculum', -1)"><span class="material-symbols-outlined">chevron_left</span></button>
-                    <div id="carousel-curriculum" class="thematic-tags-container">${htmlCurriculum}</div>
+                    <div id="carousel-curriculum" class="thematic-tags-container">
+                        ${htmlCurriculum || '<div style="color: #a0aec0; padding: 40px; text-align: center; width: 100%; font-size: 13px; font-weight: 600; background:#f8fafc; border-radius:16px;">Không có giáo trình nào thuộc cấp độ này.</div>'}
+                    </div>
                     <button class="carousel-arrow arrow-right" onclick="scrollCarousel('carousel-curriculum', 1)"><span class="material-symbols-outlined">chevron_right</span></button>
                 </div>
 
@@ -16372,6 +16403,11 @@ async function renderThematicTagCloud() {
         console.error("Lỗi dựng đám mây tag:", e);
     }
 }
+// Hàm kích hoạt lọc giáo trình theo Level trực tiếp trên RAM (0ms)
+window.filterCurriculumByLevel = function(level) {
+    window.currentCurriculumLevelFilter = level;
+    renderThematicTagCloud(); // Vẽ lại giao diện tức thì từ cache
+};
 // Hàm điều khiển trượt thanh cuộn bằng nút bấm
 window.scrollCarousel = function(containerId, direction) {
     const container = document.getElementById(containerId);
