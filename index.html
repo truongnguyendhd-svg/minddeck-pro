@@ -16258,6 +16258,9 @@ async function renderThematicTagCloud() {
     const zone = document.getElementById('thematicTagsZone');
     if (!currentUser) return;
 
+    // Đảm bảo luôn có bộ lọc mặc định là hiển thị 'Tất cả'
+    window.currentCurriculumFilter = window.currentCurriculumFilter || 'ALL';
+
     try {
         // Tải trước metadata
         const metadata = await ensureThematicMetadataLoaded();
@@ -16311,7 +16314,13 @@ async function renderThematicTagCloud() {
                 </div>
             `;
 
-            if (isCurriculum) htmlCurriculum += pillHTML;
+            if (isCurriculum) {
+                // Áp dụng bộ lọc cấp độ JLPT cho Giáo trình
+                const filter = window.currentCurriculumFilter;
+                if (filter === 'ALL' || displayName.toUpperCase().includes(filter)) {
+                    htmlCurriculum += pillHTML;
+                }
+            }
             else htmlGeneral += pillHTML;
         });
 
@@ -16333,6 +16342,24 @@ async function renderThematicTagCloud() {
             }
         }
 
+        // Tạo giao diện thanh bộ lọc JLPT đồng bộ với giao diện chung của hệ thống
+        const filter = window.currentCurriculumFilter;
+        const buildFilterPill = (level, label) => {
+            const activeClass = (filter === level) ? 'active' : '';
+            return `<div class="grammar-pill ${activeClass}" onclick="filterCurriculum('${level}')" style="padding: 6px 14px; font-size: 12px; height: auto; line-height: 1.2;">${label}</div>`;
+        };
+
+        const filterBarHTML = `
+            <div class="grammar-filter-bar" id="curriculumFilterBar" style="margin-bottom: 15px; justify-content: flex-start; gap: 8px; overflow-x: auto; padding-bottom: 5px;">
+                ${buildFilterPill('ALL', 'Tất cả')}
+                ${buildFilterPill('N5', 'N5')}
+                ${buildFilterPill('N4', 'N4')}
+                ${buildFilterPill('N3', 'N3')}
+                ${buildFilterPill('N2', 'N2')}
+                ${buildFilterPill('N1', 'N1')}
+            </div>
+        `;
+
         // Ghép nối cấu trúc UI hoàn thiện
         let finalHTML = `
             <div style="width: 100%; text-align: left; margin-bottom: 20px;">
@@ -16348,9 +16375,15 @@ async function renderThematicTagCloud() {
                 <div style="font-size: 12px; font-weight: 800; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
                     <span class="material-symbols-outlined" style="font-size: 16px;">menu_book</span> HỌC THEO GIÁO TRÌNH NĂNG LỰC
                 </div>
+                
+                <!-- THANH BỘ LỌC CẤP ĐỘ JLPT (N5 - N1) -->
+                ${filterBarHTML}
+
                 <div class="carousel-wrapper">
                     <button class="carousel-arrow arrow-left" onclick="scrollCarousel('carousel-curriculum', -1)"><span class="material-symbols-outlined">chevron_left</span></button>
-                    <div id="carousel-curriculum" class="thematic-tags-container">${htmlCurriculum}</div>
+                    <div id="carousel-curriculum" class="thematic-tags-container">
+                        ${htmlCurriculum ? htmlCurriculum : '<div style="color: #a0aec0; padding: 20px; font-size: 13px; text-align: center; width: 100%;">Không có giáo trình nào ở cấp độ này.</div>'}
+                    </div>
                     <button class="carousel-arrow arrow-right" onclick="scrollCarousel('carousel-curriculum', 1)"><span class="material-symbols-outlined">chevron_right</span></button>
                 </div>
 
@@ -16372,6 +16405,11 @@ async function renderThematicTagCloud() {
         console.error("Lỗi dựng đám mây tag:", e);
     }
 }
+// Hàm xử lý lọc cấp độ cho giáo trình
+window.filterCurriculum = function(level) {
+    window.currentCurriculumFilter = level;
+    renderThematicTagCloud();
+};
 // Hàm điều khiển trượt thanh cuộn bằng nút bấm
 window.scrollCarousel = function(containerId, direction) {
     const container = document.getElementById(containerId);
