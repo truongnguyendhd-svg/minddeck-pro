@@ -6489,6 +6489,52 @@ body.shadowing-mode #shadowingPage {
     border-color: #93c5fd;
     box-shadow: 0 8px 25px rgba(0,0,0,0.15);
 }
+/* ================= HOÀN CẢNH LẬT 3D CHÂN NGÔN TRÊN THANH TIẾN ĐỘ ================= */
+.flip-progress-container {
+    perspective: 1000px;
+    width: 145px; /* Chiều rộng cố định để chống rung lệch bố cục nút bên cạnh */
+    height: 30px;
+    display: inline-block;
+    vertical-align: middle;
+    user-select: none;
+}
+.flip-progress-inner {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+/* Trạng thái lật úp */
+.flip-progress-container.is-flipped .flip-progress-inner {
+    transform: rotateX(180deg);
+}
+.flip-progress-front, .flip-progress-back {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+}
+.flip-progress-front {
+    transform: rotateX(0deg);
+    z-index: 2;
+}
+.flip-progress-back {
+    transform: rotateX(180deg);
+    color: #0f766e; /* Màu xanh ngọc lục bảo (Teal) sang trọng của Apple */
+    font-weight: 800;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 4px;
+    text-align: center;
+}
 </style>
 </head>
 <body>
@@ -27546,6 +27592,87 @@ document.querySelector('.app-header').addEventListener('click', (e) => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 });
+// =========================================================================
+// 🔄 BỘ ĐIỀU PHỐI HOẠT ẢNH LẬT 3D CHÂN NGÔN HỌC TẬP (AUTOMATED FLIP CONTROLLER)
+// =========================================================================
+window.progressFlipController = {
+    timerId1: null,
+    timerId2: null,
+    quotes: [
+        "継続は力なり • Kiên trì là sức mạnh",
+        "七転び八起き • Ngã 7 lần đứng dậy 8 lần",
+        "千里の道も一歩から • Vạn dặm khởi đầu từ một bước",
+        "初心忘るべからず • Đừng quên chí nguyện ban đầu",
+        "習うより慣れろ • Trăm hay không bằng tay quen",
+        "Học từ mới, mở khóa thế giới!",
+        "Mỗi ngày tiến một bước, vạn dặm hóa gần.",
+        "Kỷ luật đưa bạn đến sự tự do.",
+        "Trí tuệ tích lũy từ những điều nhỏ bé."
+    ],
+    lastQuoteIndex: -1,
+    
+    // Bốc chân ngôn ngẫu nhiên không trùng với câu vừa hiển thị trước đó
+    getRandomQuote() {
+        let idx;
+        do {
+            idx = Math.floor(Math.random() * this.quotes.length);
+        } while (idx === this.lastQuoteIndex && this.quotes.length > 1);
+        this.lastQuoteIndex = idx;
+        return this.quotes[idx];
+    },
+
+    register(containerId, quoteId, current, total) {
+        // Dọn sạch mọi bộ đếm cũ để tránh xung đột khi chuyển thẻ nhanh
+        this.clear();
+
+        const container = document.getElementById(containerId);
+        const quoteEl = document.getElementById(quoteId);
+        if (!container || !quoteEl) return;
+
+        // 1. LẬP TỨC HIỂN THỊ SỐ THẺ (Đưa mặt trước về 0 độ)
+        container.classList.remove('is-flipped');
+
+        // Định nghĩa chu kỳ lặp lại khép kín
+        const runCycle = () => {
+            // A. Đợi 3 giây ở mặt trước
+            this.timerId1 = setTimeout(() => {
+                if (!document.getElementById(containerId)) return; // Chốt chặn nếu chuyển trang
+                
+                // Nạp chân ngôn mới
+                quoteEl.innerText = this.getRandomQuote();
+                
+                // Lật 180 độ hiện mặt sau
+                container.classList.add('is-flipped');
+
+                // B. Giữ chân ngôn hiển thị trong 5 giây
+                this.timerId2 = setTimeout(() => {
+                    if (!document.getElementById(containerId)) return;
+                    
+                    // Lật về lại mặt trước hiện số thẻ
+                    container.classList.remove('is-flipped');
+
+                    // Lặp lại chu kỳ mới
+                    runCycle();
+                }, 5000);
+
+            }, 3000);
+        };
+
+        // Kích hoạt chu kỳ đầu tiên
+        runCycle();
+    },
+
+    clear() {
+        if (this.timerId1) {
+            clearTimeout(this.timerId1);
+            this.timerId1 = null;
+        }
+        if (this.timerId2) {
+            clearTimeout(this.timerId2);
+            this.timerId2 = null;
+        }
+    }
+};
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
 <div id="aiResponseModal" class="modal" style="align-items: center; padding: 20px; z-index: 14100 !important;">
