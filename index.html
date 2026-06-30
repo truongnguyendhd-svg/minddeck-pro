@@ -6959,8 +6959,13 @@ body.shadowing-mode #shadowingPage {
                 </div>
 
                 <!-- LỚP ĐỘC LẬP: NÚT CHỊU THUA (NẰM SÁT ĐÁY) -->
-                <div id="boostGiveUpZone" style="display: none; padding-top: 15px; margin-top: auto; flex-shrink: 0;">
-                    <button onclick="confirmBoostGiveUp()" class="win11-btn-secondary" style="width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 14px; font-size: 15px; font-weight: 700;">
+                <div id="boostGiveUpZone" style="display: none; padding-top: 15px; margin-top: auto; flex-shrink: 0; width: 100%; flex-direction: column; gap: 10px;">
+                    <!-- VÙNG CHỨA CHỮ CHẠY (MOTIVATIONAL TICKER) -->
+                    <div id="motivationalTickerContainer" style="width: 100%; overflow: hidden; background: rgba(253, 242, 242, 0.75); backdrop-filter: blur(12px) saturate(180%); -webkit-backdrop-filter: blur(12px) saturate(180%); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: 12px; padding: 8px 12px; box-sizing: border-box; display: flex; align-items: center; height: 36px; position: relative;">
+                        <div id="motivationalTickerText" style="white-space: nowrap; position: absolute; left: 100%; font-size: 13px; font-weight: 700; color: #c53030; will-change: transform;"></div>
+                    </div>
+                    
+                    <button onclick="confirmBoostGiveUp()" class="win11-btn-secondary" style="width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 14px; font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; margin: 0;">
                         <span class="material-symbols-outlined" style="font-size: 20px;">flag</span> TÔI KHÔNG NHỚ (CHỊU THUA)
                     </button>
                 </div>
@@ -12683,7 +12688,15 @@ function renderBoostCard() {
     if (mode === 'boost') {
         saveBoostStateToLocal();
     }
-}
+// Kiểm tra xem nút chịu thua có đang hiển thị trên giao diện không để bật/tắt dải chữ chạy
+    const isGiveUpVisible = (giveUpZone.style.display === 'flex' || giveUpZone.style.display === 'block');
+    if (isGiveUpVisible) {
+        startMotivationalTicker();
+    } else {
+        stopMotivationalTicker();
+    }
+} // Dấu đóng ngoặc kết thúc hàm renderBoostCard
+
 
 // Kiểm tra Input Typing
 function handleBoostTyping() {
@@ -12746,6 +12759,69 @@ async function confirmBoostGiveUp() {
     if (ok) {
         // Thực thi logic chịu thua nguyên bản của ứng dụng
         handleBoostAnswer(null, false, false, true);
+    }
+}
+// 1. Danh sách các câu chân ngôn khích lệ được chọn lọc ngắn gọn, súc tích
+const MOTIVATIONAL_QUOTES = [
+    "Thêm một chút kiên trì, một chút nỗ lực, mọi thử thách sẽ hóa thành thành công! 💪",
+    "Đừng cúi đầu, vương miện của sự kiên trì sẽ rơi mất đó bạn ơi! ✨",
+    "Học tiếng Nhật giống như leo núi, đỉnh cao chỉ dành cho người kiên nhẫn. 🎯",
+    "Mỗi từ vựng bạn nhớ hôm nay là một viên gạch xây dựng tương lai mai sau! 🚀",
+    "Cố gắng thêm chút nữa thôi, bộ não của bạn đang học cách phản xạ nhanh hơn! 🧠",
+    "Sai lầm chỉ là bằng chứng rõ ràng cho việc bạn đang nỗ lực hết mình! 🌸",
+    "Bạn đi chậm thế nào không quan trọng, miễn là bạn không quyết định dừng lại! ❤️",
+    "Hãy nhớ lại lý do bạn đã bắt đầu hành trình chinh phục tiếng Nhật này nhé! 🎯"
+];
+
+let currentQuoteIndex = 0;
+let tickerInterval = null;
+
+// Tự động tiêm (inject) keyframe CSS vào tài liệu để đảm bảo plug-and-play không cần sửa thẻ style lớn
+const styleSheet = document.createElement("style");
+styleSheet.innerText = `
+    @keyframes tickerScroll {
+        0% { left: 100%; transform: translateX(0); }
+        100% { left: 0%; transform: translateX(-100%); }
+    }
+`;
+document.head.appendChild(styleSheet);
+
+function startMotivationalTicker() {
+    const textEl = document.getElementById('motivationalTickerText');
+    const containerEl = document.getElementById('motivationalTickerContainer');
+    if (!textEl || !containerEl) return;
+
+    // Chặn trùng lặp nếu luồng đang chạy dở
+    if (tickerInterval) return;
+
+    const updateQuote = () => {
+        // Lấy câu tuần tự theo vòng lặp
+        const quote = MOTIVATIONAL_QUOTES[currentQuoteIndex];
+        textEl.innerText = quote;
+        
+        // Buộc trình duyệt kích hoạt reflow để reset animation
+        textEl.style.animation = 'none';
+        textEl.offsetHeight; 
+        
+        // Chạy animation từ phải qua trái trong đúng 10s
+        textEl.style.animation = 'tickerScroll 10s linear infinite';
+
+        currentQuoteIndex = (currentQuoteIndex + 1) % MOTIVATIONAL_QUOTES.length;
+    };
+
+    updateQuote(); // Kích hoạt ngay lần đầu tiên
+    tickerInterval = setInterval(updateQuote, 10000); // Tự động đổi câu sau mỗi 10 giây
+}
+
+function stopMotivationalTicker() {
+    if (tickerInterval) {
+        clearInterval(tickerInterval);
+        tickerInterval = null;
+    }
+    const textEl = document.getElementById('motivationalTickerText');
+    if (textEl) {
+        textEl.style.animation = 'none';
+        textEl.innerText = '';
     }
 }
 function endBoostSession() {
@@ -12815,6 +12891,7 @@ function endBoostSession() {
         origin: { y: 0.5 },
         zIndex: 10000 
     });
+    stopMotivationalTicker();
 }
 // ================= CÁC HÀM ĐIỀU KHIỂN TRẮC NGHIỆM =================
 
@@ -21484,6 +21561,7 @@ function exitStudySession() {
             openStudyOptionsModal(pendingModalReturn.id, pendingModalReturn.name, pendingModalReturn.type);
         }, 150);
     }
+    stopMotivationalTicker();
 }
 // ================= HÀM KHỞI TẠO PHIÊN HỌC ẢO (THEMATIC TAGS) =================
 function startVirtualSession(cardsArray) {
