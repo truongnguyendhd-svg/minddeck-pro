@@ -21147,63 +21147,174 @@ function refreshDiscovery() {
 
 
 // MÀN HÌNH TỔNG KẾT PHASE 2
+// =========================================================================
+// 🏆 MÀN HÌNH TỔNG KẾT SÁT HẠCH PHONG CÁCH APPLE GLASS ACCORDION
+// =========================================================================
 function endAssessmentSession() {
     const boostArea = document.getElementById('boostArea');
-    boostArea.classList.add('hidden');
-    boostArea.style.display = '';
+    if (boostArea) {
+        boostArea.classList.add('hidden');
+        boostArea.style.display = '';
+    }
 
     const summaryPage = document.getElementById('boostSummaryPage');
+    if (!summaryPage) return;
     summaryPage.classList.remove('hidden');
     
-    const passed = boostState.passedCards.length;
-    const remedial = boostState.remedialCards.length;
+    const passed = boostState.passedCards ? boostState.passedCards.length : 0;
+    const remedial = boostState.remedialCards ? boostState.remedialCards.length : 0;
     const total = sessionCards.length;
 
-    // ĐÃ CHỈNH SỬA YÊU CẦU 3: Flex:1 cho 2 khối cân xứng, Sửa UI nút bấm
+    // 1. Khởi tạo Khung giao diện và các hộp thống kê Kính mờ (Apple Glass)
     let html = `
-        <div class="summary-title" style="color: #0067c0;">KẾT QUẢ SÁT HẠCH</div>
-        <p style="color: #4a5568; font-weight: 600;">Bạn đã hoàn thành phiên đánh giá ${total} thẻ.</p>
+        <div class="summary-title" style="color: #1d1d1f; font-weight: 900; font-size: 28px; letter-spacing: -1px; margin-bottom: 5px;">KẾT QUẢ SÁT HẠCH</div>
+        <p style="color: #515154; font-weight: 600; font-size: 14px; margin-bottom: 25px;">Bạn đã hoàn thành phiên đánh giá ${total} thẻ.</p>
         
-        <div style="display: flex; justify-content: space-between; gap: 15px; margin-top: 20px; margin-bottom: 30px; width: 100%;">
-            <div style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #c6f6d5; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center;">
-                <h3 style="margin:0; color:#38a169; font-size:28px;">${passed}</h3>
-                <small style="color: #718096; font-weight: 700; text-align: center;">Thuộc bài</small>
+        <div style="display: flex; justify-content: space-between; gap: 15px; margin-bottom: 30px; width: 100%; box-sizing: border-box;">
+            <!-- Hộp Thuộc bài Kính mờ -->
+            <div style="flex: 1; background: rgba(240, 253, 244, 0.5); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(16, 185, 129, 0.25); padding: 15px 10px; border-radius: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.03); display: flex; flex-direction: column; align-items: center;">
+                <h3 style="margin:0; color:#059669; font-size:32px; font-weight: 900; line-height: 1;">${passed}</h3>
+                <small style="color: #059669; font-weight: 800; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; margin-top: 6px;">Thuộc bài</small>
             </div>
-            <div style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #fed7d7; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center;">
-                <h3 style="margin:0; color:#e53e3e; font-size:28px;">${remedial}</h3>
-                <small style="color: #718096; font-weight: 700; text-align: center;">Hổng kiến thức</small>
+            <!-- Hộp Hổng kiến thức Kính mờ -->
+            <div style="flex: 1; background: rgba(254, 242, 242, 0.5); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(239, 68, 68, 0.25); padding: 15px 10px; border-radius: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.03); display: flex; flex-direction: column; align-items: center;">
+                <h3 style="margin:0; color:#d97706; font-size:32px; font-weight: 900; line-height: 1;">${remedial}</h3>
+                <small style="color: #b45309; font-weight: 800; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; margin-top: 6px;">Cần lưu ý</small>
             </div>
         </div>
     `;
 
-    if (remedial > 0) {
-        html += `<div style="text-align:left; font-size:14px; font-weight:800; color:#c50f1f; margin-bottom:10px; text-transform:uppercase;">Danh sách cần lưu ý:</div>`;
-        html += `<ul class="summary-list" style="margin-top:0;">`;
-        boostState.remedialCards.forEach(c => {
-            html += `
-            <li style="border-left: 4px solid #e53e3e; padding: 12px 16px;">
-                <div>
-                    <div style="font-weight:800; font-size:16px; color:#1a1a1a;">${escapeHTML(c.front)}</div>
-                    <div style="font-size:13px; color:#718096;">${escapeHTML(c.back).replace(/\n/g, ' - ')}</div>
+    // Hàm tạo khối tiêu chuẩn cho từng dòng Accordion
+    const buildSummaryAccordionHTML = (c, index, type) => {
+        const parsed = parseCardData(c);
+        const cardId = `${type}-${index}`;
+        
+        const safeFront = escapeHTML(parsed.front);
+        const safeReading = escapeHTML(parsed.reading);
+        const safeMeaning = escapeHTML(parsed.meaning);
+        const safeHv = escapeHTML(parsed.hv);
+
+        // Nhãn cách đọc thu gọn tại Header
+        const readingHTML = (safeReading && safeReading !== safeFront)
+            ? `<span style="background: rgba(0, 0, 0, 0.04); color: #4a5568; padding: 3px 8px; border-radius: 6px; font-size: 11px; margin-left: 8px; font-weight: 800; letter-spacing: 0.5px;">${safeReading}</span>`
+            : '';
+
+        // Phần nội dung mở rộng chi tiết
+        let detailsHTML = `
+            <div style="display: flex; flex-direction: column; gap: 12px; font-size: 14px; color: #4a5568; padding-top: 12px; text-align: left;">
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <span style="font-size: 10px; font-weight: 800; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px;">Thông tin cốt lõi</span>
+                    <div style="background: rgba(255, 255, 255, 0.4); border: 1px solid rgba(0, 0, 0, 0.03); padding: 12px 15px; border-radius: 12px;">
+                        <div style="font-size: 28px; font-weight: 900; color: #1d1d1f; font-family: 'Noto Sans JP', sans-serif; line-height: 1.2; margin-bottom: 6px;">${wrapKanjiWithLink(safeFront)}</div>
+                        ${safeReading ? `<div style="font-size: 14px; font-weight: 700; color: #0071e3; margin-bottom: 4px;">Cách đọc: ${safeReading}</div>` : ''}
+                        <div style="font-size: 14px; font-weight: 600; color: #333336;">Ý nghĩa: ${safeMeaning}</div>
+                        ${safeHv ? `<div style="font-size: 13px; color: #c50f1f; font-weight: 800; margin-top: 4px;">Hán Việt: [ ${safeHv} ]</div>` : ''}
+                    </div>
                 </div>
-            </li>`;
+        `;
+
+        // Nếu thẻ có câu ví dụ, render ngay bên trong thân Accordion
+        if (parsed.exampleJP) {
+            detailsHTML += `
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <span style="font-size: 10px; font-weight: 800; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px;">Bối cảnh ví dụ</span>
+                    <div style="background: rgba(255, 255, 255, 0.4); border: 1px solid rgba(0, 0, 0, 0.03); padding: 12px 15px; border-radius: 12px; line-height: 1.5;">
+                        <div style="font-size: 15px; font-weight: 700; color: #1a1a1a; font-family: 'Noto Sans JP', sans-serif; margin-bottom: 4px;">${wrapKanjiWithLink(escapeHTML(parsed.exampleJP))}</div>
+                        <div style="font-size: 13px; color: #515154;">${escapeHTML(parsed.exampleVN || '')}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        detailsHTML += `</div>`;
+
+        return `
+            <div class="thematic-accordion" style="background: rgba(255, 255, 255, 0.55); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 16px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02); margin-bottom: 8px; overflow: hidden; width: 100%; box-sizing: border-box;">
+                <!-- Accordion Header -->
+                <div onclick="toggleSummaryCard('${cardId}')" style="padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none;">
+                    <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; flex: 1; text-align: left;">
+                        <b style="font-size: 16px; color: #1d1d1f; font-family: 'Noto Sans JP', sans-serif;">${safeFront}</b>
+                        ${readingHTML}
+                    </div>
+                    <span class="material-symbols-outlined" id="sum-icon-${cardId}" style="color: #86868b; font-size: 20px; transition: transform 0.2s ease;">expand_more</span>
+                </div>
+                
+                <!-- Accordion Body -->
+                <div id="sum-body-${cardId}" style="display: none; padding: 0 16px 16px 16px; border-top: 1px dashed rgba(0,0,0,0.06); background: transparent;">
+                    ${detailsHTML}
+                </div>
+            </div>
+        `;
+    };
+
+    // 2. PHÂN KHU 1: DANH SÁCH CẦN LƯU Ý (REMEDIAL CARDS)
+    if (remedial > 0 && boostState.remedialCards) {
+        html += `
+            <div style="text-align:left; font-size:12px; font-weight:800; color:#b45309; margin-bottom:12px; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px;">
+                <span class="material-symbols-outlined" style="font-size: 16px; color: #ef4444;">error</span> DANH SÁCH CẦN LƯU Ý (${remedial})
+            </div>
+            <div style="margin-bottom: 25px;">
+        `;
+        boostState.remedialCards.forEach((c, index) => {
+            html += buildSummaryAccordionHTML(c, index, 'remedial');
         });
-        html += `</ul>`;
+        html += `</div>`;
+    } else {
+        html += `
+            <div style="background: rgba(240, 253, 244, 0.4); border: 1px solid rgba(16, 185, 129, 0.2); padding: 16px; border-radius: 16px; margin-bottom: 25px; text-align: center; color: #047857; font-weight: 700; font-size: 14px;">
+                🎉 Thật tuyệt vời! Toàn bộ 100% thẻ đều được bạn ghi nhớ chính xác!
+            </div>
+        `;
     }
 
-    // ĐÃ CHỈNH SỬA YÊU CẦU 3: Bo góc 16px, text THOÁT VỀ TRANG CHỦ in đậm, to hơn
+    // 3. PHÂN KHU 2: DANH SÁCH ĐÃ NHỚ (PASSED CARDS)
+    if (passed > 0 && boostState.passedCards) {
+        html += `
+            <div style="text-align:left; font-size:12px; font-weight:800; color:#059669; margin-bottom:12px; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px;">
+                <span class="material-symbols-outlined" style="font-size: 16px; color: #10b981;">task_alt</span> DANH SÁCH ĐÃ NHỚ (${passed})
+            </div>
+            <div style="margin-bottom: 30px;">
+        `;
+        boostState.passedCards.forEach((c, index) => {
+            html += buildSummaryAccordionHTML(c, index, 'passed');
+        });
+        html += `</div>`;
+    }
+
+    // 4. PHÂN KHU NÚT BẤM FOOTER (ĐÃ LOẠI BỎ NÚT REVIEW TOÀN BỘ)
     html += `
-        <button onclick="startRemedialReview()" class="win11-btn-primary" style="margin-top: 20px; width: 100%; padding: 18px; font-size: 16px; border-radius: 16px; background: #0067c0;">
-            <span class="material-symbols-outlined" style="vertical-align: middle; margin-right: 5px;">preview</span> XEM LẠI TOÀN BỘ (${total})
-        </button>
-        <button onclick="exitStudySession()" style="margin-top: 15px; width: 100%; padding: 14px; background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: 15px; cursor: pointer; text-transform: uppercase;">
-            Thoát về trang chủ
+        <button onclick="exitStudySession()" class="btn-apple-glass-primary" style="width: 100%; background: #1d1d1f; color: #ffffff; border: none; padding: 16px; justify-content: center; box-shadow: 0 10px 25px rgba(0,0,0,0.15);">
+            <span class="material-symbols-outlined" style="font-size: 20px;">home</span> THOÁT VỀ TRANG CHỦ
         </button>
     `;
 
     summaryPage.innerHTML = html;
-}
 
+    // Bắn pháo hoa ăn mừng thành tích
+    confetti({ 
+        particleCount: 150, 
+        spread: 80, 
+        origin: { y: 0.5 },
+        zIndex: 15000 
+    });
+}
+// 🟢 HÀM ĐÓNG MỞ CHI TIẾT THẺ KẾT QUẢ SÁT HẠCH MƯỢT MÀ
+window.toggleSummaryCard = function(id) {
+    const body = document.getElementById(`sum-body-${id}`);
+    const icon = document.getElementById(`sum-icon-${id}`);
+    if (!body || !icon) return;
+    
+    const isHidden = body.style.display === 'none';
+    if (isHidden) {
+        body.style.display = 'block';
+        icon.innerText = 'expand_less';
+        // Hiệu ứng nảy nhẹ của Apple
+        body.style.animation = 'popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
+    } else {
+        body.style.display = 'none';
+        icon.innerText = 'expand_more';
+    }
+};
 // BẮT ĐẦU PHASE 3: REMEDIAL (KHẮC PHỤC) - Hiển thị toàn bộ thẻ
 window.startRemedialReview = function() {
     mode = 'remedial';
