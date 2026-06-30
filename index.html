@@ -8890,8 +8890,56 @@ async function handleRoute() {
             showDashboard(true); // 👈 BẮT BUỘC TRUYỀN TRUE
         }
         else if (route === 'study') { 
+            const deckId = decodeURIComponent(parts[1]);
             mode = parts[2];
-            await loadCards(decodeURIComponent(parts[1]), true); 
+            
+            // 🟢 TỰ ĐỘNG KHÔI PHỤC TIẾN TRÌNH SÁT HẠCH SRS KHI F5 (TẢI LẠI TRANG)
+            if (deckId === 'GLOBAL_REVIEW' && mode === 'assessment') {
+                const savedJson = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
+                if (savedJson) {
+                    try {
+                        const data = JSON.parse(savedJson);
+                        await resumeAssessmentFromLocal(data);
+                        return; // Dừng luồng định tuyến thông thường để nhường quyền xử lý cho hàm phục hồi
+                    } catch (e) {
+                        console.error("Lỗi khôi phục Sát hạch khi F5:", e);
+                        clearAssessmentStateFromLocal();
+                    }
+                }
+                // Nếu không có file lưu tạm, tự khởi động phiên Sát hạch mới
+                await startGlobalReview(true);
+                return;
+            }
+            
+            // 🟢 TỰ ĐỘNG KHÔI PHỤC TIẾN TRÌNH BOOST MODE KHI F5 (TẢI LẠI TRANG)
+            if (mode === 'boost') {
+                const savedJson = localStorage.getItem(`minddeck_boost_save_${currentUser.id}`);
+                if (savedJson) {
+                    try {
+                        const data = JSON.parse(savedJson);
+                        if (data.deckName === deckId) {
+                            sessionCards = data.sessionCards;
+                            boostState = data.boostState;
+                            currentIndex = data.currentIndex;
+                            currentDeckName = deckId;
+                            
+                            updateBreadcrumb([
+                                { label: 'Kho học phần', action: 'showHome()' },
+                                { label: 'Boost: ' + getCleanName(deckId) }
+                            ]);
+                            updateHeaderTitle("BOOST GAME");
+                            showPage('reviewPage');
+                            showCard();
+                            return; // Dừng luồng định tuyến thông thường
+                        }
+                    } catch (e) {
+                        console.error("Lỗi khôi phục Boost khi F5:", e);
+                        clearBoostStateFromLocal();
+                    }
+                }
+            }
+
+            await loadCards(deckId, true); 
         } 
         else if (route === 'edit' || route === 'new') { 
             showHome(true); 
