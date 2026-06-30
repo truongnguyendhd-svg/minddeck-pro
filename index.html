@@ -6489,10 +6489,10 @@ body.shadowing-mode #shadowingPage {
     border-color: #93c5fd;
     box-shadow: 0 8px 25px rgba(0,0,0,0.15);
 }
-/* ================= HOÀN CẢNH LẬT 3D CHÂN NGÔN TRÊN THANH TIẾN ĐỘ ================= */
+/* ================= HOÀN CẢNH LẬT 3D CHÂN NGÔN TRÊN THANH TIẾN ĐỘ (MARQUEE) ================= */
 .flip-progress-container {
     perspective: 1000px;
-    width: 145px; /* Chiều rộng cố định để chống rung lệch bố cục nút bên cạnh */
+    width: 160px; /* Tăng nhẹ chiều rộng lên 160px để hiển thị thoáng hơn trên màn hình rộng */
     height: 30px;
     display: inline-block;
     vertical-align: middle;
@@ -6517,23 +6517,36 @@ body.shadowing-mode #shadowingPage {
     -webkit-backface-visibility: hidden;
     display: flex;
     align-items: center;
-    justify-content: center;
-    box-sizing: border-box;
 }
 .flip-progress-front {
     transform: rotateX(0deg);
+    justify-content: center;
     z-index: 2;
 }
 .flip-progress-back {
     transform: rotateX(180deg);
-    color: #0f766e; /* Màu xanh ngọc lục bảo (Teal) sang trọng của Apple */
+    color: #0f766e; /* Màu xanh ngọc lục bảo (Teal) */
     font-weight: 800;
     font-size: 11px;
+    white-space: nowrap; /* Bắt buộc chữ không rớt dòng */
+    overflow: hidden; /* Ẩn phần chữ trượt ra ngoài rìa của thẻ */
+    box-sizing: border-box;
+    width: 100%;
+    justify-content: flex-start; /* Chữ bắt đầu chạy từ lề phải */
+    position: relative;
+}
+
+/* HIỆU ỨNG TRƯỢT CHỮ TỪ PHẢI QUA TRÁI */
+.marquee-text {
+    display: inline-block;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding: 0 4px;
-    text-align: center;
+    /* Sử dụng translate3d để kích hoạt tăng tốc phần cứng (GPU) giúp chữ chạy cực kỳ mượt */
+    animation: marquee-scroll 8s linear forwards; 
+}
+
+@keyframes marquee-scroll {
+    0% { transform: translate3d(160px, 0, 0); } /* Xuất phát từ rìa phải của khung 160px */
+    100% { transform: translate3d(-100%, 0, 0); } /* Trượt khuất hẳn về phía lề trái */
 }
 </style>
 </head>
@@ -27622,16 +27635,15 @@ window.progressFlipController = {
         "継続は力なり • Kiên trì là sức mạnh",
         "七転び八起き • Ngã 7 lần đứng dậy 8 lần",
         "千里の道も一歩から • Vạn dặm khởi đầu từ một bước",
-        "初心忘るべからず • Đừng quên chí nguyện ban đầu",
+        "初心忘るべからず • Giữ vững ý nguyện ban đầu",
         "習うより慣れろ • Trăm hay không bằng tay quen",
         "Học từ mới, mở khóa thế giới!",
-        "Mỗi ngày tiến một bước, vạn dặm hóa gần.",
-        "Kỷ luật đưa bạn đến sự tự do.",
-        "Trí tuệ tích lũy từ những điều nhỏ bé."
+        "Mỗi ngày một chút sẽ thành đại sự.",
+        "Kỷ luật đưa bạn đến thành công.",
+        "Trí tuệ tích lũy từ điều nhỏ bé."
     ],
     lastQuoteIndex: -1,
     
-    // Bốc chân ngôn ngẫu nhiên không trùng với câu vừa hiển thị trước đó
     getRandomQuote() {
         let idx;
         do {
@@ -27642,43 +27654,43 @@ window.progressFlipController = {
     },
 
     register(containerId, quoteId, current, total) {
-        // Dọn sạch mọi bộ đếm cũ để tránh xung đột khi chuyển thẻ nhanh
+        // Dọn sạch mọi tiến trình đếm giờ đang chạy để tránh xung đột
         this.clear();
 
         const container = document.getElementById(containerId);
         const quoteEl = document.getElementById(quoteId);
         if (!container || !quoteEl) return;
 
-        // 1. LẬP TỨC HIỂN THỊ SỐ THẺ (Đưa mặt trước về 0 độ)
+        // 1. LẬP TỨC HIỂN THỊ SỐ THẺ (Quay mặt trước về 0 độ)
         container.classList.remove('is-flipped');
 
         // Định nghĩa chu kỳ lặp lại khép kín
         const runCycle = () => {
-            // A. Đợi 3 giây ở mặt trước
+            // A. Mặt trước (Số thẻ) hiển thị tĩnh trong 3 giây
             this.timerId1 = setTimeout(() => {
-                if (!document.getElementById(containerId)) return; // Chốt chặn nếu chuyển trang
+                if (!document.getElementById(containerId)) return;
                 
-                // Nạp chân ngôn mới
-                quoteEl.innerText = this.getRandomQuote();
+                // 🟢 BƠM SPAN MỚI: Trình duyệt sẽ dựng lại DOM node giúp tự động chạy lại hoạt ảnh CSS từ 0%
+                quoteEl.innerHTML = `<span class="marquee-text">${this.getRandomQuote()}</span>`;
                 
-                // Lật 180 độ hiện mặt sau
+                // Lật mặt sau lên
                 container.classList.add('is-flipped');
 
-                // B. Giữ chân ngôn hiển thị trong 5 giây
+                // B. Mặt sau (Chân ngôn trượt) hiển thị trong đúng 8 giây để chạy hết dòng chữ
                 this.timerId2 = setTimeout(() => {
                     if (!document.getElementById(containerId)) return;
                     
-                    // Lật về lại mặt trước hiện số thẻ
+                    // Lật ngược lại về mặt trước hiện số thẻ
                     container.classList.remove('is-flipped');
 
                     // Lặp lại chu kỳ mới
                     runCycle();
-                }, 5000);
+                }, 8000); // 8 giây hiển thị chạy chữ
 
-            }, 3000);
+            }, 3000); // 3 giây hiển thị số thẻ
         };
 
-        // Kích hoạt chu kỳ đầu tiên
+        // Chạy chu kỳ đầu tiên
         runCycle();
     },
 
