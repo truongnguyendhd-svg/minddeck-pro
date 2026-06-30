@@ -8871,6 +8871,9 @@ window.invalidateDeckListCache = function() {
 };
 /* ================= HỆ THỐNG ROUTER (LƯU TRẠNG THÁI F5) ================= */
 async function handleRoute() {
+    // 🟢 CHỐT CHẶN CHỐNG VÒNG LẶP VÔ HẠN KHI ĐANG PHỤC HỒI TIẾN TRÌNH
+    if (window.isRestoringSession) return;
+    
     const hash = window.location.hash.substring(1); 
     
     if (!hash) {
@@ -8884,23 +8887,23 @@ async function handleRoute() {
     
     try {
         if (route === 'home') { 
-            showHome(true); // 👈 BẮT BUỘC TRUYỀN TRUE
+            showHome(true); 
         } 
         else if (route === 'dashboard') {
-            showDashboard(true); // 👈 BẮT BUỘC TRUYỀN TRUE
+            showDashboard(true); 
         }
         else if (route === 'study') { 
             const deckId = decodeURIComponent(parts[1]);
             mode = parts[2];
             
-            // 🟢 TỰ ĐỘNG KHÔI PHỤC TIẾN TRÌNH SÁT HẠCH SRS KHI F5 (TẢI LẠI TRANG)
+            // 🟢 TỰ ĐỘNG KHÔI PHỤC TIẾN TRÌNH SÁT HẠCH SRS KHI F5 (CÓ CHỐNG CRASH VÀ CHỐNG LẶP)
             if (deckId === 'GLOBAL_REVIEW' && mode === 'assessment') {
-                const savedJson = localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`);
+                const savedJson = currentUser ? localStorage.getItem(`minddeck_assessment_save_${currentUser.id}`) : null;
                 if (savedJson) {
                     try {
                         const data = JSON.parse(savedJson);
                         await resumeAssessmentFromLocal(data);
-                        return; // Dừng luồng định tuyến thông thường để nhường quyền xử lý cho hàm phục hồi
+                        return; // Dừng luồng định tuyến thông thường
                     } catch (e) {
                         console.error("Lỗi khôi phục Sát hạch khi F5:", e);
                         clearAssessmentStateFromLocal();
@@ -8911,13 +8914,14 @@ async function handleRoute() {
                 return;
             }
             
-            // 🟢 TỰ ĐỘNG KHÔI PHỤC TIẾN TRÌNH BOOST MODE KHI F5 (TẢI LẠI TRANG)
+            // 🟢 TỰ ĐỘNG KHÔI PHỤC TIẾN TRÌNH BOOST MODE KHI F5 (CÓ CHỐNG CRASH VÀ CHỐNG LẶP)
             if (mode === 'boost') {
-                const savedJson = localStorage.getItem(`minddeck_boost_save_${currentUser.id}`);
+                const savedJson = currentUser ? localStorage.getItem(`minddeck_boost_save_${currentUser.id}`) : null;
                 if (savedJson) {
                     try {
                         const data = JSON.parse(savedJson);
                         if (data.deckName === deckId) {
+                            window.isRestoringSession = true; // Khóa định tuyến tạm thời
                             sessionCards = data.sessionCards;
                             boostState = data.boostState;
                             currentIndex = data.currentIndex;
@@ -8930,11 +8934,13 @@ async function handleRoute() {
                             updateHeaderTitle("BOOST GAME");
                             showPage('reviewPage');
                             showCard();
-                            return; // Dừng luồng định tuyến thông thường
+                            window.isRestoringSession = false; // Giải phóng khóa
+                            return;
                         }
                     } catch (e) {
                         console.error("Lỗi khôi phục Boost khi F5:", e);
                         clearBoostStateFromLocal();
+                        window.isRestoringSession = false;
                     }
                 }
             }
@@ -8948,22 +8954,22 @@ async function handleRoute() {
             showImportForm(true); 
         } 
         else if (route === 'playground') {  
-            showPlayground(true); // 👈 BẮT BUỘC TRUYỀN TRUE
+            showPlayground(true); 
         }
         else if (route === 'grammar') { 
-            showGrammarVault(true); // 👈 BẮT BUỘC TRUYỀN TRUE
+            showGrammarVault(true); 
         }
         else if (route === 'kanji') {
-            showKanjiCollection(true); // 👈 BẮT BUỘC TRUYỀN TRUE
+            showKanjiCollection(true); 
         }
         else if (route === 'pdfreader') {
-            showPdfReaderPage(true); // 👈 BẮT BUỘC TRUYỀN TRUE
+            showPdfReaderPage(true); 
         }
         else if (route === 'shadowing') { 
-            showShadowingTheater(true); // 👈 BẮT BUỘC TRUYỀN TRUE
+            showShadowingTheater(true); 
         }
         else if (route === 'admin') {
-            showAdminPage(true); // <-- Bắt buộc phải có chữ true ở đây
+            showAdminPage(true); 
         }
         else { 
             showDashboard(true); 
@@ -23141,35 +23147,33 @@ window.handleGlobalReviewClick = async function() {
 };
 
 async function resumeAssessmentFromLocal(data) {
+    window.isRestoringSession = true; // 🟢 BẬT KHÓA NGĂN VÒNG LẶP ĐỊNH TUYẾN
     showLoading("Đang khôi phục phiên sát hạch...");
-    // 🟢 FIX 1: Ép đổi URL Hash để trình duyệt ghi nhận lịch sử điều hướng
-    history.pushState(null, null, '#study/GLOBAL_REVIEW/assessment');
+    
+    // Chỉ ghi đè lịch sử duyệt nếu thực sự cần thiết
+    if (window.location.hash !== '#study/GLOBAL_REVIEW/assessment') {
+        history.pushState(null, null, '#study/GLOBAL_REVIEW/assessment');
+    }
+
     try {
         if (data.isReadyToSubmit) {
-            // 🟢 KHẮC PHỤC LỖI KẸT PHIÊN: Giải phóng trạng thái isProcessed về false
-            // để hàm processBatchAssessmentResults có thể tính toán lại chính xác danh sách payloads gửi lên Cloud
             sessionCards = data.sessionCards.map(card => ({
                 ...card,
                 isProcessed: false
             }));
-            
-            // Khôi phục và làm trống danh sách phân loại để tránh bị nhân đôi dữ liệu khi tính toán lại
             boostState = {
                 ...data.boostState,
                 passedCards: [],
                 remedialCards: []
             };
-            
             mode = 'assessment';
             currentDeckName = 'GLOBAL_REVIEW';
-            
-            // 🟢 FIX 2: BẮT BUỘC PHẢI CHUYỂN TRANG TRƯỚC KHI NỘP BÀI
             showPage('reviewPage'); 
-            showLoading("Đang nộp lại kết quả sát hạch bị gián đoạn do rớt mạng...");
-            return processBatchAssessmentResults(); // Nộp thẳng lên DB, bỏ qua UI
+            showLoading("Đang nộp lại kết quả sát hạch...");
+            return processBatchAssessmentResults(); 
         }
         
-        // Phục hồi dữ liệu RAM bình thường cho các phiên chưa hoàn thành xong 3 chặng
+        // Phục hồi dữ liệu bình thường
         sessionCards = data.sessionCards;
         boostState = data.boostState;
         currentIndex = data.currentIndex;
@@ -23183,7 +23187,7 @@ async function resumeAssessmentFromLocal(data) {
                 window.speechSynthesis.speak(unlockAudio);
             }
         } catch (audioErr) {
-            console.warn("Bỏ qua lỗi đánh thức Audio trên iOS");
+            console.warn("Bỏ qua lỗi đánh thức Audio");
         }
 
         updateBreadcrumb([
@@ -23206,6 +23210,8 @@ async function resumeAssessmentFromLocal(data) {
         clearAssessmentStateFromLocal();
         customAlert("Dữ liệu lưu tạm bị hỏng. Hệ thống sẽ bắt đầu bài mới.", "⚠️");
         startGlobalReview();
+    } finally {
+        window.isRestoringSession = false; // 🟢 GIẢI PHÓNG KHÓA ĐỊNH TUYẾN SAU KHI HOÀN TẤT
     }
 }
 
