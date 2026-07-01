@@ -6541,6 +6541,16 @@ body.shadowing-mode #shadowingPage {
         transform: scale(1.03);
     }
 }
+@keyframes pulseGlowText {
+    0%, 100% {
+        opacity: 0.8;
+        transform: scale(0.97);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.03);
+    }
+}
 </style>
 </head>
 <body>
@@ -24829,7 +24839,7 @@ function deduplicateGrammarList(list) {
 // =========================================================
 
 // 1. Hàm tạo và hiển thị Modal Khung Kính Apple dạng viên thuốc
-function openPillPreviewModal({ mainChar, subTitle, badge, stats, actionText, actionCallback, dueTimeText, onMainCharClick }) {
+function openPillPreviewModal({ mainChar, subTitle, badge, stats, actionText, actionCallback, dueStatus, onMainCharClick }) {
     let modal = document.getElementById('pillPreviewModal');
     if (!modal) {
         modal = document.createElement('div');
@@ -24842,6 +24852,36 @@ function openPillPreviewModal({ mainChar, subTitle, badge, stats, actionText, ac
     const isMainCharClickable = typeof onMainCharClick === 'function';
     const mainCharClass = isMainCharClickable ? 'due-pulse-red' : '';
 
+    // Khởi tạo giao diện dải trạng thái (Pill Box) và gợi ý hành động
+    let duePillHTML = '';
+    let actionCallHTML = '';
+
+    if (dueStatus) {
+        if (dueStatus.isOverdue) {
+            // Đã quá hạn: Thiết kế đỏ nhạt tối giản, biểu tượng đồng hồ lịch sử
+            duePillHTML = `
+                <div id="previewDueTime" style="margin-top: 10px; margin-bottom: 20px; font-size: 11px; font-weight: 800; padding: 6px 14px; border-radius: 50px; display: inline-flex; align-items: center; gap: 6px; background: #fff5f5; color: #e53e3e; border: 1px solid #fed7d7; box-shadow: 0 2px 5px rgba(229, 68, 68, 0.03); letter-spacing: 0.3px; text-transform: uppercase;">
+                    <span class="material-symbols-outlined" style="font-size: 14px; font-weight: 800;">history</span>
+                    ${escapeHTML(dueStatus.text)}
+                </div>
+            `;
+            // Dòng chữ phụ tương tác mềm mại ngay dưới chữ Kanji lớn
+            actionCallHTML = `
+                <div style="font-size: 11px; font-weight: 800; color: #ef4444; margin-top: -10px; margin-bottom: 18px; display: flex; align-items: center; justify-content: center; gap: 4px; animation: pulseGlowText 1.8s infinite ease-in-out; letter-spacing: 0.3px; text-transform: uppercase; user-select: none;">
+                    <span class="material-symbols-outlined" style="font-size: 13px; font-weight: 800;">bolt</span> Chạm vào chữ để Sát hạch ngay
+                </div>
+            `;
+        } else {
+            // Chưa đến hạn: Thiết kế xanh lá nhạt tươi mới
+            duePillHTML = `
+                <div id="previewDueTime" style="margin-top: 10px; margin-bottom: 20px; font-size: 11px; font-weight: 800; padding: 6px 14px; border-radius: 50px; display: inline-flex; align-items: center; gap: 6px; background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; box-shadow: 0 2px 5px rgba(22, 163, 74, 0.03); letter-spacing: 0.3px; text-transform: uppercase;">
+                    <span class="material-symbols-outlined" style="font-size: 14px; font-weight: 800;">schedule</span>
+                    ${escapeHTML(dueStatus.text)}
+                </div>
+            `;
+        }
+    }
+
     modal.innerHTML = `
         <div class="modal-content glass-modal-container" style="max-width: 340px; width: 88%; text-align: center; padding: 25px 20px; position: relative; border-radius: 24px !important; animation: popMenuSide 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-sizing: border-box;">
             <button class="glass-close-btn" onclick="closeModal('pillPreviewModal')" style="position: absolute; top: 15px; right: 15px; width: 30px; height: 30px;">
@@ -24850,16 +24890,16 @@ function openPillPreviewModal({ mainChar, subTitle, badge, stats, actionText, ac
 
             ${badge ? `<div class="discovery-badge" style="background: rgba(0, 0, 0, 0.04); color: #1d1d1f; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 15px; display: inline-block; font-size: 11px; font-weight: 800;">${badge}</div>` : ''}
             
-            <!-- Chữ lớn trung tâm (Có nhấp nháy phát sáng nếu đến hạn) -->
-            <div id="previewMainChar" class="${mainCharClass}" style="font-size: ${mainChar.length > 3 ? '28px' : '58px'}; font-weight: 900; color: #1d1d1f; line-height: 1.2; margin-bottom: 8px; font-family: 'Noto Sans JP', sans-serif;">${mainChar}</div>
+            <!-- Chữ lớn trung tâm -->
+            <div id="previewMainChar" class="${mainCharClass}" style="font-size: ${mainChar.length > 3 ? '28px' : '58px'}; font-weight: 900; color: #1d1d1f; line-height: 1.2; margin-bottom: 12px; font-family: 'Noto Sans JP', sans-serif;">${mainChar}</div>
             
+            <!-- Dòng chữ gợi ý tương tác -->
+            ${actionCallHTML}
+
             <div id="previewSubTitle" style="font-size: 15px; color: #4a5568; font-weight: 700; margin-bottom: 20px; line-height: 1.4; min-height: 22px;">${subTitle}</div>
 
-            <!-- Thể hiện thời gian đến hạn ôn tập (nếu có) -->
-            ${dueTimeText ? `
-            <div id="previewDueTime" style="margin-top: -12px; margin-bottom: 15px; font-size: 12px; font-weight: 800; color: #4a5568; background: #f8fafc; border: 1px solid #edf2f7; padding: 6px 12px; border-radius: 50px; display: inline-block;">
-                ${dueTimeText}
-            </div>` : ''}
+            <!-- Dải trạng thái ôn tập Pill Box -->
+            ${duePillHTML}
 
             <!-- Khung lưới chứa Kỷ lục và Hiện tại -->
             <div style="display: flex; gap: 10px; margin-bottom: 20px; width: 100%; box-sizing: border-box;">
@@ -24916,15 +24956,13 @@ async function showKanjiPreview(event, kanji) {
     // 🟢 TIẾN HÀNH TRUY VẤN THẺ CÓ THÀNH TÍCH CAO NHẤT CHỨA KANJI NÀY
     const highestCard = await getHighestAchievementCardForTarget(kanji, 'kanji');
     
-    let dueText = "";
+    let dueStatus = null;
     let onMainCharClickFn = null;
     
     if (highestCard) {
-        dueText = formatDueTime(highestCard.due);
-        const isOverdue = new Date(highestCard.due) <= new Date();
-        if (isOverdue) {
-            dueText += " • NHẤP VÀO CHỮ ĐỂ SÁT HẠCH";
-            window.miniAssessmentSourcePage = 'kanjiPage'; // Ghi nhớ trang nguồn
+        dueStatus = formatDueTime(highestCard.due);
+        if (dueStatus.isOverdue) {
+            window.miniAssessmentSourcePage = 'kanjiPage'; 
             onMainCharClickFn = () => startMiniAssessment(highestCard);
         }
     }
@@ -24936,7 +24974,7 @@ async function showKanjiPreview(event, kanji) {
         stats: { peak: peakInterval, current: currentInterval },
         actionText: "PHÂN TÍCH X-RAY CHI TIẾT 🔍",
         actionCallback: () => showKanjiXRay(new Event('click'), kanji),
-        dueTimeText: dueText,
+        dueStatus: dueStatus,
         onMainCharClick: onMainCharClickFn
     });
     
@@ -24974,15 +25012,13 @@ async function showGrammarPreview(event, grammarId) {
     // 🟢 TIẾN HÀNH TRUY VẤN THẺ CÓ THÀNH TÍCH CAO NHẤT CHỨA NGỮ PHÁP NÀY
     const highestCard = await getHighestAchievementCardForTarget(g.grammar_point, 'grammar');
     
-    let dueText = "";
+    let dueStatus = null;
     let onMainCharClickFn = null;
     
     if (highestCard) {
-        dueText = formatDueTime(highestCard.due);
-        const isOverdue = new Date(highestCard.due) <= new Date();
-        if (isOverdue) {
-            dueText += " • NHẤP VÀO CHỮ ĐỂ SÁT HẠCH";
-            window.miniAssessmentSourcePage = 'grammarPage'; // Ghi nhớ trang nguồn
+        dueStatus = formatDueTime(highestCard.due);
+        if (dueStatus.isOverdue) {
+            window.miniAssessmentSourcePage = 'grammarPage'; 
             onMainCharClickFn = () => startMiniAssessment(highestCard);
         }
     }
@@ -24994,7 +25030,7 @@ async function showGrammarPreview(event, grammarId) {
         stats: { peak: peakInterval, current: currentInterval },
         actionText: "XEM CHI TIẾT & VÍ DỤ 📚",
         actionCallback: () => openGrammarDetail(grammarId),
-        dueTimeText: dueText,
+        dueStatus: dueStatus,
         onMainCharClick: onMainCharClickFn
     });
 }
@@ -27576,17 +27612,29 @@ function formatDueTime(dueString) {
     
     if (diffMins <= 0) {
         const absMins = Math.abs(diffMins);
-        if (absMins < 60) return `⏳ Quá hạn: ${absMins} phút trước`;
-        const absHours = Math.round(absMins / 60);
-        if (absHours < 24) return `⏳ Quá hạn: ${absHours} giờ trước`;
-        const absDays = Math.round(absHours / 24);
-        return `⏳ Quá hạn: ${absDays} ngày trước`;
+        let timeText = "";
+        if (absMins < 60) timeText = `Quá hạn ${absMins} phút`;
+        else {
+            const absHours = Math.round(absMins / 60);
+            if (absHours < 24) timeText = `Quá hạn ${absHours} giờ`;
+            else {
+                const absDays = Math.round(absHours / 24);
+                timeText = `Quá hạn ${absDays} ngày`;
+            }
+        }
+        return { text: timeText, isOverdue: true };
     } else {
-        if (diffMins < 60) return `⏰ Đến hạn ôn: ${diffMins} phút nữa`;
-        const hours = Math.round(diffMins / 60);
-        if (hours < 24) return `⏰ Đến hạn ôn: ${hours} giờ nữa`;
-        const days = Math.round(hours / 24);
-        return `⏰ Đến hạn ôn: ${days} ngày nữa`;
+        let timeText = "";
+        if (diffMins < 60) timeText = `Đến hạn ôn: ${diffMins} phút nữa`;
+        else {
+            const hours = Math.round(diffMins / 60);
+            if (hours < 24) timeText = `Đến hạn ôn: ${hours} giờ nữa`;
+            else {
+                const days = Math.round(hours / 24);
+                timeText = `Đến hạn ôn: ${days} ngày nữa`;
+            }
+        }
+        return { text: timeText, isOverdue: false };
     }
 }
 
