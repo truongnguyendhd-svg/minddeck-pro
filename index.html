@@ -6519,6 +6519,28 @@ body.shadowing-mode #shadowingPage {
     0% { transform: translate3d(0, 0, 0); }
     100% { transform: translate3d(-100%, 0, 0); }
 }
+/* ================= HIỆU ỨNG PHÁT SÁNG NHẤP NHÁY KHI THẺ ĐẾN HẠN ================= */
+.due-pulse-red {
+    color: #ef4444 !important; /* Màu đỏ sáng */
+    text-shadow: 0 0 10px rgba(239, 68, 68, 0.4), 0 0 20px rgba(239, 68, 68, 0.2);
+    animation: pulseGlowRed 1.8s infinite ease-in-out;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+.due-pulse-red:hover {
+    transform: scale(1.1) !important;
+}
+@keyframes pulseGlowRed {
+    0%, 100% {
+        text-shadow: 0 0 8px rgba(239, 68, 68, 0.4), 0 0 15px rgba(239, 68, 68, 0.2);
+        opacity: 0.95;
+    }
+    50% {
+        text-shadow: 0 0 18px rgba(239, 68, 68, 0.8), 0 0 30px rgba(239, 68, 68, 0.4);
+        opacity: 1;
+        transform: scale(1.03);
+    }
+}
 </style>
 </head>
 <body>
@@ -21506,9 +21528,17 @@ function exitStudySession() {
 
     // 7. Kích hoạt chuyển hướng trang (showDashboard/showHome sẽ tự động gọi showPage)
     if (previousDeckName === 'GLOBAL_REVIEW') {
-        showDashboard(); // Gọi hàm này -> showPage('dashboardPage') -> Tự động kích hoạt dọn dẹp RAM của Sát hạch trong showPage
+        showDashboard();
+    } else if (previousDeckName === 'MINI_ASSESSMENT') {
+        if (window.miniAssessmentSourcePage === 'kanjiPage') {
+            showKanjiCollection(true);
+        } else if (window.miniAssessmentSourcePage === 'grammarPage') {
+            showGrammarVault(true);
+        } else {
+            showDashboard();
+        }
     } else {
-        showHome(); // Gọi hàm này -> showPage('homePage')
+        showHome();
     }
     
     // 8. Tự động phục hồi lại Modal cấu hình bộ bài đích (nếu không phải là phiên học ảo hoặc Sát hạch)
@@ -24799,7 +24829,7 @@ function deduplicateGrammarList(list) {
 // =========================================================
 
 // 1. Hàm tạo và hiển thị Modal Khung Kính Apple dạng viên thuốc
-function openPillPreviewModal({ mainChar, subTitle, badge, stats, actionText, actionCallback }) {
+function openPillPreviewModal({ mainChar, subTitle, badge, stats, actionText, actionCallback, dueTimeText, onMainCharClick }) {
     let modal = document.getElementById('pillPreviewModal');
     if (!modal) {
         modal = document.createElement('div');
@@ -24809,6 +24839,9 @@ function openPillPreviewModal({ mainChar, subTitle, badge, stats, actionText, ac
         document.body.appendChild(modal);
     }
 
+    const isMainCharClickable = typeof onMainCharClick === 'function';
+    const mainCharClass = isMainCharClickable ? 'due-pulse-red' : '';
+
     modal.innerHTML = `
         <div class="modal-content glass-modal-container" style="max-width: 340px; width: 88%; text-align: center; padding: 25px 20px; position: relative; border-radius: 24px !important; animation: popMenuSide 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-sizing: border-box;">
             <button class="glass-close-btn" onclick="closeModal('pillPreviewModal')" style="position: absolute; top: 15px; right: 15px; width: 30px; height: 30px;">
@@ -24817,8 +24850,16 @@ function openPillPreviewModal({ mainChar, subTitle, badge, stats, actionText, ac
 
             ${badge ? `<div class="discovery-badge" style="background: rgba(0, 0, 0, 0.04); color: #1d1d1f; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 15px; display: inline-block; font-size: 11px; font-weight: 800;">${badge}</div>` : ''}
             
-            <div id="previewMainChar" style="font-size: ${mainChar.length > 3 ? '28px' : '58px'}; font-weight: 900; color: #1d1d1f; line-height: 1.2; margin-bottom: 4px; font-family: 'Noto Sans JP', sans-serif;">${mainChar}</div>
+            <!-- Chữ lớn trung tâm (Có nhấp nháy phát sáng nếu đến hạn) -->
+            <div id="previewMainChar" class="${mainCharClass}" style="font-size: ${mainChar.length > 3 ? '28px' : '58px'}; font-weight: 900; color: #1d1d1f; line-height: 1.2; margin-bottom: 8px; font-family: 'Noto Sans JP', sans-serif;">${mainChar}</div>
+            
             <div id="previewSubTitle" style="font-size: 15px; color: #4a5568; font-weight: 700; margin-bottom: 20px; line-height: 1.4; min-height: 22px;">${subTitle}</div>
+
+            <!-- Thể hiện thời gian đến hạn ôn tập (nếu có) -->
+            ${dueTimeText ? `
+            <div id="previewDueTime" style="margin-top: -12px; margin-bottom: 15px; font-size: 12px; font-weight: 800; color: #4a5568; background: #f8fafc; border: 1px solid #edf2f7; padding: 6px 12px; border-radius: 50px; display: inline-block;">
+                ${dueTimeText}
+            </div>` : ''}
 
             <!-- Khung lưới chứa Kỷ lục và Hiện tại -->
             <div style="display: flex; gap: 10px; margin-bottom: 20px; width: 100%; box-sizing: border-box;">
@@ -24849,6 +24890,13 @@ function openPillPreviewModal({ mainChar, subTitle, badge, stats, actionText, ac
         actionCallback();
     };
 
+    if (isMainCharClickable) {
+        document.getElementById('previewMainChar').onclick = () => {
+            closeModal('pillPreviewModal');
+            onMainCharClick();
+        };
+    }
+
     document.body.classList.add('modal-open-lock');
     modal.style.display = 'flex';
 }
@@ -24861,26 +24909,41 @@ async function showKanjiPreview(event, kanji) {
     const peaksMap = currentUser.kanji_peaks || {};
     
     const currentInterval = activeMap[kanji] || 0;
-    // 🟢 FIX LỖI 1: Ép Kỷ lục phải luôn >= Hiện tại (Bù đắp dữ liệu cũ)
     const peakInterval = Math.max(peaksMap[kanji] || 0, currentInterval);
     
     const kanjiItem = allKanjiData.find(k => k.kanji === kanji) || { level: 'N?' };
     
-    // Mở nhanh Modal ở trạng thái tải ngầm
+    // 🟢 TIẾN HÀNH TRUY VẤN THẺ CÓ THÀNH TÍCH CAO NHẤT CHỨA KANJI NÀY
+    const highestCard = await getHighestAchievementCardForTarget(kanji, 'kanji');
+    
+    let dueText = "";
+    let onMainCharClickFn = null;
+    
+    if (highestCard) {
+        dueText = formatDueTime(highestCard.due);
+        const isOverdue = new Date(highestCard.due) <= new Date();
+        if (isOverdue) {
+            dueText += " • NHẤP VÀO CHỮ ĐỂ SÁT HẠCH";
+            window.miniAssessmentSourcePage = 'kanjiPage'; // Ghi nhớ trang nguồn
+            onMainCharClickFn = () => startMiniAssessment(highestCard);
+        }
+    }
+
     openPillPreviewModal({
         mainChar: kanji,
         subTitle: '<div class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:#0071e3;margin:auto;"></div>',
         badge: `CHỮ KANJI CẤP ĐỘ ${kanjiItem.level}`,
         stats: { peak: peakInterval, current: currentInterval },
         actionText: "PHÂN TÍCH X-RAY CHI TIẾT 🔍",
-        actionCallback: () => showKanjiXRay(new Event('click'), kanji)
+        actionCallback: () => showKanjiXRay(new Event('click'), kanji),
+        dueTimeText: dueText,
+        onMainCharClick: onMainCharClickFn
     });
     
     // Chạy ngầm bóc tách Hán Việt từ API Mazii và cập nhật thẳng lên DOM
     const detail = await fetchMaziiKanjiDetail(kanji);
     const subTitleEl = document.getElementById('previewSubTitle');
     if (detail && subTitleEl) {
-        // 🟢 FIX LỖI: Chặn hiển thị nếu Nghĩa bị rỗng, trùng Hán Việt, hoặc mang giá trị mặc định "Chưa rõ nghĩa"
         const hasValidMeaning = detail.meaning && 
                                 detail.meaning !== 'Chưa rõ nghĩa' && 
                                 detail.meaning.toUpperCase() !== detail.hv.toUpperCase();
@@ -24888,7 +24951,6 @@ async function showKanjiPreview(event, kanji) {
         if (hasValidMeaning) {
             subTitleEl.innerHTML = `<span style="color:#c50f1f; font-weight:800;">[${detail.hv}]</span> — <span style="font-weight:600;">${detail.meaning}</span>`;
         } else {
-            // Chỉ hiện mỗi Hán Việt cực kỳ gọn gàng
             subTitleEl.innerHTML = `<span style="color:#c50f1f; font-weight:800;">[${detail.hv}]</span>`;
         }
     } else if (subTitleEl) {
@@ -24897,7 +24959,7 @@ async function showKanjiPreview(event, kanji) {
 }
 
 // 3. Bộ chuyển hướng hiển thị xem nhanh cho NGỮ PHÁP
-function showGrammarPreview(event, grammarId) {
+async function showGrammarPreview(event, grammarId) {
     if (event) { event.stopPropagation(); event.preventDefault(); }
     
     const g = globalGrammarData.find(x => x.id === grammarId);
@@ -24907,16 +24969,33 @@ function showGrammarPreview(event, grammarId) {
     const peaksMap = currentUser.grammar_peaks || {};
     
     const currentInterval = activeMap[g.grammar_point] || 0;
-    // 🟢 FIX LỖI: Ép Kỷ lục phải luôn >= Hiện tại
     const peakInterval = Math.max(peaksMap[g.grammar_point] || 0, currentInterval);
     
+    // 🟢 TIẾN HÀNH TRUY VẤN THẺ CÓ THÀNH TÍCH CAO NHẤT CHỨA NGỮ PHÁP NÀY
+    const highestCard = await getHighestAchievementCardForTarget(g.grammar_point, 'grammar');
+    
+    let dueText = "";
+    let onMainCharClickFn = null;
+    
+    if (highestCard) {
+        dueText = formatDueTime(highestCard.due);
+        const isOverdue = new Date(highestCard.due) <= new Date();
+        if (isOverdue) {
+            dueText += " • NHẤP VÀO CHỮ ĐỂ SÁT HẠCH";
+            window.miniAssessmentSourcePage = 'grammarPage'; // Ghi nhớ trang nguồn
+            onMainCharClickFn = () => startMiniAssessment(highestCard);
+        }
+    }
+
     openPillPreviewModal({
         mainChar: g.grammar_point,
         subTitle: g.meaning,
         badge: `CẤU TRÚC NGỮ PHÁP ${g.level || 'N?'}`,
         stats: { peak: peakInterval, current: currentInterval },
         actionText: "XEM CHI TIẾT & VÍ DỤ 📚",
-        actionCallback: () => openGrammarDetail(grammarId)
+        actionCallback: () => openGrammarDetail(grammarId),
+        dueTimeText: dueText,
+        onMainCharClick: onMainCharClickFn
     });
 }
 /**
@@ -27463,6 +27542,110 @@ function initMantraScroller() {
         currentMantraIndex = (currentMantraIndex + 1) % boostMantras.length;
         textEl.innerText = boostMantras[currentMantraIndex];
     });
+}
+// 1. Hàm truy vấn thẻ có thành tích cao nhất (interval cao nhất) từ Supabase
+window.miniAssessmentSourcePage = ''; // 'kanjiPage' hoặc 'grammarPage'
+async function getHighestAchievementCardForTarget(char, type) {
+    if (!currentUser) return null;
+    const searchPattern = type === 'grammar' ? char.replace(/～/g, '') : char;
+    
+    try {
+        const { data, error } = await sb.from('user_vocabulary_mastery')
+            .select('id, word_text, back, info, tags, ef, interval, interval_count, due')
+            .eq('user_id', currentUser.id)
+            .like('word_text', `%${searchPattern}%`);
+        
+        if (error) throw error;
+        if (!data || data.length === 0) return null;
+
+        // Sắp xếp giảm dần theo interval để lấy thẻ có thành tích cao nhất
+        data.sort((a, b) => (b.interval || 0) - (a.interval || 0));
+        return data[0]; 
+    } catch (e) {
+        console.error("Lỗi khi tìm thẻ thành tích cao nhất:", e);
+        return null;
+    }
+}
+
+// 2. Hàm định dạng thời gian đến hạn ôn tập tương đối (Apple-Style)
+function formatDueTime(dueString) {
+    const due = new Date(dueString);
+    const now = new Date();
+    const diffMs = due - now;
+    const diffMins = Math.round(diffMs / (1000 * 60));
+    
+    if (diffMins <= 0) {
+        const absMins = Math.abs(diffMins);
+        if (absMins < 60) return `⏳ Quá hạn: ${absMins} phút trước`;
+        const absHours = Math.round(absMins / 60);
+        if (absHours < 24) return `⏳ Quá hạn: ${absHours} giờ trước`;
+        const absDays = Math.round(absHours / 24);
+        return `⏳ Quá hạn: ${absDays} ngày trước`;
+    } else {
+        if (diffMins < 60) return `⏰ Đến hạn ôn: ${diffMins} phút nữa`;
+        const hours = Math.round(diffMins / 60);
+        if (hours < 24) return `⏰ Đến hạn ôn: ${hours} giờ nữa`;
+        const days = Math.round(hours / 24);
+        return `⏰ Đến hạn ôn: ${days} ngày nữa`;
+    }
+}
+
+// 3. Hàm khởi chạy phiên Sát hạch Mini cho riêng 1 thẻ duy nhất
+function startMiniAssessment(card) {
+    if (typeof unlockIOSAudio === 'function') unlockIOSAudio();
+
+    showLoading("Khởi chạy Sát hạch Mini...");
+
+    // Thiết lập cấu trúc Sát hạch (Assessment) độc lập 1 thẻ
+    const singleCard = {
+        id: card.id,
+        front: card.word_text,
+        back: card.back,
+        info: card.info,
+        tags: card.tags || [],
+        matrix: generateAspectMatrixForCard({ front: card.word_text, back: card.back, info: card.info }),
+        penaltyPoints: 0,
+        isMeaningFailed: false,
+        isFailed: false,
+        isProcessed: false,
+        isLoaded: true,
+        progress: [{
+            id: card.id,
+            ef: card.ef,
+            interval: card.interval,
+            interval_count: card.interval_count,
+            due: card.due
+        }]
+    };
+
+    sessionCards = [singleCard];
+    currentIndex = 0;
+
+    // Đưa vào Cache để tránh lỗi định tuyến dở dang
+    window.rawDeckCache['MINI_ASSESSMENT'] = JSON.parse(JSON.stringify(sessionCards));
+
+    mode = 'assessment';
+    currentDeckName = 'MINI_ASSESSMENT'; 
+
+    boostState = {
+        currentRound: 1,
+        activeQueue: [0], // Chỉ có duy nhất 1 thẻ (index 0)
+        passedCards: [],
+        remedialCards: []
+    };
+
+    updateBreadcrumb([
+        { label: 'Tổng quan', action: 'showDashboard()' },
+        { label: 'Sát hạch Mini: ' + card.word_text }
+    ]);
+    updateHeaderTitle("SÁT HẠCH MINI");
+
+    document.getElementById('studyArea').classList.add('hidden');
+    document.getElementById('boostArea').classList.remove('hidden');
+    
+    showPage('reviewPage');
+    hideLoading();
+    showCard();
 }
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
