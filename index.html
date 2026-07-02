@@ -7579,7 +7579,21 @@ body.shadowing-mode #shadowingPage {
     
             <!-- TAB 3: SETTINGS (CẤU HÌNH BẢO MẬT & DATABASE) -->
             <div id="adminZoneSetting" style="display: none; animation: fadeInChat 0.2s ease;">
-                
+                <!-- CỤM QUẢN LÝ PHIÊN BẢN BỘ ĐỆM -->
+                <div style="font-size: 14px; font-weight: 800; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; margin-left: 20px; margin-bottom: 10px;">Quản lý phiên bản Cache</div>
+                                
+                <div style="background: #fbfbfd; border: 1px solid #edf2f7; border-radius: 12px; padding: 20px; display: flex; align-items: center; justify-content: space-between; gap: 15px; box-sizing: border-box; margin-bottom: 30px;">
+                    <div style="text-align: left; flex: 1;">
+                        <div style="font-weight: 800; font-size: 15px; color: #1d1d1f; display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                            <span class="material-symbols-outlined" style="font-size: 20px; color: #8b5cf6;">memory</span> Phiên bản Cache (AI / Từ điển)
+                        </div>
+                        <div style="font-size: 13px; color: #718096; line-height: 1.5;">Đổi tên phiên bản để ép <b>toàn bộ thiết bị học viên</b> tự động xóa dữ liệu giải thích AI cũ và tải lại bản mới.</div>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="adminAiVersionInput" class="win11-input" placeholder="VD: v15" style="max-width: 100px; margin-bottom: 0; text-align: center; font-weight: bold; color: #8b5cf6;">
+                        <button onclick="adminPanelApp.updateAiCacheVersion()" class="win11-btn-primary" style="background: #8b5cf6; padding: 12px 20px; white-space: nowrap; border-radius: 8px;">CẬP NHẬT</button>
+                    </div>
+                </div>
                 <!-- 🟢 ĐÃ THÊM margin-left: 20px ĐỂ THẲNG HÀNG VỚI ICON CHIẾC CHÌA KHÓA -->
                 <div style="font-size: 14px; font-weight: 800; color: #86868b; text-transform: uppercase; letter-spacing: 0.5px; margin-left: 20px; margin-bottom: 10px;">Xác thực máy chủ D1</div>
                 
@@ -9116,6 +9130,7 @@ let cachedVocabStudiedCount = 0; // 🟢 THÊM MỚI: Biến cache lưu trữ l�
 let forceDashboardRefresh = false; // Mặc định false, chỉ bật khi user thao tác dữ liệu
 let isTabLeader = false;      // Cờ đánh dấu Tab hiện tại có phải là Leader không
 let leaderTimeout = null;     // Bộ đếm thời gian chờ phản hồi bầu cử
+window.GLOBAL_AI_CACHE_VERSION = 'v14'; // Giá trị mặc định nếu rớt mạng
 /* ================= 3. UTILITIES ================= */
 // Hàm xin giờ chuẩn tuyệt đối từ Cloud
 async function getServerTime() {
@@ -10941,7 +10956,7 @@ window.kanjiDetailCache = window.kanjiDetailCache || {};
  * 1. Hàm nạp từ điển Kanji gốc và gộp mảng khử trùng lặp tĩnh
  */
 async function fetchMaziiKanjiDetail(kanjiChar) {
-    const cacheKey = `kanji_v14_final_${kanjiChar}`;
+    const cacheKey = `kanji_${window.GLOBAL_AI_CACHE_VERSION}_final_${kanjiChar}`;
     window.kanjiDetailCache = window.kanjiDetailCache || {};
     
     if (window.kanjiDetailCache[cacheKey]) return window.kanjiDetailCache[cacheKey];
@@ -11263,7 +11278,7 @@ async function showKanjiXRay(event, kanji) {
  * Hàm lõi: Quét sâu thông tin chi tiết một từ (Hán Việt & Ví dụ) khi người dùng bấm vào
  */
 async function ensureXRayVocabDeepFetched(kanjiChar, index) {
-    const cacheKey = `kanji_v14_final_${kanjiChar}`; // Đã đồng bộ khóa chuẩn
+    const cacheKey = `kanji_${window.GLOBAL_AI_CACHE_VERSION}_final_${kanjiChar}`;
     const cachedData = window.kanjiDetailCache[cacheKey];
     if (!cachedData || !cachedData.mergedVocabList || !cachedData.mergedVocabList[index]) return null;
 
@@ -11318,7 +11333,7 @@ async function ensureXRayVocabDeepFetched(kanjiChar, index) {
 // 4. HÀM TẠO THÊM CÂU VÍ DỤ BẰNG AI TRÊN KANJI X-RAY (GIỚI HẠN CỨNG TỐI ĐA 15 CÂU)
 async function generateExWithAIOndemand(kanjiChar, index) {
     const btn = document.getElementById(`btnAiGenEx-${index}`);
-    const cacheKey = `kanji_v14_final_${kanjiChar}`; // Khóa cache chuẩn
+    const cacheKey = `kanji_${window.GLOBAL_AI_CACHE_VERSION}_final_${kanjiChar}`;
     const cachedData = window.kanjiDetailCache[cacheKey];
     if (!cachedData || !cachedData.mergedVocabList) return;
     
@@ -11487,7 +11502,7 @@ async function addSingleVocabXRay(kanjiChar, index) {
  * Hoạt động 3: Bấm Lưu hàng loạt (Quét nối tiếp các từ chưa deep-fetch)
  */
 async function bulkSaveXRayVocab(kanjiChar) {
-    const cacheKey = `kanji_v14_final_${kanjiChar}`; // Khóa cache chuẩn
+    const cacheKey = `kanji_${window.GLOBAL_AI_CACHE_VERSION}_final_${kanjiChar}`;
     const cachedData = window.kanjiDetailCache[cacheKey];
     
     // Kiểm tra an toàn bộ nhớ đệm
@@ -16600,20 +16615,53 @@ async function ensureThematicMetadataLoaded(force = false) {
     const cacheKey = `minddeck_thematic_metadata_${currentUser.id}`;
     let cached = localStorage.getItem(cacheKey);
 
+    let metadata = [];
     if (force || !cached || cached === "undefined") {
         try {
-            console.log("MindDeck: 📡 Đang nạp danh mục chủ đề sẵn có từ D1...");
+            console.log("MindDeck: 📡 Đang nạp danh mục chủ đề và cấu hình từ D1...");
             const response = await fetch(`${DICT_API_URL}/api/thematic-metadata`);
             if (response.ok) {
-                const data = await response.json();
-                localStorage.setItem(cacheKey, JSON.stringify(data));
-                return data;
+                metadata = await response.json();
+                localStorage.setItem(cacheKey, JSON.stringify(metadata));
             }
         } catch (e) {
             console.error("Lỗi nạp metadata từ D1:", e);
+            metadata = JSON.parse(cached || "[]");
+        }
+    } else {
+        metadata = JSON.parse(cached || "[]");
+    }
+
+    // 🟢 ĐỌC PHIÊN BẢN AI VÀ TỰ ĐỘNG DỌN RÁC NGẦM
+    const configRow = metadata.find(m => m.tag_id === '#system_config_ai_version');
+    if (configRow && configRow.display_name) {
+        window.GLOBAL_AI_CACHE_VERSION = configRow.display_name;
+        await checkAndWipeOldAiCache(window.GLOBAL_AI_CACHE_VERSION);
+    }
+
+    return metadata;
+}
+
+// 🟢 HÀM MỚI: Cỗ máy tự động hủy diệt rác cũ
+async function checkAndWipeOldAiCache(currentCloudVersion) {
+    const localVersion = localStorage.getItem('minddeck_local_ai_cache_version');
+    
+    // Nếu máy khách đang lưu version cũ (bị lệch so với Server)
+    if (localVersion && localVersion !== currentCloudVersion) {
+        console.log(`🚀 MindDeck: Phát hiện bản cập nhật AI mới (${localVersion} -> ${currentCloudVersion}). Tiến hành dọn dẹp...`);
+        try {
+            await dbOps.clear(STORE_AI_CACHE); // Xóa sạch Ổ cứng IndexedDB chứa AI cũ
+            window.kanjiDetailCache = {};      // Xóa RAM
+            window.maziiSearchCache = {};      // Xóa RAM từ điển
+            
+            showToast(`🔄 Đã cập nhật hệ thống AI/Từ điển lên phiên bản ${currentCloudVersion}!`);
+        } catch (e) {
+            console.error("Lỗi dọn rác AI Cache:", e);
         }
     }
-    return JSON.parse(cached || "[]");
+    
+    // Lưu lại version mới nhất vào máy để lần sau so sánh tiếp
+    localStorage.setItem('minddeck_local_ai_cache_version', currentCloudVersion);
 }
 // 1. Hàm tạo ra một chuỗi Tag hợp lệ từ Chủ đề người dùng nhập (VD: "Từ vựng IT" -> "#Tu_vung_IT")
 function createHashtagFromText(text) {
@@ -16701,7 +16749,7 @@ async function renderThematicTagCloud() {
         };
 
         // 🟢 CHỐT CHẶN BẢO VỆ: Chỉ lấy các chủ đề CHA (parent_id là null/rỗng) để vẽ lên Đám mây
-        const parentMetadata = metadata.filter(item => !item.parent_id);
+        const parentMetadata = metadata.filter(item => !item.parent_id && !item.tag_id.startsWith('#system_'));
 
         // A. VẼ DANH MỤC HỆ THỐNG (PRE-DEFINED TAGS)
         parentMetadata.forEach(item => {
@@ -26443,6 +26491,44 @@ const adminPanelApp = {
         const titleHash = Math.abs(hash).toString(36); 
         
         return `${parentTagId}_${titleHash}`;
+    },
+    // Cập nhật phiên bản Cache hệ thống
+    async updateAiCacheVersion() {
+        const newVersion = document.getElementById('adminAiVersionInput').value.trim();
+        if (!newVersion) return customAlert("Vui lòng nhập số phiên bản (Ví dụ: v15)", "⚠️");
+        
+        const secret = localStorage.getItem('minddeck_admin_secret');
+        if (!secret) return customAlert("Chưa cấu hình Khóa Bảo Mật Admin!", "🔑");
+
+        showLoading(`Đang nâng cấp hệ thống lên ${newVersion}...`);
+        try {
+            const response = await fetch(`${DICT_API_URL}/api/admin/update-metadata`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${secret}` },
+                body: JSON.stringify({
+                    action: 'insert', // Hàm D1 của bạn hỗ trợ UPSERT thông qua 'insert'
+                    tag_id: '#system_config_ai_version',
+                    display_name: newVersion,
+                    category: 'System', // Phân loại ẩn
+                    sort_order: -1,
+                    parent_id: null,
+                    search_keywords: ""
+                })
+            });
+
+            if (!response.ok) throw new Error("Lỗi kết nối máy chủ D1.");
+
+            // Tải lại metadata để áp dụng ngay cho máy Admin
+            localStorage.removeItem(`minddeck_thematic_metadata_${currentUser.id}`);
+            await this.loadMetadataTree();
+            
+            showToast(`🚀 Đã ép toàn bộ máy khách nâng cấp lên phiên bản ${newVersion}!`);
+        } catch (err) {
+            console.error(err);
+            customAlert("Cập nhật thất bại: " + err.message, "❌");
+        } finally {
+            hideLoading();
+        }
     },
     // 1. Kiểm duyệt quyền hạn và ẩn/hiện nút truy cập trên Sidebar
     checkAdminPrivileges() {
