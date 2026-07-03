@@ -13127,6 +13127,24 @@ async function flushSrsQueue() {
             console.warn("MindDeck: Lệnh SRS bị từ chối vì phiên đăng nhập đã chuyển sang máy khác.");
             return;
         }
+        if (rpcData && rpcData.status === 'error' && rpcData.message === 'SESSION_EXPIRED') {
+            console.warn("MindDeck: Lệnh SRS bị từ chối vì phiên đăng nhập đã chuyển sang máy khác.");
+            return;
+        }
+
+        // 🟢 H2 FIX: Cảnh báo và tự động giải phóng "Thẻ ma" (Ghost Cards) khỏi RAM
+        if (rpcData && rpcData.skipped_count > 0) {
+            // Ghi log kỹ thuật cho bạn theo dõi ở Console
+            console.warn(`MindDeck: ${rpcData.skipped_count} thẻ SRS bị skip do không tồn tại trong Tầng 1 (có thể do trigger cleanup_orphaned_vocabulary đã xóa).`);
+            
+            // Hiện Toast thông báo bằng ngôn ngữ thân thiện cho học viên
+            showToast(`🔄 Phát hiện ${rpcData.skipped_count} từ đã bị xóa ở thiết bị khác. Hệ thống đã tự động bỏ qua.`);
+            
+            // 💡 PRO-TIP: Tự động xóa cache của bộ bài này trong RAM/Session để buộc tải lại skeleton sạch
+            if (typeof currentDeckName !== 'undefined' && currentDeckName) {
+                window.invalidateDeckCache(currentDeckName);
+            }
+        }
 
         console.log(`MindDeck: Đã đồng bộ lô ${payloadsToSend.length} thẻ SRS lên Cloud.`);
         forceDashboardRefresh = true;
