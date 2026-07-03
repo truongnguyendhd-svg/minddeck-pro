@@ -9992,7 +9992,14 @@ async function runAppInitialization() {
         } else {
             console.log("MindDeck: 🛡️ Trì hoãn hoặc bỏ qua đồng bộ Cloud để tiết kiệm tài nguyên mạng.");
         }
-        
+        // 🟢 CỨU HỘ KHẨN CẤP: Kiểm tra và cứu hộ dữ liệu bị "kẹt" do đóng tab đột ngột ở phiên trước
+        const inflightKey = `minddeck_inflight_queue_${currentUser.id}`;
+        const lostPayloads = safeGetLocalCache(inflightKey, [], 'array');
+        if (lostPayloads.length > 0) {
+            console.log(`MindDeck: 🚑 Phát hiện ${lostPayloads.length} tiến trình chưa hoàn tất từ phiên trước. Đang tiến hành cứu hộ...`);
+            lostPayloads.forEach(p => saveToOfflineQueue(p));
+            localStorage.removeItem(inflightKey); // Xóa dọn rác sau khi cứu hộ xong
+        }
         setupSingleSessionProtection();
         handleRoute(); 
         isAppInitialized = true;
@@ -13097,10 +13104,14 @@ async function flushSrsQueue() {
     srsPendingQueue = [];
     sessionStorage.setItem(`minddeck_skip_full_scan_${currentUser.id}`, 'true');
 
+    // 🟢 NHẬT KÝ GHI TRƯỚC (WAL): Lưu trữ tạm thời lô dữ liệu đang gửi xuống ổ cứng đề phòng sập nguồn/đóng tab
+    const inflightKey = `minddeck_inflight_queue_${currentUser.id}`;
+    localStorage.setItem(inflightKey, JSON.stringify(payloadsToSend));
+
     try {
         const mySessionId = localStorage.getItem(`current_session_id_${currentUser.id}`);
 
-        // Gọi RPC gộp dữ liệu
+        // Gọi RPC gộp dữ liệu lên Cloud
         const { data: rpcData, error } = await sb.rpc('upsert_progress_safe', {
             p_user_id: currentUser.id,
             p_session_id: mySessionId,
@@ -13109,6 +13120,9 @@ async function flushSrsQueue() {
         
         if (error) throw error; 
         
+        // 🟢 THÀNH CÔNG: Xóa nhật ký gửi tạm một cách an toàn
+        localStorage.removeItem(inflightKey);
+
         if (rpcData && rpcData.status === 'error' && rpcData.message === 'SESSION_EXPIRED') {
             console.warn("MindDeck: Lệnh SRS bị từ chối vì phiên đăng nhập đã chuyển sang máy khác.");
             return;
@@ -13119,6 +13133,8 @@ async function flushSrsQueue() {
 
     } catch (err) {
         console.warn("Mất mạng! Đã đưa tiến trình vào Hàng đợi Offline.");
+        // 🟢 THẤT BẠI: Giải phóng nhật ký và đưa an toàn vào hàng đợi ngoại tuyến chính thức
+        localStorage.removeItem(inflightKey);
         payloadsToSend.forEach(p => saveToOfflineQueue(p));
     }
 }
@@ -13126,13 +13142,23 @@ async function flushSrsQueue() {
 // 3. XỬ LÝ KHI NGƯỜI DÙNG TẮT/CHUYỂN TAB (Offline Queue & Suspend WebSocket)
 document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === 'hidden') {
-        // 1. KHI TẮT TAB HOẶC ẨN APP: Đổ mảng chờ vào Ổ cứng
+        // 1. KHI TẨT TAB HOẶC ẨN APP: Đổ mảng chờ vào Ổ cứng
         if (srsPendingQueue.length > 0) {
             srsPendingQueue.forEach(p => saveToOfflineQueue(p));
             srsPendingQueue = []; // Dọn sạch RAM
         }
         
-        // 2. NGẮT DÒNG CHẢY NGẦM WEBSOCKET ĐỂ TIẾT KIỆM QUOTA
+        // 🟢 CỨU HỘ CHỦ ĐỘNG: Nếu có luồng mạng đang gửi dở dang lúc ẩn app, lập tức thu hồi về Offline Queue
+        if (currentUser) {
+            const inflightKey = `minddeck_inflight_queue_${currentUser.id}`;
+            const lostPayloads = safeGetLocalCache(inflightKey, [], 'array');
+            if (lostPayloads.length > 0) {
+                lostPayloads.forEach(p => saveToOfflineQueue(p));
+                localStorage.removeItem(inflightKey);
+            }
+        }
+        
+        // 2. NGẮT DÒNG CHẢY NGẦM WEBSOCKET
         if (realtimeSessionChannel) {
             sb.removeChannel(realtimeSessionChannel);
             realtimeSessionChannel = null;
