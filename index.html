@@ -12642,6 +12642,15 @@ function renderBoostCard() {
 
                     zone.innerHTML = ``;
 
+                    // 🟢 TÍNH SỐ CỘT TRƯỚC KHI RENDER để set inline ngay trong template
+                    // Quy tắc:
+                    //   - N ≤ 12: 6 cột cố định → hàng dưới 6 viên đầy, hàng trên (N-6) viên lẻ căn giữa
+                    //   - N > 12: tự chia đôi = ceil(N/2) → 2 hàng đều đầy, viên gạch tự co lại
+                    const poolSize = gameData.pool.length;
+                    const dynamicCols = poolSize <= 12
+                        ? 6
+                        : Math.max(2, Math.ceil(poolSize / 2));
+
                     let poolHTML = gameData.pool.map((piece, idx) =>
                         `<div class="kb-piece" id="kb-piece-${currentStep}-${idx}">${piece}</div>`
                     ).join('');
@@ -12653,8 +12662,9 @@ function renderBoostCard() {
                     giveUpZone.style.flexDirection = 'column';
                     giveUpZone.style.gap = '15px'; 
                     
+                    // 🟢 Set --kb-cols NGAY trong inline style để CSS calc tính đúng ngay từ đầu
                     giveUpZone.innerHTML = `
-                        <div class="kb-pool-grid" id="kb-pool">
+                        <div class="kb-pool-grid" id="kb-pool" style="--kb-cols: ${dynamicCols};">
                             ${poolHTML}
                         </div>
                         <button onclick="confirmBoostGiveUp()" class="win11-btn-secondary" style="width: 100%; justify-content: center; color: #c50f1f; border-color: #f8d7da; background: #fdf3f4; padding: 14px; font-size: 15px; font-weight: 700;">
@@ -12664,15 +12674,14 @@ function renderBoostCard() {
 
                     const targetBox = document.getElementById('kb-target-box');
                     const poolBox = document.getElementById('kb-pool');
-                    // 🟢 FIX: Quy tắc số cột:
-                    //   - N ≤ 12: giữ 6 cột cố định → hàng dưới 6 viên đầy, hàng trên (N-6) viên lẻ căn giữa
-                    //   - N > 12: mới tự chia đôi = ceil(N/2) → 2 hàng đều đầy, viên gạch tự co lại
-                    // Ví dụ: N=7 → 6+1, N=12 → 6+6, N=14 → 7+7, N=18 → 9+9
-                    const poolSize = gameData.pool.length;
-                    const dynamicCols = poolSize <= 12
-                        ? 6
-                        : Math.max(2, Math.ceil(poolSize / 2));
-                    poolBox.style.setProperty('--kb-cols', dynamicCols);
+                    // 🟢 BACKUP: Ép width trực tiếp bằng JS cho từng .kb-piece để đảm bảo re-layout
+                    // (đề phòng CSS var/calc không re-evaluate trên 1 số trình duyệt)
+                    const gap = 6;
+                    const pieceWidthCalc = `calc((100% - ${gap * (dynamicCols - 1)}px) / ${dynamicCols})`;
+                    poolBox.querySelectorAll('.kb-piece').forEach(p => {
+                        p.style.width = pieceWidthCalc;
+                        p.style.flexBasis = pieceWidthCalc;
+                    });
                     let currentAnswer = new Array(gameData.correctSequence.length).fill(null);
                 
                     poolBox.onclick = function(e) {
