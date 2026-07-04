@@ -11126,6 +11126,61 @@ async function fetchKanjiBrief(kanjiChar) {
     }
 }
 
+// ============================================================================
+// 📰 NEWS CARD — Lấy 1 bản tin NHK ngẫu nhiên cho Góc Khám Phá (Layer 1, không AI)
+// ============================================================================
+window.newsCardCache = null; // Cache RAM cả session (1 bài/random mỗi session)
+window.newsCardLastFetch = 0;
+
+/**
+ * Lấy 1 bản tin NHK ngẫu nhiên + thumbnail cho Góc Khám Phá.
+ * - KHÔNG gọi AI → nhanh (200-500ms)
+ * - Worker cache RSS 10 phút, cache og:image 1 giờ
+ * - Frontend cache RAM 30 giây để tránh spam refresh
+ *
+ * @returns {Promise<{title, desc, link, image_url, pub_date}|null>}
+ */
+async function fetchNewsCard() {
+    // Cache RAM 30s
+    const now = Date.now();
+    if (window.newsCardCache && (now - window.newsCardLastFetch) < 30000) {
+        return window.newsCardCache;
+    }
+
+    try {
+        const response = await fetch(`${DICT_API_URL}/api/news-card`);
+        if (!response.ok) {
+            throw new Error(`API news-card lỗi: ${response.status}`);
+        }
+        const data = await response.json();
+        if (!data || !data.link) return null;
+
+        window.newsCardCache = data;
+        window.newsCardLastFetch = now;
+        return data;
+    } catch (e) {
+        console.error("Lỗi gọi API news-card:", e);
+        return null;
+    }
+}
+
+/**
+ * Mở modal Dokkai (generateDailyStoryWithAI) cho 1 link NHK cụ thể.
+ * Đặt biến toàn cục window.pendingNewsLink rồi gọi generateDailyStoryWithAI(),
+ * hàm đó đã được sửa để đọc biến này và truyền ?link= cho API.
+ *
+ * @param {string} newsLink - URL bài báo NHK
+ */
+async function openDokkaiFromDiscovery(newsLink) {
+    if (!newsLink) return;
+    // Đánh dấu link user vừa chọn → generateDailyStoryWithAI sẽ dùng
+    window.pendingNewsLink = newsLink;
+    // Tái sử dụng hàm generateDailyStoryWithAI đã có (đã được patch bên dưới
+    // để hỗ trợ window.pendingNewsLink). Sau khi dùng xong thì xoá.
+    await generateDailyStoryWithAI();
+    window.pendingNewsLink = null;
+}
+
 /**
  * 1. Hàm nạp từ điển Kanji gốc và gộp mảng khử trùng lặp tĩnh
  */
@@ -21535,7 +21590,17 @@ function refreshDiscovery() {
         setTimeout(async () => {
             try {
                 let html = '';
-                let isKanji = Math.random() > 0.5; // Tỷ lệ 50/50
+                // 🟢 MỚI: Random 3 mode — 40% Kanji / 30% News / 30% Grammar
+                const roll = Math.random();
+                let mode = 'kanji'; // mặc định
+                if (roll < 0.40) {
+                    mode = 'kanji';
+                } else if (roll < 0.70) {
+                    mode = 'news';
+                } else {
+                    mode = 'grammar';
+                }
+                let isKanji = (mode === 'kanji');
                 
                 // 1. 🟢 FIX LỖI: ĐẢM BẢO NGỮ PHÁP ĐÃ ĐƯỢC NẠP TỪ INDEXED DB
                 if (globalGrammarData.length === 0) {
@@ -21549,11 +21614,18 @@ function refreshDiscovery() {
                     }
                 }
 
-                // 2. 🟢 CHỐT CHẶN CỨU HỘ: 
-                // Nếu quay trúng Ngữ pháp mà chưa có Ngữ pháp -> Ép thành Kanji
-                if (!isKanji && globalGrammarData.length === 0) isKanji = true;
-                // Nếu quay trúng Kanji mà không có Kanji -> Ép thành Ngữ pháp
-                if (isKanji && (!allKanjiData || allKanjiData.length === 0)) isKanji = false;
+                // 2. 🟢 CHỐT CHẶN CỨU HỘ:
+                // Nếu quay trúng Ngữ pháp mà chưa có Ngữ pháp -> Ép sang News (nếu không được thì ép Kanji)
+                if (mode === 'grammar' && globalGrammarData.length === 0) {
+                    mode = (allKanjiData && allKanjiData.length > 0) ? 'kanji' : 'news';
+                    isKanji = (mode === 'kanji');
+                }
+                // Nếu quay trúng Kanji mà không có Kanji -> Ép sang News
+                if (mode === 'kanji' && (!allKanjiData || allKanjiData.length === 0)) {
+                    mode = 'news';
+                    isKanji = false;
+                }
+                // Nếu quay trúng News (sẽ thử fetch, nếu fail sẽ fallback trong nhánh dưới)
 
                 // 3. XỬ LÝ BỐC THĂM KANJI
                 if (isKanji) {
@@ -21591,8 +21663,47 @@ function refreshDiscovery() {
                     }
                 }
 
+                // 3.5 🟢 XỬ LÝ BỐC THĂM NEWS (NHK)
+                if (mode === 'news') {
+                    try {
+                        const news = await fetchNewsCard();
+                        if (news && news.link) {
+                            // Fallback image nếu không có og:image
+                            const imgUrl = news.image_url || '';
+                            const imgHTML = imgUrl
+                                ? `<div style="width: 100%; height: 120px; border-radius: 10px; overflow: hidden; margin-bottom: 12px; background: #f1f5f9;">
+                                     <img src="${escapeHTML(imgUrl)}" style="width:100%; height:100%; object-fit: cover;" onerror="this.parentElement.style.display='none';" alt="news thumbnail"/>
+                                   </div>`
+                                : `<div style="width: 100%; height: 60px; border-radius: 10px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); margin-bottom: 12px; display: flex; align-items: center; justify-content: center;">
+                                     <span class="material-symbols-outlined" style="font-size: 32px; color: #92400e;">newspaper</span>
+                                   </div>`;
+
+                            // Cắt desc tối đa 90 ký tự
+                            const shortDesc = (news.desc || '').length > 90
+                                ? (news.desc || '').slice(0, 87) + '...'
+                                : (news.desc || '');
+
+                            html = `
+                                <div class="discovery-badge" style="background: #fef3c7; color: #92400e; border: 1px solid #fde68a;">📰 Bản tin NHK hôm nay</div>
+                                ${imgHTML}
+                                <div style="font-size: 16px; font-weight: 800; color: #1d1d1f; line-height: 1.4; margin: 8px 0; padding: 0 4px; font-family: 'Noto Sans JP', sans-serif;">${escapeHTML(news.title || '')}</div>
+                                <div style="font-size: 12px; color: #6b7280; line-height: 1.5; margin-bottom: 16px; padding: 0 4px;">${escapeHTML(shortDesc)}</div>
+                                <button onclick="openDokkaiFromDiscovery('${escapeHTML(news.link)}')" style="background: #c50f1f; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(197,15,31,0.25); margin: 0 auto;">
+                                    <span class="material-symbols-outlined" style="font-size: 16px;">menu_book</span> Đọc & Làm quiz
+                                </button>
+                            `;
+                        } else {
+                            // News fail → fallback sang grammar
+                            mode = 'grammar';
+                        }
+                    } catch (e) {
+                        console.error('Lỗi fetchNewsCard:', e);
+                        mode = 'grammar';
+                    }
+                }
+
                 // 4. XỬ LÝ BỐC THĂM NGỮ PHÁP
-                if (!isKanji && globalGrammarData.length > 0) {
+                if (mode === 'grammar' && globalGrammarData.length > 0) {
                     const randomGrammar = globalGrammarData[Math.floor(Math.random() * globalGrammarData.length)];
                     
                     html = `
@@ -22474,7 +22585,12 @@ async function generateDailyStoryWithAI() {
 
     try {
         // Gọi đến API daily-news của Worker để bốc bản tin thời sự thực tế
-        const response = await fetch(`${DICT_API_URL}/api/daily-news`);
+        // 🟢 MỚI: Nếu có pendingNewsLink (từ Góc Khám Phá) → truyền ?link= cho API
+        // để Worker dùng cache D1 thay vì random + gọi AI lại
+        const newsLinkParam = window.pendingNewsLink
+            ? `?link=${encodeURIComponent(window.pendingNewsLink)}`
+            : '';
+        const response = await fetch(`${DICT_API_URL}/api/daily-news${newsLinkParam}`);
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
             throw new Error(errData.error || "Không thể tải bài học hôm nay.");
