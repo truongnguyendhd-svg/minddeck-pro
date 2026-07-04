@@ -11042,6 +11042,90 @@ function renderStudy() {
 // Khay nhớ đệm toàn cục của Kanji
 window.kanjiDetailCache = window.kanjiDetailCache || {};
 
+// Khay nhớ đệm riêng cho Kanji Brief (Dashboard-only) — tách khỏi
+// kanjiDetailCache để tránh trộn cấu trúc dữ liệu nặng vs nhẹ.
+window.kanjiBriefCache = window.kanjiBriefCache || {};
+
+/**
+ * Lấy dữ liệu kanji siêu nhẹ cho Góc Khám Phá trên Dashboard.
+ *
+ * Khác biệt so với fetchMaziiKanjiDetail():
+ *   - Gọi /api/kanji-brief thay vì /api/kanji-detail
+ *   - KHÔNG tải compounds (30 từ ghép)
+ *   - KHÔNG tải examples/tags/stroke_count/mnemonics/components
+ *   - Payload ~300 bytes thay vì ~15-20KB (giảm ~97%)
+ *   - Cache IndexedDB dùng key riêng để không trộn lẫn
+ *
+ * @param {string} kanjiChar - 1 ký tự kanji
+ * @returns {Promise<{kanji, hv, meaning, onyomi, kunyomi}|null>}
+ */
+async function fetchKanjiBrief(kanjiChar) {
+    if (!kanjiChar) return null;
+
+    const cacheKey = `kanji_brief_${window.GLOBAL_AI_CACHE_VERSION || 'v1'}_${kanjiChar}`;
+
+    // 1. Cache RAM
+    if (window.kanjiBriefCache[cacheKey]) {
+        return window.kanjiBriefCache[cacheKey];
+    }
+
+    // 2. Cache IndexedDB (optional, không crash nếu lỗi)
+    try {
+        const localRecord = await dbOps.get(STORE_AI_CACHE, cacheKey);
+        if (localRecord && localRecord.data) {
+            window.kanjiBriefCache[cacheKey] = localRecord.data;
+            return localRecord.data;
+        }
+    } catch (e) {
+        // STORE_AI_CACHE có thể không tồn tại trong một số context, bỏ qua
+    }
+
+    // 3. Gọi API mới
+    try {
+        const response = await fetch(
+            `${DICT_API_URL}/api/kanji-brief?kanji=${encodeURIComponent(kanjiChar)}`
+        );
+        if (!response.ok) {
+            // 404 nghĩa là kanji không có trong kanji_dictionary — trả null để
+            // refreshDiscovery() fallback sang Ngữ pháp
+            if (response.status === 404) return null;
+            throw new Error(`API kanji-brief lỗi: ${response.status}`);
+        }
+        const data = await response.json();
+
+        if (!data || !data.kanji) return null;
+
+        // Lấy duy nhất chữ Hán Việt đầu tiên (giữ nguyên logic của hàm cũ)
+        let hv = (data.hv || 'CHƯA CÓ').trim().toUpperCase();
+        if (hv) hv = hv.split(/\s+/)[0];
+
+        // Server đã cắt ngắn meaning rồi, nhưng fallback thêm nếu thiếu
+        let meaning = (data.meaning || '').trim();
+        meaning = meaning.replace(/\[.*?\]\s*/g, '').trim();
+
+        const result = {
+            kanji: data.kanji,
+            hv: hv,
+            meaning: meaning,
+            onyomi: data.onyomi || '',
+            kunyomi: data.kunyomi || ''
+            // KHÔNG có mergedVocabList, compoundWord, stroke_count, tips, ...
+            // → Dashboard không dùng các field đó
+        };
+
+        // Lưu cache
+        window.kanjiBriefCache[cacheKey] = result;
+        try {
+            dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: result }).catch(() => {});
+        } catch (e) { /* ignore */ }
+
+        return result;
+    } catch (e) {
+        console.error("Lỗi gọi API kanji-brief:", e);
+        return null;
+    }
+}
+
 /**
  * 1. Hàm nạp từ điển Kanji gốc và gộp mảng khử trùng lặp tĩnh
  */
@@ -21474,40 +21558,39 @@ function refreshDiscovery() {
                 // 3. XỬ LÝ BỐC THĂM KANJI
                 if (isKanji) {
                     const randomSeed = allKanjiData[Math.floor(Math.random() * allKanjiData.length)];
-                    const data = await fetchMaziiKanjiDetail(randomSeed.kanji);
-                    
+                    // 🟢 ĐỔI: Dùng fetchKanjiBrief (payload ~300 bytes) thay vì
+                    //         fetchMaziiKanjiDetail (~15-20KB) — Dashboard không cần compounds.
+                    const data = await fetchKanjiBrief(randomSeed.kanji);
+
                     if (data) {
                         const rawReadings = `Onyomi: ${data.onyomi || '---'}\nKunyomi: ${data.kunyomi || '---'}`;
-                        
+
                         const showMeaningHTML = (data.meaning && data.meaning.toUpperCase() !== data.hv)
-                            ? `<div style="font-size: 15px; color: #4a5568; font-weight: 500; margin-bottom: 15px; padding: 0 10px; text-align: center;">${data.meaning}</div>`
+                            ? `<div style="font-size: 15px; color: #4a5568; font-weight: 500; margin-bottom: 15px; padding: 0 10px; text-align: center;">${escapeHTML(data.meaning)}</div>`
                             : '<div style="margin-bottom: 10px;"></div>';
 
-                        const compoundHTML = data.compoundWord 
-                            ? `<div style="background: #f8fafc; border: 1px dashed #cbd5e0; padding: 10px; border-radius: 10px; font-size: 13px; color: #4a5568; margin-bottom: 20px; width: 100%; box-sizing: border-box; text-align: center;">
-                                 <span style="font-weight: 800; color: #0067c0; font-size: 11px; display: block; margin-bottom: 4px; letter-spacing: 0.5px;">TỪ GHÉP MINH HỌA</span>
-                                 <b style="color: #1d1d1f; font-family: 'Noto Sans JP', sans-serif; font-size: 14px;">${escapeHTML(data.compoundWord)}</b>
-                               </div>`
-                            : '';
+                        // 🟢 BỎ: đoạn compoundHTML dựa vào data.compoundWord — field này không
+                        //        tồn tại trong fetchKanjiBrief (cũ cũng không có, luôn rỗng).
+                        //        Dashboard không cần "TỪ GHÉP MINH HỌA" — muốn xem chi tiết
+                        //        user bấm "Xem cách nhớ" để mở X-Ray.
 
                         html = `
                             <div class="discovery-badge" style="background: #fffaf0; color: #dd6b20; border: 1px solid #fbd38d;">Kanji trong ngày [${randomSeed.level}]</div>
                             <div style="font-size: 60px; font-weight: 900; color: #1d1d1f; line-height: 1.2; cursor: help;" title="${rawReadings}">${data.kanji}</div>
                             <div style="font-size: 16px; font-weight: 700; color: #c50f1f; letter-spacing: 1px; margin: 5px 0;">[ ${data.hv} ]</div>
-                            
+
                             ${showMeaningHTML}
-                            ${compoundHTML}
-                            
+
                             <button onclick="showKanjiXRay(event, '${data.kanji}')" style="background: #1d1d1f; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); margin: 0 auto;">
                                 <span class="material-symbols-outlined" style="font-size: 16px;">troubleshoot</span> Xem cách nhớ
                             </button>
                         `;
                     } else {
-                        // 🟢 FALLBACK: Nếu Mazii API bị lỗi mạng/timeout -> Trả cờ về false để hiện Ngữ Pháp
+                        // 🟢 FALLBACK: Nếu API brief lỗi/404 -> Trả cờ về false để hiện Ngữ Pháp
                         isKanji = false;
                     }
-                } 
-                
+                }
+
                 // 4. XỬ LÝ BỐC THĂM NGỮ PHÁP
                 if (!isKanji && globalGrammarData.length > 0) {
                     const randomGrammar = globalGrammarData[Math.floor(Math.random() * globalGrammarData.length)];
@@ -28595,4 +28678,3 @@ function startMiniAssessment(card) {
 </button>
 </body>
 </html>
-
