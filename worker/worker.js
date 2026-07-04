@@ -139,6 +139,58 @@ var worker_default = {
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
+
+      // =========================================================================
+      // 🟢 ENDPOINT MỚI: KANJI BRIEF — Dùng riêng cho Góc Khám Phá trên Dashboard
+      // Payload ~300 bytes thay vì ~15-20KB của /api/kanji-detail.
+      // BỎ QUA: compounds (30 rows), examples, tags, popularity, id,
+      //         stroke_count, mnemonics, components, structure_type.
+      // Chỉ SELECT đúng 5 cột cần thiết cho Dashboard: kanji, hv, meaning,
+      // onyomi, kunyomi. KHÔNG JOIN bảng dictionary → tiết kiệm 95%+ băng thông.
+      // Dùng .first() thay vì .all() vì chỉ cần 1 row.
+      // =========================================================================
+      if (path === "/api/kanji-brief") {
+        const kanji = url.searchParams.get("kanji");
+        if (!kanji || kanji.length !== 1) {
+          return new Response(JSON.stringify({ error: "Missing or invalid kanji (must be a single character)" }), {
+            status: 400,
+            headers: corsHeaders
+          });
+        }
+        const row = await env.DB.prepare(
+          "SELECT kanji, hv, meaning, onyomi, kunyomi FROM kanji_dictionary WHERE kanji = ?1"
+        ).bind(kanji).first();
+
+        if (!row) {
+          return new Response(JSON.stringify({ error: "Kanji not found" }), {
+            status: 404,
+            headers: corsHeaders
+          });
+        }
+
+        // CẮT NGẮN nghĩa: Dashboard chỉ cần 1-2 nghĩa đầu để hiển thị.
+        // Bỏ tiền tố dạng [xxx] ở đầu nếu có, tách theo ";" hoặc "；", lấy tối đa 2 phần.
+        let briefMeaning = (row.meaning || '').trim();
+        if (briefMeaning) {
+          briefMeaning = briefMeaning.replace(/^\[.*?\]\s*/, '').trim();
+          const parts = briefMeaning.split(/\s*[;；]\s*/).filter(Boolean).slice(0, 2);
+          briefMeaning = parts.join('; ');
+          if (briefMeaning.length > 120) {
+            briefMeaning = briefMeaning.slice(0, 117) + '...';
+          }
+        }
+
+        return new Response(JSON.stringify({
+          kanji: row.kanji,
+          hv: (row.hv || '').trim(),
+          meaning: briefMeaning,
+          onyomi: row.onyomi || '',
+          kunyomi: row.kunyomi || ''
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
       if (path === "/api/kanji-detail") {
         const kanji = url.searchParams.get("kanji");
         if (!kanji) {
