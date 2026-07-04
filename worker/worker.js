@@ -339,10 +339,149 @@ var worker_default = {
       }
 
       // =========================================================================
-      // 🟢 ENDPOINT: BÀI ĐỌC THỜI SỰ THỰC TẾ NGẪU NHIÊN (NHK RSS + QWEN 3.6 27B)
+      // 🟢 ENDPOINT: NEWS CARD — Lấy 1 bản tin NHK ngẫu nhiên + thumbnail
+      // (Layer 1 cho Góc Khám Phá, KHÔNG gọi AI, cache RSS 10 phút)
+      // =========================================================================
+      if (path === "/api/news-card") {
+        try {
+          // 1. Fetch RSS NHK cat0 (dùng Cache API của Cloudflare, TTL 10 phút)
+          const rssCacheKey = new Request("https://internal-cache/nhk-rss-cat0");
+          let items = null;
+          const cachedRss = await caches.default.match(rssCacheKey);
+          if (cachedRss) {
+            items = await cachedRss.json();
+          } else {
+            const rssResponse = await fetch("https://www3.nhk.or.jp/rss/news/cat0.xml", {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+              }
+            });
+            if (!rssResponse.ok) {
+              throw new Error(`Không thể kết nối RSS NHK (Mã lỗi: ${rssResponse.status})`);
+            }
+            const rssText = await rssResponse.text();
+            items = [...rssText.matchAll(/<item>([\s\S]*?)<\/item>/g)].map(m => m[1]);
+            if (!items || items.length === 0) {
+              throw new Error("Không tìm thấy bản tin hợp lệ trong RSS.");
+            }
+            // Cache 10 phút = 600 giây
+            const cacheResp = new Response(JSON.stringify(items), {
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": "public, max-age=600"
+              }
+            });
+            ctx.waitUntil(caches.default.put(rssCacheKey, cacheResp));
+          }
+
+          // 2. Bốc ngẫu nhiên 1 bài
+          const randomIndex = Math.floor(Math.random() * items.length);
+          const itemContent = items[randomIndex];
+
+          const titleMatch = itemContent.match(/<title>([\s\S]*?)<\/title>/);
+          const descMatch = itemContent.match(/<description>([\s\S]*?)<\/description>/);
+          const linkMatch = itemContent.match(/<link>([\s\S]*?)<\/link>/);
+          const dateMatch = itemContent.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
+
+          const cleanCdata = (str) => {
+            if (!str) return "";
+            return str.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1").trim();
+          };
+
+          const newsTitle = cleanCdata(titleMatch ? titleMatch[1] : "Bản tin thời sự");
+          const newsDesc = cleanCdata(descMatch ? descMatch[1] : "");
+          const newsLink = cleanCdata(linkMatch ? linkMatch[1] : "");
+          const newsPubDate = cleanCdata(dateMatch ? dateMatch[1] : "");
+
+          if (!newsLink) {
+            throw new Error("Bản tin không có link.");
+          }
+
+          // 3. Scrape og:image từ trang bài báo (cache riêng 1 giờ cho mỗi link)
+          let imageUrl = null;
+          try {
+            const imgCacheKey = new Request(`https://internal-cache/ogimg/${encodeURIComponent(newsLink)}`);
+            const cachedImg = await caches.default.match(imgCacheKey);
+            if (cachedImg) {
+              imageUrl = await cachedImg.text();
+            } else {
+              const articleResponse = await fetch(newsLink, {
+                headers: {
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
+              });
+              if (articleResponse.ok) {
+                const articleHtml = await articleResponse.text();
+                // Thử nhiều pattern og:image
+                const ogMatch = articleHtml.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i)
+                  || articleHtml.match(/<meta\s+content=["']([^"']+)["']\s+property=["']og:image["']/i);
+                if (ogMatch && ogMatch[1]) {
+                  imageUrl = ogMatch[1];
+                }
+              }
+              // Cache kết quả (cả khi null để khỏi scrape lại)
+              const imgCacheResp = new Response(imageUrl || "", {
+                headers: {
+                  "Content-Type": "text/plain",
+                  "Cache-Control": "public, max-age=3600"
+                }
+              });
+              ctx.waitUntil(caches.default.put(imgCacheKey, imgCacheResp));
+            }
+          } catch (e) {
+            // Không có ảnh cũng không sao, trả null để frontend dùng fallback
+            imageUrl = null;
+          }
+
+          return new Response(JSON.stringify({
+            title: newsTitle,
+            desc: newsDesc,
+            link: newsLink,
+            image_url: imageUrl,
+            pub_date: newsPubDate
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+
+        } catch (err) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
+      }
+
+      // =========================================================================
+      // 🟢 ENDPOINT: BÀI ĐỌC THỜI SỰ THỰC TẾ (NHK RSS + QWEN 3.6 27B)
+      // - Có tham số ?link={url} → dùng bài cụ thể + check cache D1 trước
+      // - Không có ?link → random như cũ
       // =========================================================================
       if (path === "/api/daily-news") {
         try {
+          // 🟢 MỚI: Hỗ trợ tham số ?link={url} để frontend chỉ định bài cụ thể
+          // (dùng khi user bấm "Đọc & Quiz" từ card tin tức trên Góc Khám Phá)
+          const requestedLink = url.searchParams.get("link");
+
+          // 🟢 MỚI: Cache D1 — kiểm tra trước khi gọi AI
+          // Bảng: news_dokkai_cache (news_url TEXT PK, news_title TEXT, dokkai_json TEXT, created_at TEXT)
+          if (requestedLink) {
+            try {
+              const cached = await env.DB.prepare(
+                "SELECT dokkai_json FROM news_dokkai_cache WHERE news_url = ?1"
+              ).bind(requestedLink).first();
+
+              if (cached && cached.dokkai_json) {
+                // Cache HIT → trả ngay lập tức, không gọi AI
+                return new Response(cached.dokkai_json, {
+                  headers: { ...corsHeaders, "Content-Type": "application/json" }
+                });
+              }
+            } catch (cacheErr) {
+              // Nếu bảng chưa tồn tại hoặc lỗi khác → log và tiếp tục gọi AI
+              console.warn("Cache D1 miss/err:", cacheErr.message);
+            }
+          }
+
           // 1. Tải bản tin thời sự từ RSS chính thức của NHK
           const rssResponse = await fetch("https://www3.nhk.or.jp/rss/news/cat0.xml", {
             headers: {
@@ -362,25 +501,43 @@ var worker_default = {
             throw new Error("Không tìm thấy bản tin hợp lệ trong dữ liệu RSS.");
           }
 
-          // Bốc ngẫu nhiên 1 bài trong danh sách
-          const randomIndex = Math.floor(Math.random() * items.length);
-          const itemContent = items[randomIndex];
-
-          const titleMatch = itemContent.match(/<title>([\s\S]*?)<\/title>/);
-          const descMatch = itemContent.match(/<description>([\s\S]*?)<\/description>/);
-          const linkMatch = itemContent.match(/<link>([\s\S]*?)<\/link>/);
-
           // Hàm dọn dẹp thẻ dữ liệu đặc biệt CDATA của XML
           const cleanCdata = (str) => {
             if (!str) return "";
             return str.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1").trim();
           };
 
+          // 🟢 MỚI: Nếu có requestedLink → tìm bài tương ứng trong RSS
+          // (lấy title + desc từ RSS cho chính xác, không scrape HTML)
+          let itemContent = null;
+          if (requestedLink) {
+            for (const item of items) {
+              const linkMatch = item.match(/<link>([\s\S]*?)<\/link>/);
+              if (linkMatch && cleanCdata(linkMatch[1]) === requestedLink) {
+                itemContent = item;
+                break;
+              }
+            }
+            // Nếu không tìm thấy link trong RSS (bài cũ đã rớt khỏi RSS) →
+            // fallback: tự tạo itemContent với link + title + desc trống
+            if (!itemContent) {
+              itemContent = `<title>Bài tin cũ</title><description>${requestedLink}</description><link>${requestedLink}</link>`;
+            }
+          } else {
+            // Không có ?link → bốc ngẫu nhiên 1 bài như cũ
+            const randomIndex = Math.floor(Math.random() * items.length);
+            itemContent = items[randomIndex];
+          }
+
+          const titleMatch = itemContent.match(/<title>([\s\S]*?)<\/title>/);
+          const descMatch = itemContent.match(/<description>([\s\S]*?)<\/description>/);
+          const linkMatch = itemContent.match(/<link>([\s\S]*?)<\/link>/);
+
           const newsTitle = cleanCdata(titleMatch ? titleMatch[1] : "Bản tin thời sự");
           const newsDesc = cleanCdata(descMatch ? descMatch[1] : "");
-          const newsLink = cleanCdata(linkMatch ? linkMatch[1] : "");
+          const newsLink = cleanCdata(linkMatch ? linkMatch[1] : (requestedLink || ""));
 
-          if (!newsDesc) {
+          if (!newsDesc && !requestedLink) {
             throw new Error("Bản tin trống nội dung mô tả.");
           }
 
@@ -444,6 +601,23 @@ var worker_default = {
           const jsonEnd = responseText.lastIndexOf("}");
           if (jsonStart !== -1 && jsonEnd !== -1) {
               responseText = responseText.substring(jsonStart, jsonEnd + 1);
+          }
+
+          // 🟢 MỚI: Save cache D1 cho lần sau (chỉ khi có requestedLink để cache theo URL chính xác)
+          if (requestedLink) {
+            try {
+              await env.DB.prepare(`
+                INSERT INTO news_dokkai_cache (news_url, news_title, dokkai_json, created_at)
+                VALUES (?1, ?2, ?3, datetime('now'))
+                ON CONFLICT(news_url) DO UPDATE SET
+                  news_title = excluded.news_title,
+                  dokkai_json = excluded.dokkai_json,
+                  created_at = datetime('now')
+              `).bind(requestedLink, newsTitle, responseText).run();
+            } catch (cacheSaveErr) {
+              // Nếu chưa tạo bảng → bỏ qua, vẫn trả về bình thường
+              console.warn("Không save được cache D1:", cacheSaveErr.message);
+            }
           }
 
           return new Response(responseText, {
