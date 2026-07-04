@@ -21047,6 +21047,150 @@ document.addEventListener('DOMContentLoaded', () => {
                 }, 200);
             });
         }
+
+        // ====================================================================
+        // 🟢 QUICK DICT SEARCH INPUT — Modal tra từ nhanh
+        // ====================================================================
+        const qdInput = document.getElementById('quickDictSearchInput');
+        if (qdInput) {
+            // Tìm toggleBtn đã chèn ngay sau input (từ searchInputIds loop)
+            let qdToggle = qdInput.nextElementSibling;
+            while (qdToggle && !qdToggle.classList.contains('kana-toggle-btn')) {
+                qdToggle = qdToggle.nextElementSibling;
+            }
+
+            // Tạo candidates bar port ra body (tránh bị modal clip)
+            let qdBar = document.getElementById('quickDictCandidatesBar');
+            if (!qdBar) {
+                qdBar = document.createElement('div');
+                qdBar.id = 'quickDictCandidatesBar';
+                qdBar.style.cssText = `
+                    display: none; flex-wrap: wrap; gap: 6px; padding: 8px 12px;
+                    background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;
+                    font-family: 'Noto Sans JP', sans-serif;
+                    box-sizing: border-box; box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+                    position: fixed; z-index: 99999;
+                    max-width: 360px; min-width: 200px;
+                    animation: fadeInChat 0.2s ease;
+                `;
+                document.body.appendChild(qdBar);
+            }
+
+            // Hàm định vị bar ngay dưới ô input
+            const positionQdBar = () => {
+                if (qdBar.style.display === 'none') return;
+                const rect = qdInput.getBoundingClientRect();
+                qdBar.style.top = (rect.bottom + 4) + 'px';
+                qdBar.style.left = rect.left + 'px';
+                const barWidth = qdBar.offsetWidth;
+                if (rect.left + barWidth > window.innerWidth - 8) {
+                    qdBar.style.left = (window.innerWidth - barWidth - 8) + 'px';
+                }
+            };
+
+            // Attach IME — onEnter gọi searchQuickDictionary()
+            window.__quickDictIme = attachJpIme(qdInput, qdBar, {
+                toggleBtn: qdToggle,
+                onEnter: () => {
+                    qdBar.style.display = 'none';
+                    if (typeof searchQuickDictionary === 'function') searchQuickDictionary();
+                }
+            });
+
+            // MutationObserver để position bar khi show
+            const qdObserver = new MutationObserver(() => {
+                if (qdBar.style.display === 'flex') positionQdBar();
+            });
+            qdObserver.observe(qdBar, { attributes: true, attributeFilter: ['style'] });
+
+            window.addEventListener('resize', positionQdBar);
+            window.addEventListener('scroll', positionQdBar, true);
+
+            // Reset khi input rỗng
+            qdInput.addEventListener('blur', () => {
+                setTimeout(() => {
+                    if (!qdInput.value.trim()) {
+                        if (window.__quickDictIme) window.__quickDictIme.clearCandidates();
+                        qdBar.style.display = 'none';
+                    }
+                }, 200);
+            });
+        }
+
+        // ====================================================================
+        // 🟢 GRAMMAR SEARCH INPUT — Search ngữ pháp (live filter)
+        // Live search đã chạy qua oninput=filterGrammarLocally(),
+        // sau khi chọn candidate cần dispatch input event để filter chạy lại.
+        // ====================================================================
+        const grInput = document.getElementById('grammarSearchInput');
+        if (grInput) {
+            let grToggle = grInput.nextElementSibling;
+            while (grToggle && !grToggle.classList.contains('kana-toggle-btn')) {
+                grToggle = grToggle.nextElementSibling;
+            }
+
+            let grBar = document.getElementById('grammarSearchCandidatesBar');
+            if (!grBar) {
+                grBar = document.createElement('div');
+                grBar.id = 'grammarSearchCandidatesBar';
+                grBar.style.cssText = `
+                    display: none; flex-wrap: wrap; gap: 6px; padding: 8px 12px;
+                    background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;
+                    font-family: 'Noto Sans JP', sans-serif;
+                    box-sizing: border-box; box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+                    position: fixed; z-index: 99999;
+                    max-width: 360px; min-width: 200px;
+                    animation: fadeInChat 0.2s ease;
+                `;
+                document.body.appendChild(grBar);
+            }
+
+            const positionGrBar = () => {
+                if (grBar.style.display === 'none') return;
+                const rect = grInput.getBoundingClientRect();
+                grBar.style.top = (rect.bottom + 4) + 'px';
+                grBar.style.left = rect.left + 'px';
+                const barWidth = grBar.offsetWidth;
+                if (rect.left + barWidth > window.innerWidth - 8) {
+                    grBar.style.left = (window.innerWidth - barWidth - 8) + 'px';
+                }
+            };
+
+            // Attach IME — onEnter = null (live search đã handle)
+            // Khi chọn candidate, dispatch input event để filterGrammarLocally() chạy
+            window.__grammarSearchIme = attachJpIme(grInput, grBar, {
+                toggleBtn: grToggle,
+                onEnter: () => {
+                    grBar.style.display = 'none';
+                    // Enter rảnh → không có action đặc biệt, live filter đã chạy
+                }
+            });
+
+            // Hook: sau khi chọn candidate, dispatch input event
+            // để filterGrammarLocally() (oninput attribute) chạy lại với giá trị mới
+            const origGrSelect = window.__grammarSearchIme.selectCandidate;
+            window.__grammarSearchIme.selectCandidate = function(cand) {
+                origGrSelect(cand);
+                grInput.dispatchEvent(new Event('input', { bubbles: true }));
+            };
+
+            const grObserver = new MutationObserver(() => {
+                if (grBar.style.display === 'flex') positionGrBar();
+            });
+            grObserver.observe(grBar, { attributes: true, attributeFilter: ['style'] });
+
+            window.addEventListener('resize', positionGrBar);
+            window.addEventListener('scroll', positionGrBar, true);
+
+            grInput.addEventListener('blur', () => {
+                setTimeout(() => {
+                    if (!grInput.value.trim()) {
+                        if (window.__grammarSearchIme) window.__grammarSearchIme.clearCandidates();
+                        grBar.style.display = 'none';
+                    }
+                }, 200);
+            });
+        }
     }
 });
 
