@@ -21198,6 +21198,19 @@ async function processBatchAssessmentResults() {
 
     if (payloads.length > 0) {
         try {
+            // 🟢 FIX: Refresh session TRƯỚC khi gọi RPC — chống JWT expired sau assessment dài
+            // (Nếu JWT hết hạn, auth.uid() ở server sẽ trả NULL → RPC raise "Unauthorized")
+            try {
+                const { data: sessionData, error: sessionErr } = await sb.auth.getSession();
+                if (sessionErr || !sessionData?.session) {
+                    // Session thực sự mất → thử refresh
+                    await sb.auth.refreshSession();
+                }
+            } catch (refreshErr) {
+                console.warn("Không thể refresh session:", refreshErr);
+                // Tiếp tục thử RPC anyway — có thể vẫn thành công nếu token chưa hết hạn hoàn toàn
+            }
+
             const mySessionId = localStorage.getItem(`current_session_id_${currentUser.id}`);
             
             // Gọi duy nhất 1 RPC gộp mới để hoàn tất quy trình
@@ -21222,26 +21235,66 @@ async function processBatchAssessmentResults() {
             showToast("✅ Đã lưu tiến độ và chuyển thẻ hổng kiến thức vào bộ Remedial thành công!");
 
         } catch (err) {
-            console.error("Lỗi đồng bộ ngầm Sát hạch:", err);
+            // 🟢 FIX: Log đầy đủ thông tin error để debug (PostgrestError có nhiều property)
+            console.error("Lỗi đồng bộ ngầm Sát hạch:", {
+                message: err?.message,
+                code: err?.code,
+                details: err?.details,
+                hint: err?.hint,
+                name: err?.name,
+                raw: err
+            });
+            
+            // 🟢 FIX BUG KẸT MÀN HÌNH: Ẩn loading TRƯỚC KHI showConfirm
+            hideLoading();
             
             sessionCards.forEach(card => card.isProcessed = false);
             boostState.passedCards = [];
             boostState.remedialCards = [];
             
-            const retry = await showConfirm(
-                "Mạng không ổn định 📶", 
-                "Đừng lo! Kết quả sát hạch đã được <b>lưu an toàn trên máy của bạn</b>.<br><br>Bạn muốn thử nộp lại ngay bây giờ, hay quay về Trang chủ (hệ thống sẽ nhắc bạn nộp lại sau)?", 
-                "Thử nộp lại", 
-                "Về Trang chủ"
-            );
+            // 🟢 FIX: Trích error message từ mọi shape (Error, PostgrestError, plain object)
+            const errMsg = err?.message || err?.details || err?.error_description || (typeof err === 'string' ? err : 'Lỗi không xác định');
+            const errStr = String(errMsg).toLowerCase();
+            
+            // 🟢 PHÂN LOẠI LỖI CHÍNH XÁC:
+            // 1. SESSION_EXPIRED: thiết bị khác đăng nhập (session_id local đã bị xóa) → không retry
+            // 2. JWT/Auth lỗi: token hết hạn, "unauthorized", "jwt" → retry sẽ tự refresh session
+            // 3. Network: "failed to fetch", "network", "timeout" → retry thường giúp
+            const isSessionExpired = errStr === 'session_expired';
+            const isAuthError = errStr.includes('unauthorized') || errStr.includes('jwt') || errStr.includes('token') || err?.code === 'PGRST301';
+            const isNetworkError = errStr.includes('failed to fetch') || errStr.includes('network') || errStr.includes('timeout');
+            
+            let title, body, confirmText, cancelText;
+            if (isSessionExpired) {
+                title = "Phiên đăng nhập đã thay đổi 🔐";
+                body = "Tài khoản của bạn vừa được đăng nhập từ thiết bị khác.<br><br>Đừng lo! Kết quả sát hạch đã được <b>lưu an toàn trên máy của bạn</b>.<br><br>Hãy bấm <b>Về Trang chủ</b> rồi nhấn F5 để đồng bộ lại thiết bị.";
+                confirmText = "Về Trang chủ";
+                cancelText = null;
+            } else if (isAuthError) {
+                title = "Phiên đăng nhập hết hạn ⏰";
+                body = "Phiên đăng nhập của bạn đã hết hạn trong quá trình làm bài.<br><br>Đừng lo! Kết quả sát hạch đã được <b>lưu an toàn trên máy của bạn</b>.<br><br>Bấm <b>Thử nộp lại</b> — hệ thống sẽ tự làm mới đăng nhập rồi nộp kết quả.";
+                confirmText = "Thử nộp lại";
+                cancelText = "Về Trang chủ";
+            } else {
+                title = "Mạng không ổn định 📶";
+                body = `Đừng lo! Kết quả sát hạch đã được <b>lưu an toàn trên máy của bạn</b>.<br><br><details style="margin-top:10px;opacity:0.7;font-size:12px"><summary>Chi tiết lỗi</summary><pre style="white-space:pre-wrap">${escapeHTML(errMsg)}</pre></details><br>Bạn muốn thử nộp lại ngay bây giờ, hay quay về Trang chủ?`;
+                confirmText = "Thử nộp lại";
+                cancelText = "Về Trang chủ";
+            }
+            
+            const retry = await showConfirm(title, body, confirmText, cancelText);
 
-            if (retry) {
-                showLoading("Đang thử kết nối lại...");
-                processBatchAssessmentResults(); 
+            if (retry && !isSessionExpired) {
+                showLoading(isAuthError ? "Đang làm mới đăng nhập..." : "Đang thử kết nối lại...");
+                // 🟢 FIX: return sau recursive call để tránh hideLoading+endAssessmentSession
+                // chạy sớm làm hỏng recursive call đang chạy ngầm
+                return processBatchAssessmentResults(); 
             } else {
                 document.getElementById('boostArea').classList.add('hidden');
                 showDashboard(); 
                 showToast("Đã tạm cất kết quả sát hạch. Nhớ nộp lại khi có mạng nhé! 💾");
+                // 🟢 FIX: return để không chạy endAssessmentSession (assessment chưa thực sự kết thúc)
+                return;
             }
         }
     }
@@ -28542,3 +28595,4 @@ function startMiniAssessment(card) {
 </button>
 </body>
 </html>
+
