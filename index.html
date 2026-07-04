@@ -20966,6 +20966,65 @@ document.addEventListener('DOMContentLoaded', () => {
                 inputEl.parentNode.insertBefore(toggleBtn, inputEl.nextSibling);
             }
         });
+
+
+        // 🟢 MỚI: Gắn IME engine (Google candidates) cho globalSearchInput
+        // Các ô khác (grammarSearchInput, dictSearchInput, quickDictSearchInput)
+        // chỉ dùng WanaKana (đã bind ở trên). Ô header search mới có candidates bar.
+        const gInput = document.getElementById('globalSearchInput');
+        if (gInput) {
+            // Tìm toggleBtn đã chèn ngay sau input (nextSibling hoặc nextElementSibling)
+            let gToggle = gInput.nextElementSibling;
+            while (gToggle && !gToggle.classList.contains('kana-toggle-btn')) {
+                gToggle = gToggle.nextElementSibling;
+            }
+
+            // Tạo candidates bar
+            const gBar = document.createElement('div');
+            gBar.id = 'globalSearchCandidatesBar';
+            gBar.style.cssText = `
+                display: none; flex-wrap: wrap; gap: 6px; padding: 8px 12px;
+                background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;
+                margin-top: 6px; font-family: 'Noto Sans JP', sans-serif;
+                box-sizing: border-box; box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+                max-width: 600px; position: absolute; z-index: 9999;
+                animation: fadeInChat 0.2s ease;
+            `;
+            // Wrap search input trong container relative để bar absolute đúng vị trí
+            const wrapper = gInput.parentElement;
+            if (wrapper && getComputedStyle(wrapper).position === 'static') {
+                wrapper.style.position = 'relative';
+            }
+            if (wrapper) {
+                wrapper.appendChild(gBar);
+            }
+
+            // Hàm submit search khi user nhấn Enter (đã commit)
+            const submitSearch = () => {
+                // Đóng candidates trước
+                gBar.style.display = 'none';
+                // Trigger nút search hoặc gọi handler trực tiếp
+                const searchBtn = document.querySelector('.search-btn-header');
+                if (searchBtn) searchBtn.click();
+                else if (typeof handleHeaderDictionarySearch === 'function') handleHeaderDictionarySearch();
+            };
+
+            // Attach IME
+            window.__globalSearchIme = attachJpIme(gInput, gBar, {
+                toggleBtn: gToggle,
+                onEnter: submitSearch
+            });
+
+            // Reset mốc ghim khi modal/search đóng hoặc khi input rỗng
+            gInput.addEventListener('blur', () => {
+                // Delay để cho click candidate kịp xử lý
+                setTimeout(() => {
+                    if (!gInput.value.trim()) {
+                        if (window.__globalSearchIme) window.__globalSearchIme.clearCandidates();
+                    }
+                }, 200);
+            });
+        }
     }
 });
 /* ================= HỆ THỐNG GAMIFIED SRS (ASSESSMENT) ================= */
@@ -26118,62 +26177,23 @@ window.renderActiveTypingRound = function() {
     const inputEl = document.getElementById('gGameTypingInput');
     const toggleBtn = document.getElementById('gGameKanaToggleBtn');
     
-    // Mặc định BẬT WanaKana
-    let localKanaMode = true; 
+    // (state kanaMode giờ nằm trong attachJpIme instance)
     wanakana.bind(inputEl);
 
-    toggleBtn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        localKanaMode = !localKanaMode;
-        if (localKanaMode) {
-            wanakana.bind(inputEl);
-            toggleBtn.innerText = 'あ';
-            toggleBtn.style.color = '#64748b';
-        } else {
-            wanakana.unbind(inputEl);
-            toggleBtn.innerText = 'A';
-            toggleBtn.style.color = '#a0aec0';
-            document.getElementById('gGameCandidatesBar').style.display = 'none';
-        }
-        inputEl.focus();
-    };
+    // 🟢 LOẠI BỎ toggleBtn.onclick thủ công — attachJpIme() đã tự lo
+    // (xử lý WanaKana bind/unbind + ẩn candidates bar khi toggle off)
 
-    // 🟢 1. LẮNG NGHE KEYDOWN PHÍM XÓA (BACKSPACE) ĐỂ THU NGẮN MỐC GHIM TRÊN PC
-    inputEl.addEventListener('keydown', function(e) {
-        if (e.key === 'Backspace') {
-            const val = inputEl.value;
-            // Nếu độ dài hiện tại nhỏ hơn hoặc bằng mốc ghim, tức là người dùng xóa vào phần đã ghim
-            if (val.length <= window.imeCommittedText.length) {
-                // Thu ngắn phần chữ đã ghim đi 1 ký tự
-                window.imeCommittedText = window.imeCommittedText.slice(0, -1);
-                window.imeActiveComposition = "";
-                window.imeCandidates = [];
-                const bar = document.getElementById('gGameCandidatesBar');
-                if (bar) bar.style.display = 'none';
-            }
-        }
-        
-        // Lắng nghe phím Cách (Space) để chọn ứng viên số 1
-        if (e.key === ' ') {
-            const bar = document.getElementById('gGameCandidatesBar');
-            if (bar && bar.style.display === 'flex' && window.imeCandidates && window.imeCandidates.length > 0) {
-                e.preventDefault(); // Chặn gõ dấu cách trắng thô
-                selectImeCandidate(window.imeCandidates[0]);
-            }
-        }
+    // 🟢 ĐỔI: Dùng module IME chung attachJpIme() thay vì setup thủ công
+    // Bao gồm: WanaKana bind/unbind + Google IME candidates + phím tắt
+    // (Backspace co mốc ghim, Space chọn candidate #1, Enter chọn cand hoặc checkTypingAnswer)
+    if (typeof wanakana !== 'undefined') wanakana.bind(inputEl);
+    window.__grammarImeInstance = attachJpIme(inputEl, document.getElementById('gGameCandidatesBar'), {
+        toggleBtn: toggleBtn,
+        onEnter: () => checkTypingAnswer()
     });
 
-    // Lắng nghe sự kiện gõ chữ để gọi gợi ý
-    inputEl.addEventListener('input', () => {
-        handleImeInput(inputEl);
-    });
-
-    setTimeout(() => inputEl.focus(), 300);
-
-    inputEl.addEventListener("keypress", function(e) {
-        if (e.key === "Enter") checkTypingAnswer();
-    });
+    // 🟢 LOẠI BỎ keypress Enter thủ công — attachJpIme() onEnter đã tự lo
+    // (chọn candidate #1 nếu đang có, ngược lại gọi onEnter → checkTypingAnswer)
 };
 
 
@@ -26368,6 +26388,202 @@ window.checkTypingAnswer = function() {
 };
 
 
+
+// ============================================================================
+// 🟢 MODULE IME DÙNG CHUNG — attachJpIme(inputEl, barEl, options)
+// Gắn engine IME (WanaKana + Google Input Tools candidates) vào 1 ô input.
+// Dùng cho: ô search header, modal grammar, ô tạo thẻ, ...
+//
+// Cách dùng:
+//   const bar = document.createElement('div'); bar.className = 'ime-candidates-bar';
+//   inputEl.parentNode.insertBefore(bar, inputEl.nextSibling);
+//   attachJpIme(inputEl, bar, {
+//     onEnter: () => doSearch(inputEl.value),   // phím Enter
+//     toggleBtn: btnEl                          // nút あ/A (nếu có)
+//   });
+// ============================================================================
+window.__imeInstances = window.__imeInstances || {}; // lưu state từng input
+
+window.attachJpIme = function(inputEl, barEl, options) {
+  if (!inputEl || !barEl) return;
+  options = options || {};
+
+  // State riêng cho input này (tránh xung đột khi nhiều ô cùng bật IME)
+  const state = {
+    committedText: '',     // phần đã ghim (user đã chọn candidate)
+    candidates: [],
+    debounceTimer: null,
+    onEnter: options.onEnter || null,
+    toggleBtn: options.toggleBtn || null,
+    kanaMode: options.kanaMode !== false, // mặc định ON
+    bar: barEl
+  };
+  window.__imeInstances[inputEl.id || inputEl.name || Math.random()] = state;
+
+  // --- 1. Hàm render candidates ---
+  function renderCandidates(cands) {
+    if (!cands || cands.length === 0) {
+      barEl.style.display = 'none';
+      return;
+    }
+    barEl.innerHTML = '';
+    barEl.style.display = 'flex';
+    cands.forEach((cand, idx) => {
+      const pill = document.createElement('span');
+      pill.style.cssText = `
+        background: #ffffff; border: 1px solid #cbd5e0; padding: 5px 12px;
+        border-radius: 6px; font-size: 13px; font-weight: 700; color: #1d1d1f;
+        cursor: pointer; user-select: none; transition: all 0.15s ease;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        display: flex; align-items: center;
+      `;
+      pill.innerHTML = `<span style="color:#86868b; font-size:11px; margin-right:5px; font-weight:800;">${idx+1}</span>${cand}`;
+      pill.onmouseover = () => {
+        pill.style.background = '#e6f2ff';
+        pill.style.borderColor = '#0067c0';
+        pill.style.color = '#0067c0';
+      };
+      pill.onmouseout = () => {
+        pill.style.background = '#ffffff';
+        pill.style.borderColor = '#cbd5e0';
+        pill.style.color = '#1d1d1f';
+      };
+      // Chống mất focus khi click
+      pill.onmousedown = (e) => { e.preventDefault(); selectCandidate(cand); };
+      pill.ontouchstart = (e) => { e.preventDefault(); selectCandidate(cand); };
+      barEl.appendChild(pill);
+    });
+  }
+
+  // --- 2. Hàm chọn candidate → ghép vào input + cập nhật mốc ghim ---
+  function selectCandidate(cand) {
+    const newValue = state.committedText + cand;
+    // Tắt/bật WanaKana để reset state nội bộ
+    if (typeof wanakana !== 'undefined' && state.kanaMode) {
+      wanakana.unbind(inputEl);
+      inputEl.value = newValue;
+      wanakana.bind(inputEl);
+    } else {
+      inputEl.value = newValue;
+    }
+    state.committedText = newValue;
+    state.candidates = [];
+    barEl.style.display = 'none';
+    inputEl.focus();
+    // Di chuyển con trỏ về cuối
+    const len = inputEl.value.length;
+    try { inputEl.setSelectionRange(len, len); } catch (e) {}
+  }
+
+  // --- 3. Hàm xử lý input (debounce 200ms rồi gọi Google IME) ---
+  function handleInput() {
+    clearTimeout(state.debounceTimer);
+
+    if (!state.kanaMode) {
+      barEl.style.display = 'none';
+      state.candidates = [];
+      return;
+    }
+
+    const val = inputEl.value;
+    // Bảo vệ mốc ghim nếu user xóa lẹm
+    if (val.length < state.committedText.length || !val.startsWith(state.committedText)) {
+      state.committedText = val;
+    }
+    const active = val.substring(state.committedText.length);
+    if (!active.trim()) {
+      barEl.style.display = 'none';
+      state.candidates = [];
+      return;
+    }
+
+    state.debounceTimer = setTimeout(() => {
+      window.fetchGoogleIME(active, (data) => {
+        if (data && data[0] === 'SUCCESS' && data[1] && data[1][0] && data[1][0][1]) {
+          const cands = data[1][0][1].slice(0, 5);
+          state.candidates = cands;
+          renderCandidates(cands);
+        } else {
+          barEl.style.display = 'none';
+          state.candidates = [];
+        }
+      });
+    }, 200);
+  }
+
+  // --- 4. Hook events ---
+  // Backspace: thu ngắn mốc ghim khi user xóa vào phần đã ghim
+  inputEl.addEventListener('keydown', function(e) {
+    if (e.key === 'Backspace') {
+      const val = inputEl.value;
+      if (val.length <= state.committedText.length) {
+        state.committedText = state.committedText.slice(0, -1);
+        state.candidates = [];
+        barEl.style.display = 'none';
+      }
+    }
+    // Space: chọn candidate #1 nếu đang hiển thị
+    if (e.key === ' ' && barEl.style.display === 'flex' && state.candidates.length > 0) {
+      e.preventDefault();
+      selectCandidate(state.candidates[0]);
+      return;
+    }
+    // Enter: nếu đang có candidate → chọn #1, không thì gọi onEnter
+    if (e.key === 'Enter') {
+      if (barEl.style.display === 'flex' && state.candidates.length > 0) {
+        e.preventDefault();
+        selectCandidate(state.candidates[0]);
+        return;
+      }
+      // Enter rảnh → commit current value + gọi onEnter
+      state.committedText = inputEl.value;
+      barEl.style.display = 'none';
+      if (state.onEnter) {
+        e.preventDefault();
+        state.onEnter();
+      }
+    }
+    // Esc: đóng candidates
+    if (e.key === 'Escape') {
+      barEl.style.display = 'none';
+      state.candidates = [];
+    }
+  });
+
+  inputEl.addEventListener('input', handleInput);
+
+  // --- 5. Toggle button (nếu có) ---
+  if (state.toggleBtn) {
+    state.toggleBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      state.kanaMode = !state.kanaMode;
+      if (state.kanaMode) {
+        if (typeof wanakana !== 'undefined') wanakana.bind(inputEl);
+        state.toggleBtn.innerText = 'あ';
+        state.toggleBtn.style.color = '#64748b';
+      } else {
+        if (typeof wanakana !== 'undefined') wanakana.unbind(inputEl);
+        state.toggleBtn.innerText = 'A';
+        state.toggleBtn.style.color = '#a0aec0';
+        barEl.style.display = 'none';
+      }
+      inputEl.focus();
+    });
+  }
+
+  // --- 6. API public cho instance này ---
+  return {
+    selectCandidate,
+    getCommittedText: () => state.committedText,
+    setCommittedText: (t) => { state.committedText = t; },
+    clearCandidates: () => {
+      state.candidates = [];
+      state.committedText = '';
+      barEl.style.display = 'none';
+    }
+  };
+};
 
 // Gọi ngầm API bằng cấu trúc JSONP an toàn để lách qua rào chắn CORS của trình duyệt
 window.fetchGoogleIME = function(text, callback) {
