@@ -20973,37 +20973,48 @@ document.addEventListener('DOMContentLoaded', () => {
         // chỉ dùng WanaKana (đã bind ở trên). Ô header search mới có candidates bar.
         const gInput = document.getElementById('globalSearchInput');
         if (gInput) {
-            // Tìm toggleBtn đã chèn ngay sau input (nextSibling hoặc nextElementSibling)
+            // Tìm toggleBtn đã chèn ngay sau input
             let gToggle = gInput.nextElementSibling;
             while (gToggle && !gToggle.classList.contains('kana-toggle-btn')) {
                 gToggle = gToggle.nextElementSibling;
             }
 
-            // Tạo candidates bar
-            const gBar = document.createElement('div');
-            gBar.id = 'globalSearchCandidatesBar';
-            gBar.style.cssText = `
-                display: none; flex-wrap: wrap; gap: 6px; padding: 8px 12px;
-                background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;
-                margin-top: 6px; font-family: 'Noto Sans JP', sans-serif;
-                box-sizing: border-box; box-shadow: 0 8px 24px rgba(0,0,0,0.10);
-                max-width: 600px; position: absolute; z-index: 9999;
-                animation: fadeInChat 0.2s ease;
-            `;
-            // Wrap search input trong container relative để bar absolute đúng vị trí
-            const wrapper = gInput.parentElement;
-            if (wrapper && getComputedStyle(wrapper).position === 'static') {
-                wrapper.style.position = 'relative';
+            // 🟢 FIX: Tạo candidates bar ngoài #headerSearch (append vào body)
+            // Lý do: .search-container-header có overflow:hidden + height:36px
+            // → bar bên trong sẽ bị clip hoàn toàn.
+            // Port ra body + position:fixed + tính vị trí theo getBoundingClientRect()
+            let gBar = document.getElementById('globalSearchCandidatesBar');
+            if (!gBar) {
+                gBar = document.createElement('div');
+                gBar.id = 'globalSearchCandidatesBar';
+                gBar.style.cssText = `
+                    display: none; flex-wrap: wrap; gap: 6px; padding: 8px 12px;
+                    background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;
+                    font-family: 'Noto Sans JP', sans-serif;
+                    box-sizing: border-box; box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+                    position: fixed; z-index: 99999;
+                    max-width: 360px; min-width: 200px;
+                    animation: fadeInChat 0.2s ease;
+                `;
+                document.body.appendChild(gBar);
             }
-            if (wrapper) {
-                wrapper.appendChild(gBar);
-            }
+
+            // Hàm định vị bar ngay dưới ô input (gọi mỗi khi show)
+            const positionBar = () => {
+                if (gBar.style.display === 'none') return;
+                const rect = gInput.getBoundingClientRect();
+                gBar.style.top = (rect.bottom + 4) + 'px';
+                gBar.style.left = rect.left + 'px';
+                // Đảm bảo không tràn ra khỏi viewport bên phải
+                const barWidth = gBar.offsetWidth;
+                if (rect.left + barWidth > window.innerWidth - 8) {
+                    gBar.style.left = (window.innerWidth - barWidth - 8) + 'px';
+                }
+            };
 
             // Hàm submit search khi user nhấn Enter (đã commit)
             const submitSearch = () => {
-                // Đóng candidates trước
                 gBar.style.display = 'none';
-                // Trigger nút search hoặc gọi handler trực tiếp
                 const searchBtn = document.querySelector('.search-btn-header');
                 if (searchBtn) searchBtn.click();
                 else if (typeof handleHeaderDictionarySearch === 'function') handleHeaderDictionarySearch();
@@ -21015,18 +21026,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 onEnter: submitSearch
             });
 
-            // Reset mốc ghim khi modal/search đóng hoặc khi input rỗng
+            // 🟢 Hook thêm: mỗi lần candidates render xong → gọi positionBar
+            // Cách: quan sát style.display của gBar bằng MutationObserver
+            const observer = new MutationObserver(() => {
+                if (gBar.style.display === 'flex') positionBar();
+            });
+            observer.observe(gBar, { attributes: true, attributeFilter: ['style'] });
+
+            // Reposition khi scroll/resize
+            window.addEventListener('resize', positionBar);
+            window.addEventListener('scroll', positionBar, true);
+
+            // Reset mốc ghim khi input rỗng
             gInput.addEventListener('blur', () => {
-                // Delay để cho click candidate kịp xử lý
                 setTimeout(() => {
                     if (!gInput.value.trim()) {
                         if (window.__globalSearchIme) window.__globalSearchIme.clearCandidates();
+                        gBar.style.display = 'none';
                     }
                 }, 200);
             });
         }
     }
 });
+
 /* ================= HỆ THỐNG GAMIFIED SRS (ASSESSMENT) ================= */
 
 window.startGlobalReview = async function(skipHash = false) {
