@@ -16339,6 +16339,9 @@ async function loadGrammarData(level, btnElement = null) {
 function filterGrammarLocally() {
     let query = document.getElementById('grammarSearchInput').value.toLowerCase().trim();
     
+    // 🟢 DEBUG: tạm log để xem query thực tế khi user gõ
+    console.log('[filterGrammarLocally] query =', JSON.stringify(query), '| len =', query.length, '| globalGrammarData count =', globalGrammarData ? globalGrammarData.length : 'null');
+    
     if (!query) {
         renderGrammarGrid(globalGrammarData);
         return;
@@ -16352,12 +16355,63 @@ function filterGrammarLocally() {
     // Lọc bỏ dấu ~ và khoảng trắng ở từ khóa tìm kiếm
     const cleanQuery = query.replace(/[～~\s]/g, '');
 
+    // 🟢 MỚI: Sinh ra các biến thể đuôi thường gặp trong tiếng Nhật để search linh hoạt hơn
+    // VD: query "ない" → match cả "ありません", "ないで", "なくて", "なければ", "なかった"
+    const generateVariations = (q) => {
+        if (!q) return [];
+        const variants = [q];
+        // Ánh xạ stem → các đuôi biến thiên (chỉ áp dụng nếu query kết thúc bằng ký tự khớp)
+        const suffixMap = [
+            // ない family
+            { stem: 'ない', alt: ['ありません', 'ないで', 'なくて', 'なければ', 'なかった', 'なく', 'なけれ', 'なかろ'] },
+            // る verb family
+            { stem: 'る', alt: ['た', 'て', 'ます', 'ない', 'たい', 'れば', 'よう', 'ろ'] },
+            // だ copula family
+            { stem: 'だ', alt: ['です', 'だった', 'でした', 'で', 'なら', 'だろう', 'でしょう'] },
+            // い adj family
+            { stem: 'い', alt: ['く', 'かった', 'くない', 'ければ', 'かろ'] },
+            // な adj family
+            { stem: 'な', alt: ['に', 'だった', 'です', 'で', 'なら', 'なかっ'] },
+            // ます family
+            { stem: 'ます', alt: ['ました', 'ません', 'ましょう'] },
+            // て form
+            { stem: 'て', alt: ['た', 'たり', 'ても'] },
+            // ば conditional
+            { stem: 'ば', alt: ['たら', 'なら'] },
+        ];
+        for (const { stem, alt } of suffixMap) {
+            if (q.endsWith(stem)) {
+                const base = q.slice(0, -stem.length);
+                for (const a of alt) {
+                    variants.push(base + a);
+                }
+            }
+        }
+        return variants;
+    };
+
+    const queryVariants = generateVariations(cleanQuery);
+
     const filtered = globalGrammarData.filter(g => {
         // Lọc bỏ dấu ~ ở Database để đối chiếu
         const cleanPoint = g.grammar_point.replace(/[～~\s]/g, '').toLowerCase();
         const cleanMeaning = g.meaning.toLowerCase();
 
-        return cleanPoint.includes(cleanQuery) || cleanMeaning.includes(cleanQuery);
+        // 1. Substring match chuẩn (query nằm trong grammar_point)
+        if (cleanPoint.includes(cleanQuery) || cleanMeaning.includes(cleanQuery)) return true;
+
+        // 2. 🟢 MỚI: Biến thể đuôi — query có thể biến thể của grammar_point
+        //    VD: query "ない" → biến thể "ありません" → match grammar_point "ありません"
+        for (const v of queryVariants) {
+            if (v !== cleanQuery && (cleanPoint.includes(v) || cleanMeaning.includes(v))) return true;
+        }
+
+        // 3. 🟢 MỚI: Reverse match — nếu grammar_point ngắn (≥2 ký tự) nằm trong query
+        //    VD: query "ないでください" chứa grammar_point "ない"
+        //    Giới hạn grammar_point ≥ 2 ký tự để tránh noise (1 ký tự match quá nhiều)
+        if (cleanPoint.length >= 2 && cleanQuery.includes(cleanPoint)) return true;
+
+        return false;
     });
     
     renderGrammarGrid(filtered);
