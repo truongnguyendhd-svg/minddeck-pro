@@ -6601,26 +6601,31 @@ body.shadowing-mode #shadowingPage {
 /* ================= FIX: LƯỚI GẠCH KANJI BUILDER CO LẠI ================= */
 
 /* Override 2 định nghĩa cũ (line 1039 và 6568) — ép lưới co lại 480px max */
-/* 🟢 FIX: Thêm container-type để .kb-piece con có thể dùng cqi (scale theo kích thước grid) */
+/* 🟢 FIX: Đổi từ grid → flex wrap-reverse để lấp HÀNG DƯỚI trước, hàng trên lẻ căn giữa */
+/* --kb-cols được set động bởi JS = ceil(N/2), đảm bảo luôn 2 hàng */
 .kb-pool-grid {
     width: 100% !important;
-    max-width: 800px !important;       /* ← Giới hạn chiều rộng */
-    min-width: 0 !important;           /* ← Bỏ min-width: 100% cũ */
-    margin: 0 auto !important;         /* ← Căn giữa màn hình */
-    display: grid !important;
-    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+    max-width: 800px !important;
+    min-width: 0 !important;
+    margin: 0 auto !important;
+    display: flex !important;
+    flex-wrap: wrap-reverse !important;   /* ← Lấp hàng dưới trước */
+    justify-content: center !important;   /* ← Hàng lẻ (trên) căn giữa */
+    align-items: center !important;
+    --kb-cols: 6;                          /* ← Default, JS sẽ override */
     gap: 6px !important;
     padding: 0 !important;
     box-sizing: border-box !important;
-    align-self: center !important;     /* ← Đổi từ stretch → center */
-    justify-content: stretch !important;
+    align-self: center !important;
     container-type: inline-size !important;
     container-name: kb-pool;
 }
 
-/* Mảnh ghép Kanji — giữ aspect-ratio 1:1, nhưng co font theo ô nhỏ hơn */
+/* Mảnh ghép Kanji — width tính theo --kb-cols, font tỉ lệ 42% viên gạch */
 .kb-piece {
-    width: 100% !important;
+    /* 🟢 Width = (100% - gap*(cols-1)) / cols — luôn lấp đầy số cột quy định */
+    width: calc((100% - 6px * (var(--kb-cols, 6) - 1)) / var(--kb-cols, 6)) !important;
+    flex: 0 0 auto !important;
     min-width: 0 !important;
     height: auto !important;
     aspect-ratio: 1 / 1 !important;
@@ -6633,10 +6638,10 @@ body.shadowing-mode #shadowingPage {
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    /* 🟢 FIX: Font co theo kích thước GRID (cqi), không phải viewport (vw) */
-    /* 7cqi ≈ 7% grid width ≈ 42% viên gạch (vì grid có 6 cột) */
-    /* Trên màn rộng (grid 800px): chữ = 56px. Trên mobile (grid 375px): chữ = 26px */
-    font-size: clamp(18px, 7cqi, 56px) !important;
+    /* 🟢 Font tỉ lệ 42% viên gạch, tự co khi số cột thay đổi */
+    /* 42cqi / cols ≈ 42% chiều rộng viên gạch (vì cqi = % grid width) */
+    /* cols=6 → 7cqi (42% viên), cols=4 → 10.5cqi (42% viên), cols=7 → 6cqi (42% viên) */
+    font-size: clamp(14px, calc(42cqi / var(--kb-cols, 6)), 56px) !important;
     font-weight: 800 !important;
     cursor: pointer !important;
     transition: transform 0.1s, box-shadow 0.1s !important;
@@ -12659,6 +12664,15 @@ function renderBoostCard() {
 
                     const targetBox = document.getElementById('kb-target-box');
                     const poolBox = document.getElementById('kb-pool');
+                    // 🟢 FIX: Quy tắc số cột:
+                    //   - N ≤ 12: giữ 6 cột cố định → hàng dưới 6 viên đầy, hàng trên (N-6) viên lẻ căn giữa
+                    //   - N > 12: mới tự chia đôi = ceil(N/2) → 2 hàng đều đầy, viên gạch tự co lại
+                    // Ví dụ: N=7 → 6+1, N=12 → 6+6, N=14 → 7+7, N=18 → 9+9
+                    const poolSize = gameData.pool.length;
+                    const dynamicCols = poolSize <= 12
+                        ? 6
+                        : Math.max(2, Math.ceil(poolSize / 2));
+                    poolBox.style.setProperty('--kb-cols', dynamicCols);
                     let currentAnswer = new Array(gameData.correctSequence.length).fill(null);
                 
                     poolBox.onclick = function(e) {
