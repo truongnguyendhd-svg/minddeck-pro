@@ -127,14 +127,43 @@ var worker_default = {
         if (!query) {
           return new Response(JSON.stringify({ error: "Missing query" }), { status: 400, headers: corsHeaders });
         }
-        const tokenizedQuery = tokenize(query);
+
+        // 🟢 ĐỔI: Bỏ FTS5 MATCH (CJK không tách được token), dùng LIKE substring.
+        // Lý do: FTS5 với tokenizer mặc định unicode61 không tách "花火" thành
+        // "花" + "火" → query "花" không match "花火". Dùng LIKE '%花%' sẽ match
+        // cả từ bắt đầu bằng, chứa, và trùng chính xác "花".
+        //
+        // Tìm kiếm trên 3 cột: word, reading, meaning (nghĩa tiếng Việt).
+        // → Gõ "hoa" sẽ match meaning "hoa" → ra 花, 花火, 花束...
+        //
+        // Sort ưu tiên:
+        //   0 = exact match (word = query)
+        //   1 = prefix match (word bắt đầu bằng query)
+        //   2 = contains match (word chứa query ở giữa/cuối)
+        //   3 = reading match (không khớp word, chỉ khớp reading)
+        //   4 = meaning match (chỉ khớp meaning — gõ tiếng Việt)
+        // Sau đó sort phụ theo popularity DESC, length(word) ASC.
+        const likeQuery = `%${query}%`;
+        const prefixQuery = `${query}%`;
+
         const { results } = await env.DB.prepare(`
-                    SELECT d.* FROM dictionary d
-                    JOIN fts_index f ON d.id = f.rowid
-                    WHERE fts_index MATCH ?
-                    ORDER BY d.popularity DESC, length(d.word) ASC
-                    LIMIT 15
-                `).bind(tokenizedQuery).all();
+          SELECT * FROM dictionary
+          WHERE word LIKE ?1 COLLATE NOCASE
+             OR reading LIKE ?1 COLLATE NOCASE
+             OR meaning LIKE ?1 COLLATE NOCASE
+          ORDER BY
+            CASE
+              WHEN word = ?2 COLLATE NOCASE THEN 0
+              WHEN word LIKE ?3 COLLATE NOCASE THEN 1
+              WHEN word LIKE ?1 COLLATE NOCASE THEN 2
+              WHEN reading LIKE ?1 COLLATE NOCASE THEN 3
+              ELSE 4
+            END,
+            popularity DESC,
+            length(word) ASC
+          LIMIT 30
+        `).bind(likeQuery, query, prefixQuery).all();
+
         return new Response(JSON.stringify(results), {
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
