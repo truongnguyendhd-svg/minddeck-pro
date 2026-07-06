@@ -26947,12 +26947,21 @@ window.attachJpIme = function(inputEl, barEl, options) {
       // Chống mất focus khi click
       pill.onmousedown = (e) => { e.preventDefault(); selectCandidate(cand); };
       pill.ontouchstart = (e) => { e.preventDefault(); selectCandidate(cand); };
+      // 🟢 FIX: Thêm click handler dự phòng (cho trường hợp mousedown bị chặn bởi modal overlay)
+      pill.onclick = (e) => {
+        // Nếu input đã mất focus (do click ra ngoài modal), vẫn selectCandidate
+        if (document.activeElement !== inputEl) {
+          e.preventDefault();
+          selectCandidate(cand);
+        }
+      };
       barEl.appendChild(pill);
     });
   }
 
   // --- 2. Hàm chọn candidate → ghép vào input + cập nhật mốc ghim ---
   function selectCandidate(cand) {
+    console.log('[selectCandidate] cand=', cand, '| inputEl.id=', inputEl.id, '| current value=', inputEl.value, '| committedText=', state.committedText);
     const newValue = state.committedText + cand;
     // Tắt/bật WanaKana để reset state nội bộ
     if (typeof wanakana !== 'undefined' && state.kanaMode) {
@@ -26966,6 +26975,7 @@ window.attachJpIme = function(inputEl, barEl, options) {
     state.candidates = [];
     barEl.style.display = 'none';
     inputEl.focus();
+    console.log('[selectCandidate] after set: inputEl.value=', inputEl.value, '| activeElement=', document.activeElement?.id);
     // 🟢 FIX MOBILE: Đảm bảo #headerSearch giữ class 'expanded' sau khi chọn candidate
     // Tránh ô search thu nhỏ lại trên mobile khi user click pill
     if (inputEl.id === 'globalSearchInput') {
