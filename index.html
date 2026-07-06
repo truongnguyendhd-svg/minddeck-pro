@@ -26067,6 +26067,60 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId) {
     }
     if (feedback) feedback.innerHTML = '';
 
+    // 🟢 MỚI: Tạo/seek candidates bar cho memory test (port ra body)
+    let mtBar = document.getElementById('memoryTestCandidatesBar');
+    if (!mtBar) {
+        mtBar = document.createElement('div');
+        mtBar.id = 'memoryTestCandidatesBar';
+        mtBar.style.cssText = `
+            display: none; flex-wrap: wrap; gap: 6px; padding: 8px 12px;
+            background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;
+            font-family: 'Noto Sans JP', sans-serif;
+            box-sizing: border-box; box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+            position: fixed; z-index: 99999;
+            max-width: 360px; min-width: 200px;
+            animation: fadeInChat 0.2s ease;
+        `;
+        document.body.appendChild(mtBar);
+    }
+
+    // 🟢 MỚI: Attach IME vào input test (chỉ attach 1 lần, dùng dataset flag)
+    if (input && !input.dataset.imeAttached && typeof attachJpIme === 'function') {
+        window.__memoryTestIme = attachJpIme(input, mtBar, {
+            onEnter: () => {
+                // Đọc jpEncoded mới nhất từ dataset (phòng trường hợp user đổi ví dụ)
+                const currentJp = input.dataset.jpEncoded || jpEncoded;
+                checkMemoryTest(currentJp, input, jpTextId, testZoneId);
+            }
+        });
+        input.dataset.imeAttached = 'true';
+
+        // Position bar dưới input
+        const positionMtBar = () => {
+            if (mtBar.style.display === 'none') return;
+            const rect = input.getBoundingClientRect();
+            if (rect.bottom === 0 && rect.left === 0) {
+                mtBar.style.display = 'none';
+                return;
+            }
+            mtBar.style.top = (rect.bottom + 4) + 'px';
+            mtBar.style.left = rect.left + 'px';
+            const barWidth = mtBar.offsetWidth;
+            if (rect.left + barWidth > window.innerWidth - 8) {
+                mtBar.style.left = (window.innerWidth - barWidth - 8) + 'px';
+            }
+        };
+        const mtObserver = new MutationObserver(() => {
+            if (mtBar.style.display === 'flex') positionMtBar();
+        });
+        mtObserver.observe(mtBar, { attributes: true, attributeFilter: ['style'] });
+        window.addEventListener('resize', positionMtBar);
+        window.addEventListener('scroll', positionMtBar, true);
+    }
+
+    // 🟢 Cập nhật jpEncoded mới nhất vào dataset
+    if (input) input.dataset.jpEncoded = jpEncoded;
+
     // Đổi nút Test thành "Đang test"
     if (btn) {
         btn.style.background = 'rgba(245, 158, 11, 0.2)';
@@ -26118,6 +26172,10 @@ function checkMemoryTest(jpEncoded, inputEl, jpTextId, testZoneId) {
             jpEl.style.display = 'block';
             const testZone = document.getElementById(testZoneId);
             if (testZone) testZone.style.display = 'none';
+            // 🟢 Ẩn candidates bar + clear IME state
+            const mtBar = document.getElementById('memoryTestCandidatesBar');
+            if (mtBar) mtBar.style.display = 'none';
+            if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
             // Reset nút Test
             const testBtn = document.querySelector(`#${testZoneId}`).closest('.example-sentence-block').querySelector('[id^="btn-test-"]');
             if (testBtn) {
@@ -26145,6 +26203,10 @@ function checkMemoryTest(jpEncoded, inputEl, jpTextId, testZoneId) {
             if (inputWrap) inputWrap.style.display = 'none';
             if (btnRow) btnRow.style.display = 'none';
         }
+        // 🟢 Ẩn candidates bar + clear IME state
+        const mtBar = document.getElementById('memoryTestCandidatesBar');
+        if (mtBar) mtBar.style.display = 'none';
+        if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
     }
 }
 
@@ -26156,6 +26218,11 @@ function exitMemoryTest(jpTextId, testZoneId) {
     const testZone = document.getElementById(testZoneId);
     if (jpEl) jpEl.style.display = 'block';
     if (testZone) testZone.style.display = 'none';
+
+    // 🟢 Ẩn candidates bar + clear IME state
+    const mtBar = document.getElementById('memoryTestCandidatesBar');
+    if (mtBar) mtBar.style.display = 'none';
+    if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
 
     // Reset nút Test
     const testBtn = testZone ? testZone.closest('.example-sentence-block').querySelector('[id^="btn-test-"]') : null;
