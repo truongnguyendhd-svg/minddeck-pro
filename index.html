@@ -26086,6 +26086,13 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId) {
 
     // 🟢 MỚI: Attach IME vào input test (chỉ attach 1 lần, dùng dataset flag)
     if (input && !input.dataset.imeAttached && typeof attachJpIme === 'function') {
+        // 🟢 FIX QUAN TRỌNG: Bind WanaKana TRƯỚC khi attachJpIme
+        // Lý do: attachJpIme không tự bind WanaKana, nên nếu không bind trước,
+        // user gõ romaji sẽ không convert sang kana → không có active composition → không gọi Google IME
+        if (typeof wanakana !== 'undefined' && !input.hasAttribute('data-wanakana-id')) {
+            wanakana.bind(input);
+        }
+
         window.__memoryTestIme = attachJpIme(input, mtBar, {
             onEnter: () => {
                 // Đọc jpEncoded mới nhất từ dataset (phòng trường hợp user đổi ví dụ)
@@ -26961,21 +26968,24 @@ window.attachJpIme = function(inputEl, barEl, options) {
 
   // --- 2. Hàm chọn candidate → ghép vào input + cập nhật mốc ghim ---
   function selectCandidate(cand) {
-    console.log('[selectCandidate] cand=', cand, '| inputEl.id=', inputEl.id, '| current value=', inputEl.value, '| committedText=', state.committedText);
     const newValue = state.committedText + cand;
-    // Tắt/bật WanaKana để reset state nội bộ
-    if (typeof wanakana !== 'undefined' && state.kanaMode) {
+    // 🟢 FIX: Check data-wanakana-id trước khi unbind để tránh crash
+    // "Element provided to Wanakana unbind() had no listener registered"
+    if (typeof wanakana !== 'undefined' && state.kanaMode && inputEl.hasAttribute('data-wanakana-id')) {
       wanakana.unbind(inputEl);
       inputEl.value = newValue;
       wanakana.bind(inputEl);
     } else {
       inputEl.value = newValue;
+      // 🟢 Bind WanaKana nếu chưa có (phòng trường hợp input mới chưa bind)
+      if (typeof wanakana !== 'undefined' && state.kanaMode && !inputEl.hasAttribute('data-wanakana-id')) {
+        wanakana.bind(inputEl);
+      }
     }
     state.committedText = newValue;
     state.candidates = [];
     barEl.style.display = 'none';
     inputEl.focus();
-    console.log('[selectCandidate] after set: inputEl.value=', inputEl.value, '| activeElement=', document.activeElement?.id);
     // 🟢 FIX MOBILE: Đảm bảo #headerSearch giữ class 'expanded' sau khi chọn candidate
     // Tránh ô search thu nhỏ lại trên mobile khi user click pill
     if (inputEl.id === 'globalSearchInput') {
