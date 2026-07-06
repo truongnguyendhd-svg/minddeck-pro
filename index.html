@@ -21051,9 +21051,37 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Hàm định vị bar ngay dưới ô input (gọi mỗi khi show)
+            // 🟢 Helper: Kiểm tra có modal nào đang mở không (trừ chính modal chứa input)
+            // Tránh candidates bar hiện lên khi user đang thao tác với modal khác
+            const isModalOpen = (exceptId = null) => {
+                const modals = document.querySelectorAll('.modal');
+                for (const m of modals) {
+                    if (exceptId && m.id === exceptId) continue;
+                    if (m.style.display === 'flex') return true;
+                }
+                return false;
+            };
+
             const positionBar = () => {
                 if (gBar.style.display === 'none') return;
+                // 🟢 FIX: Nếu có modal nào đang mở (infoModal, customAlert, etc.)
+                // → ẩn bar vì ô header search không còn ngữ cảnh active
+                if (isModalOpen()) {
+                    gBar.style.display = 'none';
+                    return;
+                }
                 const rect = gInput.getBoundingClientRect();
+                // 🟢 FIX: Nếu input bị ẩn (modal đóng, display:none, scroll ra khỏi viewport)
+                // → rect.bottom = 0, rect.left = 0 → bar hiện sai vị trí (0,0). Ẩn bar.
+                if (rect.bottom === 0 && rect.left === 0) {
+                    gBar.style.display = 'none';
+                    return;
+                }
+                // Nếu input không trong viewport (vd. scroll xa) → cũng ẩn
+                if (rect.bottom < 0 || rect.top > window.innerHeight) {
+                    gBar.style.display = 'none';
+                    return;
+                }
                 gBar.style.top = (rect.bottom + 4) + 'px';
                 gBar.style.left = rect.left + 'px';
                 // Đảm bảo không tràn ra khỏi viewport bên phải
@@ -21130,7 +21158,22 @@ document.addEventListener('DOMContentLoaded', () => {
             // Hàm định vị bar ngay dưới ô input
             const positionQdBar = () => {
                 if (qdBar.style.display === 'none') return;
+                // 🟢 FIX: Nếu có modal khác đang mở (trừ quickDictModal đang chứa input)
+                // → ẩn bar
+                if (isModalOpen('quickDictModal')) {
+                    qdBar.style.display = 'none';
+                    return;
+                }
                 const rect = qdInput.getBoundingClientRect();
+                // 🟢 FIX: Nếu input bị ẩn (modal đóng, display:none) → ẩn bar luôn
+                if (rect.bottom === 0 && rect.left === 0) {
+                    qdBar.style.display = 'none';
+                    return;
+                }
+                if (rect.bottom < 0 || rect.top > window.innerHeight) {
+                    qdBar.style.display = 'none';
+                    return;
+                }
                 qdBar.style.top = (rect.bottom + 4) + 'px';
                 qdBar.style.left = rect.left + 'px';
                 const barWidth = qdBar.offsetWidth;
