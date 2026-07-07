@@ -14146,9 +14146,12 @@ function showInfoModal(externalCard = null) {
             ${parsed.reading ? `<div style="font-size: 20px; font-weight: 800; color: #4a5568; margin-bottom: 8px; letter-spacing: 0.5px;">${escapeHTML(parsed.reading)}</div>` : ''}
 
             <!-- Mặt trước (Từ vựng / Kanji) -->
-            <div style="font-size: 46px; font-weight: 900; color: #1d1d1f; margin-bottom: 12px; font-family: 'Noto Sans JP', sans-serif; line-height: 1.2;">
+            <div style="font-size: 46px; font-weight: 900; color: #1d1d1f; margin-bottom: 8px; font-family: 'Noto Sans JP', sans-serif; line-height: 1.2;">
                 ${wrapKanjiWithLink(escapeHTML(parsed.front))}
             </div>
+
+            <!-- 🟢 MỚI: Hán Việt trong ngoặc vuông (giữa kanji và nghĩa tiếng Việt) -->
+            ${parsed.hv ? `<div style="font-size: 16px; font-weight: 700; color: #c50f1f; margin-bottom: 10px; letter-spacing: 0.5px;">[${escapeHTML(parsed.hv)}]</div>` : ''}
 
             <!-- Mặt sau (Ý nghĩa) -->
             <div style="font-size: 18px; font-weight: 600; color: #4a5568; line-height: 1.5;">
@@ -14157,18 +14160,27 @@ function showInfoModal(externalCard = null) {
         </div>
     `;
 
-    // KHỐI 2: THÔNG TIN PHỤ BÊN DƯỚI (Hán Việt & Ví dụ)
-    if (parsed.hv) {
-        hasInfo = true;
-        const cleanHvText = escapeHTML(parsed.hv).replace(/\|/g, '<br><br>');
-        html += `
-            <div class="glass-info-card" style="background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(255, 255, 255, 0.6); padding: 14px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.02);">
-                <div style="font-size: 12px; font-weight: 800; color: #86868b; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.5px;">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">edit_note</span> Ghi chú / Cấu trúc
+    // KHỐI 2: THÔNG TIN PHỤ BÊN DƯỚI (chỉ Ghi chú/Cấu trúc — KHÔNG còn hv)
+    // 🟢 FIX: Bỏ parsed.hv khỏi khối này. Chỉ hiện nếu có c.info khác hv.
+    // Trường hợp c.info chỉ chứa hv → ẩn luôn.
+    if (c.info && c.info.trim() !== '') {
+        // Kiểm tra c.info có nội dung gì khác ngoài [HV] không
+        let otherInfo = c.info.trim();
+        // Loại bỏ marker [HV]... ra khỏi info để xem còn gì không
+        otherInfo = otherInfo.replace(/\[HV\][^\[]*/g, '').replace(/\[HV\]/g, '').trim();
+        // Nếu sau khi bỏ [HV] mà vẫn còn text (vd. cấu trúc, ghi chú) → hiện khối
+        if (otherInfo) {
+            hasInfo = true;
+            const cleanInfoText = escapeHTML(otherInfo).replace(/\|/g, '<br><br>');
+            html += `
+                <div class="glass-info-card" style="background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(255, 255, 255, 0.6); padding: 14px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.02);">
+                    <div style="font-size: 12px; font-weight: 800; color: #86868b; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">edit_note</span> Ghi chú / Cấu trúc
+                    </div>
+                    <div style="font-size: 15px; color: #1d1d1f; line-height: 1.6; font-weight: 500;">${cleanInfoText}</div>
                 </div>
-                <div style="font-size: 15px; color: #1d1d1f; line-height: 1.6; font-weight: 500;">${cleanHvText}</div>
-            </div>
-        `;
+            `;
+        }
     }
 
     if (parsed.exampleJP) {
@@ -14182,12 +14194,19 @@ function showInfoModal(externalCard = null) {
     }
 
     if (!hasInfo && c.info && c.info.trim() !== '') {
-        hasInfo = true;
-        html += `
-            <div style="background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(255, 255, 255, 0.6); padding: 14px; border-radius: 20px; font-size: 15px; color: #1d1d1f; line-height: 1.6; white-space: pre-wrap; box-shadow: 0 4px 12px rgba(0,0,0,0.02);">
-                ${escapeHTML(c.info)}
-            </div>
-        `;
+        // 🟢 FIX: Loại bỏ [HV] khỏi info trước khi hiển thị fallback
+        let fallbackInfo = c.info.trim()
+            .replace(/\[HV\][^\[]*/g, '')
+            .replace(/\[HV\]/g, '')
+            .trim();
+        if (fallbackInfo) {
+            hasInfo = true;
+            html += `
+                <div style="background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(255, 255, 255, 0.6); padding: 14px; border-radius: 20px; font-size: 15px; color: #1d1d1f; line-height: 1.6; white-space: pre-wrap; box-shadow: 0 4px 12px rgba(0,0,0,0.02);">
+                    ${escapeHTML(fallbackInfo)}
+                </div>
+            `;
+        }
     }
     
     // Nếu là từ xem trước (externalCard) và hoàn toàn trống ví dụ, tự động hiện nút nạp Mazii
