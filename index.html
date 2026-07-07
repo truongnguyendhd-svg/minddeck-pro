@@ -27088,7 +27088,7 @@ window.attachJpIme = function(inputEl, barEl, options) {
           }, 1500);
         }
       });
-    }, 200);
+    }, 120);  // 🟢 Giảm debounce 200ms → 120ms để response nhanh hơn
   }
 
   // --- 4. Hook events ---
@@ -27168,17 +27168,43 @@ window.attachJpIme = function(inputEl, barEl, options) {
 // Gọi ngầm API bằng cấu trúc JSONP an toàn để lách qua rào chắn CORS của trình duyệt
 window.fetchGoogleIME = function(text, callback) {
     const callbackName = 'googleIME_' + Math.floor(Math.random() * 1000000);
+    let settled = false; // 🟢 Chống gọi callback 2 lần (timeout + success)
+    let timeoutId = null;
     
-    window[callbackName] = function(data) {
+    const cleanup = () => {
+        if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
         delete window[callbackName];
         const scriptEl = document.getElementById('script_' + callbackName);
         if (scriptEl) scriptEl.remove();
+    };
+    
+    window[callbackName] = function(data) {
+        if (settled) return;
+        settled = true;
+        cleanup();
         callback(data);
     };
 
     const script = document.createElement('script');
     script.id = 'script_' + callbackName;
     script.src = `https://inputtools.google.com/request?text=${encodeURIComponent(text)}&itc=ja-t-i0-und&num=5&cp=0&cs=1&ie=utf-8&oe=utf-8&app=demopage&cb=${callbackName}`;
+    
+    // 🟢 FIX: Handle script load error (mạng chết, CORS, etc.)
+    script.onerror = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback(null); // Trả null để handleInput hiện "Không có gợi ý"
+    };
+    
+    // 🟢 FIX: Timeout 3 giây — nếu Google IME không phản hồi, clear loading
+    timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback(null);
+    }, 3000);
+    
     document.body.appendChild(script);
 };
 
