@@ -26104,31 +26104,23 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId) {
             animation: fadeInChat 0.2s ease;
         `;
         document.body.appendChild(mtBar);
-    }
 
-    // 🟢 MỚI: Attach IME vào input test (chỉ attach 1 lần, dùng dataset flag)
-    if (input && !input.dataset.imeAttached && typeof attachJpIme === 'function') {
-        // 🟢 FIX QUAN TRỌNG: Bind WanaKana TRƯỚC khi attachJpIme
-        // Lý do: attachJpIme không tự bind WanaKana, nên nếu không bind trước,
-        // user gõ romaji sẽ không convert sang kana → không có active composition → không gọi Google IME
-        if (typeof wanakana !== 'undefined' && !input.hasAttribute('data-wanakana-id')) {
-            wanakana.bind(input);
-        }
-
-        window.__memoryTestIme = attachJpIme(input, mtBar, {
-            onEnter: () => {
-                // Đọc jpEncoded mới nhất từ dataset (phòng trường hợp user đổi ví dụ)
-                const currentJp = input.dataset.jpEncoded || jpEncoded;
-                checkMemoryTest(currentJp, input, jpTextId, testZoneId);
-            }
-        });
-        input.dataset.imeAttached = 'true';
-
-        // Position bar dưới input
+        // 🟢 FIX: Chỉ tạo observer + positionMtBar 1 LẦN duy nhất
+        // Dùng window.__memoryTestActiveInput thay vì closure input
+        // để tránh bug observer cũ tham chiếu input đã ẩn → ẩn bar nhầm
         const positionMtBar = () => {
             if (mtBar.style.display === 'none') return;
-            const rect = input.getBoundingClientRect();
+            const activeInput = window.__memoryTestActiveInput;
+            if (!activeInput) {
+                mtBar.style.display = 'none';
+                return;
+            }
+            const rect = activeInput.getBoundingClientRect();
             if (rect.bottom === 0 && rect.left === 0) {
+                mtBar.style.display = 'none';
+                return;
+            }
+            if (rect.bottom < 0 || rect.top > window.innerHeight) {
                 mtBar.style.display = 'none';
                 return;
             }
@@ -26145,6 +26137,27 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId) {
         mtObserver.observe(mtBar, { attributes: true, attributeFilter: ['style'] });
         window.addEventListener('resize', positionMtBar);
         window.addEventListener('scroll', positionMtBar, true);
+        window.__positionMtBar = positionMtBar;
+    }
+
+    // 🟢 FIX: Cập nhật active input MỖI LẦN startMemoryTest chạy
+    // (để positionMtBar observer dùng input đúng, không bị kẹt ở input cũ)
+    window.__memoryTestActiveInput = input;
+
+    // 🟢 MỚI: Attach IME vào input test (chỉ attach 1 lần per input, dùng dataset flag)
+    if (input && !input.dataset.imeAttached && typeof attachJpIme === 'function') {
+        // 🟢 FIX QUAN TRỌNG: Bind WanaKana TRƯỚC khi attachJpIme
+        if (typeof wanakana !== 'undefined' && !input.hasAttribute('data-wanakana-id')) {
+            wanakana.bind(input);
+        }
+
+        window.__memoryTestIme = attachJpIme(input, mtBar, {
+            onEnter: () => {
+                const currentJp = input.dataset.jpEncoded || jpEncoded;
+                checkMemoryTest(currentJp, input, jpTextId, testZoneId);
+            }
+        });
+        input.dataset.imeAttached = 'true';
     }
 
     // 🟢 Cập nhật jpEncoded mới nhất vào dataset
