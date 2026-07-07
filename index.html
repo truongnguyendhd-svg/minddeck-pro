@@ -26951,6 +26951,7 @@ window.attachJpIme = function(inputEl, barEl, options) {
     committedText: '',     // phần đã ghim (user đã chọn candidate)
     candidates: [],
     debounceTimer: null,
+    requestId: 0,          // 🟢 Track request mới nhất để invalidate request cũ
     onEnter: options.onEnter || null,
     toggleBtn: options.toggleBtn || null,
     kanaMode: options.kanaMode !== false, // mặc định ON
@@ -27056,8 +27057,12 @@ window.attachJpIme = function(inputEl, barEl, options) {
       return;
     }
 
-    // 🟢 FIX: Hiện loading indicator ngay lập tức để user biết đang tìm candidates
-    // (tránh cảm giác "gõ xong không thấy gì" khi mạng chậm)
+    // 🟢 FIX: Tăng request ID để invalidate request cũ đang chạy
+    // (tránh bug loading kẹt khi user gõ nhanh nhiều ký tự)
+    state.requestId = (state.requestId || 0) + 1;
+    const myRequestId = state.requestId;
+
+    // 🟢 FIX: Hiện loading indicator ngay lập tức
     state.candidates = [];
     barEl.innerHTML = `<div style="padding: 4px 12px; font-size: 12px; color: #86868b; font-weight: 600; display: flex; align-items: center; gap: 6px;">
       <span class="spinner" style="width: 12px; height: 12px; border: 2px solid #e2e8f0; border-top-color: #64748b; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
@@ -27066,29 +27071,32 @@ window.attachJpIme = function(inputEl, barEl, options) {
     barEl.style.display = 'flex';
 
     state.debounceTimer = setTimeout(() => {
+      // 🟢 FIX: Check lại requestId trước khi gọi API (user có thể đã gõ tiếp trong 120ms)
+      if (state.requestId !== myRequestId) return;
+      
       window.fetchGoogleIME(active, (data) => {
-        // 🟢 FIX: Nếu user đã gõ tiếp (active khác hiện tại) → bỏ qua kết quả cũ
-        const currentActive = inputEl.value.substring(state.committedText.length);
-        if (currentActive !== active) return;
+        // 🟢 FIX: Nếu user đã gõ tiếp (requestId khác) → bỏ qua kết quả cũ, KHÔNG clear loading
+        // (loading sẽ được clear bởi request mới nhất)
+        if (state.requestId !== myRequestId) return;
 
         if (data && data[0] === 'SUCCESS' && data[1] && data[1][0] && data[1][0][1]) {
           const cands = data[1][0][1].slice(0, 5);
           state.candidates = cands;
           renderCandidates(cands);
         } else {
-          // API trả về rỗng hoặc lỗi → hiện thông báo nhẹ thay vì ẩn bar hoàn toàn
+          // API trả về rỗng hoặc lỗi → hiện thông báo nhẹ
           barEl.innerHTML = `<div style="padding: 4px 12px; font-size: 12px; color: #a0aec0; font-weight: 500;">Không có gợi ý</div>`;
           barEl.style.display = 'flex';
           state.candidates = [];
           // Tự ẩn sau 1.5s
           setTimeout(() => {
-            if (barEl.innerHTML.includes('Không có gợi ý')) {
+            if (barEl.innerHTML.includes('Không có gợi ý') && state.requestId === myRequestId) {
               barEl.style.display = 'none';
             }
           }, 1500);
         }
       });
-    }, 120);  // 🟢 Giảm debounce 200ms → 120ms để response nhanh hơn
+    }, 120);
   }
 
   // --- 4. Hook events ---
