@@ -21786,6 +21786,26 @@ async function renderJLPTProgress() {
             }
         });
 
+        // 🟢 TÍNH LŨY TÍCH LŨY JLPT (CUMULATIVE):
+        // Cấp thấp hơn phải nằm trong cấp cao hơn (theo chuẩn đề thi JLPT):
+        //   N5 = chỉ N5
+        //   N4 = N5 + N4
+        //   N3 = N5 + N4 + N3
+        //   N2 = N5 + N4 + N3 + N2
+        //   N1 = N5 + N4 + N3 + N2 + N1
+        const cumLevels = {};
+        let acc = { total: 0, new: 0, learning: 0, familiar: 0, mastered: 0 };
+        ['N5', 'N4', 'N3', 'N2', 'N1'].forEach(lvl => {
+            acc = {
+                total: acc.total + levels[lvl].total,
+                new: acc.new + levels[lvl].new,
+                learning: acc.learning + levels[lvl].learning,
+                familiar: acc.familiar + levels[lvl].familiar,
+                mastered: acc.mastered + levels[lvl].mastered,
+            };
+            cumLevels[lvl] = { ...acc, colorCode: levels[lvl].colorCode };
+        });
+
         // 4. Render HTML các thanh Stacked Progress Bar
         
         // Thêm Legend (Chú thích màu) ở trên cùng
@@ -21808,7 +21828,7 @@ async function renderJLPTProgress() {
 
         // Render từng thanh tiến độ
         ['N5', 'N4', 'N3', 'N2', 'N1'].forEach(lvl => {
-            const lData = levels[lvl];
+            const lData = cumLevels[lvl]; // 🟢 Dùng dữ liệu tích lũy (N4 gồm N5, N3 gồm N5+N4, v.v.)
             if (lData.total === 0) return;
             
             // Tính toán % cho từng đoạn màu
