@@ -22734,17 +22734,59 @@ async function renderRoadmapWidget() {
 
         // 3. TẢI TỔNG LƯỢNG TIẾN TRÌNH THỰC TẾ HIỆN TẠI (Lấy từ RAM Cache, tốn 0 byte mạng)
         const vocabStudiedCount = cachedVocabStudiedCount;
-            
-        const grammarCount = Object.keys(userGrammarMasteryMap).length;
-        const kanjiCount = Object.keys(userKanjiMasteryMap).length;
+
+        // 🟢 FIX VẤN ĐỀ 1: Đồng bộ semantics với widget Tiến độ JLPT
+        // Chỉ đếm kanji/grammar có level thuộc N5 → goal.level (tích lũy chuẩn JLPT).
+        // Tránh tình trạng user học lẻ kanji N2/N1 nhưng goal là N3 thì vẫn bị tính vào tổng N3.
+        // (Hạn mức quota vốn đã là số tích lũy: N3.kanji = 650 = N5(100)+N4(200)+N3(350))
+        await ensureKanjiDictLoaded();
+        // Đảm bảo globalGrammarData đã nạp (cho grammar_point → level map)
+        if (!globalGrammarData || globalGrammarData.length === 0) {
+            try {
+                const localGrammars = await dbOps.getAll(STORE_GRAMMAR);
+                if (localGrammars && localGrammars.length > 0) {
+                    globalGrammarData = deduplicateGrammarList(localGrammars);
+                }
+            } catch (e) {
+                console.warn('Roadmap: chưa tải được Ngữ pháp từ IndexedDB:', e);
+            }
+        }
+
+        const JLPT_ORDER = ['N5', 'N4', 'N3', 'N2', 'N1'];
+        const goalLevelIdx = JLPT_ORDER.indexOf(goal.level);
+        // Tập các level hợp lệ: ['N5', ..., goal.level] — ví dụ goal N3 → {N5, N4, N3}
+        const validLevels = new Set(JLPT_ORDER.slice(0, goalLevelIdx + 1));
+
+        // Build map kanji → level & grammar_point → level
+        const kanjiLevelMap = {};
+        allKanjiData.forEach(k => { kanjiLevelMap[k.kanji] = k.level; });
+        const grammarLevelMap = {};
+        globalGrammarData.forEach(g => { grammarLevelMap[g.grammar_point] = g.level; });
+
+        // Đếm chỉ những item có level nằm trong validLevels
+        let grammarCount = 0;
+        Object.keys(userGrammarMasteryMap).forEach(gp => {
+            const lvl = grammarLevelMap[gp];
+            if (lvl && validLevels.has(lvl)) grammarCount++;
+        });
+        let kanjiCount = 0;
+        Object.keys(userKanjiMasteryMap).forEach(kj => {
+            const lvl = kanjiLevelMap[kj];
+            if (lvl && validLevels.has(lvl)) kanjiCount++;
+        });
 
         // 4. XỬ LÝ QUY HOẠCH CHỐT SỔ TỪ CLOUD (daily_stats)
         const stats = currentUser.daily_stats || {};
         
-        // Định dạng YYYY-MM-DD theo múi giờ địa phương của thiết bị người dùng
-        const offset = today.getTimezoneOffset();
-        const localToday = new Date(today.getTime() - (offset * 60 * 1000));
-        const todayStr = localToday.toISOString().split('T')[0];
+        // 🟢 FIX VẤN ĐỀ 4: Dùng múi giờ Việt Nam (Asia/Ho_Chi_Minh) thay vì timezone trình duyệt
+        // để đồng bộ với Postgres trigger sync_user_daily_snapshot (dùng AT TIME ZONE 'Asia/Ho_Chi_Minh').
+        // Locale 'sv-SE' trả về định dạng YYYY-MM-DD chuẩn ISO.
+        const todayStr = new Intl.DateTimeFormat('sv-SE', {
+            timeZone: 'Asia/Ho_Chi_Minh',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(today);
 
         let snapshotVocab = vocabStudiedCount || 0;
         let snapshotGrammar = grammarCount || 0;
