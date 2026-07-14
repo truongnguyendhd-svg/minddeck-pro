@@ -8566,7 +8566,17 @@ body.shadowing-mode #shadowingPage {
             <div style="display: flex; flex-direction: column; gap: 12px;">
                 <div>
                     <label class="win11-label">TỪ VỰNG / KANJI</label>
-                    <input type="text" id="sdFront" class="win11-input" placeholder="Từ vựng">
+                    <div style="position: relative;">
+                        <input type="text" id="sdFront" class="win11-input" placeholder="Từ vựng (gõ Kanji để auto-tra D1)" 
+                               oninput="autoLookupDictForSaveModal(this.value)">
+                        <!-- Spinner nhỏ báo đang tra cứu D1 -->
+                        <div id="sdFrontSpinner" style="display: none; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; border: 2px solid rgba(0,0,0,0.1); border-top: 2px solid #0067c0; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                        <!-- Hint nhỏ khi có kết quả -->
+                        <div id="sdFrontHint" style="display: none; margin-top: 6px; font-size: 11px; color: #16a34a; font-weight: 600; display: flex; align-items: center; gap: 4px;">
+                            <span class="material-symbols-outlined" style="font-size: 13px;">check_circle</span>
+                            <span id="sdFrontHintText"></span>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="grid-2-col" style="gap: 16px;">
@@ -15683,6 +15693,103 @@ async function executeHybridSearch(input, resDiv) {
 }
 
 // HÀM MỞ MODAL VÀ ĐIỀN DỮ LIỆU
+// 🟢 Auto-query D1 khi user nhập chữ vào ô Từ vựng (saveDictWordModal)
+let _sdFrontLookupTimer = null;
+let _sdFrontLastQuery = '';
+async function autoLookupDictForSaveModal(query) {
+    query = (query || '').trim()
+    const spinner = document.getElementById('sdFrontSpinner');
+    const hint = document.getElementById('sdFrontHint');
+    if (!query) {
+        if (spinner) spinner.style.display = 'none';
+        if (hint) hint.style.display = 'none';
+        _sdFrontLastQuery = '';
+        return;
+    }
+    // 🟢 FIX: Không skip grammar point (chứa dấu ~ và chữ kana/kanji)
+    // Chỉ skip nếu toàn bộ text là Latin (không có ký tự Nhật nào)
+    const hasJapaneseChar = /[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\u3400-\u4dbf]/.test(query);
+    if (!hasJapaneseChar) {
+        if (spinner) spinner.style.display = 'none';
+        if (hint) hint.style.display = 'none';
+        return;
+    }
+    if (query === _sdFrontLastQuery) return;
+    _sdFrontLastQuery = query;
+    
+    clearTimeout(_sdFrontLookupTimer);
+    if (spinner) spinner.style.display = 'block';
+    _sdFrontLookupTimer = setTimeout(async () => {
+        try {
+            // 🟢 FIX: Bỏ dấu ngã hoàn toàn trước khi query D1
+            // D1 lưu grammar_point có thể là: 〜ことにする (wave) hoặc ~ことにする (ASCII) hoặc ことにする
+            // Query với 'ことにする' (không dấu ngã) → LIKE '%ことにする%' sẽ match tất cả
+            const cleanQuery = query.replace(/[~\u301c]/g, '').trim();
+            if (!cleanQuery) {
+                if (spinner) spinner.style.display = 'none';
+                return;
+            }
+            
+            const response = await fetch(`${DICT_API_URL}/api/dict-search?query=${encodeURIComponent(cleanQuery)}`);
+            if (!response.ok) throw new Error('API error');
+            const results = await response.json();
+            // Tìm exact match (so sánh sau khi bỏ dấu ngã cả 2 phía)
+            const exact = results.find(item => {
+                const itemNoTilde = (item.word || '').replace(/[~\u301c]/g, '');
+                return itemNoTilde === cleanQuery;
+            });
+            
+            if (exact) {
+                const readingInput = document.getElementById('sdReading');
+                const hvInput = document.getElementById('sdHv');
+                const meaningInput = document.getElementById('sdMeaning');
+                let filledFields = [];
+                if (!readingInput.value.trim() && exact.reading) {
+                    readingInput.value = exact.reading;
+                    filledFields.push('cách đọc');
+                }
+                if (!hvInput.value.trim() && exact.hv && exact.hv.toUpperCase() !== 'N/A') {
+                    hvInput.value = exact.hv;
+                    filledFields.push('Hán Việt');
+                }
+                if (!meaningInput.value.trim() && exact.meaning) {
+                    meaningInput.value = exact.meaning;
+                    filledFields.push('nghĩa');
+                }
+                if (exact.examples) {
+                    try {
+                        const exList = typeof exact.examples === 'string' ? JSON.parse(exact.examples) : exact.examples;
+                        if (Array.isArray(exList) && exList.length > 0) {
+                            const exJpInput = document.getElementById('sdExJp');
+                            const exVnInput = document.getElementById('sdExVn');
+                            if (!exJpInput.value.trim() && exList[0].jp) {
+                                exJpInput.value = exList[0].jp;
+                                if (!exVnInput.value.trim() && exList[0].vn) {
+                                    exVnInput.value = exList[0].vn;
+                                    filledFields.push('ví dụ');
+                                }
+                            }
+                        }
+                    } catch (e) {}
+                }
+                if (filledFields.length > 0) {
+                    const hintText = document.getElementById('sdFrontHintText');
+                    if (hintText) hintText.innerText = `Đã tra D1: ${filledFields.join(', ')}`;
+                    if (hint) hint.style.display = 'flex';
+                } else {
+                    if (hint) hint.style.display = 'none';
+                }
+            } else {
+                if (hint) hint.style.display = 'none';
+            }
+        } catch (err) {
+            console.warn('Auto-lookup D1 failed:', err);
+            if (hint) hint.style.display = 'none';
+        } finally {
+            if (spinner) spinner.style.display = 'none';
+        }
+    }, 500);
+}
 async function openSaveDictWordModal(encWord, encReading, encMeaning, encKanji, encExample, encStructure, encNuance) {
     if (!currentUser) return customAlert("Vui lòng đăng nhập để lưu từ vựng!");
 
