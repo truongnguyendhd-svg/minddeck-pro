@@ -15698,37 +15698,52 @@ let _sdFrontLookupTimer = null;
 let _sdFrontLastQuery = '';
 async function autoLookupDictForSaveModal(query) {
     query = (query || '').trim()
-    // Ẩn hint + spinner nếu query rỗng hoặc quá ngắn
     const spinner = document.getElementById('sdFrontSpinner');
     const hint = document.getElementById('sdFrontHint');
-    if (!query || query.length < 1) {
+    if (!query) {
         if (spinner) spinner.style.display = 'none';
         if (hint) hint.style.display = 'none';
         _sdFrontLastQuery = '';
         return;
     }
-    // Skip nếu query không phải tiếng Nhật (kanji/kana) — tránh spam API với text VN
-    if (typeof wanakana !== 'undefined' && !wanakana.isJapanese(query.replace(/[\s～]/g, ''))) {
+    // 🟢 FIX: Không skip grammar point (chứa dấu ~ và chữ kana/kanji)
+    // Chỉ skip nếu toàn bộ text là Latin (không có ký tự Nhật nào)
+    const hasJapaneseChar = /[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\u3400-\u4dbf]/.test(query);
+    if (!hasJapaneseChar) {
         if (spinner) spinner.style.display = 'none';
         if (hint) hint.style.display = 'none';
         return;
     }
-    // Skip nếu query không đổi từ lần tra trước
     if (query === _sdFrontLastQuery) return;
     _sdFrontLastQuery = query;
     
-    // Debounce 500ms
     clearTimeout(_sdFrontLookupTimer);
     if (spinner) spinner.style.display = 'block';
     _sdFrontLookupTimer = setTimeout(async () => {
         try {
-            const response = await fetch(`${DICT_API_URL}/api/dict-search?query=${encodeURIComponent(query)}`);
-            if (!response.ok) throw new Error('API error');
-            const results = await response.json();
-            // Tìm exact match
-            const exact = results.find(item => item.word === query);
+            // 🟢 Chuẩn hóa dấu ngã: ~ ASCII → 〜 wave dash
+            const normalizedQuery = query.replace(/~/g, '\u301c');
+            // 🟢 Tạo biến thể: bỏ luôn dấu ngã (cả ~ và 〜)
+            const noTildeQuery = normalizedQuery.replace(/[~\u301c]/g, '');
+            
+            // Query D1 với cả 2 biến thể
+            const queryVariants = [normalizedQuery, noTildeQuery];
+            let exact = null;
+            for (const q of queryVariants) {
+                if (!q) continue;
+                const response = await fetch(`${DICT_API_URL}/api/dict-search?query=${encodeURIComponent(q)}`);
+                if (!response.ok) continue;
+                const results = await response.json();
+                // Tìm exact match (cả với và không có dấu ngã)
+                exact = results.find(item => {
+                    if (item.word === q) return true;
+                    const itemNoTilde = (item.word || '').replace(/[~\u301c]/g, '');
+                    return itemNoTilde === noTildeQuery;
+                });
+                if (exact) break;
+            }
+            
             if (exact) {
-                // Chỉ fill nếu ô đang rỗng (không ghi đè user đã nhập)
                 const readingInput = document.getElementById('sdReading');
                 const hvInput = document.getElementById('sdHv');
                 const meaningInput = document.getElementById('sdMeaning');
@@ -15745,7 +15760,6 @@ async function autoLookupDictForSaveModal(query) {
                     meaningInput.value = exact.meaning;
                     filledFields.push('nghĩa');
                 }
-                // Tự fill ví dụ nếu rỗng
                 if (exact.examples) {
                     try {
                         const exList = typeof exact.examples === 'string' ? JSON.parse(exact.examples) : exact.examples;
@@ -15760,9 +15774,8 @@ async function autoLookupDictForSaveModal(query) {
                                 }
                             }
                         }
-                    } catch (e) { /* ignore examples parse error */ }
+                    } catch (e) {}
                 }
-                // Hiện hint
                 if (filledFields.length > 0) {
                     const hintText = document.getElementById('sdFrontHintText');
                     if (hintText) hintText.innerText = `Đã tra D1: ${filledFields.join(', ')}`;
@@ -15781,7 +15794,6 @@ async function autoLookupDictForSaveModal(query) {
         }
     }, 500);
 }
-
 async function openSaveDictWordModal(encWord, encReading, encMeaning, encKanji, encExample, encStructure, encNuance) {
     if (!currentUser) return customAlert("Vui lòng đăng nhập để lưu từ vựng!");
 
