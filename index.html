@@ -7395,36 +7395,21 @@ body.shadowing-mode #shadowingPage {
                         <!-- JS sẽ bơm các Pill Chủ đề vào đây -->
                     </div>
 
-                    <!-- 2. Nút bật/tắt form tạo chủ đề mới -->
-                    <button onclick="toggleAIGeneratorZone()" style="background: rgba(255,255,255,0.1); border: 1px dashed rgba(255,255,255,0.4); color: white; padding: 8px 15px; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s; width: fit-content;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">
-                        <span id="aiGenToggleIcon" class="material-symbols-outlined" style="font-size: 16px;">add</span> Tự tạo chủ đề mới bằng AI
-                    </button>
-
-                    <!-- 3. Vùng Tạo mới (Bản nâng cấp tích hợp gợi ý thông minh Autocomplete) -->
-                    <div id="aiGeneratorCollapseZone" style="display: none; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 15px; position: relative;">
+                    <!-- 2. Ô tìm kiếm chủ đề (tích hợp autocomplete từ D1) -->
+                    <div id="aiGeneratorCollapseZone" style="padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 15px; position: relative;">
                         <p style="margin: 0 0 12px 0; font-size: 13px; opacity: 0.8; line-height: 1.5; color: #ffffff;">
-                            Nhập chủ đề (Ví dụ: "Gia đình", "Tango N3"). Hệ thống sẽ ưu tiên gợi ý chủ đề sẵn có hoặc gọi AI tự sinh từ vựng chuẩn D1!
+                            Tìm kiếm chủ đề (Ví dụ: "Gia đình", "Tango N3"). Hệ thống sẽ gợi ý các chủ đề sẵn có trong từ điển D1.
                         </p>
-                        
-                        <input type="hidden" id="aiAmountSelect" value="20">
                         
                         <!-- KHUNG BỌC INPUT -->
                         <div style="display: flex; align-items: stretch; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 16px; overflow: visible; position: relative; transition: 0.3s;">
-                            
-                            <!-- Ô nhập text: Tích hợp sự kiện oninput để kích hoạt Autocomplete -->
+                            <span class="material-symbols-outlined" style="color: rgba(255,255,255,0.6); padding: 0 16px; display: flex; align-items: center; font-size: 22px;">search</span>
+                            <!-- Ô nhập text: chỉ tìm kiếm, không tạo mới -->
                             <input type="text" id="aiPromptInput" 
-                                   placeholder="Gõ tên chủ đề để tìm kiếm hoặc tạo mới..." 
+                                   placeholder="Tìm chủ đề..." 
                                    oninput="handleCustomTopicAutocomplete(this.value)"
-                                   onkeypress="if(event.key === 'Enter') generateThematicDeckWithAI()"
-                                   style="flex: 1; background: transparent !important; border: none !important; color: #ffffff !important; padding: 16px 20px !important; font-size: 16px !important; font-weight: 500; outline: none; margin: 0 !important; box-shadow: none !important;">
-                            
-                            <!-- Nút TẠO -->
-                            <button onclick="generateThematicDeckWithAI()" 
-                                    style="background: transparent; border: none; padding: 0 20px; color: #a8c0ff; font-weight: 900; font-size: 14px; cursor: pointer; letter-spacing: 1px; transition: 0.2s; display: flex; align-items: center;"
-                                    onmouseover="this.style.color='#ffffff'"
-                                    onmouseout="this.style.color='#a8c0ff'">
-                                TẠO
-                            </button>
+                                   onfocus="handleCustomTopicAutocomplete(this.value)"
+                                   style="flex: 1; background: transparent !important; border: none !important; color: #ffffff !important; padding: 16px 20px 16px 0 !important; font-size: 16px !important; font-weight: 500; outline: none; margin: 0 !important; box-shadow: none !important;">
                         </div>
                     
                         <!-- BOX POPUP GỢI Ý CHỦ ĐỀ SẴN CÓ (AUTOCOMPLETE DROPDOWN) -->
@@ -17308,20 +17293,6 @@ function safeParseJSON(jsonStr) {
 // Biến toàn cục để lưu các hashtag đã có, phục vụ việc chặn trùng lặp
 window.existingThematicTags = [];
 
-// Hàm Bật/Tắt Form AI thu gọn
-window.toggleAIGeneratorZone = function() {
-    const zone = document.getElementById('aiGeneratorCollapseZone');
-    const icon = document.getElementById('aiGenToggleIcon');
-    if (zone.style.display === 'none') {
-        zone.style.display = 'block';
-        icon.innerText = 'remove';
-        setTimeout(() => document.getElementById('aiPromptInput').focus(), 50);
-    } else {
-        zone.style.display = 'none';
-        icon.innerText = 'add';
-    }
-};
-
 // 2. Hàm vẽ Đám mây chủ đề trên trang chủ (Home Page)
 async function renderThematicTagCloud() {
     const zone = document.getElementById('thematicTagsZone');
@@ -17905,217 +17876,6 @@ window.supplementPredefinedTag = async function(tagCode, displayName, existingDe
     }
 };
 // 7. Ghi đè hàm sinh chủ đề mới bằng AI (Bản nâng cấp bốc tách từ thô & Quét D1)
-async function generateThematicDeckWithAI() {
-    if (!currentUser) return customAlert("Vui lòng đăng nhập để sử dụng AI!", "⚠️");
-
-    const promptInput = document.getElementById('aiPromptInput').value.trim();
-    const amount = document.getElementById('aiAmountSelect').value;
-
-    if (!promptInput) return showToast("Vui lòng nhập chủ đề!");
-
-    // Ẩn bảng dropdown gợi ý nếu người dùng phớt lờ và nhấn nút tạo
-    document.getElementById('aiPromptAutocompleteDropdown').style.display = 'none';
-
-    const newTag = createHashtagFromText(promptInput);
-    
-    // Chặn trùng lặp với chủ đề sẵn có
-    if (window.existingThematicTags && window.existingThematicTags.includes(newTag)) {
-        return customAlert(`Chủ đề <b>"${escapeHTML(promptInput)}"</b> đã tồn tại trong danh mục.<br><br>Bạn hãy nhấp trực tiếp vào thẻ chủ đề sẵn có này để học hoặc nạp về máy nhé!`, "⚠️ Đã có chủ đề này", "warning");
-    }
-
-    const displayTagName = promptInput.length > 20 ? promptInput.substring(0, 20) + "..." : promptInput;
-
-    showLoading("AI đang bốc tách và tập hợp danh sách từ vựng... Vui lòng đợi 5-10 giây!");
-
-    // PROMPT ĐÃ ĐƯỢC GỌT TỈA: Chỉ yêu cầu sinh DUY NHẤT một mảng phẳng chứa chữ Nhật thô (Front)
-    const systemPrompt = `Dựa vào chủ đề sau: "${promptInput}". 
-    Hãy tìm và liệt kê đúng ${amount} từ vựng, chữ Kanji hoặc mẫu ngữ pháp tiếng Nhật cốt lõi và thông dụng nhất về chủ đề này.
-    
-    YÊU CẦU NGHIÊM NGẶT:
-    1. Chỉ trả về các từ có thật trong tiếng Nhật, được sử dụng trong thực tế đời sống hoặc thi cử.
-    2. Chỉ trả về DUY NHẤT một mảng JSON chứa các chuỗi chữ Nhật (mặt chữ Kanji hoặc Kana gốc của từ), KHÔNG giải thích, KHÔNG dùng Markdown.
-    
-    Định dạng mẫu trả về bắt buộc:
-    ["桜", "梅", "桃", "たんぽぽ"]`;
-
-    try {
-        // Giai đoạn A: AI sinh danh sách Từ vựng thô
-        let aiResult = await callHybridAI(systemPrompt);
-        aiResult = aiResult.replace(/```json/g, '').replace(/```/g, '').trim();
-        
-        let wordsArray = safeParseJSON(aiResult);
-        if (!Array.isArray(wordsArray) || wordsArray.length === 0) throw new Error("AI trả về sai định dạng mảng chữ.");
-
-        // Giai đoạn B: Gửi POST mảng từ thô lên Worker để D1 tự động Hydrate
-        document.getElementById('loadingText').innerText = `Đang kết nối D1 để bốc từ điển cho ${wordsArray.length} từ...`;
-        
-        const d1Response = await fetch(`${DICT_API_URL}/api/bulk-lookup`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(wordsArray)
-        });
-
-        if (!d1Response.ok) throw new Error("Lỗi kết nối máy chủ từ điển D1.");
-        const d1MatchedWords = await d1Response.json();
-
-        // Giai đoạn C: Lọc bỏ từ bị thiếu (Bỏ qua từ không khớp theo yêu cầu của bạn)
-        if (!d1MatchedWords || d1MatchedWords.length === 0) {
-            hideLoading();
-            return customAlert("Từ điển hệ thống chưa có dữ liệu tương thích cho các từ AI vừa sinh ra. Vui lòng thử tìm kiếm chủ đề khác thông dụng hơn!", "💡 Không tìm thấy từ khớp");
-        }
-
-        document.getElementById('loadingText').innerText = "Đang đóng gói và quy hoạch dữ liệu học...";
-
-        // Quy đổi dữ liệu thu được thành Payload chuẩn bị nạp lên Supabase
-        const formattedCards = d1MatchedWords.map(w => {
-            const cleanMeaning = removeNumberedLists(w.meaning || '');
-            const backPacked = `${w.reading || ''}\n${cleanMeaning}`.trim();
-            
-            let infoArr = [];
-            if (w.hv) infoArr.push(`[HV] ${w.hv}`);
-            
-            // Trích xuất câu ví dụ
-            let examplesList = [];
-            if (w.examples) {
-                try {
-                    examplesList = typeof w.examples === 'string' ? JSON.parse(w.examples) : w.examples;
-                } catch(e) { examplesList = []; }
-            }
-            if (examplesList && examplesList.length > 0) {
-                infoArr.push(`[EX1] ${examplesList[0].jp}`);
-                if (examplesList[0].vn) infoArr.push(`[VN1] ${examplesList[0].vn}`);
-            }
-
-            // 🟢 Option D: Bỏ [TAGS] trong info và tags field — clean 100%
-            
-            return {
-                front: w.word,
-                back: backPacked,
-                info: infoArr.join('\n'),
-                tags: []
-            };
-        });
-
-        // Giai đoạn D: Khởi tạo bộ bài mới và nạp hàng loạt lên Supabase (Gồm Chunking)
-        const uniqueName = await generateUniqueDeckName(promptInput, 'flashcard');
-        const finalDeckId = `${currentUser.id}:${sanitizeTagName(uniqueName)}:${Date.now()}`;
-
-        // 1. Khởi tạo vỏ bộ bài
-        const { error: deckErr } = await sb.from('decks').insert([{
-            id: finalDeckId, owner_id: currentUser.id, type: 'flashcard', is_public: false
-        }]);
-        if (deckErr) throw deckErr;
-
-        // Gắn deck_id vào từng card
-        const cardsToInsert = formattedCards.map(c => ({ ...c, deck_id: finalDeckId }));
-
-        // 2. Chạy Chunking nạp lên Cloud
-        const chunkSize = 150;
-        let totalInserted = 0;
-        let duplicateWords = [];
-
-        for (let i = 0; i < cardsToInsert.length; i += chunkSize) {
-            const chunk = cardsToInsert.slice(i, i + chunkSize);
-            const currentCount = Math.min(i + chunkSize, cardsToInsert.length);
-            
-            document.getElementById('loadingText').innerText = `Đang lưu lên hệ thống: ${currentCount} / ${cardsToInsert.length}...`;
-
-            const { data: dbResult, error: dbErr } = await sb.rpc('bulk_insert_cards_safe', {
-                p_user_id: currentUser.id, p_cards: chunk
-            });
-            if (dbErr) throw dbErr;
-
-            if (dbResult) {
-                totalInserted += (dbResult.inserted_count || 0);
-                if (dbResult.duplicate_words) duplicateWords.push(...dbResult.duplicate_words);
-            }
-        }
-
-        // Tự động thu hồi bộ bài nếu trùng 100%
-        if (totalInserted === 0) {
-            await sb.from('decks').delete().eq('id', finalDeckId);
-            hideLoading();
-            return customAlert(`Toàn bộ <b>${duplicateWords.length}</b> từ vựng trong chủ đề này đều đã có sẵn trong tài khoản của bạn.`, "⚠️ Trùng lặp", "warning");
-        }
-
-        hideLoading();
-        document.getElementById('aiPromptInput').value = ''; // Reset ô nhập
-
-        confetti({ particleCount: 150, spread: 80, origin: { y: 0.5 }, zIndex: 15000 });
-
-        let proceedToStudy = true;
-        if (duplicateWords.length > 0) {
-            const skippedWords = duplicateWords.slice(0, 5).join(', ');
-            const moreStr = duplicateWords.length > 5 ? `... và ${duplicateWords.length - 5} từ khác` : '';
-            
-            proceedToStudy = await showConfirm(
-                "✨ Tạo chủ đề thành công!",
-                `🎉 <b>AI đã thu tập được:</b> ${totalInserted} thẻ mới từ D1.<br><br>⏭️ <b>Bỏ qua:</b> ${duplicateWords.length} thẻ trùng đã có sẵn:<br><span style="color:#d97706; font-size:13px; line-height:1.6; display:inline-block; margin-top:5px; margin-bottom:15px;">${skippedWords} ${moreStr}</span><br>Bạn có muốn vào học ngay bộ bài này không?`,
-                "Học ngay", "Ở lại"
-            );
-        } else {
-            proceedToStudy = await showConfirm(
-                "✨ Tạo chủ đề thành công!",
-                `🎉 AI đã bốc thành công bộ bài gồm <b>${totalInserted} thẻ từ vựng chuẩn D1</b> thuộc chủ đề <b>${displayTagName}</b>!<br><br>Bạn muốn vào học ngay chứ?`,
-                "Học ngay", "Ở lại"
-            );
-        }
-
-        window.invalidateDeckListCache();
-        localStorage.removeItem(`minddeck_thematic_tags_cache_${currentUser.id}`);
-
-        if (proceedToStudy) {
-            mode = 'cram';
-            targetCramLevel = 1;
-            await loadCards(finalDeckId);
-        } else {
-            showHome();
-        }
-
-    } catch (err) {
-        hideLoading();
-        console.error("AI Gen Error:", err);
-        customAlert("Hệ thống AI hoặc máy chủ từ điển hiện tại đang bận. Vui lòng gõ chủ đề ngắn gọn hơn và thử lại!", "❌ Lỗi kết nối");
-    }
-}
-
-// 4. Mở Bảng điều khiển khi bấm vào Tag
-function openTagActionModal(tagCode, displayName, count) {
-    document.getElementById('taModalTitle').innerText = displayName;
-    document.getElementById('taModalCount').innerText = `Chủ đề này đang có ${count} thẻ`;
-    document.getElementById('taTagCode').value = tagCode;
-    
-    // --- MA THUẬT AVATAR CHỮ CÁI ---
-    // 1. Lấy chữ cái đầu tiên (Viết hoa)
-    const firstLetter = displayName.charAt(0).toUpperCase();
-    document.getElementById('taModalIconText').innerText = firstLetter;
-
-    // 2. Bảng màu nhạt pastel chuẩn Apple (Nền nhạt, Chữ đậm, Bóng đổ nhẹ)
-    const pastelThemes = [
-        { bg: '#ebf8ff', text: '#3b82f6', shadow: 'rgba(59, 130, 246, 0.15)' }, // Xanh biển
-        { bg: '#ecfdf5', text: '#10b981', shadow: 'rgba(16, 185, 129, 0.15)' }, // Xanh lá
-        { bg: '#fffbeb', text: '#f59e0b', shadow: 'rgba(245, 158, 11, 0.15)' }, // Cam
-        { bg: '#fef2f2', text: '#ef4444', shadow: 'rgba(239, 68, 68, 0.15)' },  // Đỏ
-        { bg: '#f5f3ff', text: '#8b5cf6', shadow: 'rgba(139, 92, 246, 0.15)' }, // Tím
-        { bg: '#fdf2f8', text: '#ec4899', shadow: 'rgba(236, 72, 153, 0.15)' }  // Hồng
-    ];
-
-    // 3. Chọn màu "Cố định ngẫu nhiên" dựa vào mã ASCII của chữ cái đầu
-    // (Giúp chủ đề "Gia đình" mở ra 10 lần thì cả 10 lần đều là một màu)
-    const colorIndex = displayName.charCodeAt(0) % pastelThemes.length;
-    const theme = pastelThemes[colorIndex];
-
-    // 4. Áp dụng CSS
-    const iconBox = document.getElementById('taModalIconBox');
-    iconBox.style.background = theme.bg;
-    iconBox.style.color = theme.text;
-    iconBox.style.boxShadow = `0 10px 20px ${theme.shadow}`;
-    // ---------------------------------
-
-    document.getElementById('tagActionModal').style.display = 'flex';
-}
-
-// 5. Nút HỌC NGAY trên Bảng điều khiển
 async function startStudyFromTagModal() {
     const tagCode = document.getElementById('taTagCode').value;
     const displayName = document.getElementById('taModalTitle').innerText;
