@@ -8121,6 +8121,9 @@ body.shadowing-mode #shadowingPage {
             <!-- JS render -->
         </div>
         
+        <!-- AI RESULT ZONE (hiện kết quả khi bấm Đổi câu ví dụ / Tạo cách nhớ) -->
+        <div id="remedialAiResultZone" style="display: none; padding: 0 clamp(16px, 4vw, 48px) 20px clamp(16px, 4vw, 48px); animation: fadeInChat 0.3s ease; flex-shrink: 0;"></div>
+        
         <!-- FOOTER: Prev [icon + text] | 1/15 text-only pill | Next [text + icon] -->
         <div class="remedial-footer">
             <button class="r-prev" id="btnRemedialPrev" onclick="prevRemedialCard()" title="Thẻ trước (←)">
@@ -22451,6 +22454,12 @@ function renderRemedialCard() {
     html += '</div>';
     document.getElementById('remedialCardBody').innerHTML = html;
     document.getElementById('remedialCardBody').scrollTop = 0;
+    // 🟢 Ẩn AI result zone khi chuyển thẻ (kết quả AI chỉ dành cho thẻ hiện tại)
+    const remedialZone = document.getElementById('remedialAiResultZone');
+    if (remedialZone) {
+        remedialZone.style.display = 'none';
+        remedialZone.innerHTML = '';
+    }
     
     // Cập nhật progress trong footer + disabled state 2 nút prev/next
     const total = remedialState.cards.length;
@@ -22578,10 +22587,9 @@ function remedialEditAction(action) {
         // Sửa thẻ trực tiếp — mở quickEditModal
         openQuickEdit(new Event('click'));
     } else {
-        // Đổi câu ví dụ / Tạo cách nhớ — mở infoModal (có aiGenericResultZone) rồi gọi AI
-        showInfoModal(c);
-        // Đợi infoModal render xong rồi mới gọi executeAiAction
-        setTimeout(() => executeAiAction(action), 100);
+        // Đổi câu ví dụ / Tạo cách nhớ — render trực tiếp trong REMEDIAL modal
+        // (executeAiAction đã tự detect zone dựa trên modal đang mở)
+        executeAiAction(action);
     }
 }
 
@@ -24853,7 +24861,13 @@ async function executeAiAction(actionType) {
     const c = sessionCards[currentIndex];
     if (!c) return;
     const p = parseCardData(c);
-    const zone = document.getElementById('aiGenericResultZone');
+    // 🟢 Detect zone hiện tại: nếu REMEDIAL đang mở → dùng remedialAiResultZone, ngược lại dùng aiGenericResultZone
+    const remedialModal = document.getElementById('remedialReviewModal');
+    const isRemedialOpen = remedialModal && remedialModal.style.display === 'flex';
+    const zone = isRemedialOpen
+        ? document.getElementById('remedialAiResultZone')
+        : document.getElementById('aiGenericResultZone');
+    if (!zone) return console.warn('No AI result zone found');
 
     if (actionType === 'mnemonic' && !p.reading) {
         return customAlert("Từ này chưa có cách đọc (Hiragana) để tạo mẹo!", "⚠️");
