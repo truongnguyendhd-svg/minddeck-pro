@@ -22358,6 +22358,9 @@ window.startRemedialReview = function() {
     // Render card đầu tiên
     renderRemedialCard();
     
+    // 🟢 FIX: Lưu trạng thái để F5 có thể khôi phục
+    saveAssessmentStateToLocal();
+    
     // Mở modal
     document.body.classList.add('modal-open-lock');
     document.getElementById('remedialReviewModal').style.display = 'flex';
@@ -22482,12 +22485,14 @@ function nextRemedialCard() {
     if (remedialState.index < remedialState.cards.length - 1) {
         remedialState.index++;
         renderRemedialCard();
+        saveAssessmentStateToLocal(); // 🟢 FIX: lưu index mới để F5 khôi phục đúng
     }
 }
 function prevRemedialCard() {
     if (remedialState.index > 0) {
         remedialState.index--;
         renderRemedialCard();
+        saveAssessmentStateToLocal();
     }
 }
 
@@ -22540,6 +22545,7 @@ function gotoRemedialCard(idx) {
     if (idx < 0 || idx >= remedialState.cards.length) return;
     remedialState.index = idx;
     renderRemedialCard();
+    saveAssessmentStateToLocal();
 }
 
 // Hàm filter theo passed/failed/all
@@ -24633,7 +24639,8 @@ window.addToFavorites = async function(event, btnElement) {
 let autoSaveDebounceTimer = null;
 
 function saveAssessmentStateToLocal() {
-    if (mode !== 'assessment' || !currentUser) return;
+    // 🟢 FIX: Lưu cả khi đang ở REMEDIAL phase (mode === 'remedial')
+    if ((mode !== 'assessment' && mode !== 'remedial') || !currentUser) return;
     
     clearTimeout(autoSaveDebounceTimer);
     autoSaveDebounceTimer = setTimeout(() => {
@@ -24643,13 +24650,23 @@ function saveAssessmentStateToLocal() {
                 boostState: boostState,
                 currentIndex: currentIndex,
                 isReadyToSubmit: boostState.isReadyToSubmit || false,
+                // 🟢 Lưu trạng thái REMEDIAL nếu đang ở phase đó
+                isRemedialPhase: (mode === 'remedial'),
+                remedialState: (mode === 'remedial') ? {
+                    cards: remedialState.cards,
+                    allCards: remedialState.allCards,
+                    passedIds: Array.from(remedialState.passedIds),
+                    failedIds: Array.from(remedialState.failedIds),
+                    index: remedialState.index,
+                    filter: remedialState.filter
+                } : null,
                 timestamp: Date.now()
             };
             localStorage.setItem(`minddeck_assessment_save_${currentUser.id}`, JSON.stringify(saveData));
         } catch (e) {
             console.warn("Không thể AutoSave Assessment:", e);
         }
-    }, 800); // Đợi người dùng ngừng bấm 800ms mới tiến hành ghi ổ cứng
+    }, 800);
 }
 
 function clearAssessmentStateFromLocal() {
@@ -24734,6 +24751,42 @@ async function resumeAssessmentFromLocal(data) {
     }
 
     try {
+        // 🟢 FIX: Nếu đang ở phase REMEDIAL khi F5 → mở lại REMEDIAL modal
+        if (data.isRemedialPhase && data.remedialState) {
+            // Phục hồi boostState + sessionCards (đã có từ data)
+            sessionCards = data.sessionCards;
+            boostState = data.boostState;
+            currentIndex = data.currentIndex;
+            mode = 'remedial';
+            currentDeckName = 'GLOBAL_REVIEW';
+            
+            // Phục hồi remedialState
+            remedialState.cards = data.remedialState.cards || [];
+            remedialState.allCards = data.remedialState.allCards || [];
+            remedialState.passedIds = new Set(data.remedialState.passedIds || []);
+            remedialState.failedIds = new Set(data.remedialState.failedIds || []);
+            remedialState.index = data.remedialState.index || 0;
+            remedialState.filter = data.remedialState.filter || 'all';
+            
+            // Mở REMEDIAL modal
+            document.getElementById('boostSummaryPage').classList.add('hidden');
+            document.getElementById('boostArea').classList.add('hidden');
+            
+            // Render toolbar counters (nếu có)
+            document.getElementById('remedialCardList').style.display = 'none';
+            document.getElementById('btnRemedialProgress').classList.remove('active');
+            
+            renderRemedialCard();
+            
+            document.body.classList.add('modal-open-lock');
+            document.getElementById('remedialReviewModal').style.display = 'flex';
+            
+            showPage('reviewPage');
+            hideLoading();
+            showToast("Đã khôi phục phiên REMEDIAL! 🚀");
+            return;
+        }
+        
         if (data.isReadyToSubmit) {
             sessionCards = data.sessionCards.map(card => ({
                 ...card,
