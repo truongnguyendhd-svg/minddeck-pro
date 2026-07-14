@@ -8600,6 +8600,17 @@ body.shadowing-mode #shadowingPage {
                     <input type="text" id="sdHv" class="win11-input" placeholder="Hán Việt">
                 </div>
 
+                <div class="grid-2-col" style="gap: 16px;">
+                    <div>
+                        <label class="win11-label">CẤU TRÚC</label>
+                        <input type="text" id="sdStructure" class="win11-input" placeholder="Cấu trúc ngữ pháp">
+                    </div>
+                    <div>
+                        <label class="win11-label">SẮC THÁI</label>
+                        <input type="text" id="sdNuance" class="win11-input" placeholder="Sắc thái / lưu ý">
+                    </div>
+                </div>
+
                 <div>
                     <label class="win11-label">CÂU VÍ DỤ 1</label>
                     <div class="grid-2-col" style="gap: 16px;">
@@ -12036,7 +12047,7 @@ function parseCardData(card) {
     let result = {
         front: card.front ? card.front.trim() : "",
         reading: "", meaning: "", hv: "",
-        exampleJP: "", exampleVN: "", ex2jp: "", ex2vn: "",
+        exampleJP: "", exampleVN: "", ex2jp: "", ex2vn: "", structure: "", nuance: "",
         romaji1: "", romaji2: "" // Bổ sung 2 trường Romaji mới
     };
 
@@ -12086,6 +12097,9 @@ function parseCardData(card) {
         if (!result.hv || result.hv.trim().toUpperCase() === 'N/A' || result.hv.trim().toLowerCase() === 'null') {
             result.hv = '';
         }
+        // 🟢 THÊM MỚI: Extract [CT] Cấu trúc + [ST] Sắc thái (cho grammar cards)
+        result.structure = extractVal('CT');
+        result.nuance = extractVal('ST');
         result.exampleJP = extractVal('EX1');
         result.exampleVN = extractVal('VN1');
         result.ex2jp = extractVal('EX2');
@@ -14419,16 +14433,27 @@ function showInfoModal(externalCard = null) {
     // 🟢 FIX: Bỏ parsed.hv khỏi khối này. Chỉ hiện nếu có c.info khác hv và khác ví dụ.
     // Trường hợp c.info chỉ chứa [HV] và [EX1]/[VN1]/[ROM1]/[EX2]/[VN2]/[ROM2] → ẩn luôn.
     if (c.info && c.info.trim() !== '') {
-        // Loại bỏ TẤT CẢ markers đã được parse: [HV], [EX1], [VN1], [ROM1], [EX2], [VN2], [ROM2]
-        // và nội dung đi kèm, để chỉ còn "ghi chú/cấu trúc" thật sự
+        // 🟢 Ưu tiên hiển thị [CT] + [ST] (cho grammar cards) nếu có
+        let structureText = parsed.structure || '';
+        let nuanceText = parsed.nuance || '';
+        // Loại bỏ TẤT CẢ markers đã được parse: [HV], [CT], [ST], [EX1], [VN1], [ROM1], [EX2], [VN2], [ROM2]
+        // và nội dung đi kèm, để chỉ còn "ghi chú" thật sự (legacy text không có marker)
         let otherInfo = c.info.trim()
-            .replace(/\[(HV|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '')
-            .replace(/\[(HV|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '')
+            .replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '')
+            .replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '')
             .trim();
-        // Nếu sau khi bỏ markers mà vẫn còn text (vd. cấu trúc, ghi chú thực sự) → hiện khối
-        if (otherInfo) {
+        // Gộp [CT] + [ST] + otherInfo thành 1 khối hiển thị
+        let displayParts = [];
+        if (structureText) displayParts.push({ label: 'Cấu trúc', text: structureText });
+        if (nuanceText) displayParts.push({ label: 'Sắc thái', text: nuanceText });
+        if (otherInfo) displayParts.push({ label: '', text: otherInfo });
+        if (displayParts.length > 0) {
             hasInfo = true;
-            const cleanInfoText = escapeHTML(otherInfo).replace(/\|/g, '<br><br>');
+            // Render: mỗi phần có label (nếu có) + nội dung, phân cách bằng | thành <br>
+            const cleanInfoText = displayParts.map(p => {
+                const cleanText = escapeHTML(p.text).replace(/\|/g, '<br><br>');
+                return p.label ? `<b style="color:#0067c0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">${p.label}</b><br>${cleanText}` : cleanText;
+            }).join('<br><br>');
             html += `
                 <div class="glass-info-card" style="background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(255, 255, 255, 0.6); padding: 14px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.02);">
                     <div style="font-size: 12px; font-weight: 800; color: #86868b; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.5px;">
@@ -15673,7 +15698,7 @@ async function executeHybridSearch(input, resDiv) {
 }
 
 // HÀM MỞ MODAL VÀ ĐIỀN DỮ LIỆU
-async function openSaveDictWordModal(encWord, encReading, encMeaning, encKanji, encExample) {
+async function openSaveDictWordModal(encWord, encReading, encMeaning, encKanji, encExample, encStructure, encNuance) {
     if (!currentUser) return customAlert("Vui lòng đăng nhập để lưu từ vựng!");
 
     // Giải mã và đổ vào các ô Input của Modal mới
@@ -15681,6 +15706,9 @@ async function openSaveDictWordModal(encWord, encReading, encMeaning, encKanji, 
     document.getElementById('sdReading').value = decodeURIComponent(encReading);
     document.getElementById('sdMeaning').value = decodeURIComponent(encMeaning);
     document.getElementById('sdHv').value = decodeURIComponent(encKanji || '').replace('[HV] ', '');
+    // 🟢 Populate Cấu trúc + Sắc thái (khóa [CT] + [ST] riêng)
+    document.getElementById('sdStructure').value = decodeURIComponent(encStructure || '');
+    document.getElementById('sdNuance').value = decodeURIComponent(encNuance || '');
     
     // Xử lý tách câu ví dụ thông minh
     let rawEx = decodeURIComponent(encExample || '');
@@ -15712,6 +15740,8 @@ async function confirmSaveWordToDeck() {
     const reading = document.getElementById('sdReading').value.trim();
     const meaning = document.getElementById('sdMeaning').value.trim();
     const hv = document.getElementById('sdHv').value.trim();
+    const structure = document.getElementById('sdStructure').value.trim();
+    const nuance = document.getElementById('sdNuance').value.trim();
     const exJp = document.getElementById('sdExJp').value.trim();
     const exVn = document.getElementById('sdExVn').value.trim();
 
@@ -15720,6 +15750,8 @@ async function confirmSaveWordToDeck() {
     const backData = `${reading}\n${meaning}`.trim();
     let infoArr = [];
     if (hv) infoArr.push(`[HV] ${hv}`);
+    if (structure) infoArr.push(`[CT] ${structure}`);
+    if (nuance) infoArr.push(`[ST] ${nuance}`);
     if (exJp) infoArr.push(`[EX1] ${exJp}`);
     if (exVn) infoArr.push(`[VN1] ${exVn}`);
     const infoData = infoArr.join('\n');
@@ -16852,7 +16884,9 @@ function saveGrammarToDeck() {
     const front = g.grammar_point;
     const reading = ""; 
     const meaning = g.meaning;
-    const extraInfo = `Cấu trúc: ${g.structure || ''} | Sắc thái: ${g.nuance || ''}`;
+    // 🟢 KHÔNG còn gộp structure + nuance vào HV. Truyền riêng qua 2 tham số mới.
+    const structure = g.structure || '';
+    const nuance = g.nuance || '';
     
     let exampleJP = g.ex1_jp || "";
     let exampleVN = g.ex1_vn || "";
@@ -16867,8 +16901,10 @@ function saveGrammarToDeck() {
         encodeURIComponent(front),
         encodeURIComponent(reading),
         encodeURIComponent(meaning),
-        encodeURIComponent(extraInfo),
-        encodeURIComponent(exampleJP)
+        encodeURIComponent(''),  // HV rỗng cho grammar
+        encodeURIComponent(exampleJP),
+        encodeURIComponent(structure),  // 🟢 [CT]
+        encodeURIComponent(nuance)       // 🟢 [ST]
     );
 }
 
@@ -22413,14 +22449,23 @@ function renderRemedialCard() {
         </div>
     `;
     
-    // KHỐI 2: Ghi chú / Cấu trúc (nếu có)
+    // KHỐI 2: Ghi chú / Cấu trúc (nếu có) — 🟢 hiển thị [CT] + [ST] cho grammar cards
     if (c.info && c.info.trim() !== '') {
+        let structureText = parsed.structure || '';
+        let nuanceText = parsed.nuance || '';
         let otherInfo = c.info.trim()
-            .replace(/\[(HV|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '')
-            .replace(/\[(HV|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '')
+            .replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '')
+            .replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '')
             .trim();
-        if (otherInfo) {
-            const cleanInfoText = escapeHTML(otherInfo).replace(/\|/g, '<br><br>');
+        let displayParts = [];
+        if (structureText) displayParts.push({ label: 'Cấu trúc', text: structureText });
+        if (nuanceText) displayParts.push({ label: 'Sắc thái', text: nuanceText });
+        if (otherInfo) displayParts.push({ label: '', text: otherInfo });
+        if (displayParts.length > 0) {
+            const cleanInfoText = displayParts.map(p => {
+                const cleanText = escapeHTML(p.text).replace(/\|/g, '<br><br>');
+                return p.label ? `<b style="color:#0067c0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">${p.label}</b><br>${cleanText}` : cleanText;
+            }).join('<br><br>');
             html += `
                 <div class="glass-info-card" style="background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(255, 255, 255, 0.6); padding: 14px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.02);">
                     <div style="font-size: 12px; font-weight: 800; color: #86868b; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.5px;">
