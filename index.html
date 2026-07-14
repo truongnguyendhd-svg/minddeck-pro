@@ -15721,27 +15721,23 @@ async function autoLookupDictForSaveModal(query) {
     if (spinner) spinner.style.display = 'block';
     _sdFrontLookupTimer = setTimeout(async () => {
         try {
-            // 🟢 Chuẩn hóa dấu ngã: ~ ASCII → 〜 wave dash
-            const normalizedQuery = query.replace(/~/g, '\u301c');
-            // 🟢 Tạo biến thể: bỏ luôn dấu ngã (cả ~ và 〜)
-            const noTildeQuery = normalizedQuery.replace(/[~\u301c]/g, '');
-            
-            // Query D1 với cả 2 biến thể
-            const queryVariants = [normalizedQuery, noTildeQuery];
-            let exact = null;
-            for (const q of queryVariants) {
-                if (!q) continue;
-                const response = await fetch(`${DICT_API_URL}/api/dict-search?query=${encodeURIComponent(q)}`);
-                if (!response.ok) continue;
-                const results = await response.json();
-                // Tìm exact match (cả với và không có dấu ngã)
-                exact = results.find(item => {
-                    if (item.word === q) return true;
-                    const itemNoTilde = (item.word || '').replace(/[~\u301c]/g, '');
-                    return itemNoTilde === noTildeQuery;
-                });
-                if (exact) break;
+            // 🟢 FIX: Bỏ dấu ngã hoàn toàn trước khi query D1
+            // D1 lưu grammar_point có thể là: 〜ことにする (wave) hoặc ~ことにする (ASCII) hoặc ことにする
+            // Query với 'ことにする' (không dấu ngã) → LIKE '%ことにする%' sẽ match tất cả
+            const cleanQuery = query.replace(/[~\u301c]/g, '').trim();
+            if (!cleanQuery) {
+                if (spinner) spinner.style.display = 'none';
+                return;
             }
+            
+            const response = await fetch(`${DICT_API_URL}/api/dict-search?query=${encodeURIComponent(cleanQuery)}`);
+            if (!response.ok) throw new Error('API error');
+            const results = await response.json();
+            // Tìm exact match (so sánh sau khi bỏ dấu ngã cả 2 phía)
+            const exact = results.find(item => {
+                const itemNoTilde = (item.word || '').replace(/[~\u301c]/g, '');
+                return itemNoTilde === cleanQuery;
+            });
             
             if (exact) {
                 const readingInput = document.getElementById('sdReading');
