@@ -8091,9 +8091,23 @@ body.shadowing-mode #shadowingPage {
             <div class="remedial-title">
                 <span class="material-symbols-outlined">school</span> REMEDIAL
             </div>
-            <button class="remedial-circle-btn" onclick="editRemedialCard()" title="Sửa thẻ này">
-                <span class="material-symbols-outlined">edit</span>
-            </button>
+            <!-- Nút Sửa có dropdown 3 lựa chọn -->
+            <div style="position: relative;">
+                <button class="remedial-circle-btn" id="btnRemedialEdit" onclick="toggleRemedialEditDropdown(event)" title="Tùy chọn sửa">
+                    <span class="material-symbols-outlined">edit</span>
+                </button>
+                <div id="remedialEditDropdown" style="display: none; position: absolute; top: calc(100% + 6px); right: 0; min-width: 200px; background: rgba(28, 28, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.15); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.25); padding: 6px; z-index: 13002; flex-direction: column; gap: 2px;">
+                    <button onclick="remedialEditAction('direct')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                        <span class="material-symbols-outlined" style="font-size: 18px; color: #60a5fa;">edit_square</span> Sửa thẻ trực tiếp
+                    </button>
+                    <button onclick="remedialEditAction('examples')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                        <span class="material-symbols-outlined" style="font-size: 18px; color: #fbbf24;">draw</span> Đổi câu ví dụ (AI)
+                    </button>
+                    <button onclick="remedialEditAction('mnemonic')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                        <span class="material-symbols-outlined" style="font-size: 18px; color: #a8c0ff;">lightbulb</span> Tạo cách nhớ (AI)
+                    </button>
+                </div>
+            </div>
             <button class="remedial-circle-btn" onclick="closeRemedialModal()" title="Đóng">
                 <span class="material-symbols-outlined">close</span>
             </button>
@@ -22541,11 +22555,52 @@ function filterRemedialCards(type) {
 }
 
 // Hàm sửa thẻ (dùng lại openQuickEdit)
+// Toggle dropdown sửa thẻ (trong REMEDIAL modal)
+function toggleRemedialEditDropdown(event) {
+    if (event) event.stopPropagation();
+    const dropdown = document.getElementById('remedialEditDropdown');
+    if (dropdown) {
+        dropdown.style.display = dropdown.style.display === 'none' ? 'flex' : 'none';
+    }
+}
+
+// Xử lý lựa chọn từ dropdown
+function remedialEditAction(action) {
+    // Đóng dropdown
+    document.getElementById('remedialEditDropdown').style.display = 'none';
+    if (remedialState.cards.length === 0) return;
+    const c = remedialState.cards[remedialState.index];
+    if (!c) return;
+    // Sync sessionCards/currentIndex để openQuickEdit/executeAiAction dùng đúng thẻ
+    sessionCards = remedialState.cards;
+    currentIndex = remedialState.index;
+    if (action === 'direct') {
+        // Sửa thẻ trực tiếp — mở quickEditModal
+        openQuickEdit(new Event('click'));
+    } else {
+        // Đổi câu ví dụ / Tạo cách nhớ — mở infoModal (có aiGenericResultZone) rồi gọi AI
+        showInfoModal(c);
+        // Đợi infoModal render xong rồi mới gọi executeAiAction
+        setTimeout(() => executeAiAction(action), 100);
+    }
+}
+
+// Giữ lại hàm cũ (gọi trực tiếp quickEdit) — vẫn dùng được nếu cần
 function editRemedialCard() {
     if (remedialState.cards.length === 0) return;
-    // sessionCards + currentIndex đã được sync trong renderRemedialCard()
+    sessionCards = remedialState.cards;
+    currentIndex = remedialState.index;
     openQuickEdit(new Event('click'));
 }
+
+// Đóng dropdown khi click ra ngoài
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('remedialEditDropdown');
+    const btn = document.getElementById('btnRemedialEdit');
+    if (dropdown && dropdown.style.display !== 'none' && btn && !btn.contains(e.target) && !dropdown.contains(e.target)) {
+        dropdown.style.display = 'none';
+    }
+});
 
 // Hook: sau khi saveQuickEdit xong, re-render remedial body nếu đang mở
 // (Đã có saveQuickEdit cập nhật sessionCards[currentIndex] → chỉ cần re-render)
