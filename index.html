@@ -10534,6 +10534,29 @@ async function handleForcedLogout() {
         );
 
         window.saveFullDeck = () => customAlert("Phiên đăng nhập đang tạm ngắt. Vui lòng copy văn bản và F5 để tải lại.", "❌");
+        
+        // 🟢 FIX 3: Force F5 sau 5 giây (chờ 2s cho các fetch đang chạy hoàn tất)
+        // Backup data local trước khi force reload
+        setTimeout(() => {
+            try {
+                // Backup assessment state nếu đang có
+                if (typeof saveAssessmentStateToLocal === 'function') {
+                    saveAssessmentStateToLocal();
+                }
+                // Flush SRS queue nếu đang có
+                if (typeof flushSrsQueue === 'function' && typeof srsPendingQueue !== 'undefined' && srsPendingQueue.length > 0) {
+                    flushSrsQueue();
+                }
+            } catch (e) {
+                console.warn('Backup trước F5 thất bại:', e);
+            }
+            
+            // Chờ thêm 2s cho flush xong rồi force reload
+            setTimeout(() => {
+                console.log('MindDeck: ⚠️ Force F5 do phiên bị chiếm');
+                window.location.reload();
+            }, 2000);
+        }, 5000);
         return; 
     }
 
@@ -13670,7 +13693,7 @@ async function flushSrsQueue() {
 }
 
 // 3. XỬ LÝ KHI NGƯỜI DÙNG TẮT/CHUYỂN TAB (Offline Queue & Suspend WebSocket)
-document.addEventListener("visibilitychange", () => {
+document.addEventListener("visibilitychange", async () => {
     if (document.visibilityState === 'hidden') {
         // 1. KHI TẨT TAB HOẶC ẨN APP: Đổ mảng chờ vào Ổ cứng
         if (srsPendingQueue.length > 0) {
@@ -13688,11 +13711,10 @@ document.addEventListener("visibilitychange", () => {
             }
         }
         
-        // 2. NGẮT DÒNG CHẢY NGẦM WEBSOCKET
-        if (realtimeSessionChannel) {
-            sb.removeChannel(realtimeSessionChannel);
-            realtimeSessionChannel = null;
-            console.log("MindDeck: 💤 Tab ẩn, đã ngắt kết nối WebSocket.");
+        // 🟢 FIX 4: KHÔNG ngắt Realtime khi tab ẩn (giữ WebSocket để nhận event máy khác đăng nhập)
+        // Chỉ tạm dừng polling (đã được xử lý bởi setInterval check document.hidden)
+        if (realtimeSessionChannel && realtimeSessionChannel.state === 'joined') {
+            console.log("MindDeck: 💤 Tab ẩn, giữ WebSocket để vẫn nhận event session conflict.");
         }
     } else if (document.visibilityState === 'visible') {
         // KHI MỞ LẠI TAB HOẶC APP:
@@ -13702,6 +13724,9 @@ document.addEventListener("visibilitychange", () => {
         // 2. KHÔI PHỤC KẾT NỐI WEBSOCKET BẢO VỆ PHIÊN
         if (currentUser) {
             console.log("MindDeck: 🟢 Tab hiện, đang khôi phục bảo vệ phiên...");
+            // 🟢 FIX 2: Check session NGAY LẬP TỨC (bỏ cooldown 15 phút)
+            // để phát hiện máy khác đăng nhập ngay khi user quay lại tab
+            await checkActiveSessionImmediately();
             setupSingleSessionProtection();
         }
     }
