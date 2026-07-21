@@ -24505,6 +24505,8 @@ window.addToFavorites = async function(event, btnElement) {
 /* ================= HỆ THỐNG AUTOSAVE SÁT HẠCH (BẢN FIX LỖI IOS & NETWORK) ================= */
 let autoSaveDebounceTimer = null;
 
+// 🟢 PATCH v2: Flag phiên bản để auto-clear file save legacy (chứa Game 5)
+const ASSESSMENT_PATCH_VERSION = 2; // Tăng số này mỗi lần thay đổi ma trận sát hạch
 function saveAssessmentStateToLocal() {
     // 🟢 FIX: Lưu cả khi đang ở REMEDIAL phase (mode === 'remedial')
     if ((mode !== 'assessment' && mode !== 'remedial') || !currentUser) return;
@@ -24529,6 +24531,8 @@ function saveAssessmentStateToLocal() {
                 } : null,
                 timestamp: Date.now()
             };
+            // 🟢 PATCH v2: Ghi patchVersion để lần sau detect file legacy
+            saveData.patchVersion = (typeof ASSESSMENT_PATCH_VERSION !== 'undefined' ? ASSESSMENT_PATCH_VERSION : 2);
             localStorage.setItem(`minddeck_assessment_save_${currentUser.id}`, JSON.stringify(saveData));
         } catch (e) {
             console.warn("Không thể AutoSave Assessment:", e);
@@ -24577,6 +24581,12 @@ window.handleGlobalReviewClick = async function() {
     if (savedJson) {
         try {
             const data = JSON.parse(savedJson);
+            // 🟢 PATCH v2: Auto-clear file save legacy (cũ hơn patch v2 → có thể chứa Game 5)
+            if (!data.patchVersion || data.patchVersion < (typeof ASSESSMENT_PATCH_VERSION !== 'undefined' ? ASSESSMENT_PATCH_VERSION : 2)) {
+                console.log('MindDeck: File save sát hạch cũ (pre-patch v2), đã tự động hủy để tránh Game 5.');
+                clearAssessmentStateFromLocal();
+                return startGlobalReview();
+            }
             // 🟢 TÍNH NĂNG MỚI: Hủy file save nếu đã quá 12 tiếng (Anti-Ghost Save)
             const hoursPassed = (Date.now() - data.timestamp) / (1000 * 60 * 60);
             
@@ -24676,6 +24686,25 @@ async function resumeAssessmentFromLocal(data) {
         
         // Phục hồi dữ liệu bình thường
         sessionCards = data.sessionCards;
+        // 🟢 PATCH v2: Regenerate matrix mới cho mỗi thẻ khi resume
+        // để loại bỏ Game 5 (Scramble) nếu file save cũ còn chứa ma trận legacy.
+        // Trạng thái tiến độ (penaltyPoints, isFailed, currentRound) được giữ nguyên.
+        try {
+            sessionCards.forEach(card => {
+                if (typeof generateAspectMatrixForCard === 'function') {
+                    card.matrix = generateAspectMatrixForCard(card);
+                }
+            });
+        } catch (e) {
+            console.warn('Không thể regenerate matrix khi resume:', e);
+        }
+        // 🟢 PATCH v2: Clear cache GLOBAL_REVIEW để tránh lấy lại sessionCards cũ
+        try {
+            if (window.rawDeckCache && window.rawDeckCache['GLOBAL_REVIEW']) {
+                delete window.rawDeckCache['GLOBAL_REVIEW'];
+            }
+            sessionStorage.removeItem('deck_GLOBAL_REVIEW');
+        } catch (e) {}
         boostState = data.boostState;
         currentIndex = data.currentIndex;
         mode = 'assessment';
