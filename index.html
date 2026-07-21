@@ -12280,12 +12280,15 @@ function renderBoostCard() {
     if (mode === 'assessment') {
         // Lấy game hiện tại của thẻ dựa theo Chặng
         currentBoostGame = rawCard.matrix[boostState.currentRound - 1];
-        // 🟢 PATCH v3: HARD-FILTER — nếu Game 5 (Scramble) vẫn lọt được vào assessment mode
-        // (do bất kỳ path nào) → đổi sang game dự phòng an toàn.
-        if (currentBoostGame === 5) {
+        // 🟢 PATCH v5: HARD-FILTER — CHỈ chặn Game 8 (Kana Search) trong assessment mode.
+        // Game 5 (Scramble) ĐƯỢC GIỮ LẠI theo yêu cầu user.
+        if (currentBoostGame === 8) {
             const front = (rawCard.front || rawCard.word_text || '').toString();
-            currentBoostGame = /[\u4e00-\u9faf]/.test(front) ? 2 : 1;
-            console.log('MindDeck: [Render] Đã chặn Game 5 trong Sát hạch → chuyển sang Game', currentBoostGame);
+            // Thay Game 8 bằng Game 5 (Scramble) — cả 2 đều hỏi cách đọc, Game 5 an toàn hơn
+            // Nếu thẻ không có reading hợp lệ → fallback Game 1
+            const hasKanji = /[\u4e00-\u9faf]/.test(front);
+            currentBoostGame = hasKanji ? 5 : 1;
+            console.log('MindDeck: [Render] Đã chặn Game 8 (Kana Search) trong Sát hạch → chuyển sang Game', currentBoostGame);
             // Cập nhật luôn vào matrix để các chặng sau cũng sạch
             if (Array.isArray(rawCard.matrix)) {
                 rawCard.matrix[boostState.currentRound - 1] = currentBoostGame;
@@ -21430,14 +21433,14 @@ function generateAspectMatrixForCard(cardObj) {
     let stage1Pool = [];
     
     if (hasGoodReading) {
-        // 🟢 PATCH: Đã LOẠI Game 5 (Scramble — Nối chữ tạo cách đọc) khỏi Sát hạch.
-        // Game 2 (Typing) thay thế làm game chính — nhưng chỉ an toàn khi mặt trước có Kanji
-        // (nếu front là Kana thuần thì đáp án bị lộ ngay trên màn hình).
+        // Game 5 (Scramble — Sắp xếp cách đọc) luôn an toàn vì nó hỏi bằng Nghĩa Tiếng Việt
+        stage1Pool.push(5); 
+
+        // Game 2 (Gõ) chỉ cho phép nếu mặt trước có Kanji (để không bị lộ đáp án)
+        // 🟢 PATCH v5: Game 8 (Kana Search — "Nối chữ tạo cách đọc" lưới 5x5) ĐÃ LOẠI khỏi Sát hạch
         if (hasKanjiFront) {
             stage1Pool.push(2); 
-            if (cleanReading.length >= 2 && cleanReading.length <= 6) stage1Pool.push(8);
         }
-        // Nếu !hasKanjiFront -> stage1Pool rỗng -> fallback Game 1 ở dưới (chống lộ đáp án)
     }
     
     // Nếu là từ siêu ngắn, không có Reading hoặc là ngữ pháp -> 100% vào Game 1 (Chọn nghĩa)
@@ -21449,8 +21452,8 @@ function generateAspectMatrixForCard(cardObj) {
         // Có Kanji -> 100% Ép chơi Game 11 (Xây Kanji)
         matrix.push(11);
     } else {
-        // 🟢 PATCH: Đã LOẠI Game 5. Không có Kanji -> Game 2 sẽ lộ đáp án -> luôn dùng Game 1.
-        matrix.push(1);
+        // Không có Kanji -> Random 50/50 Game 5 (Xếp chữ) hoặc Game 1 (Chọn đáp án)
+        matrix.push(hasGoodReading && Math.random() > 0.5 ? 5 : 1);
     }
 
     // CHẶNG 3: Ý nghĩa & Ứng dụng - Chốt hạ (ĐÃ CẬP NHẬT)
@@ -24524,7 +24527,7 @@ window.addToFavorites = async function(event, btnElement) {
 let autoSaveDebounceTimer = null;
 
 // 🟢 PATCH v2: Flag phiên bản để auto-clear file save legacy (chứa Game 5)
-const ASSESSMENT_PATCH_VERSION = 3; // Tăng số này mỗi lần thay đổi ma trận sát hạch (v3: hard filter Game 5)
+const ASSESSMENT_PATCH_VERSION = 5; // v5: KHÔI PHỤC Game 5 (Scramble), chỉ loại Game 8 (Kana Search)
 function saveAssessmentStateToLocal() {
     // 🟢 FIX: Lưu cả khi đang ở REMEDIAL phase (mode === 'remedial')
     if ((mode !== 'assessment' && mode !== 'remedial') || !currentUser) return;
@@ -24716,15 +24719,14 @@ async function resumeAssessmentFromLocal(data) {
                 if (typeof generateAspectMatrixForCard === 'function') {
                     try { card.matrix = generateAspectMatrixForCard(card); } catch (e) {}
                 }
-                // HARD-FILTER: Nếu vẫn còn Game 5 sau regenerate → replace inline
+                // HARD-FILTER: CHỈ replace Game 8 (Kana Search). Game 5 được giữ lại.
                 if (Array.isArray(card.matrix)) {
                     card.matrix = card.matrix.map(g => {
-                        if (g === 5) {
-                            // Logic thay thế giống generateAspectMatrixForCard:
-                            // - Có Kanji → Game 2 (Typing)
-                            // - Không Kanji → Game 1 (Word Match)
+                        if (g === 8) {
+                            // Thay Game 8 bằng Game 5 (Scramble) — cả 2 đều hỏi cách đọc
+                            // Nếu thẻ không có Kanji → fallback Game 1
                             const front = (card.front || card.word_text || '').toString();
-                            return /[\u4e00-\u9faf]/.test(front) ? 2 : 1;
+                            return /[\u4e00-\u9faf]/.test(front) ? 5 : 1;
                         }
                         return g;
                     });
