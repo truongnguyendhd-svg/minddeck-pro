@@ -12299,9 +12299,11 @@ function renderBoostCard() {
         const totalInRound = boostState.activeQueue.length + (boostState.processedInRound || 0);
         const currentInRound = (boostState.processedInRound || 0) + 1;
         
+        // 🟢 PATCH v6 (Option A): Dùng matrix.length của thẻ thay vì hardcode /3
+        const totalRoundsForCard = (rawCard.matrix && rawCard.matrix.length) ? rawCard.matrix.length : 3;
         document.querySelector('.boost-header').innerHTML = `
             <div style="color: #9e5b00; font-size: 13px; font-weight: 800; background: #fffaf0; padding: 4px 10px; border-radius: 8px; border: 1px solid #fce8cd;">
-                CHẶNG ${boostState.currentRound}/3
+                CHẶNG ${boostState.currentRound}/${totalRoundsForCard}
             </div>
             <div style="color: #4a5568; font-weight: 700; font-size: 14px;">Thẻ: <span style="color:#0067c0; font-weight: 900;">${currentInRound}/${totalInRound}</span></div>
             <button onclick="confirmExitBoost()" class="btn-exit-game"><span class="material-symbols-outlined" style="font-size:18px;">logout</span> Thoát</button>
@@ -13062,9 +13064,18 @@ function renderBoostCard() {
                 // ⚡ CHỈ GỌI ĐÚNG 1 KẾT NỐI MẠNG ĐỂ LẤY TOÀN BỘ KANJI
                 const validKanjiData = await getBatchKanjiBuilderData(uniqueKanji);
 
-                // Chốt chặn đề phòng lỗi dữ liệu
-                if (validKanjiData.length === 0) {
-                    prompt.innerText = "⚡ Thẻ này không xếp chữ được. Chọn đáp án đúng nhé!";
+                // 🟢 PATCH v6 (Custom): Lọc ra các Kanji ĐÃ ĐƯỢC BUILD trong session này
+                // Nếu một chữ kanji đã ghép một lần → không ghép lại nữa
+                const builtKanjiSet = window.builtKanjiInSession || new Set();
+                const remainingKanjiData = validKanjiData.filter(k => !builtKanjiSet.has(k.kanji));
+                
+                if (remainingKanjiData.length > 0 && remainingKanjiData.length < validKanjiData.length) {
+                    console.log(`MindDeck: [Game 11] Bỏ qua ${validKanjiData.length - remainingKanjiData.length} Kanji đã build trong session.`);
+                }
+
+                // Chốt chặn: nếu không còn Kanji nào để build (tất cả đã build hoặc lỗi dữ liệu)
+                if (remainingKanjiData.length === 0) {
+                    prompt.innerText = "⚡ Đã xây tất cả Kanji trong thẻ này. Chọn đáp án đúng nhé!";
                     question.innerText = c.meaning;
                     
                     let optsMatch = getDistractors('front');
@@ -13084,11 +13095,12 @@ function renderBoostCard() {
                 }
 
                 let currentStep = 0;
-                const totalSteps = validKanjiData.length;
+                // 🟢 PATCH v6: Dùng remainingKanjiData thay vì validKanjiData
+                const totalSteps = remainingKanjiData.length;
 
                 // Khai báo lại hàm render cấu trúc gạch của từng Kanji
                 function renderKanjiStep() {
-                    const gameData = validKanjiData[currentStep];
+                    const gameData = remainingKanjiData[currentStep];
                     
                     // 🟢 KHỞI TẠO RỔ GẠCH ĐỘNG (TỔNG SỐ GẠCH LUÔN BẰNG 12, SỐ NHIỄU = 12 - SỐ ĐÚNG)
                     const correctPieces = gameData.components || gameData.correctSequence || [];
@@ -13214,6 +13226,13 @@ function renderBoostCard() {
             
                             if (userStr === correctStr) {
                                 confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 }, zIndex: 10000 });
+            
+                                // 🟢 PATCH v6 (Custom): Đánh dấu Kanji đã build thành công
+                                // Lần sau gặp Kanji này trong session → sẽ không phải build lại
+                                if (window.builtKanjiInSession) {
+                                    window.builtKanjiInSession.add(gameData.kanji);
+                                    console.log(`MindDeck: [Game 11] Đã đánh dấu build thành công: ${gameData.kanji}`);
+                                }
             
                                 setTimeout(() => {
                                     const hvTextSuccess = gameData.hv ? `<span style="color:#e53e3e; font-weight: 900;">[${gameData.hv}]</span>` : '';
@@ -21326,6 +21345,9 @@ window.startGlobalReview = async function(skipHash = false) {
 
     if (!skipHash) history.pushState(null, null, '#study/GLOBAL_REVIEW/assessment');
     
+    // 🟢 PATCH v6 (Custom): Khởi tạo tracker Kanji đã build trong session để Game 11 dedup
+    window.builtKanjiInSession = new Set();
+    
     showLoading("Đang chuẩn bị Sát hạch...");
     if ('speechSynthesis' in window) {
         let unlockAudio = new SpeechSynthesisUtterance('あ');
@@ -21429,7 +21451,28 @@ function generateAspectMatrixForCard(cardObj) {
                            
     const hasKanjiFront = /[\u4e00-\u9faf]/.test(parsed.front);
 
-    // CHẶNG 1: Active Recall (Thử thách trí nhớ)
+    // 🟢 PATCH v6.1 (Option A fixed): Adaptive stages based on EF
+    // Thẻ mới (chưa có progress) → 3 chặng (học kỹ lần đầu)
+    // EF ≥ 2.8 (đã thuộc rõ) → 1 chặng (chỉ Chặng 1)
+    // EF 2.0-2.8 (còn nhớ) → 2 chặng (Chặng 1 + Chặng 3, bỏ Chặng 2)
+    // EF < 2.0 (còn yếu) → 3 chặng (như cũ)
+    const hasProgress = cardObj.progress && cardObj.progress.length > 0 && cardObj.progress[0].ef;
+    let numStages;
+    if (!hasProgress) {
+        // 🟢 FIX v6.1: Thẻ mới (chưa có EF) → học kỹ 3 chặng
+        numStages = 3;
+    } else {
+        const ef = cardObj.progress[0].ef;
+        if (ef >= 2.8) {
+            numStages = 1; // Mastered → chỉ Chặng 1
+        } else if (ef >= 2.0) {
+            numStages = 2; // Intermediate → Chặng 1 + Chặng 3 (skip Chặng 2)
+        } else {
+            numStages = 3; // Weak → tất cả 3 chặng
+        }
+    }
+
+    // CHẶNG 1: Active Recall (luôn chơi)
     let stage1Pool = [];
     
     if (hasGoodReading) {
@@ -21437,7 +21480,6 @@ function generateAspectMatrixForCard(cardObj) {
         stage1Pool.push(5); 
 
         // Game 2 (Gõ) chỉ cho phép nếu mặt trước có Kanji (để không bị lộ đáp án)
-        // 🟢 PATCH v5: Game 8 (Kana Search — "Nối chữ tạo cách đọc" lưới 5x5) ĐÃ LOẠI khỏi Sát hạch
         if (hasKanjiFront) {
             stage1Pool.push(2); 
         }
@@ -21447,29 +21489,33 @@ function generateAspectMatrixForCard(cardObj) {
     if (stage1Pool.length === 0) stage1Pool.push(1); 
     matrix.push(stage1Pool[Math.floor(Math.random() * stage1Pool.length)]);
 
-    // CHẶNG 2: Nhận diện mặt chữ/cấu trúc (ĐÃ CẬP NHẬT)
-    if (hasKanjiFront) {
-        // Có Kanji -> 100% Ép chơi Game 11 (Xây Kanji)
-        matrix.push(11);
-    } else {
-        // Không có Kanji -> Random 50/50 Game 5 (Xếp chữ) hoặc Game 1 (Chọn đáp án)
-        matrix.push(hasGoodReading && Math.random() > 0.5 ? 5 : 1);
+    // CHẶNG 2: Nhận diện mặt chữ (chỉ khi numStages >= 3)
+    if (numStages >= 3) {
+        if (hasKanjiFront) {
+            // Có Kanji -> 100% Ép chơi Game 11 (Xây Kanji)
+            matrix.push(11);
+        } else {
+            // Không có Kanji -> Random 50/50 Game 5 (Xếp chữ) hoặc Game 1 (Chọn đáp án)
+            matrix.push(hasGoodReading && Math.random() > 0.5 ? 5 : 1);
+        }
     }
 
-    // CHẶNG 3: Ý nghĩa & Ứng dụng - Chốt hạ (ĐÃ CẬP NHẬT)
-    if (parsed.exampleJP && parsed.exampleVN) {
-        // Có câu ví dụ: Kiểm tra xem câu ví dụ có chứa Kanji không
-        const exampleHasKanji = /[\u4e00-\u9faf]/.test(parsed.exampleJP);
-        if (exampleHasKanji) {
-            // Ví dụ CÓ Kanji -> Random 50/50 Game 6 (Xếp câu) hoặc Game 7 (Điền Kanji)
-            matrix.push(Math.random() > 0.5 ? 6 : 7);
+    // CHẶNG 3: Ý nghĩa & Ứng dụng (chỉ khi numStages >= 2)
+    if (numStages >= 2) {
+        if (parsed.exampleJP && parsed.exampleVN) {
+            // Có câu ví dụ: Kiểm tra xem câu ví dụ có chứa Kanji không
+            const exampleHasKanji = /[\u4e00-\u9faf]/.test(parsed.exampleJP);
+            if (exampleHasKanji) {
+                // Ví dụ CÓ Kanji -> Random 50/50 Game 6 (Xếp câu) hoặc Game 7 (Điền Kanji)
+                matrix.push(Math.random() > 0.5 ? 6 : 7);
+            } else {
+                // Ví dụ KHÔNG CÓ Kanji -> 100% Game 6 (Xếp câu) để chống lỗi
+                matrix.push(6);
+            }
         } else {
-            // Ví dụ KHÔNG CÓ Kanji -> 100% Game 6 (Xếp câu) để chống lỗi
-            matrix.push(6);
+            // Không có câu ví dụ -> 100% Game 1 (Chọn đáp án)
+            matrix.push(1);
         }
-    } else {
-        // Không có câu ví dụ -> 100% Game 1 (Chọn đáp án)
-        matrix.push(1);
     }
 
     return matrix;
@@ -21577,15 +21623,21 @@ function nextAssessmentCard() {
         saveAssessmentStateToLocal();
     } else {
         // HẾT HÀNG ĐỢI CỦA CHẶNG HIỆN TẠI
-        if (boostState.currentRound < 3) {
+        // 🟢 PATCH v6 (Option A): Dùng maxRounds = max(matrix.length) thay vì hardcode 3
+        const maxRounds = Math.max(...sessionCards.map(c => c.matrix ? c.matrix.length : 0));
+        if (boostState.currentRound < maxRounds) {
             // TĂNG CHẶNG
             boostState.currentRound++;
             boostState.processedInRound = 0;
             boostState.activeQueue = [];
             
-            // Xây dựng lại hàng đợi mới: Bỏ qua những thẻ đã Rớt (isFailed)
+            // Xây dựng lại hàng đợi mới: Bỏ qua thẻ Rớt, CHỈ thêm thẻ có matrix.length >= currentRound
             sessionCards.forEach((c, idx) => {
-                if (!c.isFailed && !c.isProcessed) {
+                if (!c.isFailed && !c.isProcessed && c.matrix && c.matrix.length >= boostState.currentRound) {
+                    // 🟢 PATCH v6 (Option C): Reset penalty + meaningFailed cho chặng mới
+                    // Chỉ chặng CUỐI CÙNG quyết định quality (q) → tránh over-punish
+                    c.penaltyPoints = 0;
+                    c.isMeaningFailed = false;
                     boostState.activeQueue.push(idx);
                 }
             });
@@ -24527,7 +24579,7 @@ window.addToFavorites = async function(event, btnElement) {
 let autoSaveDebounceTimer = null;
 
 // 🟢 PATCH v2: Flag phiên bản để auto-clear file save legacy (chứa Game 5)
-const ASSESSMENT_PATCH_VERSION = 5; // v5: KHÔI PHỤC Game 5 (Scramble), chỉ loại Game 8 (Kana Search)
+const ASSESSMENT_PATCH_VERSION = 7; // v6.1: Fix thẻ mới (no progress) → 3 chặng, không dùng EF default 2.5
 function saveAssessmentStateToLocal() {
     // 🟢 FIX: Lưu cả khi đang ở REMEDIAL phase (mode === 'remedial')
     if ((mode !== 'assessment' && mode !== 'remedial') || !currentUser) return;
