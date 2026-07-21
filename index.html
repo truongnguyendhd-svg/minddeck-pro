@@ -9376,6 +9376,13 @@ async function handleRoute() {
                 if (savedJson) {
                     try {
                         const data = JSON.parse(savedJson);
+                        // 🟢 PATCH v3: Auto-clear file save legacy (pre-v3) để tránh Game 5
+                        if (!data.patchVersion || data.patchVersion < (typeof ASSESSMENT_PATCH_VERSION !== 'undefined' ? ASSESSMENT_PATCH_VERSION : 3)) {
+                            console.log('MindDeck: [F5] File save sát hạch cũ (pre-patch v3), đã tự động hủy để tránh Game 5.');
+                            clearAssessmentStateFromLocal();
+                            await startGlobalReview(true);
+                            return;
+                        }
                         await resumeAssessmentFromLocal(data);
                         return; // Dừng luồng định tuyến thông thường
                     } catch (e) {
@@ -12273,6 +12280,17 @@ function renderBoostCard() {
     if (mode === 'assessment') {
         // Lấy game hiện tại của thẻ dựa theo Chặng
         currentBoostGame = rawCard.matrix[boostState.currentRound - 1];
+        // 🟢 PATCH v3: HARD-FILTER — nếu Game 5 (Scramble) vẫn lọt được vào assessment mode
+        // (do bất kỳ path nào) → đổi sang game dự phòng an toàn.
+        if (currentBoostGame === 5) {
+            const front = (rawCard.front || rawCard.word_text || '').toString();
+            currentBoostGame = /[\u4e00-\u9faf]/.test(front) ? 2 : 1;
+            console.log('MindDeck: [Render] Đã chặn Game 5 trong Sát hạch → chuyển sang Game', currentBoostGame);
+            // Cập nhật luôn vào matrix để các chặng sau cũng sạch
+            if (Array.isArray(rawCard.matrix)) {
+                rawCard.matrix[boostState.currentRound - 1] = currentBoostGame;
+            }
+        }
         
         // Tính toán để hiển thị UI Header: Thẻ thứ X / Tổng thẻ của Chặng này
         const totalInRound = boostState.activeQueue.length + (boostState.processedInRound || 0);
@@ -24506,7 +24524,7 @@ window.addToFavorites = async function(event, btnElement) {
 let autoSaveDebounceTimer = null;
 
 // 🟢 PATCH v2: Flag phiên bản để auto-clear file save legacy (chứa Game 5)
-const ASSESSMENT_PATCH_VERSION = 2; // Tăng số này mỗi lần thay đổi ma trận sát hạch
+const ASSESSMENT_PATCH_VERSION = 3; // Tăng số này mỗi lần thay đổi ma trận sát hạch (v3: hard filter Game 5)
 function saveAssessmentStateToLocal() {
     // 🟢 FIX: Lưu cả khi đang ở REMEDIAL phase (mode === 'remedial')
     if ((mode !== 'assessment' && mode !== 'remedial') || !currentUser) return;
@@ -24686,17 +24704,34 @@ async function resumeAssessmentFromLocal(data) {
         
         // Phục hồi dữ liệu bình thường
         sessionCards = data.sessionCards;
-        // 🟢 PATCH v2: Regenerate matrix mới cho mỗi thẻ khi resume
-        // để loại bỏ Game 5 (Scramble) nếu file save cũ còn chứa ma trận legacy.
-        // Trạng thái tiến độ (penaltyPoints, isFailed, currentRound) được giữ nguyên.
+        // 🟢 PATCH v3: HARD-SCAN matrix của mỗi thẻ. Nếu phát hiện Game 5 → replace bằng game dự phòng.
+        // Bảo vệ kép: ngay cả khi generateAspectMatrixForCard fail, Game 5 vẫn bị thay thế.
         try {
+            const hasLegacyGame5 = sessionCards.some(c => Array.isArray(c.matrix) && c.matrix.includes(5));
+            if (hasLegacyGame5) {
+                console.log('MindDeck: [Resume] Phát hiện Game 5 trong matrix legacy → regenerate toàn bộ.');
+            }
             sessionCards.forEach(card => {
+                // Thử regenerate bằng hàm chuẩn
                 if (typeof generateAspectMatrixForCard === 'function') {
-                    card.matrix = generateAspectMatrixForCard(card);
+                    try { card.matrix = generateAspectMatrixForCard(card); } catch (e) {}
+                }
+                // HARD-FILTER: Nếu vẫn còn Game 5 sau regenerate → replace inline
+                if (Array.isArray(card.matrix)) {
+                    card.matrix = card.matrix.map(g => {
+                        if (g === 5) {
+                            // Logic thay thế giống generateAspectMatrixForCard:
+                            // - Có Kanji → Game 2 (Typing)
+                            // - Không Kanji → Game 1 (Word Match)
+                            const front = (card.front || card.word_text || '').toString();
+                            return /[\u4e00-\u9faf]/.test(front) ? 2 : 1;
+                        }
+                        return g;
+                    });
                 }
             });
         } catch (e) {
-            console.warn('Không thể regenerate matrix khi resume:', e);
+            console.warn('Lỗi hard-scan matrix khi resume:', e);
         }
         // 🟢 PATCH v2: Clear cache GLOBAL_REVIEW để tránh lấy lại sessionCards cũ
         try {
