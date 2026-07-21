@@ -21451,25 +21451,27 @@ function generateAspectMatrixForCard(cardObj) {
                            
     const hasKanjiFront = /[\u4e00-\u9faf]/.test(parsed.front);
 
-    // 🟢 PATCH v6.1 (Option A fixed): Adaptive stages based on EF
-    // Thẻ mới (chưa có progress) → 3 chặng (học kỹ lần đầu)
-    // EF ≥ 2.8 (đã thuộc rõ) → 1 chặng (chỉ Chặng 1)
-    // EF 2.0-2.8 (còn nhớ) → 2 chặng (Chặng 1 + Chặng 3, bỏ Chặng 2)
-    // EF < 2.0 (còn yếu) → 3 chặng (như cũ)
-    const hasProgress = cardObj.progress && cardObj.progress.length > 0 && cardObj.progress[0].ef;
+    // 🟢 PATCH v8 (Hướng 1): Adaptive stages dựa trên interval_count
+    // interval_count = số lần ĐÚNG LIÊN TIẾP (reset về 0 khi sai q=0)
+    // - interval_count >= 3 → 1 chặng (đã thuộc rõ)
+    // - interval_count >= 2 → 2 chặng (đang ổn)
+    // - interval_count < 2  → 3 chặng (mới/sai vừa rồi, cần học kỹ)
+    //
+    // Lý do dùng interval_count thay vì EF:
+    // - interval_count phản ánh ngay độ vững hiện tại (reset khi sai)
+    // - EF mất nhiều vòng để recover (chỉ +0.1/lần đúng)
+    // - Tránh tình trạng EF >= 2.8 nhưng vừa sai 1 lần → vẫn 1 chặng (sai logic)
+    let intervalCount = 0;
+    if (cardObj.progress && cardObj.progress.length > 0) {
+        intervalCount = cardObj.progress[0].interval_count || 0;
+    }
     let numStages;
-    if (!hasProgress) {
-        // 🟢 FIX v6.1: Thẻ mới (chưa có EF) → học kỹ 3 chặng
-        numStages = 3;
+    if (intervalCount >= 3) {
+        numStages = 1; // Mastered: đúng 3+ lần liên tiếp
+    } else if (intervalCount >= 2) {
+        numStages = 2; // Stable: đúng 2 lần liên tiếp
     } else {
-        const ef = cardObj.progress[0].ef;
-        if (ef >= 2.8) {
-            numStages = 1; // Mastered → chỉ Chặng 1
-        } else if (ef >= 2.0) {
-            numStages = 2; // Intermediate → Chặng 1 + Chặng 3 (skip Chặng 2)
-        } else {
-            numStages = 3; // Weak → tất cả 3 chặng
-        }
+        numStages = 3; // New/Weak: đúng <2 lần liên tiếp, hoặc vừa sai
     }
 
     // CHẶNG 1: Active Recall (luôn chơi)
@@ -24579,7 +24581,7 @@ window.addToFavorites = async function(event, btnElement) {
 let autoSaveDebounceTimer = null;
 
 // 🟢 PATCH v2: Flag phiên bản để auto-clear file save legacy (chứa Game 5)
-const ASSESSMENT_PATCH_VERSION = 7; // v6.1: Fix thẻ mới (no progress) → 3 chặng, không dùng EF default 2.5
+const ASSESSMENT_PATCH_VERSION = 8; // v8: Hướng 1 — dùng interval_count làm tiêu chí chính cho numStages
 function saveAssessmentStateToLocal() {
     // 🟢 FIX: Lưu cả khi đang ở REMEDIAL phase (mode === 'remedial')
     if ((mode !== 'assessment' && mode !== 'remedial') || !currentUser) return;
