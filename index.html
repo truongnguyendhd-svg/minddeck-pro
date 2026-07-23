@@ -26638,6 +26638,68 @@ async function fetchRomajiFromGoogle(jpText) {
 /**
  * 2. Hàm vẽ khối câu ví dụ động (Dùng chung toàn cục)
  */
+// 🟢 PATCH v11: Helper phát audio câu ví dụ với visual feedback
+// btn: phần tử nút được click
+// jpEncoded: chuỗi JP đã encodeURIComponent
+window.playExampleAudio = function(btn, jpEncoded) {
+    if (!btn) return;
+    try {
+        const jpText = decodeURIComponent(jpEncoded || '');
+        if (!jpText) return;
+        
+        // Tìm icon element bên trong nút
+        const iconEl = btn.querySelector('.ex-audio-icon');
+        const originalIcon = 'volume_up';
+        const playingIcon = 'graphic_eq';
+        
+        // Đổi icon sang trạng thái đang phát
+        if (iconEl) {
+            iconEl.textContent = playingIcon;
+            btn.style.background = 'rgba(59, 130, 246, 0.25)';
+        }
+        
+        // Gọi safePlayAudio với callback onEnd để restore icon
+        if (typeof window.safePlayAudio === 'function') {
+            window.safePlayAudio(jpText, 0.85, null, function() {
+                if (iconEl) {
+                    iconEl.textContent = originalIcon;
+                    btn.style.background = 'rgba(59, 130, 246, 0.1)';
+                }
+            });
+            
+            // Safety timeout: restore icon sau 15s nếu callback không fire
+            setTimeout(function() {
+                if (iconEl && iconEl.textContent === playingIcon) {
+                    iconEl.textContent = originalIcon;
+                    btn.style.background = 'rgba(59, 130, 246, 0.1)';
+                }
+            }, 15000);
+        } else {
+            // Fallback: dùng SpeechSynthesis trực tiếp
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(jpText);
+                utterance.lang = 'ja-JP';
+                utterance.rate = 0.85;
+                utterance.onend = function() {
+                    if (iconEl) {
+                        iconEl.textContent = originalIcon;
+                        btn.style.background = 'rgba(59, 130, 246, 0.1)';
+                    }
+                };
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+    } catch (e) {
+        console.warn('Lỗi phát audio câu ví dụ:', e);
+        // Restore icon nếu lỗi
+        const iconEl = btn.querySelector('.ex-audio-icon');
+        if (iconEl) {
+            iconEl.textContent = 'volume_up';
+            btn.style.background = 'rgba(59, 130, 246, 0.1)';
+        }
+    }
+};
+
 function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn) {
     if (!jp) return "";
     const escapedJp = escapeHTML(jp);
@@ -26667,6 +26729,15 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn) {
                 <div class="example-label" style="font-size: 11px; font-weight: 800; color: #86868b; letter-spacing: 0.5px; text-transform: uppercase;">Ví dụ ${exIndex}</div>
                 
                 <div style="display: flex; align-items: center; gap: 6px;">
+                    <!-- 🟢 PATCH v11: NÚT LOA NGHE CÂU VÍ DỤ (bên trái nút Test) -->
+                    <button class="btn-toggle-romaji btn-play-example-audio"
+                            style="background: rgba(59, 130, 246, 0.1); border: none; padding: 4px 10px; border-radius: 50px; font-size: 11px; font-weight: 700; color: #1d4ed8; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s;"
+                            onclick="playExampleAudio(this, '${jpForAttr}')"
+                            title="Nghe câu ví dụ">
+                        <span class="material-symbols-outlined ex-audio-icon" style="font-size: 14px;">volume_up</span>
+                        <span class="btn-text-lbl" style="font-size: 11px; font-weight: 700;">Nghe</span>
+                    </button>
+                    
                     <!-- 🟢 NÚT TEST TRÍ NHỚ (bên trái nút Hiện Romaji) -->
                     <button id="${testBtnId}" class="btn-toggle-romaji"
                             style="background: rgba(245, 158, 11, 0.1); border: none; padding: 4px 10px; border-radius: 50px; font-size: 11px; font-weight: 700; color: #b45309; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s;"
