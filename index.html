@@ -8229,19 +8229,21 @@ body.shadowing-mode #shadowingPage {
 
         <!-- Footer: Thanh công cụ nổi (Floating Pill Toolbar) -->
         <div class="study-modal-footer" style="display: flex; align-items: center; justify-content: center; padding: 16px 16px 20px 16px; overflow: visible; background: transparent; border-top: none;">
-            <div id="studyOptionsToolbar" style="display: inline-flex; align-items: center; background: #fff; border: 1px solid #e5e5e5; border-radius: 50px; padding: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06); gap: 0;">
+            <div id="studyOptionsToolbar" style="display: inline-flex; align-items: center; background: #fff; border: 1px solid #e5e5e5; border-radius: 50px; padding: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06); gap: 0; transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);">
                 <!-- Tab Flashcard (active mặc định) -->
-                <button class="study-tab-btn active" onclick="startBasicStudy()" title="Bắt đầu học Flashcard">
+                <button id="studyTabFlashcard" class="study-tab-btn active" onclick="startBasicStudy()" title="Bắt đầu học Flashcard">
                     <span class="material-symbols-outlined" style="font-size: 20px;">style</span>
                     <span>Flashcard</span>
                 </button>
                 <!-- Divider -->
-                <div style="width: 1px; height: 28px; background: #e5e5e5; flex-shrink: 0;"></div>
-                <!-- Tab Find -->
-                <button class="study-tab-btn" onclick="openQuickAddCardModal()" title="Tìm / Thêm thẻ mới">
+                <div id="studyTabDivider" style="width: 1px; height: 28px; background: #e5e5e5; flex-shrink: 0;"></div>
+                <!-- Find: mở rộng thành ô search -->
+                <button id="studyTabFindBtn" class="study-tab-btn" onclick="toggleStudyFindBar()" title="Tìm thẻ">
                     <span class="material-symbols-outlined" style="font-size: 20px;">search</span>
-                    <span>Find</span>
+                    <span id="studyFindLabel">Find</span>
                 </button>
+                <!-- Search input ẩn (hiện khi bấm Find) -->
+                <input type="text" id="studyFindInput" placeholder="Tìm thẻ..." oninput="filterStudyCards()" onkeydown="if(event.key==='Escape')closeStudyFindBar()" style="display:none; border:none; outline:none; background:transparent; font-size:14px; font-weight:600; color:#1a1a1a; padding:0; width:0; font-family:'Noto Sans JP',sans-serif;" />
             </div>
         </div>
 
@@ -22678,6 +22680,88 @@ function loadMoreInlineCards() {
     renderInlineDeckListUI();
 }
 
+// 🟢 HÀM MỚI: Toggle mở/đóng thanh Find trong toolbar
+function toggleStudyFindBar() {
+    const toolbar = document.getElementById('studyOptionsToolbar');
+    const findBtn = document.getElementById('studyTabFindBtn');
+    const findLabel = document.getElementById('studyFindLabel');
+    const findInput = document.getElementById('studyFindInput');
+
+    if (toolbar.dataset.findOpen === 'true') {
+        closeStudyFindBar();
+    } else {
+        // Mở: ẩn text "Find", hiện input, mở rộng toolbar
+        toolbar.dataset.findOpen = 'true';
+        findBtn.classList.add('active');
+        findLabel.style.display = 'none';
+        findInput.style.display = 'block';
+        // Animation mở rộng: input width 0 → 200px
+        requestAnimationFrame(() => {
+            findInput.style.transition = 'width 0.35s cubic-bezier(0.4, 0, 0.2, 1)';
+            findInput.style.width = '200px';
+            findInput.style.paddingLeft = '4px';
+            findInput.style.paddingRight = '4px';
+            toolbar.style.minWidth = '360px';
+        });
+        findInput.focus();
+    }
+}
+
+// Đóng thanh Find
+function closeStudyFindBar() {
+    const toolbar = document.getElementById('studyOptionsToolbar');
+    const findBtn = document.getElementById('studyTabFindBtn');
+    const findLabel = document.getElementById('studyFindLabel');
+    const findInput = document.getElementById('studyFindInput');
+
+    toolbar.dataset.findOpen = 'false';
+    findBtn.classList.remove('active');
+    findLabel.style.display = '';
+    // Animation thu nhỏ
+    findInput.style.transition = 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)';
+    findInput.style.width = '0';
+    findInput.style.paddingLeft = '0';
+    findInput.style.paddingRight = '0';
+    toolbar.style.minWidth = '';
+    findInput.value = '';
+    // Sau animation mới ẩn hoàn toàn
+    setTimeout(() => {
+        findInput.style.display = 'none';
+    }, 260);
+    // Reset filter — hiện lại tất cả thẻ
+    filterStudyCards(true);
+}
+
+// 🟢 HÀM MỚI: Lọc thẻ trong danh sách khi gõ vào Find
+function filterStudyCards(reset) {
+    const input = document.getElementById('studyFindInput');
+    if (!input) return;
+
+    const items = document.querySelectorAll('#inlineCardsWrapper .inline-card-item');
+
+    if (reset || !input.value.trim()) {
+        items.forEach(item => { item.style.display = ''; });
+        return;
+    }
+
+    let query = input.value.toLowerCase().trim();
+    let kanaQuery = query;
+
+    // Chuyển Romaji → Hiragana
+    if (typeof wanakana !== 'undefined' && wanakana.isRomaji(query)) {
+        kanaQuery = wanakana.toHiragana(query);
+    }
+
+    items.forEach(item => {
+        const textContent = item.innerText.toLowerCase();
+        if (textContent.includes(query) || textContent.includes(kanaQuery)) {
+            item.style.display = '';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
 function renderInlineDeckListUI() {
     const listContainer = document.getElementById('inlineDeckListContainer');
     const visibleCount = window.__inlineDeckVisibleCount || 6;
@@ -25452,6 +25536,16 @@ window.openStudyOptionsModal = function(deckId, deckName, type) {
     pendingModalReturn = { id: deckId, name: deckName, type: type };
     isInlineListLoaded = false;
     window.__inlineDeckVisibleCount = 6; // Reset về 6 thẻ hiển thị
+    // Reset thanh Find về trạng thái đóng
+    const toolbar = document.getElementById('studyOptionsToolbar');
+    if (toolbar) toolbar.dataset.findOpen = 'false';
+    const findInput = document.getElementById('studyFindInput');
+    if (findInput) { findInput.style.display = 'none'; findInput.style.width = '0'; findInput.value = ''; }
+    const findLabel = document.getElementById('studyFindLabel');
+    if (findLabel) findLabel.style.display = '';
+    const findBtn = document.getElementById('studyTabFindBtn');
+    if (findBtn) findBtn.classList.remove('active');
+
     document.getElementById('studyOptionsDeckName').innerText = deckName;
     document.body.classList.add('modal-open-lock');
     document.getElementById('studyOptionsModal').style.display = 'flex';
