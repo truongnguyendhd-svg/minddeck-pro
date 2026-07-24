@@ -8243,12 +8243,11 @@ body.shadowing-mode #shadowingPage {
                     <span id="studyFindLabel">Find</span>
                 </button>
                 <!-- Search input ẩn (hiện khi bấm Find) -->
-                <input type="text" id="studyFindInput" placeholder="Tìm thẻ..." oninput="filterStudyCards()" onkeydown="if(event.key==='Escape')closeStudyFindBar()" style="display:none; border:none; outline:none; background:transparent; font-size:14px; font-weight:600; color:#1a1a1a; padding:0; width:0; font-family:'Noto Sans JP',sans-serif;" />
-                <!-- Nút chuyển gõ あ/A (ẩn mặc định) -->
-                <button id="studyFindKanaToggle" onclick="toggleStudyFindKana(event)" style="display:none; background:transparent; border:none; font-weight:800; font-size:15px; color:#64748b; cursor:pointer; padding:0 10px; align-items:center; justify-content:center; flex-shrink:0; user-select:none; transition:all 0.2s;" title="Bật/Tắt gõ tiếng Nhật">あ</button>
-                <!-- Nút đóng search (ẩn mặc định) -->
-                <button id="studyFindCloseBtn" onclick="closeStudyFindBar()" style="display:none; background:#f5f5f5; border:none; border-radius:50%; width:24px; height:24px; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; margin-right:2px; transition:background 0.2s;" title="Đóng tìm kiếm"><span class="material-symbols-outlined" style="font-size:16px; color:#8c8c8c;">close</span></button>
+                <input type="text" id="studyFindInput" placeholder="Tìm thẻ..." oninput="filterStudyCards()" onkeydown="if(event.key==='Escape'){closeStudyFindBar();}" style="display:none; border:none; outline:none; background:transparent; font-size:14px; font-weight:600; color:#1a1a1a; padding:0; width:0; font-family:'Noto Sans JP',sans-serif;" />
             </div>
+            <!-- Nút ẩn ngoài pill: あ/A + đóng -->
+            <button id="studyFindKanaToggle" style="display:none; background:transparent; border:none; font-weight:800; font-size:15px; color:#64748b; cursor:pointer; padding:0 10px; align-items:center; justify-content:center; flex-shrink:0; user-select:none; transition:all 0.2s;" title="Bật/Tắt gõ tiếng Nhật">あ</button>
+            <button id="studyFindCloseBtn" onclick="closeStudyFindBar()" style="display:none; background:#f5f5f5; border:none; border-radius:50%; width:28px; height:28px; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:background 0.2s;" title="Đóng tìm kiếm"><span class="material-symbols-outlined" style="font-size:16px; color:#8c8c8c;">close</span></button>
         </div>
 
     </div>
@@ -21209,7 +21208,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // 🟢 FIX: Force ẩn cả 2 candidates bars khi bất kỳ modal nào mở
             // Tránh bar kẹt ở vị trí cũ khi user chuyển sang thao tác với modal
             const hideAllCandidatesBars = () => {
-                const bars = ['#globalSearchCandidatesBar', '#quickDictCandidatesBar'];
+                const bars = ['#globalSearchCandidatesBar', '#quickDictCandidatesBar', '#studyFindCandidatesBar'];
                 bars.forEach(sel => {
                     const b = document.querySelector(sel);
                     if (b) b.style.display = 'none';
@@ -21217,6 +21216,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Clear state IME
                 if (window.__globalSearchIme) window.__globalSearchIme.clearCandidates();
                 if (window.__quickDictIme) window.__quickDictIme.clearCandidates();
+                if (window.__studyFindIme) window.__studyFindIme.clearCandidates();
             };
 
             // Quan sát tất cả modal — khi 1 modal mở (display: flex), force ẩn bars
@@ -22684,8 +22684,58 @@ function loadMoreInlineCards() {
     renderInlineDeckListUI();
 }
 
-// 🟢 HÀM MỚI: Toggle mở/đóng thanh Find trong toolbar
-let isStudyFindKanaMode = true; // Trạng thái gõ tiếng Nhật cho Find
+// Khởi tạo Google IME cho Find input (gọi 1 lần duy nhất)
+function initStudyFindIME() {
+    if (window.__studyFindImeInit) return;
+    window.__studyFindImeInit = true;
+    const findInput = document.getElementById('studyFindInput');
+    const kanaToggle = document.getElementById('studyFindKanaToggle');
+    if (!findInput || !kanaToggle || typeof attachJpIme !== 'function') return;
+    // Tạo candidates bar (fixed position, gắn vào body)
+    let sfBar = document.getElementById('studyFindCandidatesBar');
+    if (!sfBar) {
+        sfBar = document.createElement('div');
+        sfBar.id = 'studyFindCandidatesBar';
+        sfBar.style.cssText = `
+            display: none; flex-wrap: wrap; gap: 6px; padding: 8px 12px;
+            background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;
+            font-family: 'Noto Sans JP', sans-serif;
+            box-sizing: border-box; box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+            position: fixed; z-index: 99999;
+            max-width: 360px; min-width: 200px;
+            animation: fadeInChat 0.2s ease;
+        `;
+        document.body.appendChild(sfBar);
+    }
+    // Bind WanaKana trước khi attachJpIme
+    if (typeof wanakana !== 'undefined' && !findInput.hasAttribute('data-wanakana-id')) {
+        wanakana.bind(findInput);
+    }
+    // Attach IME (Google candidates + toggle あ/A)
+    window.__studyFindIme = attachJpIme(findInput, sfBar, {
+        toggleBtn: kanaToggle,
+        kanaMode: (typeof isGlobalKanaMode !== 'undefined') ? isGlobalKanaMode : true
+    });
+    // Vị trí bar ngay dưới ô input
+    const positionStudyFindBar = () => {
+        if (sfBar.style.display === 'none') return;
+        const toolbar = document.getElementById('studyOptionsToolbar');
+        if (!toolbar || toolbar.dataset.findOpen !== 'true') {
+            sfBar.style.display = 'none'; return;
+        }
+        const rect = findInput.getBoundingClientRect();
+        if (rect.bottom === 0 && rect.left === 0) { sfBar.style.display = 'none'; return; }
+        sfBar.style.top = (rect.bottom + 4) + 'px';
+        sfBar.style.left = rect.left + 'px';
+        const barWidth = sfBar.offsetWidth;
+        if (rect.left + barWidth > window.innerWidth - 8) {
+            sfBar.style.left = (window.innerWidth - barWidth - 8) + 'px';
+        }
+    };
+    const sfObs = new MutationObserver(() => { if (sfBar.style.display === 'flex') positionStudyFindBar(); });
+    sfObs.observe(sfBar, { attributes: true, attributeFilter: ['style'] });
+    window.__studyFindImePos = positionStudyFindBar;
+}
 
 function toggleStudyFindBar() {
     const toolbar = document.getElementById('studyOptionsToolbar');
@@ -22716,19 +22766,11 @@ function toggleStudyFindBar() {
             findInput.style.width = '200px';
             findInput.style.paddingLeft = '4px';
             findInput.style.paddingRight = '4px';
-            toolbar.style.minWidth = '420px';
+            toolbar.style.minWidth = '360px';
         });
-        // Đồng bộ trạng thái kana toggle với global
-        if (typeof isGlobalKanaMode !== 'undefined') {
-            isStudyFindKanaMode = isGlobalKanaMode;
-        }
-        // Bind/unbind Wanakana theo trạng thái
-        if (typeof wanakana !== 'undefined') {
-            if (isStudyFindKanaMode && !findInput.hasAttribute('data-wanakana-id')) {
-                wanakana.bind(findInput);
-            }
-            kanaToggle.innerText = isStudyFindKanaMode ? 'あ' : 'A';
-            kanaToggle.style.color = isStudyFindKanaMode ? '#64748b' : '#a0aec0';
+        // Bind WanaKana nếu chưa bind (IME instance quản lý toggle)
+        if (typeof wanakana !== 'undefined' && !findInput.hasAttribute('data-wanakana-id')) {
+            wanakana.bind(findInput);
         }
         findInput.focus();
     }
@@ -22754,10 +22796,10 @@ function closeStudyFindBar() {
     // ẩn nút toggle + close
     kanaToggle.style.display = 'none';
     closeBtn.style.display = 'none';
-    // Unbind bộ gõ tiếng Nhật
-    if (typeof wanakana !== 'undefined' && findInput.hasAttribute('data-wanakana-id')) {
-        wanakana.unbind(findInput);
-    }
+    // Ẩn candidates bar
+    const sfBar = document.getElementById('studyFindCandidatesBar');
+    if (sfBar) sfBar.style.display = 'none';
+    if (window.__studyFindIme) window.__studyFindIme.clearCandidates();
     // Animation thu nhỏ
     findInput.style.transition = 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)';
     findInput.style.width = '0';
@@ -22771,27 +22813,6 @@ function closeStudyFindBar() {
     }, 260);
     // Reset filter — hiện lại tất cả thẻ
     filterStudyCards(true);
-}
-
-// Toggle gõ あ/A cho thanh Find
-function toggleStudyFindKana(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    const findInput = document.getElementById('studyFindInput');
-    const kanaToggle = document.getElementById('studyFindKanaToggle');
-    isStudyFindKanaMode = !isStudyFindKanaMode;
-    if (typeof wanakana !== 'undefined') {
-        if (isStudyFindKanaMode) {
-            if (!findInput.hasAttribute('data-wanakana-id')) wanakana.bind(findInput);
-            kanaToggle.innerText = 'あ';
-            kanaToggle.style.color = '#64748b';
-        } else {
-            if (findInput.hasAttribute('data-wanakana-id')) wanakana.unbind(findInput);
-            kanaToggle.innerText = 'A';
-            kanaToggle.style.color = '#a0aec0';
-        }
-    }
-    findInput.focus();
 }
 
 // 🟢 HÀM MỚI: Lọc thẻ trong danh sách khi gõ vào Find
@@ -25607,6 +25628,15 @@ window.openStudyOptionsModal = function(deckId, deckName, type) {
     if (findLabel) findLabel.style.display = '';
     const findBtn = document.getElementById('studyTabFindBtn');
     if (findBtn) findBtn.classList.remove('active');
+    const kanaToggle = document.getElementById('studyFindKanaToggle');
+    if (kanaToggle) kanaToggle.style.display = 'none';
+    const closeBtn = document.getElementById('studyFindCloseBtn');
+    if (closeBtn) closeBtn.style.display = 'none';
+    const sfBar = document.getElementById('studyFindCandidatesBar');
+    if (sfBar) sfBar.style.display = 'none';
+    if (window.__studyFindIme) window.__studyFindIme.clearCandidates();
+    // Khởi tạo Google IME cho Find input (chỉ lần đầu)
+    initStudyFindIME();
 
     document.getElementById('studyOptionsDeckName').innerText = deckName;
     document.body.classList.add('modal-open-lock');
