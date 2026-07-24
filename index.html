@@ -8244,6 +8244,10 @@ body.shadowing-mode #shadowingPage {
                 </button>
                 <!-- Search input ẩn (hiện khi bấm Find) -->
                 <input type="text" id="studyFindInput" placeholder="Tìm thẻ..." oninput="filterStudyCards()" onkeydown="if(event.key==='Escape')closeStudyFindBar()" style="display:none; border:none; outline:none; background:transparent; font-size:14px; font-weight:600; color:#1a1a1a; padding:0; width:0; font-family:'Noto Sans JP',sans-serif;" />
+                <!-- Nút chuyển gõ あ/A (ẩn mặc định) -->
+                <button id="studyFindKanaToggle" onclick="toggleStudyFindKana(event)" style="display:none; background:transparent; border:none; font-weight:800; font-size:15px; color:#64748b; cursor:pointer; padding:0 10px; align-items:center; justify-content:center; flex-shrink:0; user-select:none; transition:all 0.2s;" title="Bật/Tắt gõ tiếng Nhật">あ</button>
+                <!-- Nút đóng search (ẩn mặc định) -->
+                <button id="studyFindCloseBtn" onclick="closeStudyFindBar()" style="display:none; background:#f5f5f5; border:none; border-radius:50%; width:24px; height:24px; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; margin-right:2px; transition:background 0.2s;" title="Đóng tìm kiếm"><span class="material-symbols-outlined" style="font-size:16px; color:#8c8c8c;">close</span></button>
             </div>
         </div>
 
@@ -22681,6 +22685,8 @@ function loadMoreInlineCards() {
 }
 
 // 🟢 HÀM MỚI: Toggle mở/đóng thanh Find trong toolbar
+let isStudyFindKanaMode = true; // Trạng thái gõ tiếng Nhật cho Find
+
 function toggleStudyFindBar() {
     const toolbar = document.getElementById('studyOptionsToolbar');
     const findBtn = document.getElementById('studyTabFindBtn');
@@ -22688,15 +22694,19 @@ function toggleStudyFindBar() {
     const findInput = document.getElementById('studyFindInput');
     const flashcardBtn = document.getElementById('studyTabFlashcard');
     const divider = document.getElementById('studyTabDivider');
+    const kanaToggle = document.getElementById('studyFindKanaToggle');
+    const closeBtn = document.getElementById('studyFindCloseBtn');
 
     if (toolbar.dataset.findOpen === 'true') {
         closeStudyFindBar();
     } else {
-        // Mở: ẩn nút Flashcard + divider, hiện input, mở rộng toolbar
+        // Mở: ẩn nút Flashcard + divider, hiện input + toggle + close
         toolbar.dataset.findOpen = 'true';
         findBtn.classList.add('active');
         findLabel.style.display = 'none';
         findInput.style.display = 'block';
+        kanaToggle.style.display = 'flex';
+        closeBtn.style.display = 'flex';
         // ẩn nút Flashcard và divider
         if (flashcardBtn) { flashcardBtn.style.display = 'none'; }
         if (divider) { divider.style.display = 'none'; }
@@ -22706,11 +22716,19 @@ function toggleStudyFindBar() {
             findInput.style.width = '200px';
             findInput.style.paddingLeft = '4px';
             findInput.style.paddingRight = '4px';
-            toolbar.style.minWidth = '360px';
+            toolbar.style.minWidth = '420px';
         });
-        // Bind bộ gõ tiếng Nhật (Wanakana IME)
-        if (typeof wanakana !== 'undefined' && !findInput.hasAttribute('data-wanakana-id')) {
-            wanakana.bind(findInput);
+        // Đồng bộ trạng thái kana toggle với global
+        if (typeof isGlobalKanaMode !== 'undefined') {
+            isStudyFindKanaMode = isGlobalKanaMode;
+        }
+        // Bind/unbind Wanakana theo trạng thái
+        if (typeof wanakana !== 'undefined') {
+            if (isStudyFindKanaMode && !findInput.hasAttribute('data-wanakana-id')) {
+                wanakana.bind(findInput);
+            }
+            kanaToggle.innerText = isStudyFindKanaMode ? 'あ' : 'A';
+            kanaToggle.style.color = isStudyFindKanaMode ? '#64748b' : '#a0aec0';
         }
         findInput.focus();
     }
@@ -22724,6 +22742,8 @@ function closeStudyFindBar() {
     const findInput = document.getElementById('studyFindInput');
     const flashcardBtn = document.getElementById('studyTabFlashcard');
     const divider = document.getElementById('studyTabDivider');
+    const kanaToggle = document.getElementById('studyFindKanaToggle');
+    const closeBtn = document.getElementById('studyFindCloseBtn');
 
     toolbar.dataset.findOpen = 'false';
     findBtn.classList.remove('active');
@@ -22731,6 +22751,9 @@ function closeStudyFindBar() {
     // Hiện lại nút Flashcard và divider
     if (flashcardBtn) { flashcardBtn.style.display = ''; }
     if (divider) { divider.style.display = ''; }
+    // ẩn nút toggle + close
+    kanaToggle.style.display = 'none';
+    closeBtn.style.display = 'none';
     // Unbind bộ gõ tiếng Nhật
     if (typeof wanakana !== 'undefined' && findInput.hasAttribute('data-wanakana-id')) {
         wanakana.unbind(findInput);
@@ -22748,6 +22771,27 @@ function closeStudyFindBar() {
     }, 260);
     // Reset filter — hiện lại tất cả thẻ
     filterStudyCards(true);
+}
+
+// Toggle gõ あ/A cho thanh Find
+function toggleStudyFindKana(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const findInput = document.getElementById('studyFindInput');
+    const kanaToggle = document.getElementById('studyFindKanaToggle');
+    isStudyFindKanaMode = !isStudyFindKanaMode;
+    if (typeof wanakana !== 'undefined') {
+        if (isStudyFindKanaMode) {
+            if (!findInput.hasAttribute('data-wanakana-id')) wanakana.bind(findInput);
+            kanaToggle.innerText = 'あ';
+            kanaToggle.style.color = '#64748b';
+        } else {
+            if (findInput.hasAttribute('data-wanakana-id')) wanakana.unbind(findInput);
+            kanaToggle.innerText = 'A';
+            kanaToggle.style.color = '#a0aec0';
+        }
+    }
+    findInput.focus();
 }
 
 // 🟢 HÀM MỚI: Lọc thẻ trong danh sách khi gõ vào Find
