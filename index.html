@@ -11788,10 +11788,19 @@ async function showKanjiXRay(event, kanji) {
             </details>
 
             <div style="margin-bottom: 10px;">
-                <button onclick="bulkSaveXRayVocab('${kanji}')" class="btn-apple-glass-primary" style="background: #1d1d1f; color: white; width: 100%; border: none; border-radius: 50px; padding: 16px; font-size: 15px; font-weight: 800; display: flex; justify-content: center; align-items: center; gap: 8px; cursor: pointer; box-shadow: 0 10px 30px rgba(0,0,0,0.15);">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">library_add</span>
-                    LƯU TOÀN BỘ ${vList.length} TỪ VÀO BỘ BÀI
-                </button>
+                ${(() => {
+                    // 🟢 PATCH v12: Đếm số từ có JLPT level (N1-N5)
+                    const jlptVocabCount = vList.filter(v => v.level && ['N1','N2','N3','N4','N5'].includes(v.level)).length;
+                    const hasJlpt = jlptVocabCount > 0;
+                    return `
+                    <button onclick="bulkSaveXRayVocab('${kanji}')" 
+                            class="btn-apple-glass-primary" 
+                            style="background: ${hasJlpt ? '#1d1d1f' : '#9ca3af'}; color: white; width: 100%; border: none; border-radius: 50px; padding: 16px; font-size: 15px; font-weight: 800; display: flex; justify-content: center; align-items: center; gap: 8px; cursor: ${hasJlpt ? 'pointer' : 'not-allowed'}; box-shadow: 0 10px 30px rgba(0,0,0,0.15); ${hasJlpt ? '' : 'opacity: 0.6;'}"
+                            ${hasJlpt ? '' : 'disabled title="Không có từ vựng JLPT nào trong danh sách này"'}>
+                        <span class="material-symbols-outlined" style="font-size: 20px;">library_add</span>
+                        ${hasJlpt ? `LƯU ${jlptVocabCount} TỪ JLPT VÀO BỘ BÀI` : 'KHÔNG CÓ TỪ JLPT ĐỂ LƯU'}
+                    </button>`;
+                })()}
             </div>
             `;
         }
@@ -12055,10 +12064,21 @@ async function bulkSaveXRayVocab(kanjiChar) {
         return showToast("⚠️ Không tìm thấy dữ liệu từ ghép để lưu.");
     }
 
-    const list = cachedData.mergedVocabList;
+    // 🟢 PATCH v12: Chỉ giữ lại các từ có cấp độ JLPT (N1-N5)
+    const isJlpt = (lvl) => ['N1', 'N2', 'N3', 'N4', 'N5'].includes(lvl);
+    const fullList = cachedData.mergedVocabList;
+    const list = fullList.filter(v => isJlpt(v.level));
+    
+    if (list.length === 0) {
+        return showToast("⚠️ Không có từ vựng JLPT nào để lưu. (Tổng: " + fullList.length + " từ ghép)");
+    }
+    
+    if (list.length < fullList.length) {
+        showToast(`📊 Đã lọc ${fullList.length - list.length} từ không thuộc JLPT, chỉ lưu ${list.length} từ JLPT.`);
+    }
 
     // 🟢 BẢN NÂNG CẤP: Quét và tự động nạp sâu ví dụ cho TOÀN BỘ từ ghép chưa tải dở dang
-    showLoading(`Đang quét dữ liệu từ điển để nạp ví dụ cho tất cả từ ghép...`);
+    showLoading(`Đang quét dữ liệu từ điển để nạp ví dụ cho ${list.length} từ JLPT...`);
     try {
         // Lọc ra các từ chưa được nạp ví dụ và tạo danh sách Promise chạy song song
         const fetchPromises = list.map(async (v, index) => {
