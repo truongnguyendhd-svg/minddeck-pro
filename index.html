@@ -4094,17 +4094,42 @@ body.pdf-mode #pdfReadState {
     display: flex;
     flex-direction: column;
     max-height: 90vh; /* Giới hạn chiều cao tối đa của Modal */
+    background: rgba(251, 251, 253, 0.96) !important;
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
 
-/* Phần Body có thể cuộn */
+/* Phần Body có thể cuộn — giống remedialCardBody */
+#studyOptionsModal .study-modal-body,
 .study-modal-body {
     flex-grow: 1;
     overflow-y: auto;
-    padding: 20px 12px 30px 12px; /* FIX: Thêm padding-bottom 30px để border nút không bị cắt */
-    background: #ffffff;
+    padding: 20px clamp(16px, 4vw, 48px) 30px clamp(16px, 4vw, 48px) !important;
+    background: transparent;
     -ms-overflow-style: none; scrollbar-width: none;
 }
 .study-modal-body::-webkit-scrollbar { display: none; }
+
+/* Card list dropdown — giống #remedialCardList */
+#studyCardList {
+    max-height: 280px; overflow-y: auto;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    background: rgba(255,255,255,0.7);
+    padding: 8px clamp(16px, 4vw, 48px);
+    display: flex; flex-direction: column; gap: 4px;
+    flex-shrink: 0;
+}
+#studyCardList .rcard-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 10px;
+    cursor: pointer; transition: background 0.15s ease;
+    border: 1px solid transparent;
+}
+#studyCardList .rcard-item:hover { background: rgba(0,0,0,0.04); }
+#studyCardList .rcard-item.active { background: #eff6ff; border-color: #bfdbfe; }
+#studyCardList .rcard-item .rcard-front { font-weight: 800; color: #1d1d1f; font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Noto Sans JP', sans-serif; }
+#studyCardList .rcard-item .rcard-meaning { font-size: 12px; color: #718096; flex: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#studyCardList .rcard-item .rcard-idx { font-size: 11px; color: #94a3b8; font-weight: 700; flex-shrink: 0; }
 
 /* Phần Footer chứa các nút học luôn dính chặt ở đáy */
 .study-modal-footer {
@@ -8294,71 +8319,95 @@ body.shadowing-mode #shadowingPage {
 
 <!-- MODAL LỰA CHỌN CHỈ ĐỘ HỌC NÂNG CẤP (WINDOWS 11 STYLE) -->
 <div id="studyOptionsModal" class="modal">
-    <div class="modal-content win11-modal" style="overflow: hidden;">
+    <div class="modal-content" style="display: flex; flex-direction: column; overflow: hidden;">
         
-        <!-- Header Win 11 -->
-        <div class="win11-modal-header" style="background: #fbfbfb; border-bottom: 1px solid #f0f0f0;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span class="material-symbols-outlined" style="color: #0067c0; font-size: 20px;">school</span>
-                <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: #1a1a1a; letter-spacing: 0.5px;">BẮT ĐẦU HỌC</h3>
+        <!-- TOP TOOLBAR: Title + edit (dropdown) + close -->
+        <div class="study-toolbar" style="display: flex; align-items: center; gap: 8px; padding: 14px clamp(16px, 4vw, 48px); border-bottom: 1px solid rgba(0,0,0,0.06); background: rgba(255,255,255,0.5); flex-shrink: 0;">
+            <div class="study-title" style="font-size: 18px; font-weight: 900; color: #1d1d1f; letter-spacing: 1px; margin-right: auto; display: flex; align-items: center; gap: 6px;">
+                <span class="material-symbols-outlined" style="color: #0067c0; font-size: 22px;">school</span>
+                <span id="studyOptionsDeckName">BẮT ĐẦU HỌC</span>
             </div>
-            <button class="win11-close-btn" onclick="closeModal('studyOptionsModal')">
+            <!-- Nút Sửa có dropdown 3 lựa chọn -->
+            <div style="position: relative;">
+                <button class="study-circle-btn" id="btnStudyEdit" onclick="toggleStudyEditDropdown(event)" title="Tùy chọn sửa" style="width: 36px; height: 36px; border-radius: 50%; background: #ffffff; color: #6b7280; border: 1px solid #e5e7eb; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s ease; flex-shrink: 0; padding: 0;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">edit</span>
+                </button>
+                <div id="studyEditDropdown" style="display: none; position: absolute; top: calc(100% + 6px); right: 0; min-width: 200px; background: rgba(28, 28, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.15); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.25); padding: 6px; z-index: 13002; flex-direction: column; gap: 2px;">
+                    <button onclick="studyEditAction('direct')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                        <span class="material-symbols-outlined" style="font-size: 18px; color: #60a5fa;">edit_square</span> Sửa thẻ trực tiếp
+                    </button>
+                    <button onclick="studyEditAction('examples')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                        <span class="material-symbols-outlined" style="font-size: 18px; color: #fbbf24;">draw</span> Đổi câu ví dụ (AI)
+                    </button>
+                    <button onclick="studyEditAction('mnemonic')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                        <span class="material-symbols-outlined" style="font-size: 18px; color: #a8c0ff;">lightbulb</span> Tạo cách nhớ (AI)
+                    </button>
+                </div>
+            </div>
+            <!-- Nút close tròn -->
+            <button class="study-circle-btn" onclick="closeModal('studyOptionsModal')" title="Đóng" style="width: 36px; height: 36px; border-radius: 50%; background: #ffffff; color: #6b7280; border: 1px solid #e5e7eb; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s ease; flex-shrink: 0; padding: 0;">
                 <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
             </button>
         </div>
-
-        <!-- Body (Có thể cuộn) -->
-        <div class="study-modal-body">
-            
-            <!-- Khối hiển thị Tên bộ bài -->
-            <div style="margin-bottom: 20px; padding: 12px 16px; background: #f3f4f6; border: 1px solid #aaa; border-radius: 6px; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15), 0 0 1px rgba(0,0,0,0.1);">
-                <div style="color: #6b7280; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">folder_open</span>
-                </div>
-                <div style="overflow: hidden; flex: 1;">
-                    <div style="font-size: 12px; font-weight: 500; color: #6b7280; text-transform: uppercase;">BỘ BÀI HIỆN TẠI</div>
-                    <b id="studyOptionsDeckName" style="color: #374151; font-size: 15px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;"></b>
-                </div>
-            </div>
-            
-            <!-- DANH SÁCH THẺ (HIỆN LUÔN 6 THẺ + LOAD MORE) -->
-            <div id="inlineDeckListContainer" style="margin-bottom: 10px;">
-                <div style="text-align:center; padding: 20px; color:#8c8c8c;"><div class="spinner" style="margin: 0 auto 10px auto; width: 24px; height: 24px; border-top-color: #0067c0;"></div>Đang tải thẻ...</div>
-            </div>
+        
+        <!-- CARD LIST DROPDOWN (hidden by default) -->
+        <div id="studyCardList" style="display: none;"></div>
+        
+        <!-- BODY (card content) -->
+        <div id="studyCardBody" class="study-modal-body">
+            <!-- JS render -->
         </div>
+        
+        <!-- AI RESULT ZONE -->
+        <div id="studyAiResultZone" style="display: none; padding: 0 clamp(16px, 4vw, 48px) 20px clamp(16px, 4vw, 48px); animation: fadeInChat 0.3s ease; flex-shrink: 0;"></div>
+        
+        <!-- STATUS BADGE (căn giữa) -->
+        <div id="studyStatusBadge" style="display: flex; justify-content: center; padding: 0 clamp(16px, 4vw, 48px) 20px clamp(16px, 4vw, 48px); flex-shrink: 0;"></div>
 
-        <!-- Footer: Thanh công cụ nổi (Floating Pill Toolbar) -->
-        <div class="study-modal-footer" style="display: flex; align-items: center; justify-content: center; padding: 16px 16px 20px 16px; overflow: visible; background: transparent; border-top: none; flex-direction: column;">
-            <div style="display: flex; align-items: center; gap: 8px; min-height: 50px;">
-            <div id="studyOptionsToolbar" style="display: inline-flex; align-items: center; background: #fff; border: 1px solid #e5e5e5; border-radius: 50px; padding: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06); gap: 0; transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);">
-                <!-- Tab Flashcard (active mặc định) -->
-                <button id="studyTabFlashcard" class="study-tab-btn active" onclick="startBasicStudy()" title="Bắt đầu học Flashcard">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">style</span>
+        <!-- FOOTER: Prev | Progress pill | Next | Divider | Pill toolbar (Flashcard+Find+Add) -->
+        <div class="study-modal-footer" style="display: flex; align-items: center; gap: 8px; padding: 14px clamp(16px, 4vw, 48px); border-top: 1px solid rgba(0,0,0,0.06); background: rgba(255,255,255,0.7); flex-shrink: 0;">
+            <!-- Prev: icon sát trái -->
+            <button id="btnStudyPrev" onclick="prevStudyCard()" title="Thẻ trước (←)" style="display: inline-flex; align-items: center; gap: 6px; background: transparent; border: none; cursor: pointer; color: #6b7280; padding: 0; flex-shrink: 0; transition: color 0.15s ease;">
+                <span class="material-symbols-outlined" style="font-size: 24px;">arrow_back</span>
+                <span class="r-prev-text" style="font-size: 14px; font-weight: 600;">Trước</span>
+            </button>
+            <!-- Progress pill (toggle danh sách thẻ) -->
+            <button id="btnStudyProgress" onclick="toggleStudyCardList()" title="Hiện danh sách thẻ" style="display: inline-flex; align-items: center; justify-content: center; padding: 8px 18px; border-radius: 50px; font-size: 14px; font-weight: 800; cursor: pointer; background: #f3f4f6; color: #4b5563; border: 1.5px solid #e5e7eb; transition: all 0.15s ease; white-space: nowrap; flex-shrink: 0; letter-spacing: 0.5px;">
+                <span id="studyProgressText">1/0</span>
+            </button>
+            <!-- Next: text + icon sát phải -->
+            <button id="btnStudyNext" onclick="nextStudyCard()" title="Thẻ tiếp (→)" style="display: inline-flex; align-items: center; gap: 6px; background: transparent; border: none; cursor: pointer; color: #6b7280; padding: 0; flex-shrink: 0; transition: color 0.15s ease;">
+                <span class="r-next-text" style="font-size: 14px; font-weight: 600;">Tiếp</span>
+                <span class="material-symbols-outlined" style="font-size: 24px;">arrow_forward</span>
+            </button>
+            <!-- Divider -->
+            <div style="width: 1px; height: 24px; background: rgba(0,0,0,0.08); flex-shrink: 0; margin: 0 4px;"></div>
+            <!-- Pill toolbar: Flashcard + Find + Add -->
+            <div id="studyOptionsToolbar" style="display: inline-flex; align-items: center; background: #fff; border: 1px solid #e5e7eb; border-radius: 50px; padding: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); gap: 0; transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1); flex: 1 1 auto; min-width: 0;">
+                <!-- Flashcard -->
+                <button id="studyTabFlashcard" class="study-tab-btn" onclick="startBasicStudy()" title="Bắt đầu học Flashcard" style="flex: 1 1 0; min-width: 0; justify-content: center; padding: 6px 10px; font-size: 12px; gap: 3px;">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">style</span>
                     <span>Flashcard</span>
                 </button>
-                <!-- Divider -->
-                <div id="studyTabDivider" style="width: 1px; height: 28px; background: #e5e5e5; flex-shrink: 0;"></div>
-                <!-- Find: mở rộng thành ô search -->
-                <button id="studyTabFindBtn" class="study-tab-btn" onclick="toggleStudyFindBar()" title="Tìm thẻ">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">search</span>
+                <div id="studyTabDivider" style="width: 1px; height: 20px; background: #e5e5e5; flex-shrink: 0;"></div>
+                <!-- Find -->
+                <button id="studyTabFindBtn" class="study-tab-btn" onclick="toggleStudyFindBar()" title="Tìm thẻ" style="flex: 1 1 0; min-width: 0; justify-content: center; padding: 6px 10px; font-size: 12px; gap: 3px;">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">search</span>
                     <span id="studyFindLabel">Find</span>
                 </button>
-                <!-- Search input ẩn (hiện khi bấm Find) -->
-                <input type="text" id="studyFindInput" placeholder="Tìm thẻ..." oninput="filterStudyCards()" onkeydown="if(event.key==='Escape'){closeStudyFindBar();}" style="display:none; border:none; outline:none; background:transparent; font-size:14px; font-weight:600; color:#1a1a1a; padding:8px 0; width:0; height:28px; box-sizing:content-box; line-height:28px; font-family:'Noto Sans JP',sans-serif;" />
-                <!-- Divider trước Thêm thẻ -->
-                <div id="studyTabAddDivider" style="width:1px; height:28px; background:#e5e5e5; flex-shrink:0;"></div>
-                <!-- Thêm thẻ mới -->
-                <button id="studyTabAddBtn" class="study-tab-btn" onclick="openQuickAddCardModal()" title="Thêm thẻ mới vào bộ đang học">
-                    <span class="material-symbols-outlined" style="font-size:20px;">add_circle</span>
-                    <span>Thêm thẻ</span>
+                <input type="text" id="studyFindInput" placeholder="Tìm thẻ..." oninput="filterStudyCards()" onkeydown="if(event.key==='Escape'){closeStudyFindBar();}" style="display:none; border:none; outline:none; background:transparent; font-size:13px; font-weight:600; color:#1a1a1a; padding:6px 0; width:0; height:22px; box-sizing:content-box; line-height:22px; font-family:'Noto Sans JP',sans-serif;" />
+                <div id="studyTabAddDivider" style="width:1px; height:20px; background:#e5e5e5; flex-shrink:0;"></div>
+                <!-- Thêm thẻ -->
+                <button id="studyTabAddBtn" class="study-tab-btn" onclick="openQuickAddCardModal()" title="Thêm thẻ mới" style="flex: 1 1 0; min-width: 0; justify-content: center; padding: 6px 10px; font-size: 12px; gap: 3px;">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">add_circle</span>
+                    <span>Thêm</span>
                 </button>
             </div>
-            <button id="studyFindKanaToggle" style="display:none; background:transparent; border:none; font-weight:800; font-size:15px; color:#64748b; cursor:pointer; padding:0 10px; align-items:center; justify-content:center; flex-shrink:0; user-select:none; transition:all 0.2s;" title="Bật/Tắt gõ tiếng Nhật">あ</button>
-            <button id="studyFindCloseBtn" onclick="closeStudyFindBar()" style="display:none; background:#f5f5f5; border:none; border-radius:50%; width:28px; height:28px; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:background 0.2s;" title="Đóng tìm kiếm"><span class="material-symbols-outlined" style="font-size:16px; color:#8c8c8c;">close</span></button>
-            </div>
-            <!-- Hint Esc (ẩn mặc định) -->
-            <div id="studyFindEscHint" style="display:none; text-align:center; margin-top:6px; font-size:11px; color:#a0aec0; font-weight:500;">Nhấn Esc để thoát</div>
+            <button id="studyFindKanaToggle" style="display:none; background:transparent; border:none; font-weight:800; font-size:14px; color:#64748b; cursor:pointer; padding:0 8px; align-items:center; justify-content:center; flex-shrink:0; user-select:none; transition:all 0.2s;" title="Bật/Tắt gõ tiếng Nhật">あ</button>
+            <button id="studyFindCloseBtn" onclick="closeStudyFindBar()" style="display:none; background:#f5f5f5; border:none; border-radius:50%; width:24px; height:24px; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:background 0.2s;" title="Đóng tìm kiếm"><span class="material-symbols-outlined" style="font-size:14px; color:#8c8c8c;">close</span></button>
         </div>
+        <!-- Hint Esc -->
+        <div id="studyFindEscHint" style="display:none; text-align:center; padding: 0 clamp(16px, 4vw, 48px) 10px clamp(16px, 4vw, 48px); font-size:11px; color:#a0aec0; font-weight:500; background: rgba(255,255,255,0.7); flex-shrink: 0;">Nhấn Esc để thoát</div>
 
     </div>
 </div>
@@ -15407,11 +15456,17 @@ async function saveQuickEdit() {
         window.invalidateDeckCache(deckToStudyId || currentDeckName);
         window.invalidateDeckListCache();
 
-        // 🟢 SỬA LỖI: Buộc nạp lại và cập nhật danh sách thẻ hiển thị trên Modal
-        isInlineListLoaded = false;
-        const listContainer = document.getElementById('inlineDeckListContainer');
-        if (listContainer) {
-            loadStudyOptionsPreview();
+        // 🟢 SỬA LỖI: Nếu modal BẮT ĐẦU HỌC đang mở → tải lại và re-render
+        const studyModal = document.getElementById('studyOptionsModal');
+        if (studyModal && studyModal.style.display === 'flex') {
+            loadStudyOptionsPreview().then(() => {
+                if (sessionCards && sessionCards.length > 0) {
+                    studyState.cards = sessionCards;
+                    studyState.allCards = sessionCards;
+                    if (studyState.index >= studyState.cards.length) studyState.index = 0;
+                    renderStudyCard();
+                }
+            });
         }
 
     } catch (err) {
@@ -22738,15 +22793,16 @@ document.addEventListener('keydown', function(e) {
 // =========================================================================
 // HỆ THỐNG HIỂN THỊ DANH SÁCH THẺ TRONG MODAL (ĐÃ TỐI ƯU HÓA 100% FLASHCARD)
 // =========================================================================
-// 🟢 HÀM MỚI: Tự động load preview 6 thẻ khi mở modal BẮT ĐẦU HỌC
+// 🟢 HÀM MỚI: Tự động load preview thẻ khi mở modal BẮT ĐẦU HỌC
 async function loadStudyOptionsPreview() {
-    const listContainer = document.getElementById('inlineDeckListContainer');
-    listContainer.innerHTML = '<div style="text-align:center; padding: 20px; color:#8c8c8c;"><div class="spinner" style="margin: 0 auto 10px auto; width: 24px; height: 24px; border-top-color: #0067c0;"></div>Đang tải thẻ...</div>';
+    const bodyEl = document.getElementById('studyCardBody');
+    if (bodyEl) {
+        bodyEl.innerHTML = '<div style="text-align:center; padding: 40px 20px; color:#8c8c8c;"><div class="spinner" style="margin: 0 auto 10px auto; width: 28px; height: 28px; border-top-color: #0067c0;"></div>Đang tải thẻ...</div>';
+    }
 
-    // Nếu cache sẵn có → render ngay
+    // Nếu cache sẵn có → dùng ngay
     if (window.rawDeckCache && window.rawDeckCache[deckToStudyId]) {
         sessionCards = JSON.parse(JSON.stringify(window.rawDeckCache[deckToStudyId]));
-        renderInlineDeckListUI();
         isInlineListLoaded = true;
         return;
     }
@@ -22760,31 +22816,37 @@ async function loadStudyOptionsPreview() {
         if (err1) throw err1;
 
         if (!skeletonData || skeletonData.length === 0) {
-            listContainer.innerHTML = `
-                <button onclick="openQuickAddCardModal()" class="win11-btn-secondary" style="width: 100%; justify-content: center; padding: 12px; margin-bottom: 12px; border: 2px dashed #0067c0; color: #0067c0; background: #f3f8fd; font-weight: 800;">
-                    <span class="material-symbols-outlined" style="font-size: 20px;">add_circle</span> THÊM THẺ MỚI VÀO ĐÂY
-                </button>
-                <div style="text-align:center; padding: 25px 15px; color:#a0aec0; font-weight:600; border: 1px dashed #e2e8f0; border-radius: 12px;">
-                    <span class="material-symbols-outlined" style="font-size: 32px; margin-bottom: 8px; color: #cbd5e0;">style</span>
-                    <div style="font-size: 13px; line-height: 1.5; color: #718096;">Bộ bài này chưa có thẻ nào.<br>Hãy nhấn nút phía trên để thêm thẻ đầu tiên!</div>
-                </div>
-            `;
+            // Render empty state trong body
+            if (bodyEl) {
+                bodyEl.innerHTML = `
+                    <div style="text-align:center; padding: 60px 20px; color: #86868b;">
+                        <span class="material-symbols-outlined" style="font-size: 48px; opacity: 0.4;">inbox</span>
+                        <p style="margin-top: 12px; font-size: 15px;">Bộ bài này chưa có thẻ nào.</p>
+                        <button onclick="openQuickAddCardModal()" style="margin-top: 16px; padding: 10px 20px; background: #0067c0; color: #fff; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                            <span class="material-symbols-outlined" style="font-size: 18px;">add_circle</span> Thêm thẻ mới
+                        </button>
+                    </div>
+                `;
+            }
             return;
         }
 
         sessionCards = (skeletonData || []).map(c => ({
             id: c.word_id,
             front: c.front,
+            info: c.info,
+            back: c.back,
             progress: [{ due: c.due }]
         }));
 
         window.rawDeckCache[deckToStudyId] = JSON.parse(JSON.stringify(sessionCards));
-        renderInlineDeckListUI();
         isInlineListLoaded = true;
 
     } catch (err) {
         console.error("Lỗi tải preview:", err);
-        listContainer.innerHTML = '<div style="text-align:center; padding: 15px; color:#e53e3e; font-weight:600;">Không thể tải danh sách. Vui lòng thử lại!</div>';
+        if (bodyEl) {
+            bodyEl.innerHTML = '<div style="text-align:center; padding: 30px 15px; color:#e53e3e; font-weight:600;">Không thể tải danh sách. Vui lòng thử lại!</div>';
+        }
     }
 }
 
@@ -22955,30 +23017,26 @@ function closeStudyFindBar() {
 function filterStudyCards(reset) {
     const input = document.getElementById('studyFindInput');
     if (!input) return;
-
-    const items = document.querySelectorAll('#inlineCardsWrapper .inline-card-item');
-
+    if (!studyState.allCards || studyState.allCards.length === 0) return;
     if (reset || !input.value.trim()) {
-        items.forEach(item => { item.style.display = ''; });
+        studyState.cards = [...studyState.allCards];
+        studyState.index = 0;
+        renderStudyCard();
         return;
     }
-
     let query = input.value.toLowerCase().trim();
     let kanaQuery = query;
-
-    // Chuyển Romaji → Hiragana
     if (typeof wanakana !== 'undefined' && wanakana.isRomaji(query)) {
         kanaQuery = wanakana.toHiragana(query);
     }
-
-    items.forEach(item => {
-        const textContent = item.innerText.toLowerCase();
-        if (textContent.includes(query) || textContent.includes(kanaQuery)) {
-            item.style.display = '';
-        } else {
-            item.style.display = 'none';
-        }
+    const filtered = studyState.allCards.filter(c => {
+        const text = (c.front || '') + ' ' + (c.info || '') + ' ' + (c.back || '');
+        const low = text.toLowerCase();
+        return low.includes(query) || low.includes(kanaQuery);
     });
+    studyState.cards = filtered;
+    studyState.index = 0;
+    renderStudyCard();
 }
 
 function renderInlineDeckListUI() {
@@ -25258,12 +25316,16 @@ async function executeAiAction(actionType) {
     const c = sessionCards[currentIndex];
     if (!c) return;
     const p = parseCardData(c);
-    // 🟢 Detect zone hiện tại: nếu REMEDIAL đang mở → dùng remedialAiResultZone, ngược lại dùng aiGenericResultZone
+    // 🟢 Detect zone hiện tại: nếu REMEDIAL hoặc STUDY đang mở → dùng zone tương ứng
     const remedialModal = document.getElementById('remedialReviewModal');
+    const studyModal = document.getElementById('studyOptionsModal');
     const isRemedialOpen = remedialModal && remedialModal.style.display === 'flex';
+    const isStudyOpen = studyModal && studyModal.style.display === 'flex';
     const zone = isRemedialOpen
         ? document.getElementById('remedialAiResultZone')
-        : document.getElementById('aiGenericResultZone');
+        : isStudyOpen
+            ? document.getElementById('studyAiResultZone')
+            : document.getElementById('aiGenericResultZone');
     if (!zone) return console.warn('No AI result zone found');
 
     if (actionType === 'mnemonic' && !p.reading) {
@@ -25751,7 +25813,24 @@ window.openStudyOptionsModal = function(deckId, deckName, type) {
     deckToStudyId = deckId;
     pendingModalReturn = { id: deckId, name: deckName, type: type };
     isInlineListLoaded = false;
-    window.__inlineDeckVisibleCount = 6; // Reset về 6 thẻ hiển thị
+    // Reset state của modal mới
+    studyState.index = 0;
+    studyState.cards = [];
+    studyState.allCards = [];
+    studyState.filter = 'all';
+    // Reset card list dropdown
+    const cardList = document.getElementById('studyCardList');
+    if (cardList) { cardList.style.display = 'none'; }
+    const progressBtn = document.getElementById('btnStudyProgress');
+    if (progressBtn) progressBtn.classList.remove('active');
+    // Reset edit dropdown
+    const editDropdown = document.getElementById('studyEditDropdown');
+    if (editDropdown) editDropdown.style.display = 'none';
+    // Reset AI result zone + status badge
+    const aiZone = document.getElementById('studyAiResultZone');
+    if (aiZone) { aiZone.style.display = 'none'; aiZone.innerHTML = ''; }
+    const statusBadge = document.getElementById('studyStatusBadge');
+    if (statusBadge) statusBadge.innerHTML = '';
     // Reset thanh Find về trạng thái đóng
     const toolbar = document.getElementById('studyOptionsToolbar');
     if (toolbar) toolbar.dataset.findOpen = 'false';
@@ -25773,12 +25852,245 @@ window.openStudyOptionsModal = function(deckId, deckName, type) {
     // Khởi tạo Google IME cho Find input (chỉ lần đầu)
     initStudyFindIME();
 
-    document.getElementById('studyOptionsDeckName').innerText = deckName;
+    // Set title + mở modal
+    document.getElementById('studyOptionsDeckName').innerText = deckName || 'BẮT ĐẦU HỌC';
     document.body.classList.add('modal-open-lock');
     document.getElementById('studyOptionsModal').style.display = 'flex';
-    // Tự động load danh sách thẻ ngay khi mở modal
-    loadStudyOptionsPreview();
+    // Tự động load danh sách thẻ ngay khi mở modal → sau đó render card đầu tiên
+    loadStudyOptionsPreview().then(() => {
+        if (sessionCards && sessionCards.length > 0) {
+            studyState.cards = sessionCards;
+            studyState.allCards = sessionCards;
+            studyState.index = 0;
+            renderStudyCard();
+        }
+    });
 };
+
+// =========================================================================
+// HỆ THỐNG MODAL BẮT ĐẦU HỌC PHIÊN BẢN MỚI (clone remedial)
+// =========================================================================
+let studyState = {
+    cards: [],
+    allCards: [],
+    index: 0,
+    filter: 'all'  // 'all' | 'find'
+};
+
+// Render thẻ hiện tại (clone renderRemedialCard nhưng bỏ status pass/fail)
+function renderStudyCard() {
+    if (studyState.cards.length === 0) {
+        document.getElementById('studyCardBody').innerHTML = `
+            <div style="text-align:center; padding: 60px 20px; color: #86868b;">
+                <span class="material-symbols-outlined" style="font-size: 48px; opacity: 0.4;">inbox</span>
+                <p style="margin-top: 12px; font-size: 15px;">Chưa có thẻ nào trong bộ bài này.</p>
+                <button onclick="openQuickAddCardModal()" style="margin-top: 16px; padding: 10px 20px; background: #0067c0; color: #fff; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">add_circle</span> Thêm thẻ mới
+                </button>
+            </div>
+        `;
+        document.getElementById('studyProgressText').innerText = '0/0';
+        document.getElementById('btnStudyPrev').disabled = true;
+        document.getElementById('btnStudyNext').disabled = true;
+        return;
+    }
+    const c = studyState.cards[studyState.index];
+    if (!c) return;
+    // Sync sessionCards/currentIndex để openQuickEdit/saveQuickEdit hoạt động đúng
+    sessionCards = studyState.cards;
+    currentIndex = studyState.index;
+
+    const parsed = parseCardData(c);
+    let html = '<div style="display: flex; flex-direction: column; gap: 12px; padding-bottom: 10px;">';
+    // KHỐI 1: Reading + Front + HV + Meaning
+    html += `
+        <div style="padding: 10px 20px 25px 20px; text-align: center; position: relative;">
+            ${parsed.reading ? `<div style="font-size: 20px; font-weight: 800; color: #4a5568; margin-bottom: 8px; letter-spacing: 0.5px;">${escapeHTML(parsed.reading)}</div>` : ''}
+            <div style="font-size: 46px; font-weight: 900; color: #1d1d1f; margin-bottom: 8px; font-family: 'Noto Sans JP', sans-serif; line-height: 1.2;">
+                ${wrapKanjiWithLink(escapeHTML(parsed.front))}
+            </div>
+            ${(parsed.hv && parsed.hv.trim() && parsed.hv.trim().toUpperCase() !== 'N/A') ? `<div style="font-size: 16px; font-weight: 700; color: #c50f1f; margin-bottom: 10px; letter-spacing: 0.5px;">[${escapeHTML(parsed.hv)}]</div>` : ''}
+            <div style="font-size: 18px; font-weight: 600; color: #4a5568; line-height: 1.5;">
+                ${escapeHTML(parsed.meaning)}
+            </div>
+        </div>
+    `;
+    // KHỐI 2: Ghi chú / Cấu trúc
+    if (c.info && c.info.trim() !== '') {
+        let structureText = parsed.structure || '';
+        let nuanceText = parsed.nuance || '';
+        let otherInfo = c.info.trim()
+            .replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '')
+            .replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '')
+            .trim();
+        let displayParts = [];
+        if (structureText) displayParts.push({ label: 'Cấu trúc', text: structureText });
+        if (nuanceText) displayParts.push({ label: 'Sắc thái', text: nuanceText });
+        if (otherInfo) displayParts.push({ label: '', text: otherInfo });
+        if (displayParts.length > 0) {
+            const cleanInfoText = displayParts.map(p => {
+                const cleanText = escapeHTML(p.text).replace(/\|/g, '<br><br>');
+                return p.label ? `<b style="color:#0067c0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">${p.label}</b><br>${cleanText}` : cleanText;
+            }).join('<br><br>');
+            html += `
+                <div class="glass-info-card" style="background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(255, 255, 255, 0.6); padding: 14px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.02);">
+                    <div style="font-size: 12px; font-weight: 800; color: #86868b; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">edit_note</span> Ghi chú / Cấu trúc
+                    </div>
+                    <div style="font-size: 15px; color: #1d1d1f; line-height: 1.6; font-weight: 500;">${cleanInfoText}</div>
+                </div>
+            `;
+        }
+    }
+    // Ví dụ 1
+    if (parsed.exampleJP) {
+        html += buildExampleSentenceBlock(c.id, 1, parsed.exampleJP, parsed.romaji1, parsed.exampleVN);
+    }
+    // Ví dụ 2
+    if (parsed.ex2jp) {
+        html += buildExampleSentenceBlock(c.id, 2, parsed.ex2jp, parsed.romaji2, parsed.ex2vn);
+    }
+    // Nếu không có info gì
+    if (!parsed.exampleJP && !parsed.ex2jp && (!c.info || c.info.trim() === '')) {
+        html += `
+            <div style="text-align: center; padding: 25px 10px; color: #86868b; border: 1px dashed rgba(0,0,0,0.1); border-radius: 20px; background: rgba(255,255,255,0.3);">
+                <span class="material-symbols-outlined" style="font-size: 32px; margin-bottom: 10px; opacity: 0.5;">speaker_notes_off</span>
+                <div style="font-size: 14px; font-weight: 500;">Thẻ này chưa có thông tin phụ hoặc ví dụ.</div>
+            </div>
+        `;
+    }
+    html += '</div>';
+    document.getElementById('studyCardBody').innerHTML = html;
+    document.getElementById('studyCardBody').scrollTop = 0;
+    // Ẩn AI result zone khi chuyển thẻ
+    const aiZone = document.getElementById('studyAiResultZone');
+    if (aiZone) { aiZone.style.display = 'none'; aiZone.innerHTML = ''; }
+    // Cập nhật progress + disabled state
+    const total = studyState.cards.length;
+    const cur = studyState.index + 1;
+    document.getElementById('studyProgressText').innerText = `${cur}/${total}`;
+    document.getElementById('btnStudyPrev').disabled = (studyState.index === 0);
+    document.getElementById('btnStudyNext').disabled = (studyState.index === total - 1);
+    // Cập nhật active item trong list (nếu đang mở)
+    if (document.getElementById('studyCardList').style.display !== 'none') {
+        renderStudyCardList();
+    }
+}
+
+function nextStudyCard() {
+    if (studyState.index < studyState.cards.length - 1) {
+        studyState.index++;
+        renderStudyCard();
+    }
+}
+function prevStudyCard() {
+    if (studyState.index > 0) {
+        studyState.index--;
+        renderStudyCard();
+    }
+}
+
+// Toggle card list dropdown
+function toggleStudyCardList() {
+    const list = document.getElementById('studyCardList');
+    const btn = document.getElementById('btnStudyProgress');
+    if (list.style.display === 'none' || !list.style.display) {
+        renderStudyCardList();
+        list.style.display = 'flex';
+        btn.classList.add('active');
+    } else {
+        list.style.display = 'none';
+        btn.classList.remove('active');
+    }
+}
+
+function renderStudyCardList() {
+    const listEl = document.getElementById('studyCardList');
+    if (!listEl) return;
+    if (studyState.cards.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center; padding: 20px; color: #86868b; font-size: 13px;">Không có thẻ</div>';
+        return;
+    }
+    const html = studyState.cards.map((c, i) => {
+        const parsed = parseCardData(c);
+        return `
+            <div class="rcard-item ${i === studyState.index ? 'active' : ''}" onclick="jumpToStudyCard(${i})">
+                <span class="rcard-idx">${i + 1}</span>
+                <span class="rcard-front">${escapeHTML(parsed.front)}</span>
+                <span class="rcard-meaning">${escapeHTML(parsed.meaning || '')}</span>
+            </div>
+        `;
+    }).join('');
+    listEl.innerHTML = html;
+    // Scroll to active
+    const activeEl = listEl.querySelector('.rcard-item.active');
+    if (activeEl) activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function jumpToStudyCard(idx) {
+    studyState.index = idx;
+    renderStudyCard();
+    // Đóng list sau khi chọn
+    document.getElementById('studyCardList').style.display = 'none';
+    document.getElementById('btnStudyProgress').classList.remove('active');
+}
+
+// Toggle edit dropdown
+function toggleStudyEditDropdown(e) {
+    e.stopPropagation();
+    const dropdown = document.getElementById('studyEditDropdown');
+    dropdown.style.display = dropdown.style.display === 'none' ? 'flex' : 'none';
+}
+
+// Edit action — clone remedialEditAction nhưng cho studyOptionsModal
+function studyEditAction(action) {
+    // Đóng dropdown
+    document.getElementById('studyEditDropdown').style.display = 'none';
+    if (studyState.cards.length === 0) return;
+    // Sync state cho openQuickEdit/executeAiAction
+    sessionCards = studyState.cards;
+    currentIndex = studyState.index;
+    if (action === 'direct') {
+        openQuickEdit(new Event('click'));
+    } else {
+        // Đổi câu ví dụ / Tạo cách nhớ — render trực tiếp trong studyOptions modal
+        executeAiAction(action);
+    }
+}
+
+// Đóng dropdown khi click ra ngoài
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('studyEditDropdown');
+    const btn = document.getElementById('btnStudyEdit');
+    if (dropdown && dropdown.style.display !== 'none' && btn && !btn.contains(e.target) && !dropdown.contains(e.target)) {
+        dropdown.style.display = 'none';
+    }
+});
+
+// Hook: sau khi saveQuickEdit xong, re-render study body nếu đang mở
+const _originalSaveQuickEditForStudy = saveQuickEdit;
+saveQuickEdit = async function() {
+    await _originalSaveQuickEditForStudy.apply(this, arguments);
+    const modal = document.getElementById('studyOptionsModal');
+    if (modal && modal.style.display === 'flex') {
+        // Cập nhật card trong studyState từ sessionCards đã save
+        if (studyState.cards[studyState.index]) {
+            studyState.cards[studyState.index] = sessionCards[currentIndex];
+            studyState.allCards[studyState.index] = sessionCards[currentIndex];
+        }
+        renderStudyCard();
+    }
+};
+
+// Phím tắt: mũi tên trái/phải + Esc cho studyOptionsModal
+document.addEventListener('keydown', function(e) {
+    const modal = document.getElementById('studyOptionsModal');
+    if (!modal || modal.style.display !== 'flex') return;
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+    if (e.key === 'ArrowLeft') { e.preventDefault(); prevStudyCard(); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); nextStudyCard(); }
+});
 /* Hết================= UPDATE LOGIC DROPDOWN SETTINGS & CHUYỂN CHẾ ĐỘ HỌC ================= */
 /* =========================================================================
    GLOBAL MASTER CLICK HANDLER (TỐI ƯU HIỆU NĂNG - QUẢN LÝ TẤT CẢ DROPDOWN)
