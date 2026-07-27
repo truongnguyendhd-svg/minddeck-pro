@@ -23031,8 +23031,10 @@ async function loadStudyOptionsPreview() {
         sessionCards = (skeletonData || []).map(c => ({
             id: c.word_id,
             front: c.front,
-            info: c.info,
-            back: c.back,
+            back: "",
+            info: "",
+            tags: [],
+            isLoaded: false,  // 🟢 Skeleton RPC chỉ trả về word_id/front/due — cần hydrate back/info/tags sau
             progress: [{ due: c.due }]
         }));
 
@@ -26016,6 +26018,29 @@ function renderStudyCard() {
     }
     const c = studyState.cards[studyState.index];
     if (!c) return;
+
+    // 🟢 LAZY LOAD: nếu thẻ chưa được hydrate (back/info/tags) → fetch từ DB rồi render lại
+    if (!c.isLoaded) {
+        // Hiện loading tạm thời
+        document.getElementById('studyCardBody').innerHTML = `
+            <div style="text-align:center; padding: 60px 20px; color: #86868b;">
+                <div class="spinner" style="margin: 0 auto 12px auto; width: 32px; height: 32px; border-top-color: #0067c0;"></div>
+                <p style="font-size: 14px; font-weight: 500;">Đang tải thông tin thẻ...</p>
+            </div>
+        `;
+        // Cập nhật progress + disabled state (trước khi hydrate)
+        const total0 = studyState.cards.length;
+        const cur0 = studyState.index + 1;
+        document.getElementById('studyProgressText').innerText = `${cur0}/${total0}`;
+        document.getElementById('btnStudyPrev').disabled = (studyState.index === 0);
+        document.getElementById('btnStudyNext').disabled = (studyState.index === total0 - 1);
+        // Trigger async hydrate
+        hydrateStudyCard(studyState.index).then(() => {
+            renderStudyCard();
+        });
+        return;
+    }
+
     // Sync sessionCards/currentIndex để openQuickEdit/saveQuickEdit hoạt động đúng
     sessionCards = studyState.cards;
     currentIndex = studyState.index;
@@ -26094,6 +26119,49 @@ function renderStudyCard() {
     // Cập nhật active item trong list (nếu đang mở)
     if (document.getElementById('studyCardList').style.display !== 'none') {
         renderStudyCardList();
+    }
+}
+
+// 🟢 LAZY LOAD: Hydrate 1 thẻ (back/info/tags) từ bảng user_vocabulary_mastery khi cần
+async function hydrateStudyCard(idx) {
+    if (idx < 0 || idx >= studyState.cards.length) return;
+    const c = studyState.cards[idx];
+    if (!c || c.isLoaded) return;
+    try {
+        const { data: fullCards, error } = await sb.from('user_vocabulary_mastery')
+            .select('id, back, info, tags')
+            .in('id', [c.id]);
+        if (!error && fullCards && fullCards.length > 0) {
+            const full = fullCards[0];
+            c.back = full.back || '';
+            c.info = full.info || '';
+            c.tags = full.tags || [];
+            c.isLoaded = true;
+            // Đồng bộ sang allCards + cache
+            if (studyState.allCards[idx]) {
+                studyState.allCards[idx].back = c.back;
+                studyState.allCards[idx].info = c.info;
+                studyState.allCards[idx].tags = c.tags;
+                studyState.allCards[idx].isLoaded = true;
+            }
+            // Cập nhật rawDeckCache nếu có
+            if (window.rawDeckCache && window.rawDeckCache[deckToStudyId]) {
+                const cacheIdx = window.rawDeckCache[deckToStudyId].findIndex(x => x.id === c.id);
+                if (cacheIdx !== -1) {
+                    window.rawDeckCache[deckToStudyId][cacheIdx] = { ...c, isLoaded: true };
+                }
+            }
+        } else if (error) {
+            console.error('Lỗi hydrateStudyCard:', error);
+        } else {
+            // Không có dữ liệu trong DB — vẫn mark isLoaded để không fetch lại
+            c.isLoaded = true;
+            if (studyState.allCards[idx]) studyState.allCards[idx].isLoaded = true;
+        }
+    } catch (err) {
+        console.error('Lỗi hydrateStudyCard:', err);
+        c.isLoaded = true; // Tránh retry loop
+        if (studyState.allCards[idx]) studyState.allCards[idx].isLoaded = true;
     }
 }
 
