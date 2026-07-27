@@ -14175,6 +14175,7 @@ async function answerCurrent(q) {
     // ==========================================
     isSrsSubmitting = true; // Khóa chống click đúp (Double-click)
 
+    try {
     let p = c.progress && c.progress.length > 0 
     ? c.progress[0] 
     : null;
@@ -14193,6 +14194,11 @@ async function answerCurrent(q) {
         interval_count = 0; 
         interval = 1; 
     }
+    
+    // 🟢 GUARD: Đảm bảo ef/interval/interval_count luôn là số hợp lệ
+    if (isNaN(ef) || ef < 1.3) ef = 2.5;
+    if (isNaN(interval_count) || interval_count < 0) interval_count = 0;
+    if (isNaN(interval) || interval < 1) interval = 1;
     
     const due = new Date(); 
     due.setDate(due.getDate() + interval);
@@ -14236,8 +14242,6 @@ async function answerCurrent(q) {
 
     // CHUYỂN THẺ & MỞ KHÓA NÚT NGAY LẬP TỨC (Người dùng không cảm thấy độ trễ của mạng)
     nextCard();
-    isSrsSubmitting = false; 
-
 
     // ==========================================
     // LOGIC 3: GOM NHÓM (BATCHING) & GỬI LÊN CLOUD NGẦM (ĐÃ TỐI ƯU)
@@ -14248,6 +14252,12 @@ async function answerCurrent(q) {
     // Chỉ tự động gửi lên Cloud khi mảng chờ tích lũy đủ 15 thẻ
     if (srsPendingQueue.length >= 15) {
         flushSrsQueue();
+    }
+
+    } catch (err) {
+        console.error("Lỗi SRS answerCurrent:", err);
+    } finally {
+        isSrsSubmitting = false; // 🟢 LUÔN MỞ KHÓA, kể cả khi có lỗi
     }
 } // <-- DẤU NGOẶC ĐÓNG CỦA HÀM answerCurrent
 // ==========================================
@@ -23175,7 +23185,12 @@ async function loadStudyOptionsPreview() {
             info: "",
             tags: [],
             isLoaded: false,  // 🟢 Skeleton RPC chỉ trả về word_id/front/due — cần hydrate back/info/tags sau
-            progress: [{ due: c.due }]
+            progress: [{
+                ef: c.ef,
+                interval: c.interval,
+                interval_count: c.interval_count,
+                due: c.due
+            }]
         }));
 
         window.rawDeckCache[deckToStudyId] = JSON.parse(JSON.stringify(sessionCards));
