@@ -28895,7 +28895,8 @@ window.attachJpIme = function(inputEl, barEl, options) {
     onEnter: options.onEnter || null,
     toggleBtn: options.toggleBtn || null,
     kanaMode: options.kanaMode !== false, // mặc định ON
-    bar: barEl
+    bar: barEl,
+    isComposing: false     // 🟢 Native IME đang hoạt động (mobile / desktop có cài IME Nhật)
   };
   window.__imeInstances[inputEl.id || inputEl.name || Math.random()] = state;
 
@@ -28997,6 +28998,9 @@ window.attachJpIme = function(inputEl, barEl, options) {
       return;
     }
 
+    // 🟢 Nếu native IME đang xử lý (mobile keyboard / desktop IME Nhật) → bỏ qua
+    if (state.isComposing) return;
+
     // 🟢 FIX: Tăng request ID để invalidate request cũ đang chạy
     // (tránh bug loading kẹt khi user gõ nhanh nhiều ký tự)
     state.requestId = (state.requestId || 0) + 1;
@@ -29079,6 +29083,15 @@ window.attachJpIme = function(inputEl, barEl, options) {
   });
 
   inputEl.addEventListener('input', handleInput);
+
+  // --- 4b. Native IME detection — khi mobile keyboard / desktop IME Nhật đang xử lý
+  inputEl.addEventListener('compositionstart', () => { state.isComposing = true; });
+  inputEl.addEventListener('compositionend', () => {
+    state.isComposing = false;
+    // Native IME đã chọn xong → cập nhật committedText
+    state.committedText = inputEl.value;
+    barEl.style.display = 'none';
+  });
 
   // --- 5. Toggle button (nếu có) ---
   if (state.toggleBtn) {
