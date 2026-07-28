@@ -7863,10 +7863,14 @@ body.modal-open-lock #scrollToTopBtn {
             
             <div style="display: flex; align-items: center; gap: 8px;">
         
-                <!-- NÚT DARK MODE (thay thế Settings) -->
-                <div>
-                    <button class="study-settings-btn" id="btnStudyDarkMode" onclick="toggleCardTheme()" title="Chuyển Dark/Light mode">
-                        <span class="material-symbols-outlined" style="font-size: 20px;" id="studyDarkModeIcon">light_mode</span>
+                <!-- NÚT CHIA ĐÔI: Đảo mặt + Dark mode -->
+                <div style="display: flex; border: 1px solid #dadce0; border-radius: 8px; overflow: hidden;">
+                    <button class="study-settings-btn" id="btnStudyDarkMode" onclick="toggleCardTheme()" title="Chuyển Dark/Light mode" style="border: none; border-radius: 0; width: 34px; height: 34px;">
+                        <span class="material-symbols-outlined" style="font-size: 18px;" id="studyDarkModeIcon">light_mode</span>
+                    </button>
+                    <div style="width: 1px; background: #dadce0;"></div>
+                    <button class="study-settings-btn" id="btnStudyFlip" onclick="flipCard()" title="Đảo mặt thẻ" style="border: none; border-radius: 0; width: 34px; height: 34px;">
+                        <span class="material-symbols-outlined" style="font-size: 18px;" id="studyFlipIcon">flip</span>
                     </button>
                 </div>
             </div>
@@ -11931,10 +11935,26 @@ function renderStudy() {
 
     const targetTextToSpeak = parsedCard.exampleJP ? parsedCard.exampleJP : parsedCard.front;
     const safeTargetText = targetTextToSpeak.replace(/'/g, "\\'").replace(/"/g, "&quot;");
-    const flipBtnHTML = `<button onclick="event.stopPropagation(); flipCard()" class="btn-mic-inside" title="Đảo mặt thẻ">
-        <span class="material-symbols-outlined" style="font-size:18px;">flip</span> 
-        Đảo mặt
-    </button>`;
+    
+    // Dropdown chọn cấp độ liên hoàn (thay thế nút Đảo mặt trên thẻ)
+    const cramLevelOptions = [2, 3, 4, 5];
+    let cramOptionsHTML = cramLevelOptions.map(lv => 
+        `<div class="cram-dropdown-item" onclick="event.stopPropagation(); startCramLevelFromCard(${lv})" style="padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.15s; color: #1d1d1f;" onmouseover="this.style.background='#f1f3f4'" onmouseout="this.style.background='transparent'">
+            <span class="material-symbols-outlined" style="font-size: 16px; color: ${targetCramLevel === lv ? '#0067c0' : '#9aa0a6'};">${targetCramLevel === lv ? 'check_circle' : 'radio_button_unchecked'}</span>
+            Cấp ${lv}
+        </div>`
+    ).join('');
+    
+    const flipBtnHTML = `<div class="cram-level-dropdown-wrap" style="position: absolute; bottom: 15px; left: 15px; z-index: 10;">
+        <button onclick="event.stopPropagation(); toggleCramDropdown(event)" class="btn-mic-inside" title="Chọn cấp độ liên hoàn" style="display: flex; align-items: center; gap: 6px;">
+            <span class="material-symbols-outlined" style="font-size:18px;">layers</span> 
+            <span>Cấp ${targetCramLevel}</span>
+            <span class="material-symbols-outlined" style="font-size:14px;">expand_more</span>
+        </button>
+        <div class="cram-level-dropdown-menu" id="cramLevelDropdownMenu" style="display: none; position: absolute; bottom: 100%; left: 0; margin-bottom: 6px; background: #fff; border: 1px solid #dadce0; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); overflow: hidden; min-width: 140px;">
+            ${cramOptionsHTML}
+        </div>
+    </div>`;
 
     let progressStr = `${currentIndex + 1}/${sessionCards.length}`;
     if (mode === 'cram' && targetCramLevel > 1) {
@@ -14526,9 +14546,13 @@ function nextCard() {
         exitStudySession(); // GỌI HÀM MỚI Ở ĐÂY
     } 
 }
-function flipCard() { 
-    if (mode === 'test') return; 
-    
+function flipCard() {
+    if (mode === 'test') return;
+
+    // Đóng cram dropdown nếu đang mở
+    const menu = document.getElementById('cramLevelDropdownMenu');
+    if (menu) menu.style.display = 'none';
+
     const cardArea = document.getElementById('cardArea');
     
     // 1. Thêm class để ẩn chữ hiện tại đi (Xoay dọc chữ)
@@ -26107,11 +26131,36 @@ window.toggleCramMode = function(isOn) {
     }
 };
 
-window.startCramLevel = function(level) {
+// --- HÀM DROPDOWN CHỌN CẤP ĐỘ LIÊN HOÀN TRÊN THẺ ---
+window.toggleCramDropdown = function(e) {
+    e.stopPropagation();
+    const menu = document.getElementById('cramLevelDropdownMenu');
+    if (!menu) return;
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+};
+
+window.startCramLevelFromCard = function(level) {
+    // Đóng dropdown
+    const menu = document.getElementById('cramLevelDropdownMenu');
+    if (menu) menu.style.display = 'none';
+    
     mode = 'cram';
     targetCramLevel = level;
     sessionStorage.setItem('minddeck_cram_level', level);
     
+    // Sync với settings panel
+    document.querySelectorAll('.cram-lvl-btn').forEach(btn => btn.classList.remove('active-lvl'));
+    const activeBtn = document.getElementById('btnCramLvl' + level);
+    if (activeBtn) activeBtn.classList.add('active-lvl');
+    
+    loadCards(currentDeckName);
+};
+
+window.startCramLevel = function(level) {
+    mode = 'cram';
+    targetCramLevel = level;
+    sessionStorage.setItem('minddeck_cram_level', level);
+
     // Tự động chuyển màu và gắn dấu tích vào cấp độ vừa chọn
     document.querySelectorAll('.cram-lvl-btn').forEach(btn => btn.classList.remove('active-lvl'));
     const activeBtn = document.getElementById('btnCramLvl' + level);
@@ -26119,8 +26168,8 @@ window.startCramLevel = function(level) {
 
     // Thu gọn menu
     document.getElementById('studySettingsDropdown').classList.remove('expanded');
-    
-    loadCards(currentDeckName); 
+
+    loadCards(currentDeckName);
     setTimeout(() => {
         customAlert(
             `<div style="text-align:left; line-height: 1.6;">
