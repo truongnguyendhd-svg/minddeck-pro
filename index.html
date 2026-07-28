@@ -4110,6 +4110,22 @@ body.pdf-mode #pdfReadState {
 }
 .study-modal-body::-webkit-scrollbar { display: none; }
 
+/* 🟢 Khi memory test đang bật — ẩn hết card content, chỉ giữ example block đang test */
+.study-modal-body.memory-test-active > div > .study-card-khoi1,
+.study-modal-body.memory-test-active > div > .study-card-khoi2,
+.study-modal-body.memory-test-active > div > .example-sentence-block {
+    display: none !important;
+}
+.study-modal-body.memory-test-active > div > .example-sentence-block.memory-test-block {
+    display: block !important;
+    margin: 0;
+}
+/* Ẩn footer + sidebar khi test */
+.study-content-wrapper.has-memory-test .study-modal-footer,
+.study-content-wrapper.has-memory-test #studySidebar {
+    display: none !important;
+}
+
 /* ================= STUDY SIDEBAR LAYOUT ================= */
 .study-content-wrapper {
     display: flex;
@@ -26258,7 +26274,7 @@ function renderStudyCard() {
     let html = '<div style="display: flex; flex-direction: column; gap: 12px; padding-bottom: 10px;">';
     // KHỐI 1: Reading + Front + HV + Meaning (nghĩa xuống dưới Hán-Việt)
     html += `
-        <div style="padding: 10px 20px 25px 20px; text-align: center; position: relative;">
+        <div class="study-card-khoi1" style="padding: 10px 20px 25px 20px; text-align: center; position: relative;">
             ${parsed.reading ? `<div style="font-size: 20px; font-weight: 800; color: #4a5568; margin-bottom: 8px; letter-spacing: 0.5px;">${escapeHTML(parsed.reading)}</div>` : ''}
             <div style="font-size: 46px; font-weight: 900; color: #1d1d1f; margin-bottom: 8px; font-family: 'Noto Sans JP', sans-serif; line-height: 1.2;">
                 ${wrapKanjiWithLink(escapeHTML(parsed.front))}
@@ -26316,6 +26332,10 @@ function renderStudyCard() {
     html += '</div>';
     document.getElementById('studyCardBody').innerHTML = html;
     document.getElementById('studyCardBody').scrollTop = 0;
+    // 🟢 Dọn class test nếu đang chuyển thẻ
+    document.getElementById('studyCardBody').classList.remove('memory-test-active');
+    const wrapper = document.querySelector('.study-content-wrapper');
+    if (wrapper) wrapper.classList.remove('has-memory-test');
     // Ẩn AI result zone khi chuyển thẻ
     const aiZone = document.getElementById('studyAiResultZone');
     if (aiZone) { aiZone.style.display = 'none'; aiZone.innerHTML = ''; }
@@ -27929,6 +27949,18 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId, vnTextId) {
     const vnEl = document.getElementById(vnTextId);
     if (!jpEl || !testZone) return;
 
+    // 🟢 Ẩn toàn bộ card body content, chỉ giữ lại example block đang test
+    const cardBody = document.getElementById('studyCardBody');
+    if (cardBody) {
+        cardBody.classList.add('memory-test-active');
+    }
+    // Đánh dấu example block đang test
+    const exBlock = testZone.closest('.example-sentence-block');
+    if (exBlock) exBlock.classList.add('memory-test-block');
+    // Ẩn footer
+    const wrapper = document.querySelector('.study-content-wrapper');
+    if (wrapper) wrapper.classList.add('has-memory-test');
+
     // Ẩn câu JP
     jpEl.style.display = 'none';
 
@@ -28078,7 +28110,7 @@ function checkMemoryTest(jpEncoded, inputEl, jpTextId, testZoneId) {
         if (typeof confetti === 'function') {
             confetti({ particleCount: 40, spread: 50, origin: { y: 0.7 }, zIndex: 15000 });
         }
-        // Hiện lại JP sau 1.5s
+        // Hiện lại toàn bộ card sau 1.5s
         setTimeout(() => {
             jpEl.style.display = 'block';
             const testZone = document.getElementById(testZoneId);
@@ -28102,6 +28134,8 @@ function checkMemoryTest(jpEncoded, inputEl, jpTextId, testZoneId) {
                 const lbl = testBtn.querySelector('.btn-text-lbl');
                 if (lbl) lbl.innerText = 'Test';
             }
+            // 🟢 Hiện lại toàn bộ card
+            restoreCardAfterTest(testZoneId);
         }, 1500);
     } else {
         // ❌ SAI — bôi đỏ ký tự sai bằng cách diff từng ký tự
@@ -28126,12 +28160,29 @@ function checkMemoryTest(jpEncoded, inputEl, jpTextId, testZoneId) {
         const mtBar = document.getElementById('memoryTestCandidatesBar');
         if (mtBar) mtBar.style.display = 'none';
         if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
+        // 🟢 Hiện lại toàn bộ card
+        restoreCardAfterTest(testZoneId);
     }
 }
 
 /**
- * Thoát chế độ test, hiện lại JP.
+ * Hiện lại toàn bộ card sau khi thoát test.
  */
+function restoreCardAfterTest(testZoneId) {
+    // Gỡ class ẩn toàn bộ card
+    const cardBody = document.getElementById('studyCardBody');
+    if (cardBody) cardBody.classList.remove('memory-test-active');
+    // Gỡ class đánh dấu example block đang test
+    const testZone = document.getElementById(testZoneId);
+    if (testZone) {
+        const exBlock = testZone.closest('.example-sentence-block');
+        if (exBlock) exBlock.classList.remove('memory-test-block');
+    }
+    // Hiện lại footer
+    const wrapper = document.querySelector('.study-content-wrapper');
+    if (wrapper) wrapper.classList.remove('has-memory-test');
+}
+
 function exitMemoryTest(jpTextId, testZoneId) {
     const jpEl = document.getElementById(jpTextId);
     const testZone = document.getElementById(testZoneId);
@@ -28159,6 +28210,9 @@ function exitMemoryTest(jpTextId, testZoneId) {
         const lbl = testBtn.querySelector('.btn-text-lbl');
         if (lbl) lbl.innerText = 'Test';
     }
+
+    // 🟢 Hiện lại toàn bộ card
+    restoreCardAfterTest(testZoneId);
 }
 
 /**
