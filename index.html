@@ -8459,7 +8459,7 @@ body.modal-open-lock #scrollToTopBtn {
                 </div>
             </div>
             <!-- Nút close tròn -->
-            <button class="study-circle-btn" onclick="closeModal('studyOptionsModal')" title="Đóng" style="width: 36px; height: 36px; border-radius: 50%; background: #ffffff; color: #6b7280; border: 1px solid #e5e7eb; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s ease; flex-shrink: 0; padding: 0;">
+            <button class="study-circle-btn" onclick="closeStudyOptionsModal()" title="Đóng" style="width: 36px; height: 36px; border-radius: 50%; background: #ffffff; color: #6b7280; border: 1px solid #e5e7eb; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s ease; flex-shrink: 0; padding: 0;">
                 <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
             </button>
         </div>
@@ -9664,7 +9664,22 @@ async function handleRoute() {
     const hash = window.location.hash.substring(1);
     
     if (!hash) {
-        return currentUser ? showDashboard() : showLoginPage();
+        if (!currentUser) return showLoginPage();
+        // 🟢 F5 khôi phục lại modal bắt đầu học nếu có lưu trạng thái
+        const savedModal = sessionStorage.getItem('minddeck_study_modal');
+        if (savedModal) {
+            try {
+                const modalData = JSON.parse(savedModal);
+                showHome(true);
+                setTimeout(() => {
+                    openStudyOptionsModal(modalData.id, modalData.name, modalData.type);
+                }, 100);
+                return;
+            } catch(e) {
+                sessionStorage.removeItem('minddeck_study_modal');
+            }
+        }
+        return showDashboard();
     }
     
     if (hash === 'landing') return showLoginPage(); 
@@ -9674,7 +9689,19 @@ async function handleRoute() {
     
     try {
         if (route === 'home') { 
-            showHome(true); 
+            showHome(true);
+            // 🟢 F5 khôi phục lại modal bắt đầu học nếu có lưu trạng thái
+            const savedModal = sessionStorage.getItem('minddeck_study_modal');
+            if (savedModal) {
+                try {
+                    const modalData = JSON.parse(savedModal);
+                    setTimeout(() => {
+                        openStudyOptionsModal(modalData.id, modalData.name, modalData.type);
+                    }, 100);
+                } catch(e) {
+                    sessionStorage.removeItem('minddeck_study_modal');
+                }
+            }
         } 
         else if (route === 'dashboard') {
             showDashboard(true); 
@@ -11296,7 +11323,15 @@ async function loadCards(d, skipHash = false) {
 
         if (!sessionCards || sessionCards.length === 0) {
             hideLoading();
-            return customAlert("Chúc mừng! Bạn đã hoàn thành hết các thẻ.", "🎉");
+            return customAlert("Chúc mừng! Bạn đã hoàn thành hết các thẻ.", "🎉", "success", function() {
+                // Nếu từ modal bắt đầu học → quay lại modal đó
+                if (pendingModalReturn) {
+                    window.location.hash = '';
+                    openStudyOptionsModal(pendingModalReturn.id, pendingModalReturn.name, pendingModalReturn.type);
+                } else {
+                    showHome();
+                }
+            });
         }
 
         // 4. BƠM DỮ LIỆU (HYDRATE) 15 THẺ ĐẦU TIÊN
@@ -23372,6 +23407,8 @@ function exitStudySession() {
     // Tránh F5 ngay sau khi thoát → data chưa kịp sync lên DB → F5 load data cũ
     if (hasPendingSrs) {
         flushSrsQueue().then(() => {
+            // 🟢 Xóa cache bộ bài để lần sau F5 tải data mới từ server (SRS đã cập nhật)
+            window.invalidateDeckCache(previousDeckName);
             doExitNavigation(previousDeckName);
         }).catch(() => {
             doExitNavigation(previousDeckName);
@@ -23381,11 +23418,9 @@ function exitStudySession() {
     }
     
     // 8. Tự động phục hồi lại Modal cấu hình bộ bài đích (nếu không phải là phiên học ảo hoặc Sát hạch)
-    if (pendingModalReturn && previousDeckName !== 'GLOBAL_REVIEW' && previousDeckName !== 'VIRTUAL_SESSION') {
-        setTimeout(() => {
-            openStudyOptionsModal(pendingModalReturn.id, pendingModalReturn.name, pendingModalReturn.type);
-        }, 150);
-    }
+    // 🟢 Không cần setTimeout ở đây nữa vì handleRoute() đã tự khôi phục modal từ sessionStorage
+    // Khi doExitNavigation() gọi showHome() → hash thành #home → hashchange → handleRoute()
+    // → handleRoute phát hiện minddeck_study_modal → tự mở lại modal
 }
 // 🟢 Tách hàm navigation ra riêng để await flushSrsQueue trước khi gọi
 function doExitNavigation(previousDeckName) {
@@ -25989,6 +26024,8 @@ window.openStudyOptionsModal = function(deckId, deckName, type) {
     deckToStudyId = deckId;
     pendingModalReturn = { id: deckId, name: deckName, type: type };
     isInlineListLoaded = false;
+    // 🟢 Lưu trạng thái modal vào sessionStorage để F5 khôi phục được
+    sessionStorage.setItem('minddeck_study_modal', JSON.stringify({ id: deckId, name: deckName, type: type }));
     // Reset state của modal mới
     studyState.index = 0;
     studyState.cards = [];
@@ -26039,8 +26076,12 @@ window.openStudyOptionsModal = function(deckId, deckName, type) {
     });
 };
 
-// =========================================================================
-// HỆ THỐNG MODAL BẮT ĐẦU HỌC PHIÊN BẢN MỚI (clone remedial)
+// 🟢 Hàm đóng study modal — xóa trạng thái lưu trong sessionStorage
+window.closeStudyOptionsModal = function() {
+    closeModal('studyOptionsModal');
+    sessionStorage.removeItem('minddeck_study_modal');
+};
+
 // =========================================================================
 let studyState = {
     cards: [],
