@@ -14058,6 +14058,8 @@ async function answerCurrent(q) {
             if (!cacheCard.progress) cacheCard.progress = [];
             cacheCard.progress[0] = payload; 
         }
+        // 🟢 Đồng bộ cache xuống sessionStorage để F5 không dùng data cũ
+        syncDeckToSessionStorage(currentDeckName, window.rawDeckCache[currentDeckName]);
     }
     // 🟢 THÊM MỚI: TỰ ĐỘNG CHỈNH SỬA RUỘT (STATS) TRONG RAM
     if (mode === 'review' && globalDeckStatsMap[currentDeckName]) {
@@ -23342,9 +23344,7 @@ function exitStudySession() {
         window.shodoCleanup();
     }
     // 🟢 CẬP NHẬT MỚI: Đẩy khẩn cấp toàn bộ hàng đợi SRS còn sót lại trong RAM lên Cloud
-    if (typeof srsPendingQueue !== 'undefined' && srsPendingQueue.length > 0) {
-        flushSrsQueue(); // Chạy bất đồng bộ để đồng bộ số liệu trước khi về Dashboard
-    }
+    const hasPendingSrs = (typeof srsPendingQueue !== 'undefined' && srsPendingQueue.length > 0);
     // 2. Dọn dẹp mảng tải ngầm để tránh rò rỉ luồng mạng
     if (typeof prefetchPromises !== 'undefined') {
         prefetchPromises.clear();
@@ -23368,7 +23368,27 @@ function exitStudySession() {
     // 6. Lưu tạm lại tên bộ bài hiện tại trước khi chuyển hướng trang
     const previousDeckName = currentDeckName;
 
-    // 7. Kích hoạt chuyển hướng trang (showDashboard/showHome sẽ tự động gọi showPage)
+    // 🟢 FIX: Nếu có SRS queue đang chờ, flush xong rồi mới chuyển trang
+    // Tránh F5 ngay sau khi thoát → data chưa kịp sync lên DB → F5 load data cũ
+    if (hasPendingSrs) {
+        flushSrsQueue().then(() => {
+            doExitNavigation(previousDeckName);
+        }).catch(() => {
+            doExitNavigation(previousDeckName);
+        });
+    } else {
+        doExitNavigation(previousDeckName);
+    }
+    
+    // 8. Tự động phục hồi lại Modal cấu hình bộ bài đích (nếu không phải là phiên học ảo hoặc Sát hạch)
+    if (pendingModalReturn && previousDeckName !== 'GLOBAL_REVIEW' && previousDeckName !== 'VIRTUAL_SESSION') {
+        setTimeout(() => {
+            openStudyOptionsModal(pendingModalReturn.id, pendingModalReturn.name, pendingModalReturn.type);
+        }, 150);
+    }
+}
+// 🟢 Tách hàm navigation ra riêng để await flushSrsQueue trước khi gọi
+function doExitNavigation(previousDeckName) {
     if (previousDeckName === 'GLOBAL_REVIEW') {
         showDashboard();
     } else if (previousDeckName === 'MINI_ASSESSMENT') {
@@ -23381,13 +23401,6 @@ function exitStudySession() {
         }
     } else {
         showHome();
-    }
-    
-    // 8. Tự động phục hồi lại Modal cấu hình bộ bài đích (nếu không phải là phiên học ảo hoặc Sát hạch)
-    if (pendingModalReturn && previousDeckName !== 'GLOBAL_REVIEW' && previousDeckName !== 'VIRTUAL_SESSION') {
-        setTimeout(() => {
-            openStudyOptionsModal(pendingModalReturn.id, pendingModalReturn.name, pendingModalReturn.type);
-        }, 150);
     }
 }
 // ================= HÀM KHỞI TẠO PHIÊN HỌC ẢO (THEMATIC TAGS) =================
