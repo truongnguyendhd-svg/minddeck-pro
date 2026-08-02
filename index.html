@@ -27796,7 +27796,7 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn) {
             
             <button id="${testBtnId}" class="btn-toggle-romaji"
                     style="background: rgba(245, 158, 11, 0.1); border: none; padding: 7px 14px; border-radius: 50px; font-size: 13px; font-weight: 700; color: #b45309; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: 0.2s;"
-                    onclick="startMemoryTest(this, '${jpForAttr}', '${jpTextId}', '${testZoneId}', '${vnTextId}')">
+                    onclick="if(this.getAttribute('data-mt-active')){exitMemoryTest(this.getAttribute('data-mt-jpTextId'),this.getAttribute('data-mt-testZoneId'));}else{startMemoryTest(this,'${jpForAttr}','${jpTextId}','${testZoneId}','${vnTextId}');}">
                 <span class="material-symbols-outlined" style="font-size: 16px;">psychology</span>
                 <span style="font-size: 13px; font-weight: 700;">Test</span>
             </button>
@@ -27955,18 +27955,16 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId, vnTextId) {
     // 🟢 Cập nhật jpEncoded mới nhất vào dataset
     if (input) input.dataset.jpEncoded = jpEncoded;
 
-    // Đổi nút Test thành "Thoát test" — click lại sẽ thoát test
+    // Đổi nút Test thành "Thoát test" — dùng cờ thay vì ghi đè onclick
     if (btn) {
-        // Lưu onclick gốc để restore khi thoát test
-        btn.setAttribute('data-original-onclick', btn.getAttribute('onclick') || '');
+        btn.setAttribute('data-mt-active', '1');
+        btn.setAttribute('data-mt-jpTextId', jpTextId);
+        btn.setAttribute('data-mt-testZoneId', testZoneId);
         btn.style.background = 'rgba(220, 38, 38, 0.15)';
         const icon = btn.querySelector('.material-symbols-outlined');
         const lbl = btn.querySelector('span:last-child');
         if (icon) icon.innerText = 'close';
         if (lbl) lbl.innerText = 'Thoát test';
-        btn.onclick = function() {
-            exitMemoryTest(jpTextId, testZoneId);
-        };
     }
 }
 
@@ -28095,19 +28093,14 @@ function exitMemoryTest(jpTextId, testZoneId) {
     // Reset nút Test về trạng thái ban đầu
     const testBtn = testZone ? testZone.closest('.example-sentence-block').querySelector('[id^="btn-test-"]') : null;
     if (testBtn) {
+        testBtn.removeAttribute('data-mt-active');
+        testBtn.removeAttribute('data-mt-jpTextId');
+        testBtn.removeAttribute('data-mt-testZoneId');
         testBtn.style.background = 'rgba(245, 158, 11, 0.1)';
         const icon = testBtn.querySelector('.material-symbols-outlined');
         const lbl = testBtn.querySelector('span:last-child');
         if (icon) icon.innerText = 'psychology';
         if (lbl) lbl.innerText = 'Test';
-        // Restore onclick gốc
-        const originalOnclick = testBtn.getAttribute('data-original-onclick');
-        if (originalOnclick) {
-            testBtn.setAttribute('onclick', originalOnclick);
-            testBtn.removeAttribute('data-original-onclick');
-        }
-        // Xóa hàm onclick được gán bằng JS (ưu tiên onclick attribute)
-        testBtn.onclick = null;
     }
 
     // 🟢 Hiện lại toàn bộ card
