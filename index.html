@@ -27770,9 +27770,9 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn) {
                         style="flex: 1; max-width: 200px; padding: 10px 14px; background: #f59e0b; color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; transition: 0.15s;">
                     <span class="material-symbols-outlined" style="font-size: 17px;">check_circle</span> Kiểm tra
                 </button>
-                <button onclick="exitMemoryTest('${jpTextId}', '${testZoneId}')"
-                        style="flex: 1; max-width: 200px; padding: 10px 14px; background: rgba(0,0,0,0.05); color: #6b7280; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; transition: 0.15s;">
-                    Bỏ qua
+                <button onclick="restartMemoryTest('${jpTextId}', '${testZoneId}')"
+                        style="flex: 1; max-width: 200px; padding: 10px 14px; background: rgba(0,0,0,0.05); color: #6b7280; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; transition: 0.15s; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                    <span class="material-symbols-outlined" style="font-size: 17px;">replay</span> Làm lại
                 </button>
             </div>
         </div>
@@ -27955,11 +27955,16 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId, vnTextId) {
     // 🟢 Cập nhật jpEncoded mới nhất vào dataset
     if (input) input.dataset.jpEncoded = jpEncoded;
 
-    // Đổi nút Test thành "Đang test"
+    // Đổi nút Test thành "Thoát test" — click lại sẽ thoát test
     if (btn) {
-        btn.style.background = 'rgba(245, 158, 11, 0.2)';
-        const lbl = btn.querySelector('.btn-text-lbl');
-        if (lbl) lbl.innerText = 'Đang test';
+        btn.style.background = 'rgba(220, 38, 38, 0.15)';
+        const icon = btn.querySelector('.material-symbols-outlined');
+        const lbl = btn.querySelector('span:last-child');
+        if (icon) icon.innerText = 'close';
+        if (lbl) lbl.innerText = 'Thoát test';
+        btn.onclick = function() {
+            exitMemoryTest(jpTextId, testZoneId);
+        };
     }
 }
 
@@ -28001,36 +28006,14 @@ function checkMemoryTest(jpEncoded, inputEl, jpTextId, testZoneId) {
         if (typeof confetti === 'function') {
             confetti({ particleCount: 40, spread: 50, origin: { y: 0.7 }, zIndex: 15000 });
         }
-        // Hiện lại toàn bộ card sau 1.5s
-        setTimeout(() => {
-            jpEl.style.display = 'block';
-            const testZone = document.getElementById(testZoneId);
-            if (testZone) testZone.style.display = 'none';
-            // Ẩn footer
-            const testFooter = document.getElementById(testZoneId + '-footer');
-            if (testFooter) testFooter.style.display = 'none';
-            // 🟢 Khôi phục nghĩa VN về vị trí gốc
-            const vnhint = document.getElementById(testZoneId + '-vnhint');
-            if (vnhint) { vnhint.style.display = 'none'; vnhint.innerHTML = ''; }
-            const block = testZone ? testZone.closest('.example-sentence-block') : null;
-            if (block) {
-                const vnEl = block.querySelector('.example-vn-text');
-                if (vnEl) vnEl.style.display = '';
-            }
-            // 🟢 Ẩn candidates bar + clear IME state
-            const mtBar = document.getElementById('memoryTestCandidatesBar');
-            if (mtBar) mtBar.style.display = 'none';
-            if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
-            // Reset nút Test
-            const testBtn = document.querySelector(`#${testZoneId}`).closest('.example-sentence-block').querySelector('[id^="btn-test-"]');
-            if (testBtn) {
-                testBtn.style.background = 'rgba(245, 158, 11, 0.1)';
-                const lbl = testBtn.querySelector('.btn-text-lbl');
-                if (lbl) lbl.innerText = 'Test';
-            }
-            // 🟢 Hiện lại toàn bộ card
-            restoreCardAfterTest(testZoneId);
-        }, 1500);
+        // ✅ ĐÚNG: Chỉ hiện chúc mừng, KHÔNG tự thoát test
+        // Hiện lại câu JP để user thấy đáp án đúng
+        jpEl.style.display = 'block';
+        // Ẩn input + candidates bar
+        inputEl.style.display = 'none';
+        const mtBar = document.getElementById('memoryTestCandidatesBar');
+        if (mtBar) mtBar.style.display = 'none';
+        if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
     } else {
         // ❌ SAI — bôi đỏ ký tự sai bằng cách diff từng ký tự
         const diffHTML = diffJapanese(jp, userAnswer);
@@ -28107,16 +28090,69 @@ function exitMemoryTest(jpTextId, testZoneId) {
     if (mtBar) mtBar.style.display = 'none';
     if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
 
-    // Reset nút Test
+    // Reset nút Test về trạng thái ban đầu
     const testBtn = testZone ? testZone.closest('.example-sentence-block').querySelector('[id^="btn-test-"]') : null;
     if (testBtn) {
         testBtn.style.background = 'rgba(245, 158, 11, 0.1)';
-        const lbl = testBtn.querySelector('.btn-text-lbl');
+        const icon = testBtn.querySelector('.material-symbols-outlined');
+        const lbl = testBtn.querySelector('span:last-child');
+        if (icon) icon.innerText = 'psychology';
         if (lbl) lbl.innerText = 'Test';
     }
 
     // 🟢 Hiện lại toàn bộ card
     restoreCardAfterTest(testZoneId);
+}
+
+/**
+ * Làm lại test từ đầu (reset input, feedback, ẩn JP lại)
+ */
+function restartMemoryTest(jpTextId, testZoneId) {
+    const testZone = document.getElementById(testZoneId);
+    const jpEl = document.getElementById(jpTextId);
+    if (!testZone || !jpEl) return;
+
+    // Lấy jpEncoded từ nút Test (lưu trong onclick gốc)
+    const block = testZone.closest('.example-sentence-block');
+    const testBtn = block ? block.querySelector('[id^="btn-test-"]') : null;
+
+    // Reset input
+    const input = document.getElementById(testZoneId + '-input');
+    if (input) {
+        input.value = '';
+        input.style.display = '';
+        input.removeAttribute('data-mt-hidden');
+        input.focus();
+    }
+
+    // Reset feedback
+    const feedback = document.getElementById(testZoneId + '-feedback');
+    if (feedback) {
+        feedback.innerHTML = '';
+        feedback.style.display = '';
+    }
+
+    // Hiện lại vnhint
+    const vnhint = document.getElementById(testZoneId + '-vnhint');
+    if (vnhint) {
+        vnhint.removeAttribute('data-mt-hidden');
+        vnhint.style.display = 'block';
+    }
+
+    // Hiện lại nút Kiểm tra trong footer
+    const checkBtn = document.getElementById(testZoneId + '-btnCheck');
+    if (checkBtn) {
+        checkBtn.style.display = '';
+        checkBtn.removeAttribute('data-mt-hidden');
+    }
+
+    // Ẩn câu JP lại
+    jpEl.style.display = 'none';
+
+    // Ẩn candidates bar
+    const mtBar = document.getElementById('memoryTestCandidatesBar');
+    if (mtBar) mtBar.style.display = 'none';
+    if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
 }
 
 /**
