@@ -23846,12 +23846,33 @@ async function renderRoadmapWidget() {
             day: '2-digit'
         }).format(today);
 
-        // Luôn dùng snapshot từ Cloud làm mốc chốt đầu ngày (0 nếu chưa có)
-        // Snapshot là giá trị trigger sync_user_daily_snapshot ghi vào daily_stats lúc đầu ngày
-        // Nếu chưa có snapshot nào -> mặc định 0 (tất cả từ đã học hôm nay đều là mới)
-        let snapshotVocab = (stats.vocab_snapshot != null) ? stats.vocab_snapshot : 0;
-        let snapshotGrammar = (stats.grammar_snapshot != null) ? stats.grammar_snapshot : 0;
-        let snapshotKanji = (stats.kanji_snapshot != null) ? stats.kanji_snapshot : 0;
+        // Xử lý 2 trường hợp:
+        // A) Đã có snapshot từ Cloud (trigger) -> dùng luôn
+        // B) Chưa có snapshot (trigger chưa tạo / daily_stats null) ->
+        //    Chốt sổ NGAY bằng tổng hiện tại, lưu lên Cloud, tính doneToday = 0 lúc này
+        //    Sau khi học thêm từ mới trong ngày, doneToday sẽ tăng đúng.
+        const needInit = !stats.last_snapshot_date || stats.last_snapshot_date !== todayStr;
+        if (needInit) {
+            const initSnap = {
+                last_snapshot_date: todayStr,
+                vocab_snapshot: vocabStudiedCount || 0,
+                grammar_snapshot: grammarCount || 0,
+                kanji_snapshot: kanjiCount || 0
+            };
+            currentUser.daily_stats = initSnap;
+            // Lưu snapshot lên Supabase (background, không chờ)
+            if (currentUser.id) {
+                sb.from('profiles').update({ daily_stats: initSnap })
+                  .eq('id', currentUser.id).then(() => {});
+            }
+        }
+
+        let snapshotVocab = (currentUser.daily_stats && currentUser.daily_stats.vocab_snapshot != null)
+            ? currentUser.daily_stats.vocab_snapshot : 0;
+        let snapshotGrammar = (currentUser.daily_stats && currentUser.daily_stats.grammar_snapshot != null)
+            ? currentUser.daily_stats.grammar_snapshot : 0;
+        let snapshotKanji = (currentUser.daily_stats && currentUser.daily_stats.kanji_snapshot != null)
+            ? currentUser.daily_stats.kanji_snapshot : 0;
 
         // 5. TÍNH MỤC TIÊU HÔM NAY (Mục tiêu = Lượng còn thiếu / Số ngày còn lại)
         const targetVocabToday = Math.max(0, Math.ceil((quota.vocab - snapshotVocab) / daysLeft));
