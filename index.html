@@ -9839,14 +9839,6 @@ let lastDashboardSync = 0;
 let cachedDueCount = 0;
 let cachedVocabStudiedCount = 0; // 🟢 THÊM MỚI: Biến cache lưu trữ lượng Flashcard đã học
 let forceDashboardRefresh = false; // Mặc định false, chỉ bật khi user thao tác dữ liệu
-// 🟢 Lưu cờ forceDashboardRefresh xuống localStorage để F5 không mất
-function setForceRefresh(val) {
-    forceDashboardRefresh = val;
-    if (currentUser) {
-        if (val) localStorage.setItem(`minddeck_force_refresh_${currentUser.id}`, '1');
-        else localStorage.removeItem(`minddeck_force_refresh_${currentUser.id}`);
-    }
-}
 let isTabLeader = false;      // Cờ đánh dấu Tab hiện tại có phải là Leader không
 let leaderTimeout = null;     // Bộ đếm thời gian chờ phản hồi bầu cử
 window.GLOBAL_AI_CACHE_VERSION = 'v14'; // Giá trị mặc định nếu rớt mạng
@@ -10285,10 +10277,6 @@ async function loadDashboardData() {
         const dashSyncKey = `minddeck_dash_sync_${userId}`;
         const lastDashboardSync = parseInt(sessionStorage.getItem(dashSyncKey) || "0");
         
-        // 🟢 Khôi phục cờ forceDashboardRefresh từ localStorage (nếu F5 sau khi học)
-        const forceRefreshKey = `minddeck_force_refresh_${userId}`;
-        if (localStorage.getItem(forceRefreshKey)) forceDashboardRefresh = true;
-
         const isCacheEmpty = Object.keys(globalDeckStatsMap).length === 0 && !localStorage.getItem(`minddeck_decks_stats_${userId}`);
 
         if (isCacheEmpty || forceDashboardRefresh || (nowMs - lastDashboardSync) > 15 * 60 * 1000) {
@@ -10349,7 +10337,7 @@ async function loadDashboardData() {
             localStorage.setItem(countsCacheKey, JSON.stringify({ due: cachedDueCount, studied: cachedVocabStudiedCount }));
             
             sessionStorage.setItem(dashSyncKey, nowMs.toString());
-            setForceRefresh(false); 
+            forceDashboardRefresh = false; 
 
         } else {
             console.log("MindDeck: 🛡️ Chống spam F5 - Sử dụng dữ liệu Dashboard từ RAM/Local Cache (0 Bytes)");
@@ -14120,9 +14108,6 @@ async function answerCurrent(q) {
         // Thẻ mới tinh (lần đầu học, studied cộng thêm 1)
         if (!p) {
             myStats.studied = (myStats.studied || 0) + 1;
-            // 🟢 FIX: Cập nhật global cachedVocabStudiedCount ngay lập tức
-            // để widget Lộ trình hiển thị đúng số "Hôm nay đã nạp"
-            cachedVocabStudiedCount = (cachedVocabStudiedCount || 0) + 1;
         }
 
         // Lưu xuống ổ cứng ngay lập tức
@@ -14202,7 +14187,7 @@ async function flushSrsQueue() {
         }
 
         console.log(`MindDeck: Đã đồng bộ lô ${payloadsToSend.length} thẻ SRS lên Cloud.`);
-        setForceRefresh(true);
+        forceDashboardRefresh = true;
 
     } catch (err) {
         console.warn("Mất mạng! Đã đưa tiến trình vào Hàng đợi Offline.");
@@ -14594,7 +14579,7 @@ async function deleteDeckFromDashboard(event, deckId, deckName) {
             showToast("🗑️ Đã xóa học phần thành công!");
             renderManageDeckList(true); // Truyền true để CHẶN gọi mạng
             window.invalidateDeckListCache();
-            setForceRefresh(true);
+            forceDashboardRefresh = true;
 
             triggerSilentBackgroundSync(null, true);
         } catch (err) {
@@ -15749,7 +15734,7 @@ async function deleteQuickCard() {
 
         closeModal('quickEditModal');
         showToast("Đã gỡ thẻ khỏi học phần! 🗑️");
-        setForceRefresh(true);
+        forceDashboardRefresh = true;
 
         // Xóa thẻ khỏi bộ nhớ RAM phiên học hiện hành
         sessionCards.splice(currentIndex, 1);
@@ -22251,7 +22236,7 @@ async function processBatchAssessmentResults() {
             // 🟢 FIX: Giải phóng cache RAM Sát hạch để tránh lặp lại hàng đợi cũ
             window.invalidateDeckCache('GLOBAL_REVIEW');
 
-            setForceRefresh(true);
+            forceDashboardRefresh = true;
 
             showToast("✅ Đã lưu tiến độ và chuyển thẻ hổng kiến thức vào bộ Remedial thành công!");
 
@@ -23824,10 +23809,6 @@ async function renderRoadmapWidget() {
                 console.warn('Roadmap: chưa tải được Ngữ pháp từ IndexedDB:', e);
             }
         }
-        // 🟢 Đảm bảo userGrammarMasteryMap đã nạp từ Cloud trước khi đếm
-        if (Object.keys(userGrammarMasteryMap).length === 0) {
-            await calculateGrammarMastery();
-        }
 
         const JLPT_ORDER = ['N5', 'N4', 'N3', 'N2', 'N1'];
         const goalLevelIdx = JLPT_ORDER.indexOf(goal.level);
@@ -23874,29 +23855,6 @@ async function renderRoadmapWidget() {
             snapshotVocab = stats.vocab_snapshot || 0;
             snapshotGrammar = stats.grammar_snapshot || 0;
             snapshotKanji = stats.kanji_snapshot || 0;
-        } else if (stats.vocab_snapshot !== undefined && stats.vocab_snapshot !== null) {
-            // 🟢 FIX: Nếu chốt sổ chưa chạy cho hôm nay, vẫn dùng mốc gần nhất từ Cloud
-            // (thay vì default = current total → luôn ra 0)
-            snapshotVocab = stats.vocab_snapshot || 0;
-            snapshotGrammar = stats.grammar_snapshot || 0;
-            snapshotKanji = stats.kanji_snapshot || 0;
-        } else {
-            // 🟢 FIX: Không có snapshot nào từ Server → dùng client-side baseline
-            const clientBaselineKey = `minddeck_daily_baseline_${currentUser.id}`;
-            const clientBaseline = JSON.parse(localStorage.getItem(clientBaselineKey) || '{}');
-            if (clientBaseline.date !== todayStr) {
-                // Lần đầu mở app trong ngày → lưu mốc baseline ngay
-                localStorage.setItem(clientBaselineKey, JSON.stringify({
-                    date: todayStr,
-                    vocab: vocabStudiedCount || 0,
-                    grammar: grammarCount || 0,
-                    kanji: kanjiCount || 0
-                }));
-            } else {
-                snapshotVocab = clientBaseline.vocab || vocabStudiedCount || 0;
-                snapshotGrammar = clientBaseline.grammar || grammarCount || 0;
-                snapshotKanji = clientBaseline.kanji || kanjiCount || 0;
-            }
         }
 
         // 5. TÍNH MỤC TIÊU HÔM NAY (Mục tiêu = Lượng còn thiếu / Số ngày còn lại)
@@ -24234,7 +24192,7 @@ async function saveStoryAndStudy() {
         
         closeModal('aiStoryModal');
         currentGeneratedStoryData = null;
-        setForceRefresh(true);
+        forceDashboardRefresh = true;
         hideLoading();
         window.invalidateDeckListCache();
 
@@ -27345,7 +27303,7 @@ async function processOfflineQueue() {
 
         // Thành công thì xóa sạch hàng đợi
         localStorage.removeItem(queueKey);
-        setForceRefresh(true);
+        forceDashboardRefresh = true;
         console.log("MindDeck: Đã đồng bộ hàng đợi Offline thành công!");
     } catch (err) {
         console.warn("Hàng đợi Offline thất bại, sẽ thử lại sau.", err);
@@ -27757,34 +27715,11 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn) {
     return `
         <div class="example-sentence-block" style="background: rgba(255, 255, 255, 0.85); border: 1px solid rgba(255, 255, 255, 0.9); border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.02); text-align: center;">
             
-            <!-- ===== HEADER: Dòng ví dụ + nút chức năng ===== -->
+            <!-- ===== HEADER: Dòng ví dụ + nút romaji ===== -->
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; gap: 8px; flex-wrap: wrap;">
                 <div class="example-label" style="font-size: 12px; font-weight: 800; color: #86868b; letter-spacing: 0.5px; text-transform: uppercase; flex-shrink: 0;">Ví dụ ${exIndex}</div>
                 
                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                    <button class="btn-toggle-romaji"
-                            style="background: rgba(139, 92, 246, 0.1); border: none; padding: 5px 10px; border-radius: 50px; font-size: 12px; font-weight: 700; color: #7c3aed; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s;"
-                            onclick="startShadowing(event, '${jpForAttr}', this)"
-                            title="Luyện phát âm câu ví dụ">
-                        <span class="material-symbols-outlined" style="font-size: 15px;">mic</span>
-                        <span class="btn-text-lbl" style="font-size: 12px; font-weight: 700;">Phát âm</span>
-                    </button>
-
-                    <button class="btn-toggle-romaji btn-play-example-audio"
-                            style="background: rgba(59, 130, 246, 0.1); border: none; padding: 5px 10px; border-radius: 50px; font-size: 12px; font-weight: 700; color: #1d4ed8; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s;"
-                            onclick="playExampleAudio(this, '${jpForAttr}')"
-                            title="Nghe câu ví dụ">
-                        <span class="material-symbols-outlined ex-audio-icon" style="font-size: 15px;">volume_up</span>
-                        <span class="btn-text-lbl" style="font-size: 12px; font-weight: 700;">Nghe</span>
-                    </button>
-                    
-                    <button id="${testBtnId}" class="btn-toggle-romaji"
-                            style="background: rgba(245, 158, 11, 0.1); border: none; padding: 5px 10px; border-radius: 50px; font-size: 12px; font-weight: 700; color: #b45309; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s;"
-                            onclick="startMemoryTest(this, '${jpForAttr}', '${jpTextId}', '${testZoneId}', '${vnTextId}')">
-                        <span class="material-symbols-outlined" style="font-size: 15px;">psychology</span>
-                        <span class="btn-text-lbl" style="font-size: 12px; font-weight: 700;">Test</span>
-                    </button>
-                    
                     <button id="${btnId}" class="btn-toggle-romaji" 
                             style="background: rgba(0,0,0,0.04); border: none; padding: 5px 10px; border-radius: 50px; font-size: 12px; font-weight: 700; color: #4b5563; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s; ${opacityStyle}"
                             onclick="handleRomajiToggle(event, this, '${cardId}', ${exIndex}, '${escapedJp.replace(/'/g, "\\'")}')">
@@ -27835,11 +27770,36 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn) {
                         style="flex: 1; max-width: 200px; padding: 10px 14px; background: #f59e0b; color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; transition: 0.15s;">
                     <span class="material-symbols-outlined" style="font-size: 17px;">check_circle</span> Kiểm tra
                 </button>
-                <button onclick="exitMemoryTest('${jpTextId}', '${testZoneId}')"
-                        style="flex: 1; max-width: 200px; padding: 10px 14px; background: rgba(0,0,0,0.05); color: #6b7280; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; transition: 0.15s;">
-                    Bỏ qua
+                <button onclick="restartMemoryTest('${jpTextId}', '${testZoneId}')"
+                        style="flex: 1; max-width: 200px; padding: 10px 14px; background: rgba(0,0,0,0.05); color: #6b7280; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; transition: 0.15s; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                    <span class="material-symbols-outlined" style="font-size: 17px;">replay</span> Làm lại
                 </button>
             </div>
+        </div>
+        <!-- ===== NÚT HÀNH ĐỘNG: Phát âm / Nghe / Test (ngoài khối ví dụ, căn giữa) ===== -->
+        <div style="display: flex; justify-content: center; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
+            <button class="btn-toggle-romaji"
+                    style="background: rgba(139, 92, 246, 0.1); border: none; padding: 7px 14px; border-radius: 50px; font-size: 13px; font-weight: 700; color: #7c3aed; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: 0.2s;"
+                    onclick="startShadowing(event, '${jpForAttr}', this)"
+                    title="Luyện phát âm câu ví dụ">
+                <span class="material-symbols-outlined" style="font-size: 16px;">mic</span>
+                <span style="font-size: 13px; font-weight: 700;">Phát âm</span>
+            </button>
+
+            <button class="btn-toggle-romaji btn-play-example-audio"
+                    style="background: rgba(59, 130, 246, 0.1); border: none; padding: 7px 14px; border-radius: 50px; font-size: 13px; font-weight: 700; color: #1d4ed8; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: 0.2s;"
+                    onclick="playExampleAudio(this, '${jpForAttr}')"
+                    title="Nghe câu ví dụ">
+                <span class="material-symbols-outlined ex-audio-icon" style="font-size: 16px;">volume_up</span>
+                <span style="font-size: 13px; font-weight: 700;">Nghe</span>
+            </button>
+            
+            <button id="${testBtnId}" class="btn-toggle-romaji"
+                    style="background: rgba(245, 158, 11, 0.1); border: none; padding: 7px 14px; border-radius: 50px; font-size: 13px; font-weight: 700; color: #b45309; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: 0.2s;"
+                    onclick="if(this.getAttribute('data-mt-active')){exitMemoryTest(this.getAttribute('data-mt-jpTextId'),this.getAttribute('data-mt-testZoneId'));}else{startMemoryTest(this,'${jpForAttr}','${jpTextId}','${testZoneId}','${vnTextId}');}">
+                <span class="material-symbols-outlined" style="font-size: 16px;">psychology</span>
+                <span style="font-size: 13px; font-weight: 700;">Test</span>
+            </button>
         </div>
     `;
 }
@@ -27995,11 +27955,16 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId, vnTextId) {
     // 🟢 Cập nhật jpEncoded mới nhất vào dataset
     if (input) input.dataset.jpEncoded = jpEncoded;
 
-    // Đổi nút Test thành "Đang test"
+    // Đổi nút Test thành "Thoát test" — dùng cờ thay vì ghi đè onclick
     if (btn) {
-        btn.style.background = 'rgba(245, 158, 11, 0.2)';
-        const lbl = btn.querySelector('.btn-text-lbl');
-        if (lbl) lbl.innerText = 'Đang test';
+        btn.setAttribute('data-mt-active', '1');
+        btn.setAttribute('data-mt-jpTextId', jpTextId);
+        btn.setAttribute('data-mt-testZoneId', testZoneId);
+        btn.style.background = 'rgba(220, 38, 38, 0.15)';
+        const icon = btn.querySelector('.material-symbols-outlined');
+        const lbl = btn.querySelector('span:last-child');
+        if (icon) icon.innerText = 'close';
+        if (lbl) lbl.innerText = 'Thoát test';
     }
 }
 
@@ -28041,36 +28006,14 @@ function checkMemoryTest(jpEncoded, inputEl, jpTextId, testZoneId) {
         if (typeof confetti === 'function') {
             confetti({ particleCount: 40, spread: 50, origin: { y: 0.7 }, zIndex: 15000 });
         }
-        // Hiện lại toàn bộ card sau 1.5s
-        setTimeout(() => {
-            jpEl.style.display = 'block';
-            const testZone = document.getElementById(testZoneId);
-            if (testZone) testZone.style.display = 'none';
-            // Ẩn footer
-            const testFooter = document.getElementById(testZoneId + '-footer');
-            if (testFooter) testFooter.style.display = 'none';
-            // 🟢 Khôi phục nghĩa VN về vị trí gốc
-            const vnhint = document.getElementById(testZoneId + '-vnhint');
-            if (vnhint) { vnhint.style.display = 'none'; vnhint.innerHTML = ''; }
-            const block = testZone ? testZone.closest('.example-sentence-block') : null;
-            if (block) {
-                const vnEl = block.querySelector('.example-vn-text');
-                if (vnEl) vnEl.style.display = '';
-            }
-            // 🟢 Ẩn candidates bar + clear IME state
-            const mtBar = document.getElementById('memoryTestCandidatesBar');
-            if (mtBar) mtBar.style.display = 'none';
-            if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
-            // Reset nút Test
-            const testBtn = document.querySelector(`#${testZoneId}`).closest('.example-sentence-block').querySelector('[id^="btn-test-"]');
-            if (testBtn) {
-                testBtn.style.background = 'rgba(245, 158, 11, 0.1)';
-                const lbl = testBtn.querySelector('.btn-text-lbl');
-                if (lbl) lbl.innerText = 'Test';
-            }
-            // 🟢 Hiện lại toàn bộ card
-            restoreCardAfterTest(testZoneId);
-        }, 1500);
+        // ✅ ĐÚNG: Chỉ hiện chúc mừng, KHÔNG tự thoát test
+        // Hiện lại câu JP để user thấy đáp án đúng
+        jpEl.style.display = 'block';
+        // Ẩn input + candidates bar
+        inputEl.style.display = 'none';
+        const mtBar = document.getElementById('memoryTestCandidatesBar');
+        if (mtBar) mtBar.style.display = 'none';
+        if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
     } else {
         // ❌ SAI — bôi đỏ ký tự sai bằng cách diff từng ký tự
         const diffHTML = diffJapanese(jp, userAnswer);
@@ -28147,16 +28090,73 @@ function exitMemoryTest(jpTextId, testZoneId) {
     if (mtBar) mtBar.style.display = 'none';
     if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
 
-    // Reset nút Test
-    const testBtn = testZone ? testZone.closest('.example-sentence-block').querySelector('[id^="btn-test-"]') : null;
+    // Reset nút Test về trạng thái ban đầu (nút nằm ngoài .example-sentence-block)
+    const exBlock = testZone ? testZone.closest('.example-sentence-block') : null;
+    const testBtn = exBlock ? exBlock.nextElementSibling?.querySelector('[id^="btn-test-"]') : null;
     if (testBtn) {
+        testBtn.removeAttribute('data-mt-active');
+        testBtn.removeAttribute('data-mt-jpTextId');
+        testBtn.removeAttribute('data-mt-testZoneId');
         testBtn.style.background = 'rgba(245, 158, 11, 0.1)';
-        const lbl = testBtn.querySelector('.btn-text-lbl');
+        const icon = testBtn.querySelector('.material-symbols-outlined');
+        const lbl = testBtn.querySelector('span:last-child');
+        if (icon) icon.innerText = 'psychology';
         if (lbl) lbl.innerText = 'Test';
     }
 
     // 🟢 Hiện lại toàn bộ card
     restoreCardAfterTest(testZoneId);
+}
+
+/**
+ * Làm lại test từ đầu (reset input, feedback, ẩn JP lại)
+ */
+function restartMemoryTest(jpTextId, testZoneId) {
+    const testZone = document.getElementById(testZoneId);
+    const jpEl = document.getElementById(jpTextId);
+    if (!testZone || !jpEl) return;
+
+    // Lấy jpEncoded từ nút Test (lưu trong onclick gốc)
+    const block = testZone.closest('.example-sentence-block');
+    const testBtn = block ? block.nextElementSibling?.querySelector('[id^="btn-test-"]') : null;
+
+    // Reset input
+    const input = document.getElementById(testZoneId + '-input');
+    if (input) {
+        input.value = '';
+        input.style.display = '';
+        input.removeAttribute('data-mt-hidden');
+        input.focus();
+    }
+
+    // Reset feedback
+    const feedback = document.getElementById(testZoneId + '-feedback');
+    if (feedback) {
+        feedback.innerHTML = '';
+        feedback.style.display = '';
+    }
+
+    // Hiện lại vnhint
+    const vnhint = document.getElementById(testZoneId + '-vnhint');
+    if (vnhint) {
+        vnhint.removeAttribute('data-mt-hidden');
+        vnhint.style.display = 'block';
+    }
+
+    // Hiện lại nút Kiểm tra trong footer
+    const checkBtn = document.getElementById(testZoneId + '-btnCheck');
+    if (checkBtn) {
+        checkBtn.style.display = '';
+        checkBtn.removeAttribute('data-mt-hidden');
+    }
+
+    // Ẩn câu JP lại
+    jpEl.style.display = 'none';
+
+    // Ẩn candidates bar
+    const mtBar = document.getElementById('memoryTestCandidatesBar');
+    if (mtBar) mtBar.style.display = 'none';
+    if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
 }
 
 /**
@@ -29330,7 +29330,7 @@ async function hardDeleteQuickCard() {
 
         closeModal('quickEditModal');
         showToast("🗑️ Đã xóa vĩnh viễn thẻ khỏi hệ thống!");
-        setForceRefresh(true);
+        forceDashboardRefresh = true;
 
         // Xóa thẻ khỏi bộ nhớ RAM phiên học hiện hành
         sessionCards.splice(currentIndex, 1);
