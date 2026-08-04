@@ -10338,9 +10338,17 @@ async function loadDashboardData() {
             currentUser.daily_stats = data.daily_stats;
             
             if (data.deck_stats) {
+                // Bao ve total_reviews local truoc khi server ghi de (server khong co total_reviews)
+                const savedReviews = {};
+                for (const [k, v] of Object.entries(globalDeckStatsMap)) {
+                    if (v.total_reviews) savedReviews[k] = v.total_reviews;
+                }
                 globalDeckStatsMap = {}; 
                 data.deck_stats.forEach(stat => {
                     globalDeckStatsMap[stat.id] = stat;
+                    if (savedReviews[stat.id]) {
+                        globalDeckStatsMap[stat.id].total_reviews = savedReviews[stat.id];
+                    }
                 });
                 localStorage.setItem(`minddeck_decks_stats_${userId}`, JSON.stringify(globalDeckStatsMap));
             }
@@ -14117,17 +14125,10 @@ async function answerCurrent(q) {
     if (mode === 'review' && globalDeckStatsMap[currentDeckName]) {
         let myStats = globalDeckStatsMap[currentDeckName];
         
-         // Dem tong luot on tap (moi lan quet the la +1, du the moi hay cu)
+        // total_reviews: local-only counter, server khong co truong nay
         myStats.total_reviews = (myStats.total_reviews || 0) + 1;
-       // Thẻ cũ tới hạn ôn tập (quẹt xong thì trừ đi 1)
-        if (p && p.due <= new Date().toISOString()) {
-            myStats.due = Math.max(0, myStats.due - 1);
-        }
-        
-        // Thẻ mới tinh (lần đầu học, studied cộng thêm 1)
-        if (!p) {
-            myStats.studied = (myStats.studied || 0) + 1;
-        }
+        // due (server la count): giam 1 vi vua xu ly xong 1 thẻ
+        myStats.due = Math.max(0, parseInt(myStats.due || 0) - 1);
 
         // Lưu xuống ổ cứng ngay lập tức
         localStorage.setItem(`minddeck_decks_stats_${currentUser.id}`, JSON.stringify(globalDeckStatsMap));
@@ -14368,11 +14369,12 @@ async function renderManageDeckList() {
     // Xác định trạng thái từng bộ bài
     const getDeckStatus = (d) => {
         const s = globalDeckStatsMap[d.id] || { total: 0, due: 0, studied: 0 };
-        const total = parseInt(s.total || 0), due = parseInt(s.due || 0), studied = parseInt(s.studied || 0);
+        const total = parseInt(s.total || 0);
+        const due = parseInt(s.due || 0);
+        const totalReviews = parseInt(s.total_reviews || 0);
         if (total === 0) return 'notstudied';
-        if (studied === 0) return 'notstudied';
+        if (totalReviews === 0) return 'notstudied';
         if (due > 0) return 'review';
-        if (studied < total) return 'studying';
         return 'completed';
     };
 
@@ -14410,14 +14412,12 @@ async function renderManageDeckList() {
         const myStats = globalDeckStatsMap[d.id] || { total: 0, due: 0, studied: 0 };
         const total = parseInt(myStats.total || 0);
         const due = parseInt(myStats.due || 0);
-        const studied = parseInt(myStats.studied || 0);
+        const totalReviews = parseInt(myStats.total_reviews || 0);
         
         // Đặt màu sắc border-top đại diện cho trạng thái thẻ học
         let borderColor = '#cbd5e0';
-        if (total === 0) borderColor = '#cbd5e0';
-        else if (studied === 0) borderColor = '#cbd5e0';
+        if (total === 0 || totalReviews === 0) borderColor = '#cbd5e0';
         else if (due > 0) borderColor = '#ef4444';
-        else if (studied < total) borderColor = '#3b82f6';
         else borderColor = '#10b981';
 
         card.style.setProperty('border-top', `4px solid ${borderColor}`, 'important');
