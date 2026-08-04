@@ -10296,7 +10296,20 @@ async function loadDashboardData() {
         
         const isCacheEmpty = Object.keys(globalDeckStatsMap).length === 0 && !localStorage.getItem(`minddeck_decks_stats_${userId}`);
 
-        if (isCacheEmpty || forceDashboardRefresh || (nowMs - lastDashboardSync) > 15 * 60 * 1000) {
+        // Cache-bust: kiểm tra stats cache cũ thiếu due_now → force refresh
+        let statsNeedRefresh = false;
+        if (!isCacheEmpty && !forceDashboardRefresh) {
+            const oldStats = localStorage.getItem(`minddeck_decks_stats_${userId}`);
+            if (oldStats) {
+                try {
+                    const parsed = JSON.parse(oldStats);
+                    const first = Object.values(parsed)[0];
+                    if (first && first.due_now === undefined) statsNeedRefresh = true;
+                } catch(e) { statsNeedRefresh = true; }
+            }
+        }
+
+        if (isCacheEmpty || forceDashboardRefresh || statsNeedRefresh || (nowMs - lastDashboardSync) > 15 * 60 * 1000) {
             console.log("MindDeck: 🚀 Chạy siêu đồng bộ gộp tại Dashboard...");
             
             const { data, error } = await sb.rpc('get_dashboard_init_data', { 
@@ -14321,9 +14334,20 @@ async function renderManageDeckList() {
     }
 
     // 2. KHÔI PHỤC "RUỘT" NẾU RAM ĐANG TRỐNG (Trường hợp F5 thẳng vào trang Home)
+    // Cache-bust: nếu cache cũ không có field due_now → xóa để ép fetch data mới từ server
     if (Object.keys(globalDeckStatsMap).length === 0) {
         const cachedStats = localStorage.getItem(`minddeck_decks_stats_${currentUser.id}`);
-        if (cachedStats) globalDeckStatsMap = JSON.parse(cachedStats);
+        if (cachedStats) {
+            globalDeckStatsMap = JSON.parse(cachedStats);
+            // Kiểm tra cache cũ (trước khi SQL fix): không có due_now → invalidate
+            const firstStat = Object.values(globalDeckStatsMap)[0];
+            if (firstStat && firstStat.due_now === undefined) {
+                console.log('MindDeck: Phát hiện cache stats cũ (thiếu due_now), xóa để fetch mới.');
+                globalDeckStatsMap = {};
+                localStorage.removeItem(`minddeck_decks_stats_${currentUser.id}`);
+                sessionStorage.removeItem(`minddeck_dash_sync_${currentUser.id}`);
+            }
+        }
     }
 
     // NÚT TẠO MỚI (Luôn hiển thị đầu tiên)
@@ -14348,8 +14372,7 @@ async function renderManageDeckList() {
     };
 
     // Xác định trạng thái từng bộ bài (4 trạng thái)
-    // studied = thẻ thực sự đã ôn SRS (interval > 0), due = pc.due + (total - studied)
-    // → due_now = due - (total - studied) = số thẻ ĐẾN HẠN ôn ngay
+    // Ưu tiên dùng due_now từ server (nếu SQL đã fix), else tính locally
     const getDeckStatus = (d) => {
         const s = globalDeckStatsMap[d.id] || { total: 0, due: 0, studied: 0 };
         const total = parseInt(s.total || 0);
@@ -14357,8 +14380,10 @@ async function renderManageDeckList() {
         const studied = parseInt(s.studied || 0);
         if (total === 0) return 'notstudied';
         if (studied === 0) return 'notstudied';
-        // due_now: thẻ đã ôn nhưng đến hạn review ngay
-        const due_now = Math.max(0, due - (total - studied));
+        // due_now: số thẻ ĐẾN HẠN ôn ngay (từ server nếu có, else tính locally)
+        const due_now = (s.due_now !== undefined)
+            ? parseInt(s.due_now || 0)
+            : Math.max(0, due - (total - studied));
         if (due_now > 0) return 'due';
         if (studied < total) return 'studying';
         return 'completed';
