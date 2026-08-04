@@ -10320,39 +10320,6 @@ async function loadDashboardData() {
             currentUser.study_goal = data.study_goal;
             currentUser.daily_stats = data.daily_stats;
             
-            // ✨ Khởi tạo daily snapshot nếu chưa có (dùng localStorage làm fallback đáng tin cậy)
-            // Thường Supabase trigger chặt sổ tự động, nhưng nếu trigger chưa tạo thì dùng localStorage.
-            const _todayStr = new Intl.DateTimeFormat('sv-SE', {
-                timeZone: 'Asia/Ho_Chi_Minh',
-                year: 'numeric', month: '2-digit', day: '2-digit'
-            }).format(new Date());
-            const _ds = currentUser.daily_stats || {};
-            const _snapKey = `minddeck_daily_snap_${userId}`;
-            const _needInit = !_ds.last_snapshot_date || _ds.last_snapshot_date !== _todayStr;
-            if (_needInit) {
-                const _localSnap = JSON.parse(localStorage.getItem(_snapKey) || 'null');
-                if (_localSnap && _localSnap.last_snapshot_date === _todayStr) {
-                    // localStorage có snapshot hôm nay -> dùng nó
-                    currentUser.daily_stats = _localSnap;
-                } else {
-                    // Chưa có snapshot hôm nay ở đâu -> chốt sổ bằng tổng hiện tại
-                    const _initSnap = {
-                        last_snapshot_date: _todayStr,
-                        vocab_snapshot: data.studied_count || 0,
-                        grammar_snapshot: 0,
-                        kanji_snapshot: 0
-                    };
-                    currentUser.daily_stats = _initSnap;
-                    localStorage.setItem(_snapKey, JSON.stringify(_initSnap));
-                    // Thử lưu lên Cloud (có thể bị RLS chặn -> không sao, localStorage là chính)
-                    sb.from('profiles').update({ daily_stats: _initSnap })
-                      .eq('id', currentUser.id).then(() => {}).catch(() => {});
-                }
-            } else {
-                // Cloud có snapshot hợp lệ -> backup xuống localStorage
-                localStorage.setItem(_snapKey, JSON.stringify(_ds));
-            }
-            
             if (data.deck_stats) {
                 globalDeckStatsMap = {}; 
                 data.deck_stats.forEach(stat => {
@@ -23879,11 +23846,33 @@ async function renderRoadmapWidget() {
             day: '2-digit'
         }).format(today);
 
-        // Luôn dùng snapshot đã được khởi tạo ở loadDashboardData
-        // (Ơu tiên từ Cloud, nếu null thì từ localStorage)
-        let snapshotVocab = (stats.vocab_snapshot != null) ? stats.vocab_snapshot : 0;
-        let snapshotGrammar = (stats.grammar_snapshot != null) ? stats.grammar_snapshot : 0;
-        let snapshotKanji = (stats.kanji_snapshot != null) ? stats.kanji_snapshot : 0;
+        // Snapshot logic: Cloud trigger là chính, localStorage là fallback
+        // Phải ở renderRoadmapWidget (không phải loadDashboardData) vì
+        // loadDashboardData có thể bị skip khi cache còn mới (< 15 phút).
+        const _snapKey = `minddeck_daily_snap_${currentUser.id}`;
+        const _cloudSnap = currentUser.daily_stats || {};
+        const _localSnap = JSON.parse(localStorage.getItem(_snapKey) || 'null');
+
+        // Uỷu tiên: Cloud (nó hôm nay) > localStorage (nó hôm nay) > chốt sổ mới
+        let _activeSnap = null;
+        if (_cloudSnap.last_snapshot_date === todayStr) {
+            _activeSnap = _cloudSnap;
+        } else if (_localSnap && _localSnap.last_snapshot_date === todayStr) {
+            _activeSnap = _localSnap;
+        } else {
+            // Chưa có snapshot hôm nay ở đâu -> chốt sổ bằng tổng hiện tại
+            _activeSnap = {
+                last_snapshot_date: todayStr,
+                vocab_snapshot: vocabStudiedCount || 0,
+                grammar_snapshot: grammarCount || 0,
+                kanji_snapshot: kanjiCount || 0
+            };
+            localStorage.setItem(_snapKey, JSON.stringify(_activeSnap));
+        }
+
+        let snapshotVocab = _activeSnap.vocab_snapshot || 0;
+        let snapshotGrammar = _activeSnap.grammar_snapshot || 0;
+        let snapshotKanji = _activeSnap.kanji_snapshot || 0;
 
         // 5. TÍNH MỤC TIÊU HÔM NAY (Mục tiêu = Lượng còn thiếu / Số ngày còn lại)
         const targetVocabToday = Math.max(0, Math.ceil((quota.vocab - snapshotVocab) / daysLeft));
