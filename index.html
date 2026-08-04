@@ -4822,6 +4822,20 @@ body.pdf-mode #pdfReadState {
     font-weight: 800;
 }
 /* Hết================= CSS MỚI CHO DECK MENU DROPDOWN ================= */
+/* ================= CSS CHO DECK SORT BUTTONS ================= */
+.deck-sort-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 12px; border-radius: 50px; border: 1px solid #e2e8f0;
+    background: #fff; color: #64748b; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
+    font-family: 'Noto Sans JP', sans-serif;
+}
+.deck-sort-btn:hover { background: #f1f5f9; color: #1d1d1f; }
+.deck-sort-btn.active { background: #1d1d1f; color: #fff; border-color: #1d1d1f; }
+.deck-sort-btn.active span[style] { filter: brightness(2); }
+.deck-sort-btn .material-symbols-outlined { font-size: 14px; }
+/* Hết ================= CSS CHO DECK SORT BUTTONS ================= */
+
 /* ================= CSS CHO 3 TÍNH NĂNG MỚI (VOICE, SHODO, RPG) ================= */
 /* Nút Micro Shadowing Dojo (Góc dưới trái, dáng viên thuốc) */
 .btn-mic-inside {
@@ -7721,11 +7735,14 @@ body.modal-open-lock #scrollToTopBtn {
                 </div>
                 <!-- ===========HẾT VÙNG CHỦ ĐỀ & AI GENERATOR=================================================== -->
                 <!-- 3. KHỐI CHÚ THÍCH MÀU SẮC (Di chuyển xuống dưới khối AI học theo chủ đề) -->
-                <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; margin: -15px 0 25px 0; font-size: 12px; font-weight: 700; background: #fbfbfd; padding: 12px 20px; border-radius: 12px; border: 1px solid #edf2f7; width: 100%; box-sizing: border-box;">
-                    <div style="display: flex; align-items: center; gap: 6px; color: #ef4444;"><div style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444;"></div> Cần ôn </div>
-                    <div style="display: flex; align-items: center; gap: 6px; color: #3b82f6;"><div style="width: 10px; height: 10px; border-radius: 50%; background: #3b82f6;"></div> Đang học </div>
-                    <div style="display: flex; align-items: center; gap: 6px; color: #10b981;"><div style="width: 10px; height: 10px; border-radius: 50%; background: #10b981;"></div> Đã xong </div>
-                    <div style="display: flex; align-items: center; gap: 6px; color: #94a3b8;"><div style="width: 10px; height: 10px; border-radius: 50%; background: #94a3b8;"></div> Chưa học </div>
+                <div id="deckSortBar" style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -15px 0 25px 0; font-size: 12px; font-weight: 600; background: #fbfbfd; padding: 10px 16px; border-radius: 12px; border: 1px solid #edf2f7; width: 100%; box-sizing: border-box;">
+                    <button class="deck-sort-btn active" data-sort="review" onclick="setDeckSort('review')"><span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;"></span> Cần ôn</button>
+                    <button class="deck-sort-btn" data-sort="studying" onclick="setDeckSort('studying')"><span style="width:8px;height:8px;border-radius:50%;background:#3b82f6;display:inline-block;"></span> Đang học</button>
+                    <button class="deck-sort-btn" data-sort="completed" onclick="setDeckSort('completed')"><span style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;"></span> Đã xong</button>
+                    <button class="deck-sort-btn" data-sort="notstudied" onclick="setDeckSort('notstudied')"><span style="width:8px;height:8px;border-radius:50%;background:#94a3b8;display:inline-block;"></span> Chưa học</button>
+                    <div style="width:1px;height:20px;background:#e2e8f0;margin:0 4px;"></div>
+                    <button class="deck-sort-btn" data-sort="name" onclick="setDeckSort('name')"><span class="material-symbols-outlined" style="font-size:14px;">sort_by_alpha</span> Tên</button>
+                    <button class="deck-sort-btn" data-sort="date" onclick="setDeckSort('date')"><span class="material-symbols-outlined" style="font-size:14px;">schedule</span> Date</button>
                 </div>                
                 <div id="manageDeckList" class="deck-grid"></div>
             </div>
@@ -14295,6 +14312,17 @@ function showSearchResultDetail(encodedBack, encodedInfo) {
 }
 
 
+// Trạng thái sắp xếp bộ bài (null = mặc định theo sort_order)
+let currentDeckSort = 'review';
+
+window.setDeckSort = function(sortType) {
+    currentDeckSort = currentDeckSort === sortType ? null : sortType;
+    document.querySelectorAll('#deckSortBar .deck-sort-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.sort === currentDeckSort);
+    });
+    renderManageDeckList(true);
+};
+
 async function renderManageDeckList() {
     const list = document.getElementById('manageDeckList');
     if (!currentUser) return;
@@ -14335,11 +14363,34 @@ async function renderManageDeckList() {
         return 4;
     };
 
-    // Sắp xếp danh sách theo trọng số ưu tiên và trường sort_order
+    // Xác định trạng thái từng bộ bài
+    const getDeckStatus = (d) => {
+        const s = globalDeckStatsMap[d.id] || { total: 0, due: 0, studied: 0 };
+        const total = parseInt(s.total || 0), due = parseInt(s.due || 0), studied = parseInt(s.studied || 0);
+        if (total === 0) return 'notstudied';
+        if (due > 0) return 'review';
+        if (studied >= total) return 'completed';
+        return 'studying';
+    };
+
     coreDecks.sort((a, b) => {
-        const weightA = getDeckPriorityWeight(a);
-        const weightB = getDeckPriorityWeight(b);
-        if (weightA !== weightB) return weightA - weightB;
+        const wA = getDeckPriorityWeight(a), wB = getDeckPriorityWeight(b);
+        if (wA !== wB) return wA - wB;
+
+        if (currentDeckSort === 'name') {
+            const nA = getCleanName(a.id).toLowerCase(), nB = getCleanName(b.id).toLowerCase();
+            return nA.localeCompare(nB, 'vi');
+        }
+        if (currentDeckSort === 'date') {
+            const tsA = a.id.split(':').pop() || '0';
+            const tsB = b.id.split(':').pop() || '0';
+            return tsB.localeCompare(tsA);
+        }
+        if (currentDeckSort) {
+            const stA = getDeckStatus(a) === currentDeckSort ? 0 : 1;
+            const stB = getDeckStatus(b) === currentDeckSort ? 0 : 1;
+            if (stA !== stB) return stA - stB;
+        }
         return (a.sort_order || 0) - (b.sort_order || 0);
     });
 
