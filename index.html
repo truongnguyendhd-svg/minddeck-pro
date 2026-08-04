@@ -23846,11 +23846,29 @@ async function renderRoadmapWidget() {
             day: '2-digit'
         }).format(today);
 
-        // Snapshot được server (get_dashboard_init_data) tự động chốt sổ -> chỉ cần đọc
+        // Nếu chưa có snapshot hợp lệ từ server -> gọi RPC ngay để server chốt sổ
         const _snap = currentUser.daily_stats || {};
-        let snapshotVocab = _snap.vocab_snapshot || 0;
-        let snapshotGrammar = _snap.grammar_snapshot || 0;
-        let snapshotKanji = _snap.kanji_snapshot || 0;
+        const _snapDate = _snap.last_snapshot_date;
+        if (!_snapDate || _snapDate !== todayStr) {
+            try {
+                const { data: _dashData } = await sb.rpc('get_dashboard_init_data', {
+                    p_user_id: currentUser.id,
+                    p_last_sync_time: '2020-01-01T00:00:00Z'
+                });
+                if (_dashData) {
+                    currentUser.daily_stats = _dashData.daily_stats;
+                    cachedVocabStudiedCount = _dashData.studied_count || 0;
+                }
+            } catch (e) {
+                console.warn('Roadmap: không lấy được daily_stats từ server:', e);
+            }
+        }
+
+        // Đọc snapshot (server đã chốt sổ ở trên hoặc từ lần gọi trước)
+        const _s = currentUser.daily_stats || {};
+        let snapshotVocab = _s.vocab_snapshot || 0;
+        let snapshotGrammar = _s.grammar_snapshot || 0;
+        let snapshotKanji = _s.kanji_snapshot || 0;
 
         // 5. TÍNH MỤC TIÊU HÔM NAY (Mục tiêu = Lượng còn thiếu / Số ngày còn lại)
         const targetVocabToday = Math.max(0, Math.ceil((quota.vocab - snapshotVocab) / daysLeft));
