@@ -23846,33 +23846,11 @@ async function renderRoadmapWidget() {
             day: '2-digit'
         }).format(today);
 
-        // Snapshot logic: Cloud trigger là chính, localStorage là fallback
-        // Phải ở renderRoadmapWidget (không phải loadDashboardData) vì
-        // loadDashboardData có thể bị skip khi cache còn mới (< 15 phút).
-        const _snapKey = `minddeck_daily_snap_${currentUser.id}`;
-        const _cloudSnap = currentUser.daily_stats || {};
-        const _localSnap = JSON.parse(localStorage.getItem(_snapKey) || 'null');
-
-        // Uỷu tiên: Cloud (nó hôm nay) > localStorage (nó hôm nay) > chốt sổ mới
-        let _activeSnap = null;
-        if (_cloudSnap.last_snapshot_date === todayStr) {
-            _activeSnap = _cloudSnap;
-        } else if (_localSnap && _localSnap.last_snapshot_date === todayStr) {
-            _activeSnap = _localSnap;
-        } else {
-            // Chưa có snapshot hôm nay ở đâu -> chốt sổ bằng tổng hiện tại
-            _activeSnap = {
-                last_snapshot_date: todayStr,
-                vocab_snapshot: vocabStudiedCount || 0,
-                grammar_snapshot: grammarCount || 0,
-                kanji_snapshot: kanjiCount || 0
-            };
-            localStorage.setItem(_snapKey, JSON.stringify(_activeSnap));
-        }
-
-        let snapshotVocab = _activeSnap.vocab_snapshot || 0;
-        let snapshotGrammar = _activeSnap.grammar_snapshot || 0;
-        let snapshotKanji = _activeSnap.kanji_snapshot || 0;
+        // Snapshot được server (get_dashboard_init_data) tự động chốt sổ -> chỉ cần đọc
+        const _snap = currentUser.daily_stats || {};
+        let snapshotVocab = _snap.vocab_snapshot || 0;
+        let snapshotGrammar = _snap.grammar_snapshot || 0;
+        let snapshotKanji = _snap.kanji_snapshot || 0;
 
         // 5. TÍNH MỤC TIÊU HÔM NAY (Mục tiêu = Lượng còn thiếu / Số ngày còn lại)
         const targetVocabToday = Math.max(0, Math.ceil((quota.vocab - snapshotVocab) / daysLeft));
