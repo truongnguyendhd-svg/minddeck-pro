@@ -9859,8 +9859,34 @@ function getLocalStudiedCount(deckId) {
     const db = getLocalStudiedDB();
     return db[deckId] ? db[deckId].count : 0;
 }
-let boostState = { maxRounds: 10, currentRound: 1, correct: 0, wrong: 0, mode: '10', history: [] };
+
+// ================= SERVER-ONLY DECK STATUS (KHONG CACHE, KHONG LOCAL) =================
+// Luon goi server lay status bo bai tuoi. Khong doc/ghi localStorage.
+let _fetchingStatus = false;
+async function fetchDeckStatuses() {
+    if (!currentUser || _fetchingStatus) return;
+    _fetchingStatus = true;
+    try {
+        const { data, error } = await sb.rpc('get_dashboard_init_data', {
+            p_user_id: currentUser.id,
+            p_last_sync_time: '2020-01-01T00:00:00.000Z'
+        });
+        if (!error && data && data.deck_stats) {
+            globalDeckStatsMap = {};
+            data.deck_stats.forEach(stat => { globalDeckStatsMap[stat.id] = stat; });
+            console.log('MindDeck: fetchDeckStatuses OK, decks:', Object.keys(globalDeckStatsMap).length);
+        } else {
+            console.warn('MindDeck: fetchDeckStatuses failed:', error);
+        }
+    } catch(e) {
+        console.error('MindDeck: fetchDeckStatuses error:', e);
+    } finally {
+        _fetchingStatus = false;
+    }
+}
+
 let boostTimer = null;
+let boostState = { maxRounds: 10, currentRound: 1, correct: 0, wrong: 0, mode: '10', history: [] };
 let currentBoostGame = 0; // 1 to 5
 let currentUser = null, sessionCards = [], currentIndex = 0, showBack = false;
 let mode = 'review', currentDeckName = "", editingDeckId = null, activeDeckId = null, cardsToDelete = [];
@@ -10318,7 +10344,7 @@ async function loadDashboardData() {
         const dashSyncKey = `minddeck_dash_sync_${userId}`;
         const lastDashboardSync = parseInt(sessionStorage.getItem(dashSyncKey) || "0");
         
-        const isCacheEmpty = Object.keys(globalDeckStatsMap).length === 0 && !localStorage.getItem(`minddeck_decks_stats_${userId}`);
+        const isCacheEmpty = Object.keys(globalDeckStatsMap).length === 0;
 
         if (isCacheEmpty || forceDashboardRefresh || (nowMs - lastDashboardSync) > 15 * 60 * 1000) {
             console.log("MindDeck: 🚀 Chạy siêu đồng bộ gộp tại Dashboard...");
@@ -10366,7 +10392,6 @@ async function loadDashboardData() {
                 data.deck_stats.forEach(stat => {
                     globalDeckStatsMap[stat.id] = stat;
                 });
-                localStorage.setItem(`minddeck_decks_stats_${userId}`, JSON.stringify(globalDeckStatsMap));
             }
 
             saveAllToLocalStorage(userId);
@@ -14333,59 +14358,21 @@ window.setDeckSort = function(sortType) {
     renderManageDeckList(true);
 };
 
-async function renderManageDeckList() {
+async function renderManageDeckList(skipServerFetch) {
     const list = document.getElementById('manageDeckList');
     if (!currentUser) return;
 
-    // 1. ĐỌC NHANH "VỎ" TỪ Ổ CỨNG (0 GIÂY)
+    // 1. Doc nhanh "Vo" tu o cung
     let coreDecks = JSON.parse(localStorage.getItem(`minddeck_decks_core_${currentUser.id}`) || "[]");
-    
-    // Nếu Vỏ trống (Lần đầu đăng nhập hoặc chưa đồng bộ), ép gọi API kéo vỏ về
     if (coreDecks.length === 0) {
         list.innerHTML = '<div class="spinner" style="margin:20px auto;"></div>';
         coreDecks = await fetchAndCacheDeckCore();
     }
 
-    // 2. KHÔI PHỤC "RUỘT" NẾU RAM ĐANG TRỐNG
-    if (Object.keys(globalDeckStatsMap).length === 0) {
-        const cachedStats = localStorage.getItem(`minddeck_decks_stats_${currentUser.id}`);
-        if (cachedStats) globalDeckStatsMap = JSON.parse(cachedStats);
+    // 2. LUON GOI SERVER LAY STATUS BO BAI (khong cache, khong local)
+    if (!skipServerFetch && Object.keys(globalDeckStatsMap).length === 0) {
+        await fetchDeckStatuses();
     }
-
-    // 🟢 SEED LOCAL STUDIED từ rawDeckCache + sessionStorage (tiến độ cũ trước khi có local tracking)
-    try {
-        let seeded = false;
-        const db = getLocalStudiedDB();
-        // 优先从 RAM (rawDeckCache)
-        const sources = [];
-        if (window.rawDeckCache) Object.assign(sources, window.rawDeckCache);
-        // Thêm từ sessionStorage nếu chưa có
-        if (currentUser) {
-            for (let i = 0; i < sessionStorage.length; i++) {
-                const key = sessionStorage.key(i);
-                if (key && key.startsWith('minddeck_deck_cache_')) {
-                    const deckId = key.replace('minddeck_deck_cache_', '');
-                    if (!sources[deckId]) {
-                        try { sources[deckId] = JSON.parse(sessionStorage.getItem(key)); }
-                        catch(e) {}
-                    }
-                }
-            }
-        }
-        for (const [deckId, cards] of Object.entries(sources)) {
-            if (!Array.isArray(cards)) continue;
-            if (!db[deckId]) db[deckId] = { words: {}, count: 0 };
-            for (const card of cards) {
-                const interval = card.progress && card.progress[0] && card.progress[0].interval;
-                if (interval && parseInt(interval) > 0 && card.front && !db[deckId].words[card.front]) {
-                    db[deckId].words[card.front] = true;
-                    db[deckId].count++;
-                    seeded = true;
-                }
-            }
-        }
-        if (seeded) saveLocalStudiedDB(db);
-    } catch(e) { console.warn('Seed local studied error:', e); }
 
     // NÚT TẠO MỚI (Luôn hiển thị đầu tiên)
     const addCardHTML = `
@@ -14408,28 +14395,10 @@ async function renderManageDeckList() {
         return 4;
     };
 
-    // 🟢 XÁC ĐỊNH TRẠNG THÁI BỘ BÀI (xây mới hoàn toàn)
-    // KHÔNG dùng server `studied` (hay sai). Dùng local tracking + server `due` + `total`.
-    // local_studied: số thẻ user THỰC SỰ đã quẹt SRS (đếm ở client)
-    // due (server): pc.due + (total - studied_server) = thẻ cần ôn + thẻ chưa có mastery
+    // DOC STATUS TU SERVER (da duoc tinh san tren SQL)
+    // notstudied=xam, due=do, studying=xanh duong, completed=xanh la
     const getDeckStatus = (d) => {
-        const s = globalDeckStatsMap[d.id];
-        const total = s ? parseInt(s.total || 0) : 0;
-        const due = s ? parseInt(s.due || 0) : 0;
-        const localStudied = getLocalStudiedCount(d.id);
-
-        if (total === 0) return 'notstudied';
-        if (localStudied === 0) {
-            // Chưa ôn thẻ nào qua SRS → dùng due để phân biệt
-            return (due >= total) ? 'notstudied' : 'notstudied';
-        }
-        // Đã ôn ít nhất 1 thẻ
-        // due_now = thẻ ĐẾN HẠN ôn ngay = due - (total - localStudied)
-        const neverTouched = Math.max(0, total - localStudied);
-        const dueNow = Math.max(0, due - neverTouched);
-        if (dueNow > 0) return 'due';         // đỏ: có thẻ đến hạn
-        if (localStudied < total) return 'studying'; // xanh dương: còn thẻ chưa ôn
-        return 'completed';                      // xanh lá: ôn hết rồi
+        return (globalDeckStatsMap[d.id] && globalDeckStatsMap[d.id].status) || 'notstudied';
     };
 
     coreDecks.sort((a, b) => {
@@ -14679,8 +14648,7 @@ async function deleteDeckFromDashboard(event, deckId, deckName) {
 
             // Cập nhật trực tiếp vào LocalStorage (Xóa mảng)
             await fetchAndCacheDeckCore(); // Cập nhật Vỏ từ Cloud
-            delete globalDeckStatsMap[deckId]; // Xóa luôn ruột của nó trong RAM
-            localStorage.setItem(`minddeck_decks_stats_${currentUser.id}`, JSON.stringify(globalDeckStatsMap));
+            delete globalDeckStatsMap[deckId]; // Xóa ruột trong RAM, lần sau fetch se lay lai tu server
 
             showToast("🗑️ Đã xóa học phần thành công!");
             renderManageDeckList(true); // Truyền true để CHẶN gọi mạng
@@ -18316,7 +18284,7 @@ function selectAutocompleteTopic(tagId, displayName) {
 // =========================================================================
 
 // 1. Hàm mở Modal xem trước chủ đề (Đọc số từ trực tiếp và kiểm tra trùng lặp)
-window.openTagActionModal = function(tagCode, displayName, dummyCount, dummyIsOwned) {
+window.openTagActionModal = async function(tagCode, displayName, dummyCount, dummyIsOwned) {
     document.getElementById('taModalTitle').innerText = displayName;
     document.getElementById('taTagCode').value = tagCode;
     
@@ -18332,12 +18300,12 @@ window.openTagActionModal = function(tagCode, displayName, dummyCount, dummyIsOw
     // 🟢 CHUẨN HÓA: Tạo tên sạch để so khớp chuẩn xác với Database
     const sanitizedDefaultDeckName = sanitizeTagName(defaultDeckName);
 
+    // Neu globalDeckStatsMap trong, goi server lay du lieu
     if (Object.keys(globalDeckStatsMap).length === 0) {
-        const cachedStats = localStorage.getItem(`minddeck_decks_stats_${currentUser.id}`);
-        if (cachedStats) globalDeckStatsMap = JSON.parse(cachedStats);
+        await fetchDeckStatuses();
     }
 
-    // 🟢 ĐỔI DÒNG NÀY: So sánh sau khi đã lọc sạch ký tự đặc biệt của cả hai bên
+    // So sanh sau khi da loc sach ky tu dac biet cua ca hai ben
     const existingDeckId = Object.keys(globalDeckStatsMap).find(id => sanitizeTagName(getCleanName(id)) === sanitizedDefaultDeckName);
     const isOwned = !!existingDeckId;
 
@@ -18488,14 +18456,14 @@ window.createNewPredefinedTag = async function(tagCode, displayName) {
             }
         }
 
-        // 🟢 CẬP NHẬT CACHE STATS NGAY LẬP TỨC: Giúp hệ thống nhận diện bộ bài đã thuộc quyền sở hữu
+        // Cap nhat RAM stats (lan sau fetch se lay lai tu server)
         globalDeckStatsMap[finalDeckId] = {
             id: finalDeckId,
             total: totalInserted,
             due: totalInserted,
-            studied: 0
+            studied: 0,
+            status: 'notstudied'
         };
-        localStorage.setItem(`minddeck_decks_stats_${currentUser.id}`, JSON.stringify(globalDeckStatsMap));
 
         hideLoading();
         window.invalidateDeckListCache();
@@ -18592,7 +18560,7 @@ window.supplementPredefinedTag = async function(tagCode, displayName, existingDe
             }
         }
 
-        // 🟢 CẬP NHẬT CACHE STATS NGAY LẬP TỨC:
+        // Cap nhat RAM stats (lan sau fetch se lay lai tu server)
         if (globalDeckStatsMap[existingDeckId]) {
             globalDeckStatsMap[existingDeckId].total += totalInserted;
             globalDeckStatsMap[existingDeckId].due += totalInserted;
@@ -18601,10 +18569,10 @@ window.supplementPredefinedTag = async function(tagCode, displayName, existingDe
                 id: existingDeckId,
                 total: totalInserted,
                 due: totalInserted,
-                studied: 0
+                studied: 0,
+                status: 'notstudied'
             };
         }
-        localStorage.setItem(`minddeck_decks_stats_${currentUser.id}`, JSON.stringify(globalDeckStatsMap));
 
         hideLoading();
         window.invalidateDeckListCache();
@@ -23523,10 +23491,10 @@ function exitStudySession() {
                     p_last_sync_time: '2020-01-01T00:00:00.000Z'
                 });
                 if (data && data.deck_stats) {
+                    globalDeckStatsMap = {};
                     data.deck_stats.forEach(stat => {
                         globalDeckStatsMap[stat.id] = stat;
                     });
-                    localStorage.setItem(`minddeck_decks_stats_${currentUser.id}`, JSON.stringify(globalDeckStatsMap));
                     forceDashboardRefresh = false;
                 }
             }
@@ -25869,6 +25837,7 @@ window.clearFavoriteDeck = async function(event, deckId) {
 
             showToast("✨ Đã dọn sạch bộ thẻ Yêu thích!");
             window.invalidateDeckListCache();
+            delete globalDeckStatsMap[deckId]; // Xoa stats cu, lan sau fetch se lay lai
             renderManageDeckList(); 
             triggerSilentBackgroundSync(null, true);
 
