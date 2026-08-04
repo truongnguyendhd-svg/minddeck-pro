@@ -9835,6 +9835,30 @@ const prefetchPromises = new Map();
 /* ================= 2. STATE ================= */
 // Thêm biến này để lưu trữ màu sắc/số lượng thẻ của bộ bài trên RAM
 let globalDeckStatsMap = {};
+// 🟢 LOCAL STUDIED TRACKING: đếm thẻ thực sự đã ôn SRS, không phụ thuộc server `studied`
+// Key: deckId, Value: { words: { wordText: true, ... }, count: number }
+function getLocalStudiedDB() {
+    if (!currentUser) return {};
+    try { return JSON.parse(localStorage.getItem(`md_lsd_${currentUser.id}`) || '{}'); } catch(e) { return {}; }
+}
+function saveLocalStudiedDB(db) {
+    if (!currentUser) return;
+    try { localStorage.setItem(`md_lsd_${currentUser.id}`, JSON.stringify(db)); } catch(e) {}
+}
+function markCardStudied(deckId, wordText) {
+    if (!deckId || !wordText) return;
+    const db = getLocalStudiedDB();
+    if (!db[deckId]) db[deckId] = { words: {}, count: 0 };
+    if (!db[deckId].words[wordText]) {
+        db[deckId].words[wordText] = true;
+        db[deckId].count++;
+        saveLocalStudiedDB(db);
+    }
+}
+function getLocalStudiedCount(deckId) {
+    const db = getLocalStudiedDB();
+    return db[deckId] ? db[deckId].count : 0;
+}
 let boostState = { maxRounds: 10, currentRound: 1, correct: 0, wrong: 0, mode: '10', history: [] };
 let boostTimer = null;
 let currentBoostGame = 0; // 1 to 5
@@ -14124,6 +14148,8 @@ async function answerCurrent(q) {
     
     // Nhét thẻ vừa quẹt vào mảng chờ
     srsPendingQueue.push(payload);
+    // 🟢 LOCAL TRACKING: ghi nhận thẻ này đã được ôn
+    if (currentDeckName && c.front) markCardStudied(currentDeckName, c.front);
     // Chỉ tự động gửi lên Cloud khi mảng chờ tích lũy đủ 15 thẻ
     if (srsPendingQueue.length >= 15) {
         flushSrsQueue();
@@ -14326,6 +14352,41 @@ async function renderManageDeckList() {
         if (cachedStats) globalDeckStatsMap = JSON.parse(cachedStats);
     }
 
+    // 🟢 SEED LOCAL STUDIED từ rawDeckCache + sessionStorage (tiến độ cũ trước khi có local tracking)
+    try {
+        let seeded = false;
+        const db = getLocalStudiedDB();
+        // 优先从 RAM (rawDeckCache)
+        const sources = [];
+        if (window.rawDeckCache) Object.assign(sources, window.rawDeckCache);
+        // Thêm từ sessionStorage nếu chưa có
+        if (currentUser) {
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const key = sessionStorage.key(i);
+                if (key && key.startsWith('minddeck_deck_cache_')) {
+                    const deckId = key.replace('minddeck_deck_cache_', '');
+                    if (!sources[deckId]) {
+                        try { sources[deckId] = JSON.parse(sessionStorage.getItem(key)); }
+                        catch(e) {}
+                    }
+                }
+            }
+        }
+        for (const [deckId, cards] of Object.entries(sources)) {
+            if (!Array.isArray(cards)) continue;
+            if (!db[deckId]) db[deckId] = { words: {}, count: 0 };
+            for (const card of cards) {
+                const interval = card.progress && card.progress[0] && card.progress[0].interval;
+                if (interval && parseInt(interval) > 0 && card.front && !db[deckId].words[card.front]) {
+                    db[deckId].words[card.front] = true;
+                    db[deckId].count++;
+                    seeded = true;
+                }
+            }
+        }
+        if (seeded) saveLocalStudiedDB(db);
+    } catch(e) { console.warn('Seed local studied error:', e); }
+
     // NÚT TẠO MỚI (Luôn hiển thị đầu tiên)
     const addCardHTML = `
         <div class="deck-card" style="border: 2px dashed #cbd5e0; border-top: 2px dashed #cbd5e0 !important; background: #fbfbfd; height: 120px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: none;" onclick="openCreateDeckModal()">
@@ -14347,30 +14408,28 @@ async function renderManageDeckList() {
         return 4;
     };
 
-    // Xác định trạng thái từng bộ bài
-    // Hoạt động với CẢ old SQL (không due_now) và new SQL (có due_now, studied chính xác)
+    // 🟢 XÁC ĐỊNH TRẠNG THÁI BỘ BÀI (xây mới hoàn toàn)
+    // KHÔNG dùng server `studied` (hay sai). Dùng local tracking + server `due` + `total`.
+    // local_studied: số thẻ user THỰC SỰ đã quẹt SRS (đếm ở client)
+    // due (server): pc.due + (total - studied_server) = thẻ cần ôn + thẻ chưa có mastery
     const getDeckStatus = (d) => {
-        const s = globalDeckStatsMap[d.id] || { total: 0, due: 0, studied: 0 };
-        const total = parseInt(s.total || 0);
-        const due = parseInt(s.due || 0);
-        const studied = parseInt(s.studied || 0);
-        const hasDueNow = s.due_now !== undefined;
+        const s = globalDeckStatsMap[d.id];
+        const total = s ? parseInt(s.total || 0) : 0;
+        const due = s ? parseInt(s.due || 0) : 0;
+        const localStudied = getLocalStudiedCount(d.id);
 
         if (total === 0) return 'notstudied';
-
-        if (hasDueNow) {
-            // NEW SQL: studied chính xác (chỉ interval > 0), due_now có sẵn
-            if (studied === 0) return 'notstudied';
-            const due_now = parseInt(s.due_now || 0);
-            if (due_now > 0) return 'due';
-            if (studied < total) return 'studying';
-            return 'completed';
-        } else {
-            // OLD SQL: studied có thể sai (đếm cả record rỗng), chỉ dùng due + total
-            if (due >= total) return 'notstudied'; // chưa có mastery record nào
-            if (due > 0) return 'studying';     // còn thẻ cần học/ôn
-            return 'completed';                  // due=0 → hoặc đã xong hoặc sai data
+        if (localStudied === 0) {
+            // Chưa ôn thẻ nào qua SRS → dùng due để phân biệt
+            return (due >= total) ? 'notstudied' : 'notstudied';
         }
+        // Đã ôn ít nhất 1 thẻ
+        // due_now = thẻ ĐẾN HẠN ôn ngay = due - (total - localStudied)
+        const neverTouched = Math.max(0, total - localStudied);
+        const dueNow = Math.max(0, due - neverTouched);
+        if (dueNow > 0) return 'due';         // đỏ: có thẻ đến hạn
+        if (localStudied < total) return 'studying'; // xanh dương: còn thẻ chưa ôn
+        return 'completed';                      // xanh lá: ôn hết rồi
     };
 
     coreDecks.sort((a, b) => {
@@ -14404,10 +14463,6 @@ async function renderManageDeckList() {
         card.onclick = () => { openStudyOptionsModal(d.id, getCleanName(d.id), 'flashcard'); };
         
         // 🟢 GHÉP RUỘT (Lấy thông số từ Map O(1))
-        const myStats = globalDeckStatsMap[d.id] || { total: 0, due: 0, studied: 0 };
-        const total = parseInt(myStats.total || 0);
-        const due = parseInt(myStats.due || 0);
-        const studied = parseInt(myStats.studied || 0);
         const deckStatus = getDeckStatus(d);
         
         // Màu border-top theo 4 trạng thái
