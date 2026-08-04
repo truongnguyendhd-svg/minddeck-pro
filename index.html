@@ -10338,16 +10338,24 @@ async function loadDashboardData() {
             currentUser.daily_stats = data.daily_stats;
             
             if (data.deck_stats) {
-                // Bao ve total_reviews local truoc khi server ghi de (server khong co total_reviews)
-                const savedReviews = {};
+                // Bao ve due, studied, total_reviews local truoc khi server ghi de
+                // Server khong biet cac thẻ vua review chua flush (lô 15 thẻ), nên local phai bảo vệ
+                const savedLocal = {};
                 for (const [k, v] of Object.entries(globalDeckStatsMap)) {
-                    if (v.total_reviews) savedReviews[k] = v.total_reviews;
+                    savedLocal[k] = {
+                        due: v.due,
+                        studied: v.studied,
+                        total_reviews: v.total_reviews
+                    };
                 }
                 globalDeckStatsMap = {}; 
                 data.deck_stats.forEach(stat => {
                     globalDeckStatsMap[stat.id] = stat;
-                    if (savedReviews[stat.id]) {
-                        globalDeckStatsMap[stat.id].total_reviews = savedReviews[stat.id];
+                    const sl = savedLocal[stat.id];
+                    if (sl) {
+                        globalDeckStatsMap[stat.id].due = sl.due;
+                        globalDeckStatsMap[stat.id].studied = sl.studied;
+                        globalDeckStatsMap[stat.id].total_reviews = sl.total_reviews || 0;
                     }
                 });
                 localStorage.setItem(`minddeck_decks_stats_${userId}`, JSON.stringify(globalDeckStatsMap));
@@ -14129,6 +14137,10 @@ async function answerCurrent(q) {
         myStats.total_reviews = (myStats.total_reviews || 0) + 1;
         // due (server la count): giam 1 vi vua xu ly xong 1 thẻ
         myStats.due = Math.max(0, parseInt(myStats.due || 0) - 1);
+        // studied: tang 1 khi day la lan dau hoc thẻ nay (chua co mastery)
+        if (!p) {
+            myStats.studied = (parseInt(myStats.studied) || 0) + 1;
+        }
 
         // Lưu xuống ổ cứng ngay lập tức
         localStorage.setItem(`minddeck_decks_stats_${currentUser.id}`, JSON.stringify(globalDeckStatsMap));
