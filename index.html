@@ -7735,7 +7735,7 @@ body.modal-open-lock #scrollToTopBtn {
                 </div>
                 <!-- ===========HẾT VÙNG CHỦ ĐỀ & AI GENERATOR=================================================== -->
                 <!-- 3. KHỐI CHÚ THÍCH MÀU SẮC (Di chuyển xuống dưới khối AI học theo chủ đề) -->
-                <div id="deckSortBar" style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -15px 0 25px 0; font-size: 12px; font-weight: 600; background: #fbfbfd; padding: 10px 16px; border-radius: 12px; border: 1px solid #edf2f7; width: 100%; box-sizing: border-box;">
+                <div id="deckSortBar" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; margin: -15px 0 25px 0; font-size: 12px; font-weight: 600; background: #fbfbfd; padding: 10px 16px; border-radius: 12px; border: 1px solid #edf2f7; width: 100%; box-sizing: border-box;">
                     <button class="deck-sort-btn active" data-sort="review" onclick="setDeckSort('review')"><span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;"></span> Cần ôn</button>
                     <button class="deck-sort-btn" data-sort="studying" onclick="setDeckSort('studying')"><span style="width:8px;height:8px;border-radius:50%;background:#3b82f6;display:inline-block;"></span> Đang học</button>
                     <button class="deck-sort-btn" data-sort="completed" onclick="setDeckSort('completed')"><span style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;"></span> Đã xong</button>
@@ -14117,7 +14117,9 @@ async function answerCurrent(q) {
     if (mode === 'review' && globalDeckStatsMap[currentDeckName]) {
         let myStats = globalDeckStatsMap[currentDeckName];
         
-        // Thẻ cũ tới hạn ôn tập (quẹt xong thì trừ đi 1)
+         // Dem tong luot on tap (moi lan quet the la +1, du the moi hay cu)
+        myStats.total_reviews = (myStats.total_reviews || 0) + 1;
+       // Thẻ cũ tới hạn ôn tập (quẹt xong thì trừ đi 1)
         if (p && p.due <= new Date().toISOString()) {
             myStats.due = Math.max(0, myStats.due - 1);
         }
@@ -14367,9 +14369,11 @@ async function renderManageDeckList() {
     const getDeckStatus = (d) => {
         const s = globalDeckStatsMap[d.id] || { total: 0, due: 0, studied: 0 };
         const total = parseInt(s.total || 0), due = parseInt(s.due || 0), studied = parseInt(s.studied || 0);
+        const totalReviews = parseInt(s.total_reviews || 0);
         if (total === 0) return 'notstudied';
+        if (studied === 0 && total > 0) return 'notstudied';
         if (due > 0) return 'review';
-        if (studied >= total) return 'completed';
+        if (studied >= total && due === 0 && totalReviews >= total * 2) return 'completed';
         return 'studying';
     };
 
@@ -14410,11 +14414,12 @@ async function renderManageDeckList() {
         const studied = parseInt(myStats.studied || 0);
         
         // Đặt màu sắc border-top đại diện cho trạng thái thẻ học
-        let borderColor = '#94a3b8';
+        let borderColor = '#cbd5e0';
         if (total === 0) borderColor = '#cbd5e0';
+        else if (studied === 0) borderColor = '#cbd5e0';
         else if (due > 0) borderColor = '#ef4444';
-        else if (studied > 0 && studied < total) borderColor = '#3b82f6';
-        else if (studied >= total) borderColor = '#10b981';
+        else if (studied >= total && due === 0 && (parseInt(globalDeckStatsMap[d.id].total_reviews || 0) >= total * 2)) borderColor = '#10b981';
+        else borderColor = '#3b82f6';
 
         card.style.setProperty('border-top', `4px solid ${borderColor}`, 'important');
 
