@@ -803,10 +803,81 @@ body {
     z-index: 10;
 }
 .btn-info-inside:hover {
-    color: #ed8936; /* Cam đậm hơn một chút */
-    background: rgba(246, 173, 85, 0.1); /* Nền cam mờ nhẹ */
+    color: #ed8936;
+    background: rgba(246, 173, 85, 0.1);
 }
-/* NÚT SỬA THẺ TRỰC TIẾP (GÓC TRÊN BÊN PHẢI) */
+/* BOTTOM SHEET INFO PANEL (truot tu duoi len) */
+.info-bottom-sheet-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    border-radius: inherit;
+    overflow: hidden;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+.info-bottom-sheet-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+.info-bottom-sheet-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(251, 251, 253, 0.92);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    cursor: pointer;
+}
+.info-bottom-sheet {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    transform: translateY(100%);
+    transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    padding: 20px 20px 60px 20px;
+    border-radius: 20px 20px 0 0;
+    background: rgba(251, 251, 253, 0.95);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+.info-bottom-sheet-overlay.open .info-bottom-sheet {
+    transform: translateY(0);
+}
+.info-bottom-sheet .ibs-handle {
+    width: 36px;
+    height: 4px;
+    background: rgba(0,0,0,0.12);
+    border-radius: 2px;
+    margin: 0 auto 14px auto;
+}
+.info-bottom-sheet .ibs-title {
+    font-size: 12px;
+    font-weight: 800;
+    color: #86868b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+/* Dark mode cho bottom sheet */
+.dark-card-mode .info-bottom-sheet-overlay .info-bottom-sheet {
+    background: rgba(30, 41, 59, 0.95);
+}
+.dark-card-mode .info-bottom-sheet-overlay .info-bottom-sheet-backdrop {
+    background: rgba(30, 41, 59, 0.92);
+}
+.dark-card-mode .info-bottom-sheet-overlay .ibs-title {
+    color: #94a3b8;
+}
+/* NUT SUA THE TRUC TIEP (GOC TREN BÊN PHAI) */
 .btn-edit-inside {
     position: absolute;
     top: 15px;
@@ -11700,7 +11771,8 @@ function renderStudy() {
     
     // Các nút chức năng nhỏ trên thẻ
     const editBtnHTML = `<button onclick="openQuickEdit(event)" class="btn-edit-inside" title="Sửa thẻ nhanh"><span class="material-symbols-outlined" style="font-size:22px;">edit</span></button>`;
-    const infoBtnHTML = `<button onclick="handleInfoClick(event)" class="btn-info-inside" title="Thông tin phụ"><span class="material-symbols-outlined" style="font-size:24px;">lightbulb</span></button>`;
+    const infoBtnHTML = `<button onclick="handleInfoClick(event)" class="btn-info-inside" title="Thông tin phụ" style="z-index:25;"><span class="material-symbols-outlined" style="font-size:24px;">lightbulb</span></button>`;
+    const infoOverlayHTML = `<div id="infoBottomSheetOverlay" class="info-bottom-sheet-overlay" onclick="if(event.target===this||event.target.classList.contains('info-bottom-sheet-backdrop'))toggleInfoBottomSheet()"><div class="info-bottom-sheet-backdrop"></div><div class="info-bottom-sheet" id="infoBottomSheetContent"></div></div>`;
     
     let starBtnHTML = "";
     if (mode === 'remedial') {
@@ -11754,11 +11826,11 @@ function renderStudy() {
             const dynamicSize = getDynamicFontSize(questionText);
             displayHTML = `<b style="font-size: ${dynamicSize};">${wrapKanjiWithLink(escapeHTML(questionText))}</b>`;
         }
-        cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + flipBtnHTML + displayHTML + infoBtnHTML;
+        cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + flipBtnHTML + displayHTML + infoOverlayHTML + infoBtnHTML;
     } else {
         const answerText = isRev ? c.front : c.back;
         const dynamicSize = getDynamicFontSize(answerText);
-        cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + flipBtnHTML + `<i style="font-size: ${dynamicSize};">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoBtnHTML;
+        cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + flipBtnHTML + `<i style="font-size: ${dynamicSize};">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoOverlayHTML + infoBtnHTML;
     }
 
     // 3. ✨ LOGIC NÚT ĐIỀU HƯỚNG REMEDIAL (NỀN TRẮNG, CHỮ ĐEN, VIỀN MẢNH - CHUẨN HEADER)
@@ -14312,6 +14384,10 @@ function nextCard() {
 function flipCard() {
     if (mode === 'test') return;
 
+    // Dong bottom sheet info neu dang mo
+    const bs = document.getElementById('infoBottomSheetOverlay');
+    if (bs && bs.classList.contains('open')) { bs.classList.remove('open'); document.body.classList.remove('modal-open-lock'); }
+
     // Đóng cram dropdown nếu đang mở
     const menu = document.getElementById('cramLevelDropdownMenu');
     if (menu) menu.style.display = 'none';
@@ -15569,8 +15645,79 @@ function applyCardTheme() {
     }
 }
 function handleInfoClick(event) {
-    event.stopPropagation(); // Ngăn việc click nút Info làm lật thẻ
-    showInfoModal();
+    event.stopPropagation();
+    toggleInfoBottomSheet();
+}
+function toggleInfoBottomSheet() {
+    let overlay = document.getElementById('infoBottomSheetOverlay');
+    if (!overlay) return;
+    const isOpen = overlay.classList.contains('open');
+    if (isOpen) {
+        overlay.classList.remove('open');
+        document.body.classList.remove('modal-open-lock');
+    } else {
+        // Render noi dung vao bottom sheet
+        renderInfoBottomSheetContent();
+        overlay.classList.add('open');
+        document.body.classList.add('modal-open-lock');
+    }
+}
+function renderInfoBottomSheetContent() {
+    const sheet = document.getElementById('infoBottomSheetContent');
+    if (!sheet) return;
+    const c = sessionCards[currentIndex];
+    if (!c) return;
+    const parsed = parseCardData(c);
+    let html = '<div class="ibs-handle"></div>';
+    html += '<div class="ibs-title"><span class="material-symbols-outlined" style="font-size:18px;">info</span> Thong tin phu</div>';
+    let hasInfo = false;
+    html += '<div style="display: flex; flex-direction: column; gap: 12px;">';
+    // KHOI 1: Hien thi mat truoc/sau + phien am
+    html += '<div style="padding: 10px 0 15px 0; text-align: center;">';
+    if (parsed.reading) html += '<div style="font-size: 20px; font-weight: 800; color: #4a5568; margin-bottom: 8px;">' + escapeHTML(parsed.reading) + '</div>';
+    html += '<div style="font-size: 46px; font-weight: 900; color: #1d1d1f; margin-bottom: 8px; font-family: Noto Sans JP, sans-serif; line-height: 1.2;">' + wrapKanjiWithLink(escapeHTML(parsed.front)) + '</div>';
+    if (parsed.hv && parsed.hv.trim() && parsed.hv.trim().toUpperCase() !== 'N/A') html += '<div style="font-size: 16px; font-weight: 700; color: #c50f1f; margin-bottom: 10px;">[' + escapeHTML(parsed.hv) + ']</div>';
+    html += '<div style="font-size: 18px; font-weight: 600; color: #4a5568; line-height: 1.5;">' + escapeHTML(parsed.meaning) + '</div>';
+    html += '</div>';
+    // KHOI 2: Thong tin phu
+    if (c.info && c.info.trim() !== '') {
+        let structureText = parsed.structure || '';
+        let nuanceText = parsed.nuance || '';
+        let otherInfo = c.info.trim().replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '').replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '').trim();
+        let displayParts = [];
+        if (structureText) displayParts.push({ label: 'Cau truc', text: structureText });
+        if (nuanceText) displayParts.push({ label: 'Sac thai', text: nuanceText });
+        if (otherInfo) displayParts.push({ label: '', text: otherInfo });
+        if (displayParts.length > 0) {
+            hasInfo = true;
+            const cleanInfoText = displayParts.map(function(p) {
+                const cleanText = escapeHTML(p.text).replace(/\|/g, '<br><br>');
+                return p.label ? '<b style="color:#0067c0;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">' + p.label + '</b><br>' + cleanText : cleanText;
+            }).join('<br><br>');
+            html += '<div class="glass-info-card" style="background:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.6);padding:14px;border-radius:20px;box-shadow:0 4px 12px rgba(0,0,0,0.02);"><div style="font-size:12px;font-weight:800;color:#86868b;margin-bottom:8px;display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:0.5px;"><span class="material-symbols-outlined" style="font-size:18px;">edit_note</span> Ghi chu / Cau truc</div><div style="font-size:15px;color:#1d1d1f;line-height:1.6;font-weight:500;">' + cleanInfoText + '</div></div>';
+        }
+    }
+    if (parsed.exampleJP) { hasInfo = true; html += buildExampleSentenceBlock(c.id, 1, parsed.exampleJP, parsed.romaji1, parsed.exampleVN); }
+    if (parsed.ex2jp) { hasInfo = true; html += buildExampleSentenceBlock(c.id, 2, parsed.ex2jp, parsed.romaji2, parsed.ex2vn); }
+    if (!hasInfo && c.info && c.info.trim() !== '') {
+        let fallbackInfo = c.info.trim().replace(/\[(HV|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '').replace(/\[(HV|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '').trim();
+        if (fallbackInfo) { hasInfo = true; html += '<div style="background:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.6);padding:14px;border-radius:20px;font-size:15px;color:#1d1d1f;line-height:1.6;white-space:pre-wrap;box-shadow:0 4px 12px rgba(0,0,0,0.02);">' + escapeHTML(fallbackInfo) + '</div>'; }
+    }
+    if (!hasInfo) {
+        html += '<div style="text-align:center;padding:25px 10px;color:#86868b;border:1px dashed rgba(0,0,0,0.1);border-radius:20px;background:rgba(255,255,255,0.3);"><span class="material-symbols-outlined" style="font-size:32px;margin-bottom:10px;opacity:0.5;">speaker_notes_off</span><div style="font-size:14px;font-weight:500;">The nay chua co thong tin phu hoac vi du.</div><button onclick="autoFetchMaziiInfoForCard(event)" class="win11-btn-secondary" style="margin:15px auto 0 auto;display:flex;align-items:center;gap:8px;font-weight:700;border-radius:50px;justify-content:center;width:fit-content;padding:10px 20px;"><span class="material-symbols-outlined" style="font-size:18px;color:#0067c0;">sync_alt</span> Tu dong nap tu Mazii</button></div>';
+    }
+    // KHOI 3: Nut AI
+    html += '<div style="position:relative;width:100%;display:flex;flex-direction:column;align-items:center;margin-top:15px;">';
+    html += '<div id="aiDropdownMenu" style="display:none;position:absolute;bottom:calc(100% + 10px);background:rgba(28,28,30,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.15);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,0.2);padding:6px;width:max-content;min-width:200px;flex-direction:column;gap:4px;z-index:1000;">';
+    html += '<button onclick="executeAiAction(\'mnemonic\')" style="background:transparent;border:none;color:#fff;padding:12px 16px;text-align:left;font-size:14px;font-weight:500;border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:0.2s;" onmouseover="this.style.background=\'rgba(255,255,255,0.1)\'" onmouseout="this.style.background=\'transparent\'"><span class="material-symbols-outlined" style="font-size:18px;color:#a8c0ff;">lightbulb</span> Meo nho cach doc</button>';
+    html += '<div style="height:1px;background:rgba(255,255,255,0.1);margin:2px 8px;"></div>';
+    html += '<button onclick="executeAiAction(\'examples\')" style="background:transparent;border:none;color:#fff;padding:12px 16px;text-align:left;font-size:14px;font-weight:500;border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:0.2s;" onmouseover="this.style.background=\'rgba(255,255,255,0.1)\'" onmouseout="this.style.background=\'transparent\'"><span class="material-symbols-outlined" style="font-size:18px;color:#ff8a00;">draw</span> Doi cau vi du (Max 2)</button>';
+    html += '</div>';
+    html += '<button id="btnAiFab" onclick="toggleAiDropdown()" style="width:100%;padding:14px;background:rgba(255,255,255,0.4);border:1.5px dashed rgba(0,0,0,0.15);border-radius:20px;color:#1d1d1f;font-size:14px;font-weight:800;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:all 0.2s ease;" onmouseover="this.style.background=\'rgba(255,255,255,0.8)\';this.style.borderColor=\'rgba(0,0,0,0.3)\';" onmouseout="this.style.background=\'rgba(255,255,255,0.4)\';this.style.borderColor=\'rgba(0,0,0,0.15)\';"><span id="aiFabIcon" class="material-symbols-outlined" style="font-size:20px;background:linear-gradient(135deg,#a8c0ff,#ff8a00);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">auto_awesome</span>THEM THONG TIN</button>';
+    html += '</div>';
+    html += '<div id="aiGenericResultZone" style="display:none;margin-top:15px;animation:fadeInChat 0.3s ease;"></div>';
+    html += '</div>';
+    sheet.innerHTML = html;
 }
 // ================= CÁC HÀM SỬA/XÓA THẺ NHANH KHI ĐANG HỌC =================
 
