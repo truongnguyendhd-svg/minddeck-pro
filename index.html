@@ -16963,13 +16963,14 @@ async function startKanjiHebi(level) {
     const canvas = document.getElementById('khGameCanvas');
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const hudH = 50; // approximate HUD + prompt height
+    const hudH = 50; // approximate HUD height
+    const promptH = 90; // prompt label + text area
     const controlsH = window.innerWidth <= 768 ? 130 : 0;
-    const padding = 24;
+    const padding = 16;
     const availW = vw - padding * 2;
-    const availH = vh - hudH - controlsH - padding;
-    const maxSize = Math.min(availW, availH, 800);
-    const GRID = 14; // 14x14 grid for bigger cells
+    const availH = vh - hudH - promptH - controlsH - padding * 2;
+    const maxSize = Math.min(availW, availH, 960);
+    const GRID = 12; // 12x12 grid for bigger cells & clearer text
     const cellSize = Math.floor(maxSize / GRID);
     const canvasSize = cellSize * GRID;
     canvas.width = canvasSize;
@@ -17220,9 +17221,9 @@ class KanjiHebiGame {
         this.spawnParticles(food.x, food.y, '#34d399');
         this.showFloatFeedback(food.x, food.y, `+${pts}`, 'correct');
 
-        // Next target
-        this.spawnFood();
+        // Next target — MUST pick new target FIRST so food matches the new prompt
         this.pickNewTarget();
+        this.spawnFood();
         this.updateHUD();
     }
 
@@ -17317,8 +17318,13 @@ class KanjiHebiGame {
 
     // --- Pick a new target word to ask about ---
     pickNewTarget() {
-        if (this.wordIndex >= this.words.length) this.wordIndex = 0;
-        this.currentTarget = this.words[this.wordIndex++];
+        // Safety: skip words with empty _wordText
+        let attempts = 0;
+        do {
+            if (this.wordIndex >= this.words.length) this.wordIndex = 0;
+            this.currentTarget = this.words[this.wordIndex++];
+            attempts++;
+        } while ((!this.currentTarget._wordText || !this.currentTarget.meaning) && attempts < this.words.length);
         this.updatePrompt();
     }
 
@@ -17334,9 +17340,11 @@ class KanjiHebiGame {
     updatePrompt() {
         const w = this.currentTarget;
         let meaning = w.meaning || w.vn_meaning || w.english || '';
-        // Take first meaning only (remove numbered lists like "1. xxx 2. yyy")
+        // Take first meaning only
         if (meaning.includes('\n')) meaning = meaning.split('\n')[0];
-        meaning = meaning.replace(/^\d+\.\s*/, '').trim();
+        // Remove ALL numbered prefixes: "1. xxx; 2. yyy" → "xxx"
+        meaning = meaning.replace(/;\s*\d+\.\s+.+$/, '').trim(); // remove "; 2. yyy" and after
+        meaning = meaning.replace(/^\d+\.\s*/, '').trim(); // remove leading "1. "
         let reading = w.reading || w.kana || '';
         // Only show first reading (D1 stores comma-separated readings)
         if (reading.includes(',')) reading = reading.split(',')[0].trim();
@@ -17480,9 +17488,9 @@ class KanjiHebiGame {
             // Text — big and clear
             ctx.fillStyle = '#e2e8f0';
             let label = f.wordObj._wordText;
-            if (label.length > 4) label = label.slice(0, 4);
-            const fontSize = Math.max(12, CELL * 0.52);
-            ctx.font = `bold ${fontSize}px Noto Sans JP`;
+            if (label.length > 3) label = label.slice(0, 3);
+            const fontSize = Math.max(16, CELL * 0.6);
+            ctx.font = `bold ${fontSize}px Noto Sans JP, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(label, px + CELL/2, py + CELL/2);
