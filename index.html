@@ -4035,7 +4035,39 @@ body.pdf-mode #pdfReadState {
     .study-content-wrapper.has-memory-test #studySidebarBackdrop {
         display: none !important;
     }
-    /* ===== BOTTOM SHEET: Ẩn toàn bộ khi memory test, chỉ giữ example block đang test ===== */
+    /* ===== AI RESULT ZONE: Dim nền khi hiện kết quả AI ===== */
+#studyOptionsModal.ai-zone-open .study-main-area > .study-modal-body,
+#studyOptionsModal.ai-zone-open .study-toolbar,
+#studyOptionsModal.ai-zone-open .study-modal-footer,
+#studyOptionsModal.ai-zone-open #studyStatusBadge {
+    opacity: 0.25;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+#remedialReviewModal.ai-zone-open #remedialCardBody,
+#remedialReviewModal.ai-zone-open .remedial-toolbar,
+#remedialReviewModal.ai-zone-open .remedial-footer,
+#remedialReviewModal.ai-zone-open #remedialStatusBadge {
+    opacity: 0.25;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+.info-bottom-sheet.ai-zone-open > .ibs-handle,
+.info-bottom-sheet.ai-zone-open > div:nth-child(2),
+.info-bottom-sheet.ai-zone-open > div:nth-child(3) > *:not(#ibsAiResultZone) {
+    opacity: 0.25;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+/* AI zone luôn nổi bật khi dim */
+.ai-zone-open #studyAiResultZone,
+.ai-zone-open #remedialAiResultZone,
+.ai-zone-open #ibsAiResultZone {
+    position: relative;
+    z-index: 10;
+}
+
+/* ===== BOTTOM SHEET: Ẩn toàn bộ khi memory test, chỉ giữ example block đang test ===== */
     /* Ẩn handle + header (THÔNG TIN PHỤ) + AI zone */
     .info-bottom-sheet.memory-test-active > .ibs-handle,
     .info-bottom-sheet.memory-test-active > div:nth-child(2),
@@ -26039,6 +26071,7 @@ async function executeAiAction(actionType) {
             
             zone.innerHTML = renderAiResultCard('lightbulb', 'MẸO NHỚ ÂM THANH', formatted, 'saveMnemonicToCard()', 'Lưu vào Ghi chú');
             zone.style.display = 'block';
+            setAiZoneDim(true);
 
         // ==========================================
         // CHẾ ĐỘ 2: ĐỔI CÂU VÍ DỤ (ƯU TIÊN QWEN 3.6 27B QUA GROQ)
@@ -26132,12 +26165,14 @@ async function executeAiAction(actionType) {
 
             zone.innerHTML = renderAiResultCard('draw', 'VÍ DỤ TỪ CLOUD', htmlPreview, 'saveExamplesToCard()', 'Lưu đè Ví dụ');
             zone.style.display = 'block';
+            setAiZoneDim(true);
         }
     } catch (err) {
         console.error("Lỗi tương tác AI trong Info Modal:", err);
         customAlert("Không thể thực hiện tác vụ AI do lỗi kết nối mạng.", "❌ Lỗi kết nối");
+        setAiZoneDim(false);
     } finally {
-        setAiFabLoading(false); // Giải phóng nút AI quay tròn về mặc định
+        setAiFabLoading(false);
         // [FIX] Cuộn bottom sheet xuống để user thấy khối kết quả AI
         setTimeout(() => {
             // Cuộn infoModal cũ (nếu đang mở)
@@ -26160,16 +26195,50 @@ async function executeAiAction(actionType) {
 }
 
 // Hàm render UI khối kết quả xài chung
+function dismissAiResult() {
+    // Ẩn tất cả AI result zones
+    ['studyAiResultZone', 'remedialAiResultZone', 'ibsAiResultZone', 'aiGenericResultZone'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+    });
+    // Bỏ dim background trên tất cả modal/bottom sheet
+    ['studyOptionsModal', 'remedialReviewModal', 'infoBottomSheetContent'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('ai-zone-open');
+    });
+    window.tempAiData = null;
+}
+
+function setAiZoneDim(show) {
+    // Tìm modal/bottom sheet đang mở và thêm/bỏ class dim
+    const targets = [
+        { el: document.getElementById('studyOptionsModal'), check: () => document.getElementById('studyOptionsModal')?.style.display === 'flex' },
+        { el: document.getElementById('remedialReviewModal'), check: () => document.getElementById('remedialReviewModal')?.style.display === 'flex' },
+        { el: document.getElementById('infoBottomSheetContent'), check: () => document.getElementById('infoBottomSheetOverlay')?.classList.contains('open') },
+    ];
+    targets.forEach(t => {
+        if (t.el && t.check()) {
+            if (show) t.el.classList.add('ai-zone-open');
+            else t.el.classList.remove('ai-zone-open');
+        }
+    });
+}
+
 function renderAiResultCard(icon, title, content, onClickFn, btnText) {
     return `
-        <div style="background: rgba(251, 251, 253, 0.85); backdrop-filter: blur(20px); border: 1px solid rgba(0, 0, 0, 0.05); border-radius: 16px; padding: 20px; margin-bottom: 60px; font-size: 15px; color: #333336; line-height: 1.6; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);">
-            <div style="font-size: 12px; font-weight: 800; color: #1d1d1f; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+        <div style="background: rgba(251, 251, 253, 0.92); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(0, 0, 0, 0.06); border-radius: 16px; padding: 20px; margin-bottom: 60px; font-size: 15px; color: #333336; line-height: 1.6; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12); position: relative; z-index: 10;">
+            <div style="font-size: 12px; font-weight: 800; color: #1d1d1f; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                 <div style="display: flex; align-items: center; gap: 6px; opacity: 0.6;">
                     <span class="material-symbols-outlined" style="font-size: 16px;">${icon}</span> ${title}
                 </div>
-                <button onclick="${onClickFn}" style="background: #1d1d1f; color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; flex-shrink: 0;">
-                    <span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">bookmark_add</span> ${btnText}
-                </button>
+                <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                    <button onclick="dismissAiResult()" style="background: rgba(0,0,0,0.06); color: #6b7280; padding: 10px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; transition: 0.15s;" onmouseover="this.style.background='rgba(0,0,0,0.1)'" onmouseout="this.style.background='rgba(0,0,0,0.06)'">
+                        <span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">close</span> Hủy
+                    </button>
+                    <button onclick="${onClickFn}" style="background: #1d1d1f; color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; flex-shrink: 0; transition: 0.15s;" onmouseover="this.style.background='#333'" onmouseout="this.style.background='#1d1d1f'">
+                        <span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">bookmark_add</span> ${btnText}
+                    </button>
+                </div>
             </div>
             <div style="font-size: 16px;">${content}</div>
         </div>
@@ -26189,7 +26258,8 @@ async function saveMnemonicToCard() {
         
         let newInfo = buildInfoString(newHv, p.exampleJP, p.exampleVN, p.ex2jp, p.ex2vn);
         await updateCardInfo(c, newInfo);
-    } catch (e) { customAlert("Lỗi lưu: " + e.message, "❌"); }
+        dismissAiResult();
+    } catch (e) { customAlert("Lỗi lưu: " + e.message, "❌"); setAiZoneDim(false); }
 }
 
 async function saveExamplesToCard() {
@@ -26201,7 +26271,8 @@ async function saveExamplesToCard() {
         const p = parseCardData(c);
         let newInfo = buildInfoString(p.hv, window.tempAiData.jp1, window.tempAiData.vn1, window.tempAiData.jp2, window.tempAiData.vn2);
         await updateCardInfo(c, newInfo);
-    } catch (e) { customAlert("Lỗi lưu: " + e.message, "❌"); }
+        dismissAiResult();
+    } catch (e) { customAlert("Lỗi lưu: " + e.message, "❌"); setAiZoneDim(false); }
 }
 
 // Hàm phụ trợ đóng gói Info
