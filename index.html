@@ -834,10 +834,10 @@ body {
 .info-bottom-sheet-backdrop {
     display: none;
 }
-/* [FIX] Khi bottom sheet mo: cho phep #cardArea co lai de sheet scroll duoc */
+/* [FIX] Khi sheet mo: tat overflow cua #cardArea de sheet scroll khong bi conflict */
 .main-card-display:has(.info-bottom-sheet-overlay.open) {
-    min-height: 0 !important;
     overflow: hidden !important;
+    overscroll-behavior: contain;
 }
 .info-bottom-sheet {
     position: absolute;
@@ -848,6 +848,10 @@ body {
     height: 100%;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    /* [FIX] Ngan scroll chaining tu sheet len #cardArea */
+    overscroll-behavior: contain;
+    /* [FIX] Cho phep touch scroll doc (fix iOS Safari bug voi transform) */
+    touch-action: pan-y;
     -ms-overflow-style: none;
     scrollbar-width: none;
     transform: translateY(100%);
@@ -25936,16 +25940,20 @@ async function executeAiAction(actionType) {
             if (bsSheet && bsOverlay && bsOverlay.classList.contains('open')) {
                 // Force reflow để browser tính lại scrollHeight
                 void bsSheet.offsetHeight;
-                bsSheet.scrollTo({ top: bsSheet.scrollHeight, behavior: 'smooth' });
+                // [FIX] Dùng 'auto' (ngay lập tức) thay vì 'smooth' để user thấy kết quả AI ngay
+                const targetScroll = bsSheet.scrollHeight - bsSheet.clientHeight;
+                bsSheet.scrollTo({ top: targetScroll, behavior: 'auto' });
+                // Fallback: ép scrollTop trực tiếp (một số browser cần)
+                bsSheet.scrollTop = targetScroll;
             }
-        }, 80);
+        }, 150);
     }
 }
 
 // Hàm render UI khối kết quả xài chung
 function renderAiResultCard(icon, title, content, onClickFn, btnText) {
     return `
-        <div style="background: rgba(251, 251, 253, 0.85); backdrop-filter: blur(20px); border: 1px solid rgba(0, 0, 0, 0.05); border-radius: 16px; padding: 20px; font-size: 15px; color: #333336; line-height: 1.6; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);">
+        <div style="background: rgba(251, 251, 253, 0.85); backdrop-filter: blur(20px); border: 1px solid rgba(0, 0, 0, 0.05); border-radius: 16px; padding: 20px; margin-bottom: 60px; font-size: 15px; color: #333336; line-height: 1.6; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);">
             <div style="font-size: 12px; font-weight: 800; color: #1d1d1f; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 6px; opacity: 0.6;">
                     <span class="material-symbols-outlined" style="font-size: 16px;">${icon}</span> ${title}
