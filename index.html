@@ -834,10 +834,20 @@ body {
 .info-bottom-sheet-backdrop {
     display: none;
 }
-/* [FIX] Khi sheet mo: tat overflow cua #cardArea de sheet scroll khong bi conflict */
-.main-card-display:has(.info-bottom-sheet-overlay.open) {
+/* [FIX] Khi sheet mo: tat overflow cua #cardArea, cho phep co lai de sheet scroll day du */
+.main-card-display:has(.info-bottom-sheet-overlay.open),
+.main-card-display.bs-open {
     overflow: hidden !important;
     overscroll-behavior: contain;
+    /* height: 100% cua sheet se lay chieu cao nay */
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+}
+/* [FIX] Khi sheet mo: bao dam #cardArea co chieu cao day du (khong bi flex ep nho) */
+.main-card-display:has(.info-bottom-sheet-overlay.open) > .info-bottom-sheet-overlay,
+.main-card-display.bs-open > .info-bottom-sheet-overlay {
+    height: 100% !important;
+    display: block !important;
 }
 .info-bottom-sheet {
     position: absolute;
@@ -15683,14 +15693,20 @@ function toggleInfoBottomSheet() {
     let overlay = document.getElementById('infoBottomSheetOverlay');
     if (!overlay) return;
     const isOpen = overlay.classList.contains('open');
+    const cardArea = document.getElementById('cardArea');
     if (isOpen) {
         overlay.classList.remove('open');
         document.body.classList.remove('modal-open-lock');
+        if (cardArea) cardArea.classList.remove('bs-open');
     } else {
-        // Render noi dung vao bottom sheet
         renderInfoBottomSheetContent();
         overlay.classList.add('open');
         document.body.classList.add('modal-open-lock');
+        // [FIX] Toggle .bs-open tren #cardArea (backup cho :has() tren iOS Safari cu)
+        if (cardArea) cardArea.classList.add('bs-open');
+        // Scroll sheet len dau khi mo
+        const sheet = document.getElementById('infoBottomSheetContent');
+        if (sheet) sheet.scrollTop = 0;
     }
 }
 function renderInfoBottomSheetContent() {
@@ -28200,17 +28216,15 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId, vnTextId) {
         }
     }
 
-    // [FIX] Auto-scroll the container that holds the test zone so user sees the full test
+    // [FIX] Auto-scroll the container so user sees the full test zone
     // Works for BOTH: #studyCardBody (study modal) AND #infoBottomSheetContent (bottom sheet)
     setTimeout(() => {
-        // Find the closest scrollable ancestor of testFooter
-        // (could be #studyCardBody OR #infoBottomSheetContent)
         let scrollContainer = null;
         if (testFooter) {
             let el = testFooter.parentElement;
             while (el && el !== document.body) {
                 const style = window.getComputedStyle(el);
-                if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
+                if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
                     scrollContainer = el;
                     break;
                 }
@@ -28219,14 +28233,32 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId, vnTextId) {
         }
         if (scrollContainer && testFooter) {
             void scrollContainer.offsetHeight; // force reflow
+            // Scroll so testFooter is fully visible: scroll the bottom of testFooter
+            // to be ~50px above the bottom of the scrollContainer
             const footerRect = testFooter.getBoundingClientRect();
             const containerRect = scrollContainer.getBoundingClientRect();
-            const offset = (footerRect.bottom - containerRect.bottom) + 20;
+            const offset = (footerRect.bottom - containerRect.bottom) + 50;
             if (offset > 0) {
-                scrollContainer.scrollBy({ top: offset, behavior: 'smooth' });
+                scrollContainer.scrollTo({
+                    top: scrollContainer.scrollTop + offset,
+                    behavior: 'auto'
+                });
+            }
+            // Also scroll the bottom sheet's overlay parent (in case sheet itself is in an overflow:hidden parent)
+            const bsSheet = document.getElementById('infoBottomSheetContent');
+            if (bsSheet && bsSheet !== scrollContainer) {
+                const sRect = bsSheet.getBoundingClientRect();
+                const fRect = testFooter.getBoundingClientRect();
+                const sOffset = (fRect.bottom - sRect.bottom) + 50;
+                if (sOffset > 0) {
+                    bsSheet.scrollTo({
+                        top: bsSheet.scrollTop + sOffset,
+                        behavior: 'auto'
+                    });
+                }
             }
         }
-    }, 100);
+    }, 150);
 
     // 🟢 MỚI: Tạo/seek candidates bar cho memory test (port ra body)
     let mtBar = document.getElementById('memoryTestCandidatesBar');
