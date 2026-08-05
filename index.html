@@ -7798,13 +7798,13 @@ body.modal-open-lock #scrollToTopBtn {
 }
 .kh-game-hud {
     width: 100%;
-    max-width: 480px;
+    max-width: 700px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 12px;
+    padding: 8px 16px;
     color: #e2e8f0;
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 700;
 }
 .kh-hud-item {
@@ -7813,7 +7813,7 @@ body.modal-open-lock #scrollToTopBtn {
     gap: 4px;
 }
 .kh-hud-item .material-symbols-outlined { font-size: 18px; }
-.kh-hud-score { color: #fbbf24; font-size: 18px; }
+.kh-hud-score { color: #fbbf24; font-size: 20px; }
 .kh-hud-combo { color: #f472b6; }
 .kh-hud-combo.active { animation: kh-combo-pulse 0.3s ease; }
 @keyframes kh-combo-pulse {
@@ -7825,7 +7825,7 @@ body.modal-open-lock #scrollToTopBtn {
 .kh-hud-heart.lost { color: #334155; transform: scale(0.8); }
 .kh-game-prompt {
     width: 100%;
-    max-width: 480px;
+    max-width: 700px;
     text-align: center;
     padding: 10px;
     background: linear-gradient(135deg, #1e293b, #334155);
@@ -7841,16 +7841,16 @@ body.modal-open-lock #scrollToTopBtn {
     margin-bottom: 4px;
 }
 .kh-prompt-text {
-    font-size: 22px;
+    font-size: 28px;
     font-weight: 800;
     color: #f1f5f9;
     line-height: 1.3;
 }
 .kh-prompt-text .kh-reading {
-    font-size: 14px;
+    font-size: 16px;
     color: #94a3b8;
     font-weight: 500;
-    margin-left: 6px;
+    margin-left: 8px;
 }
 .kh-game-canvas-wrap {
     position: relative;
@@ -16959,21 +16959,30 @@ async function startKanjiHebi(level) {
     wrapper.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 
-    // Responsive canvas
+    // Full-screen responsive canvas
     const canvas = document.getElementById('khGameCanvas');
-    const maxW = Math.min(window.innerWidth - 32, 480);
-    const size = Math.floor(maxW / 20) * 20; // divisible by cell size
-    canvas.width = size;
-    canvas.height = size;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const hudH = 50; // approximate HUD + prompt height
+    const controlsH = window.innerWidth <= 768 ? 130 : 0;
+    const padding = 24;
+    const availW = vw - padding * 2;
+    const availH = vh - hudH - controlsH - padding;
+    const maxSize = Math.min(availW, availH, 800);
+    const GRID = 14; // 14x14 grid for bigger cells
+    const cellSize = Math.floor(maxSize / GRID);
+    const canvasSize = cellSize * GRID;
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
 
     // Show loading
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#1e293b';
-    ctx.fillRect(0, 0, size, size);
+    ctx.fillRect(0, 0, canvasSize, canvasSize);
     ctx.fillStyle = '#94a3b8';
     ctx.font = '16px Noto Sans JP';
     ctx.textAlign = 'center';
-    ctx.fillText('Dang tai tu vung...', size/2, size/2);
+    ctx.fillText('Dang tai tu vung...', canvasSize/2, canvasSize/2);
 
     try {
         const words = await fetchKanjiHebiWords(level);
@@ -16982,7 +16991,7 @@ async function startKanjiHebi(level) {
             exitKanjiHebi();
             return;
         }
-        khGame = new KanjiHebiGame(canvas, words);
+        khGame = new KanjiHebiGame(canvas, words, GRID);
         khGame.start();
     } catch (e) {
         console.error('Kanji Hebi init error:', e);
@@ -17029,14 +17038,15 @@ function exitKanjiHebi() {
    KANJI HEBI GAME CLASS
    ====================================================================== */
 class KanjiHebiGame {
-    constructor(canvas, words) {
+    constructor(canvas, words, grid = 14) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.words = words;
         this.wordIndex = 0;
-        this.CELL = Math.floor(canvas.width / 20);
-        this.COLS = Math.floor(canvas.width / this.CELL);
-        this.ROWS = Math.floor(canvas.height / this.CELL);
+        this.GRID = grid;
+        this.CELL = Math.floor(canvas.width / grid);
+        this.COLS = grid;
+        this.ROWS = grid;
 
         // Snake
         const cx = Math.floor(this.COLS / 2);
@@ -17053,7 +17063,7 @@ class KanjiHebiGame {
         this.lives = 3;
         this.maxLives = 3;
         this.state = 'countdown'; // countdown, playing, paused, over
-        this.speed = 160; // ms per tick
+        this.speed = 260; // ms per tick (slower start)
         this.lastTick = 0;
         this.accumulatedWords = []; // { word, reading, meaning, correct: bool }
 
@@ -17204,8 +17214,8 @@ class KanjiHebiGame {
             correct: true
         });
 
-        // Speed up slightly (cap at 80ms)
-        this.speed = Math.max(80, this.speed - 2);
+        // Speed up slightly (cap at 140ms)
+        this.speed = Math.max(140, this.speed - 1.5);
 
         this.spawnParticles(food.x, food.y, '#34d399');
         this.showFloatFeedback(food.x, food.y, `+${pts}`, 'correct');
@@ -17292,8 +17302,8 @@ class KanjiHebiGame {
             });
         }
 
-        // Place distractors (3)
-        const distractors = this.getRandomDistractors(3);
+        // Place distractors (4)
+        const distractors = this.getRandomDistractors(4);
         distractors.forEach((dw, i) => {
             if (free.length > i + 1) {
                 this.foods.push({
@@ -17327,7 +17337,10 @@ class KanjiHebiGame {
         // Take first meaning only (remove numbered lists like "1. xxx 2. yyy")
         if (meaning.includes('\n')) meaning = meaning.split('\n')[0];
         meaning = meaning.replace(/^\d+\.\s*/, '').trim();
-        const reading = w.reading || w.kana || '';
+        let reading = w.reading || w.kana || '';
+        // Only show first reading (D1 stores comma-separated readings)
+        if (reading.includes(',')) reading = reading.split(',')[0].trim();
+        if (reading.includes('、')) reading = reading.split('、')[0].trim();
         document.getElementById('khPromptText').innerHTML = 
             `${meaning}${reading ? `<span class="kh-reading">${reading}</span>` : ''}`;
     }
@@ -17439,8 +17452,8 @@ class KanjiHebiGame {
         ctx.fillStyle = '#1e293b';
         ctx.fillRect(0, 0, W, H);
 
-        // Grid
-        ctx.strokeStyle = 'rgba(51, 65, 85, 0.3)';
+        // Grid (subtle)
+        ctx.strokeStyle = 'rgba(51, 65, 85, 0.15)';
         ctx.lineWidth = 0.5;
         for (let x = 0; x <= COLS; x++) {
             ctx.beginPath(); ctx.moveTo(x * CELL, 0); ctx.lineTo(x * CELL, H); ctx.stroke();
@@ -17449,29 +17462,30 @@ class KanjiHebiGame {
             ctx.beginPath(); ctx.moveTo(0, y * CELL); ctx.lineTo(W, y * CELL); ctx.stroke();
         }
 
-        // Food
+        // Food — ALL look the same (no color distinction!)
         this.foods.forEach(f => {
             const px = f.x * CELL;
             const py = f.y * CELL;
-            const pad = 2;
-            const r = 6;
+            const pad = 3;
+            const r = 8;
             // Background
-            ctx.fillStyle = f.isCorrect ? 'rgba(16, 185, 129, 0.2)' : 'rgba(100, 116, 139, 0.15)';
+            ctx.fillStyle = 'rgba(148, 163, 184, 0.12)';
             this.roundRect(ctx, px + pad, py + pad, CELL - pad*2, CELL - pad*2, r);
             ctx.fill();
             // Border
-            ctx.strokeStyle = f.isCorrect ? '#10b981' : '#475569';
+            ctx.strokeStyle = '#475569';
             ctx.lineWidth = 1.5;
             this.roundRect(ctx, px + pad, py + pad, CELL - pad*2, CELL - pad*2, r);
             ctx.stroke();
-            // Text
-            ctx.fillStyle = f.isCorrect ? '#6ee7b7' : '#94a3b8';
-            ctx.font = `bold ${Math.max(10, CELL * 0.45)}px Noto Sans JP`;
+            // Text — big and clear
+            ctx.fillStyle = '#e2e8f0';
+            let label = f.wordObj._wordText;
+            if (label.length > 4) label = label.slice(0, 4);
+            const fontSize = Math.max(12, CELL * 0.52);
+            ctx.font = `bold ${fontSize}px Noto Sans JP`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            const label = f.wordObj._wordText;
-            const fontSize = Math.max(10, CELL * 0.45);
-            ctx.fillText(label.length > 4 ? label.slice(0, 4) : label, px + CELL/2, py + CELL/2);
+            ctx.fillText(label, px + CELL/2, py + CELL/2);
         });
 
         // Snake
