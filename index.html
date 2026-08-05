@@ -3998,26 +3998,44 @@ body.pdf-mode #pdfReadState {
 
 /* 🟢 Khi memory test đang bật — ẩn hết card content, chỉ giữ example block đang test (CHỈ TRÊN MÀN HÌNH HẸP) */
 @media (max-width: 899px) {
+    /* Ẩn toolbar (BẮT ĐẦU HỌC + edit/close) */
+    #studyOptionsModal.memory-test-fullscreen .study-toolbar {
+        display: none !important;
+    }
+    /* Ẩn AI result zone + status badge khi test */
+    #studyOptionsModal.memory-test-fullscreen #studyAiResultZone,
+    #studyOptionsModal.memory-test-fullscreen #studyStatusBadge {
+        display: none !important;
+    }
+    /* Ẩn card content cơ bản */
     .study-modal-body.memory-test-active > div > .study-card-khoi1,
     .study-modal-body.memory-test-active > div > .study-card-khoi2,
     .study-modal-body.memory-test-active > div > .example-sentence-block {
         display: none !important;
     }
+    /* Chỉ giữ example block đang test */
     .study-modal-body.memory-test-active > div > .example-sentence-block.memory-test-block {
         display: block !important;
         margin: 0;
+    }
+    /* Ẩn TẤT CẢ action button rows, trừ row đang test */
+    .study-modal-body.memory-test-active > div > .ex-actions-row:not(.memory-test-active-actions) {
+        display: none !important;
     }
     /* [FIX] Them padding-bottom khi memory-test-active de test footer khong bi che boi modal footer */
     .study-modal-body.memory-test-active {
         padding-bottom: 140px !important;
     }
-    /* Ẩn footer + sidebar khi test trên màn hỉnh hẹp */
+    /* Ẩn footer + sidebar khi test trên màn hình hẹp */
     .study-content-wrapper.has-memory-test .study-modal-footer,
     .study-content-wrapper.has-memory-test #studySidebar {
         display: none !important;
     }
-}
-/* Trên màn hình rộng (>=900px): không ẩn gì, test zone hiện inline bình thường */
+    /* Ẩn backdrop sidebar khi test */
+    .study-content-wrapper.has-memory-test #studySidebarBackdrop {
+        display: none !important;
+    }
+}/* Trên màn hình rộng (>=900px): không ẩn gì, test zone hiện inline bình thường */
 
 /* ================= STUDY SIDEBAR LAYOUT ================= */
 .study-content-wrapper {
@@ -26530,6 +26548,11 @@ function renderStudyCard() {
     document.getElementById('studyCardBody').classList.remove('memory-test-active');
     const wrapper = document.querySelector('.study-content-wrapper');
     if (wrapper) wrapper.classList.remove('has-memory-test');
+    const studyModal = document.getElementById('studyOptionsModal');
+    if (studyModal) studyModal.classList.remove('memory-test-fullscreen');
+    // Gỡ action row đánh dấu
+    document.querySelectorAll('.memory-test-active-actions').forEach(el => el.classList.remove('memory-test-active-actions'));
+    document.querySelectorAll('.memory-test-block').forEach(el => el.classList.remove('memory-test-block'));
     // Ẩn AI result zone khi chuyển thẻ
     const aiZone = document.getElementById('studyAiResultZone');
     if (aiZone) { aiZone.style.display = 'none'; aiZone.innerHTML = ''; }
@@ -28104,7 +28127,7 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn) {
         </div>
         <!-- ===== NÚT HÀNH ĐỘNG: Phát âm / Nghe / Test (ngoài khối ví dụ, căn giữa) ===== -->
         <!-- [FIX] margin-bottom 300px de 3 nut khong bi dat sheet che khi scroll xuong duoi -->
-        <div style="display: flex; justify-content: center; gap: 10px; margin-top: 10px; margin-bottom: 50px; flex-wrap: wrap;">
+        <div class="ex-actions-row" style="display: flex; justify-content: center; gap: 10px; margin-top: 10px; margin-bottom: 50px; flex-wrap: wrap;">
             <button class="btn-toggle-romaji"
                     style="background: rgba(139, 92, 246, 0.1); border: none; padding: 7px 14px; border-radius: 50px; font-size: 13px; font-weight: 700; color: #7c3aed; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: 0.2s;"
                     onclick="startShadowing(event, '${jpForAttr}', this)"
@@ -28160,6 +28183,16 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId, vnTextId) {
     // Ẩn footer
     const wrapper = document.querySelector('.study-content-wrapper');
     if (wrapper) wrapper.classList.add('has-memory-test');
+    // 🟢 Ẩn toolbar trên mobile: thêm class lên modal cha
+    const studyModal = document.getElementById('studyOptionsModal');
+    if (studyModal) studyModal.classList.add('memory-test-fullscreen');
+    // 🟢 Đánh dấu action buttons row của example đang test (hiện 3 nút Phát âm/Nghe/Thoát test)
+    if (exBlock) {
+        const actionsRow = exBlock.nextElementSibling;
+        if (actionsRow && actionsRow.classList.contains('ex-actions-row')) {
+            actionsRow.classList.add('memory-test-active-actions');
+        }
+    }
 
     // Ẩn câu JP
     jpEl.style.display = 'none';
@@ -28407,10 +28440,18 @@ function restoreCardAfterTest(testZoneId) {
     if (testZone) {
         const exBlock = testZone.closest('.example-sentence-block');
         if (exBlock) exBlock.classList.remove('memory-test-block');
+        // Gỡ class action buttons row
+        const actionsRow = exBlock.nextElementSibling;
+        if (actionsRow && actionsRow.classList.contains('ex-actions-row')) {
+            actionsRow.classList.remove('memory-test-active-actions');
+        }
     }
     // Hiện lại footer
     const wrapper = document.querySelector('.study-content-wrapper');
     if (wrapper) wrapper.classList.remove('has-memory-test');
+    // 🟢 Hiện lại toolbar
+    const studyModal = document.getElementById('studyOptionsModal');
+    if (studyModal) studyModal.classList.remove('memory-test-fullscreen');
 }
 
 function exitMemoryTest(jpTextId, testZoneId) {
