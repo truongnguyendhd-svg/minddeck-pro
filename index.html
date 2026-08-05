@@ -16993,53 +16993,25 @@ async function startKanjiHebi(level) {
 
 // --- Fetch & filter words with SRS awareness ---
 async function fetchKanjiHebiWords(level) {
-    // 1. Fetch 150 random words from D1
-    const resp = await fetch(`${DICT_API_URL}/api/jlpt-random?level=${level}&limit=150`);
+    // 1. Fetch 100 random words from D1
+    const resp = await fetch(`${DICT_API_URL}/api/jlpt-random?level=${level}&limit=100`);
     if (!resp.ok) throw new Error('Failed to fetch words');
     const words = await resp.json();
     if (!words || words.length === 0) return [];
 
-    // 2. Get SRS progress for these words from Supabase
-    const wordTexts = [...new Set(words.map(w => w.word || w.kanji))].filter(Boolean);
-    let progressMap = {}; // word_text -> { ef, interval, interval_count, due }
-    
-    if (currentUser && wordTexts.length > 0) {
-        try {
-            const { data, error } = await sb
-                .from('progress')
-                .select('word_text, ef, interval, interval_count, due')
-                .eq('user_id', currentUser.id)
-                .in('word_text', wordTexts);
-            
-            if (!error && data) {
-                data.forEach(p => { progressMap[p.word_text] = p; });
-            }
-        } catch (e) {
-            console.warn('Could not fetch SRS for game words:', e);
-        }
+    // 2. Enrich each word with game metadata
+    const enriched = words.map(w => {
+        const wt = w.word || w.kanji || '';
+        return { ...w, _wordText: wt, _srsType: 'new', _progress: null };
+    }).filter(w => w._wordText);
+
+    // Shuffle for variety each game
+    for (let i = enriched.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [enriched[i], enriched[j]] = [enriched[j], enriched[i]];
     }
 
-    // 3. Categorize & sort: NEW/DUE first, LEARNING next, MASTERED last
-    const now = Date.now();
-    const categorized = words.map(w => {
-        const wt = w.word || w.kanji;
-        const prog = progressMap[wt];
-        let srsType = 'new'; // new, due, learning, mastered
-        if (prog) {
-            const dueDate = new Date(prog.due).getTime();
-            if (dueDate <= now) srsType = 'due';
-            else if (prog.interval >= 45) srsType = 'mastered';
-            else srsType = 'learning';
-        }
-        return { ...w, _wordText: wt, _srsType: srsType, _progress: prog };
-    });
-
-    // Sort: due first (0), new (1), learning (2), mastered (3)
-    const typeOrder = { due: 0, new: 1, learning: 2, mastered: 3 };
-    categorized.sort((a, b) => (typeOrder[a._srsType] || 1) - (typeOrder[b._srsType] || 1));
-
-    // Take up to 80 words (enough for a long game)
-    return categorized.slice(0, 80);
+    return enriched.slice(0, 80);
 }
 
 // --- Exit game ---
