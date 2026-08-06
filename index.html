@@ -7816,6 +7816,7 @@ body.modal-open-lock #scrollToTopBtn {
     align-items: center; padding: 2px 4px; flex-shrink: 0;
 }
 .kd-hud-group { display: flex; align-items: center; gap: 3px; }
+.kd-hud-center { display: flex; align-items: center; gap: 8px; }
 .kd-hud-item { display: flex; align-items: center; gap: 3px; }
 .kd-hud-item .material-symbols-outlined { font-size: 16px; }
 .kd-hud-points { color: #fbbf24; font-size: 14px; }
@@ -17124,11 +17125,9 @@ const KD_ZOMBIE_TYPES = {
     tank:   { hp:220, speed:0.2,  size:0.85,color:'#7c3aed' }
 };
 const KD_LOOT_TABLE = [
-    { type:'gold_s',  weight:40, pts:15,  color:'#fbbf24', label:'+' },
-    { type:'gold_l',  weight:15, pts:40,  color:'#f59e0b', label:'++' },
-    { type:'heart',   weight:10, pts:0,   color:'#ef4444', label:'\u2764' },
-    { type:'energy',  weight:20, pts:0,   color:'#38bdf8', label:'\u26A1' },
-    { type:'upgrade', weight:15, pts:0,   color:'#a78bfa', label:'\u2B06' }
+    { type:'heart',   weight:35, pts:0,   color:'#ef4444', label:'\u2764' },
+    { type:'energy',  weight:35, pts:0,   color:'#38bdf8', label:'\u26A1' },
+    { type:'upgrade', weight:30, pts:0,   color:'#a78bfa', label:'\u2B06' }
 ];
 const KD_ROWS = 5, KD_COLS = 9, KD_MAX_WAVES = 20;
 
@@ -17470,10 +17469,8 @@ class KanjiDefenseGame {
         for (let c = 0; c <= KD_COLS; c++) { ctx.beginPath(); ctx.moveTo(c*C, 0); ctx.lineTo(c*C, this.H); ctx.stroke(); }
         // Towers
         for (const t of this.towers) {
-            const tx = t.col*C, ty = t.row*C, pad = C*0.1;
-            ctx.fillStyle = t.color + '33'; this.roundRect(ctx, tx+pad, ty+pad, C-pad*2, C-pad*2, 6); ctx.fill();
-            ctx.strokeStyle = t.color; ctx.lineWidth = 1.5; this.roundRect(ctx, tx+pad, ty+pad, C-pad*2, C-pad*2, 6); ctx.stroke();
-            ctx.font = Math.floor(C*0.45) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            const tx = t.col*C, ty = t.row*C;
+            ctx.font = Math.floor(C*0.5) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText(t.emoji, tx+C/2, ty+C/2);
             for (let i = 0; i < t.level; i++) { ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.arc(tx+C/2-(t.level-1)*4+i*8, ty+C-4, 2, 0, Math.PI*2); ctx.fill(); }
         }
@@ -17579,29 +17576,45 @@ function showKanjiDefenseGameOver(score, wave, maxCombo, kills, correctWords, wr
     const overlay = document.getElementById('kdGameoverOverlay');
     const uc = correctWords.filter((w,i,a) => a.findIndex(x=>x.word===w.word)===i);
     const uw = wrongWords.filter((w,i,a) => a.findIndex(x=>x.word===w.word)===i);
-    let wh = '';
-    if (uc.length) { wh += '<div class="kd-words-section-title"><span style="color:#34d399;">&#10003;</span> Tu dung ('+uc.length+')</div>';
-        uc.forEach(w => { wh += '<div class="kd-word-item"><div><div class="kd-word-kanji">'+w.word+'</div><div class="kd-word-meaning">'+w.meaning+'</div></div><span class="kd-word-badge kd-badge-ok">DUNG</span></div>'; }); }
-    if (uw.length) { wh += '<div class="kd-words-section-title"><span style="color:#fca5a5;">&#10007;</span> Tu sai ('+uw.length+') — Da luu Remedial</div>';
-        uw.forEach(w => { wh += '<div class="kd-word-item"><div><div class="kd-word-kanji">'+w.word+'</div><div class="kd-word-meaning">'+w.meaning+'</div></div><span class="kd-word-badge kd-badge-fail">SAI</span></div>'; }); }
-    if (!wh) wh = '<div style="text-align:center;padding:16px;color:#64748b;">Chua co tu nao.</div>';
+    let wordsHtml = '';
+    if (uc.length) {
+        wordsHtml += '<div class="kd-words-section-title"><span style="color:#34d399;">&#10003;</span> Tu dung ('+uc.length+') — Chon de cap nhat SRS</div>';
+        uc.forEach((w, i) => {
+            wordsHtml += '<div class="kh-word-item correct-item" id="kdWord_'+i+'"><div class="kh-word-checkbox" data-idx="'+i+'" data-word="'+w.word+'" data-reading="'+(w.reading||'')+'" data-meaning="'+(w.meaning||'')+'" onclick="this.classList.toggle(\'checked\');this.closest(\'.kh-word-item\').classList.toggle(\'selected\');kdUpdateSrsCount()"></div><div class="kh-word-info"><div class="kh-word-kanji">'+w.word+(w.reading?'  '+w.reading:'')+'</div><div class="kh-word-meaning">'+w.meaning+'</div></div><span class="kh-word-status-badge kh-badge-correct">DUNG</span></div>';
+        });
+    }
+    if (uw.length) {
+        wordsHtml += '<div class="kd-words-section-title"><span style="color:#fca5a5;">&#10007;</span> Tu sai ('+uw.length+') — Da luu Remedial</div>';
+        uw.forEach(w => {
+            wordsHtml += '<div class="kh-word-item wrong-item"><div class="kh-word-info"><div class="kh-word-kanji">'+w.word+(w.reading?'  '+w.reading:'')+'</div><div class="kh-word-meaning">'+w.meaning+'</div></div><span class="kh-word-status-badge kh-badge-wrong">SAI</span></div>';
+        });
+    }
+    if (!wordsHtml) wordsHtml = '<div style="text-align:center;padding:20px;color:#64748b;">Chua co tu nao.</div>';
     const hasSrs = uc.length > 0;
-    overlay.innerHTML = '<div class="kd-gameover-card"><div class="kd-gameover-header"><h2 class="kd-gameover-title">'+(victory?'🏆 Chien thang!':'Game Over!')+'</h2><p class="kd-gameover-subtitle">Kanji Defense - Ket qua</p></div><div class="kd-gameover-stats"><div class="kd-stat-box"><div class="kd-stat-value pts-val">'+score+'</div><div class="kd-stat-label">Diem</div></div><div class="kd-stat-box"><div class="kd-stat-value wave-val">'+wave+'</div><div class="kd-stat-label">Wave</div></div><div class="kd-stat-box"><div class="kd-stat-value combo-val">x'+maxCombo+'</div><div class="kd-stat-label">Combo</div></div></div><div class="kd-words-list">'+wh+'</div><div class="kd-gameover-actions"><button class="kh-btn kh-btn-secondary" onclick="exitKanjiDefense()">Thoat</button>'+(hasSrs?'<button class="kh-btn kh-btn-primary" id="kdSrsBtn" onclick="kdSubmitSRS()">Cap nhat SRS ('+uc.length+')</button>':'')+'<button class="kh-btn kh-btn-primary" onclick="exitKanjiDefense();openKanjiDefenseSetup();">Choi lai</button></div></div>';
+    overlay.innerHTML = '<div class="kh-gameover-card"><div class="kh-gameover-header"><h2 class="kd-gameover-title">'+(victory?'🏆 Chien thang!':'Game Over!')+'</h2><p class="kh-gameover-subtitle">Kanji Defense - Ket qua</p></div><div class="kh-gameover-stats"><div class="kh-stat-box"><div class="kd-stat-value pts-val">'+score+'</div><div class="kd-stat-label">Diem</div></div><div class="kd-stat-box"><div class="kd-stat-value wave-val">'+wave+'</div><div class="kd-stat-label">Wave</div></div><div class="kd-stat-box"><div class="kd-stat-value combo-val">x'+maxCombo+'</div><div class="kd-stat-label">Combo</div></div></div><div class="kh-gameover-words">'+wordsHtml+'</div><div class="kh-gameover-actions"><button class="kh-btn kh-btn-secondary" onclick="exitKanjiDefense()">Thoat</button>'+(hasSrs?'<button class="kh-btn kh-btn-primary" id="kdSrsBtn" onclick="kdSubmitSRS()" disabled>Cap nhat SRS (0)</button>':'')+'<button class="kh-btn kh-btn-primary" onclick="exitKanjiDefense();openKanjiDefenseSetup();">Choi lai</button></div></div>';
     overlay.style.display = 'flex';
 }
 
-function kdSubmitSRS() {
-    if (!kdGame) return;
-    const correctWords = kdGame.accumulatedWords.filter(w => w.correct);
-    const unique = correctWords.filter((w,i,a) => a.findIndex(x=>x.word===w.word)===i);
-    unique.forEach(w => {
-        srsPendingQueue.push({ word: w.word, reading: w.reading, meaning: w.meaning, level: 'good' });
-    });
-    flushSrsQueue();
+function kdUpdateSrsCount() {
+    const overlay = document.getElementById('kdGameoverOverlay');
+    const count = overlay.querySelectorAll('.kh-word-checkbox.checked').length;
     const btn = document.getElementById('kdSrsBtn');
-    if (btn) { btn.textContent = 'Da cap nhat!'; btn.disabled = true; btn.style.opacity = '0.5'; }
+    if (btn) { btn.disabled = count === 0; btn.textContent = 'Cap nhat SRS (' + count + ')'; }
 }
 
+async function kdSubmitSRS() {
+    const overlay = document.getElementById('kdGameoverOverlay');
+    const checked = overlay.querySelectorAll('.kh-word-checkbox.checked');
+    if (!checked.length) return;
+    const btn = document.getElementById('kdSrsBtn');
+    btn.disabled = true; btn.textContent = 'Dang luu...';
+    for (const cb of checked) {
+        srsPendingQueue.push({ word: cb.dataset.word, reading: cb.dataset.reading, meaning: cb.dataset.meaning, level: 'good' });
+    }
+    await flushSrsQueue();
+    btn.textContent = 'Da cap nhat!'; btn.style.opacity = '0.5';
+    overlay.querySelectorAll('.kh-word-checkbox.checked').forEach(cb => { cb.style.pointerEvents = 'none'; });
+}
 /* ======================================================================
    KANJI HEBI — Rắn săn mồi Kanji
    ====================================================================== */
@@ -34388,10 +34401,12 @@ function startMiniAssessment(card) {
             <button class="kh-hud-icon-btn" id="kdPauseBtn" onclick="kdTogglePause()"><span class="material-symbols-outlined" id="kdPauseIcon" style="font-size:18px;">pause</span></button>
             <div class="kd-hud-lives" id="kdLives"></div>
         </div>
-        <div class="kd-hud-item kd-hud-points">$<span id="kdPoints">100</span></div>
-        <div class="kd-hud-group">
-            <div class="kd-hud-item kd-hud-combo" id="kdComboWrap">x<span id="kdCombo">0</span></div>
+        <div class="kd-hud-center">
+            <div class="kd-hud-item kd-hud-points">$<span id="kdPoints">100</span></div>
+            <div class="kd-hud-item kd-hud-combo">x<span id="kdCombo">0</span></div>
             <div class="kd-hud-item kd-hud-wave"><span id="kdWave">0/20</span></div>
+        </div>
+        <div class="kd-hud-group">
             <button class="kh-hud-icon-btn" onclick="kdQuitToGameOver()"><span class="material-symbols-outlined" style="font-size:18px;">close</span></button>
         </div>
     </div>
