@@ -7841,10 +7841,12 @@ body.modal-open-lock #scrollToTopBtn {
     margin-bottom: 4px;
 }
 .kh-prompt-text {
-    font-size: 28px;
+    font-size: 20px;
     font-weight: 800;
     color: #f1f5f9;
     line-height: 1.3;
+    max-width: 600px;
+    margin: 0 auto;
 }
 .kh-prompt-text .kh-reading {
     font-size: 16px;
@@ -16970,7 +16972,7 @@ async function startKanjiHebi(level) {
     const availW = vw - padding * 2;
     const availH = vh - hudH - promptH - controlsH - padding * 2;
     const maxSize = Math.min(availW, availH, 960);
-    const GRID = 12; // 12x12 grid for bigger cells & clearer text
+    const GRID = 50; // 50x50 for classic snake feel, food uses floating badges
     const cellSize = Math.floor(maxSize / GRID);
     const canvasSize = cellSize * GRID;
     canvas.width = canvasSize;
@@ -17039,7 +17041,7 @@ function exitKanjiHebi() {
    KANJI HEBI GAME CLASS
    ====================================================================== */
 class KanjiHebiGame {
-    constructor(canvas, words, grid = 14) {
+    constructor(canvas, words, grid = 50) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.words = words;
@@ -17276,6 +17278,7 @@ class KanjiHebiGame {
     spawnFood() {
         // Remove all existing foods
         this.foods = [];
+        if (!this.currentTarget) return;
 
         // Find free cells
         const occupied = new Set();
@@ -17286,34 +17289,53 @@ class KanjiHebiGame {
                 if (!occupied.has(`${x},${y}`)) free.push({ x, y });
             }
         }
-        if (free.length < 2) return;
+        if (free.length < 5) return;
 
-        // Shuffle and pick positions
+        // Shuffle free cells
         for (let i = free.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [free[i], free[j]] = [free[j], free[i]];
         }
 
-        // Place correct food (1)
-        if (this.currentTarget) {
-            this.foods.push({
-                x: free[0].x, y: free[0].y,
-                wordObj: this.currentTarget,
-                isCorrect: true
-            });
+        const MIN_DIST = 10; // minimum Manhattan distance between foods
+        const placed = []; // { x, y }
+
+        // Helper: check distance from all placed foods
+        const isFarEnough = (x, y) => {
+            for (const p of placed) {
+                if (Math.abs(p.x - x) + Math.abs(p.y - y) < MIN_DIST) return false;
+            }
+            return true;
+        };
+
+        // Place correct food first
+        for (let i = 0; i < free.length; i++) {
+            if (isFarEnough(free[i].x, free[i].y)) {
+                this.foods.push({
+                    x: free[i].x, y: free[i].y,
+                    wordObj: this.currentTarget,
+                    isCorrect: true
+                });
+                placed.push({ x: free[i].x, y: free[i].y });
+                break;
+            }
         }
 
-        // Place distractors (4)
-        const distractors = this.getRandomDistractors(4);
-        distractors.forEach((dw, i) => {
-            if (free.length > i + 1) {
-                this.foods.push({
-                    x: free[i + 1].x, y: free[i + 1].y,
-                    wordObj: dw,
-                    isCorrect: false
-                });
+        // Place distractors (3)
+        const distractors = this.getRandomDistractors(3);
+        for (const dw of distractors) {
+            for (let i = 0; i < free.length; i++) {
+                if (isFarEnough(free[i].x, free[i].y)) {
+                    this.foods.push({
+                        x: free[i].x, y: free[i].y,
+                        wordObj: dw,
+                        isCorrect: false
+                    });
+                    placed.push({ x: free[i].x, y: free[i].y });
+                    break;
+                }
             }
-        });
+        }
     }
 
     // --- Pick a new target word to ask about ---
@@ -17340,16 +17362,13 @@ class KanjiHebiGame {
     updatePrompt() {
         const w = this.currentTarget;
         let meaning = w.meaning || w.vn_meaning || w.english || '';
-        // Take first meaning only
-        if (meaning.includes('\n')) meaning = meaning.split('\n')[0];
-        // Remove ALL numbered prefixes: "1. xxx; 2. yyy" → "xxx"
-        meaning = meaning.replace(/;\s*\d+\.\s+.+$/, '').trim(); // remove "; 2. yyy" and after
-        meaning = meaning.replace(/^\d+\.\s*/, '').trim(); // remove leading "1. "
+        // Clean leading number but keep all meanings
+        meaning = meaning.replace(/^\d+\.\s*/, '').trim();
         let reading = w.reading || w.kana || '';
-        // Only show first reading (D1 stores comma-separated readings)
+        // Only show first reading
         if (reading.includes(',')) reading = reading.split(',')[0].trim();
         if (reading.includes('、')) reading = reading.split('、')[0].trim();
-        document.getElementById('khPromptText').innerHTML = 
+        document.getElementById('khPromptText').innerHTML =
             `${meaning}${reading ? `<span class="kh-reading">${reading}</span>` : ''}`;
     }
 
@@ -17460,71 +17479,96 @@ class KanjiHebiGame {
         ctx.fillStyle = '#1e293b';
         ctx.fillRect(0, 0, W, H);
 
-        // Grid (subtle)
-        ctx.strokeStyle = 'rgba(51, 65, 85, 0.15)';
-        ctx.lineWidth = 0.5;
-        for (let x = 0; x <= COLS; x++) {
-            ctx.beginPath(); ctx.moveTo(x * CELL, 0); ctx.lineTo(x * CELL, H); ctx.stroke();
-        }
-        for (let y = 0; y <= ROWS; y++) {
-            ctx.beginPath(); ctx.moveTo(0, y * CELL); ctx.lineTo(W, y * CELL); ctx.stroke();
+        // Grid — sparse dots every 5 cells for spatial reference
+        ctx.fillStyle = 'rgba(51, 65, 85, 0.3)';
+        for (let x = 0; x < COLS; x += 5) {
+            for (let y = 0; y < ROWS; y += 5) {
+                ctx.fillRect(x * CELL, y * CELL, 1, 1);
+            }
         }
 
-        // Food — ALL look the same (no color distinction!)
+        // Food — colored dot + floating badge label
         this.foods.forEach(f => {
-            const px = f.x * CELL;
-            const py = f.y * CELL;
-            const pad = 3;
-            const r = 8;
-            // Background
-            ctx.fillStyle = 'rgba(148, 163, 184, 0.12)';
-            this.roundRect(ctx, px + pad, py + pad, CELL - pad*2, CELL - pad*2, r);
+            const cx = f.x * CELL + CELL / 2;
+            const cy = f.y * CELL + CELL / 2;
+            const dotR = Math.max(3, CELL * 0.4);
+
+            // Glow around dot
+            const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, dotR * 2.5);
+            glow.addColorStop(0, 'rgba(251, 191, 36, 0.25)');
+            glow.addColorStop(1, 'rgba(251, 191, 36, 0)');
+            ctx.fillStyle = glow;
+            ctx.fillRect(cx - dotR * 2.5, cy - dotR * 2.5, dotR * 5, dotR * 5);
+
+            // Dot
+            ctx.beginPath();
+            ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
+            ctx.fillStyle = '#f59e0b';
             ctx.fill();
-            // Border
-            ctx.strokeStyle = '#475569';
-            ctx.lineWidth = 1.5;
-            this.roundRect(ctx, px + pad, py + pad, CELL - pad*2, CELL - pad*2, r);
+            ctx.strokeStyle = '#fbbf24';
+            ctx.lineWidth = 1;
             ctx.stroke();
-            // Text — big and clear
-            ctx.fillStyle = '#e2e8f0';
-            let label = f.wordObj._wordText;
-            if (label.length > 3) label = label.slice(0, 3);
-            const fontSize = Math.max(16, CELL * 0.6);
-            ctx.font = `bold ${fontSize}px Noto Sans JP, sans-serif`;
+
+            // Floating badge above the dot
+            const text = f.wordObj._wordText;
+            const badgeFont = 'bold 13px Noto Sans JP, sans-serif';
+            ctx.font = badgeFont;
+            const tm = ctx.measureText(text);
+            const bw = tm.width + 12;
+            const bh = 22;
+            const above = f.y >= 3;
+            const bx = Math.max(2, Math.min(W - bw - 2, cx - bw / 2));
+            const by = above ? cy - CELL / 2 - bh - 3 : cy + CELL / 2 + 3;
+
+            // Badge background
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+            this.roundRect(ctx, bx, by, bw, bh, 5);
+            ctx.fill();
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 1;
+            this.roundRect(ctx, bx, by, bw, bh, 5);
+            ctx.stroke();
+
+            // Badge text
+            ctx.fillStyle = '#f1f5f9';
+            ctx.font = badgeFont;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(label, px + CELL/2, py + CELL/2);
+            ctx.fillText(text, bx + bw / 2, by + bh / 2);
+
+            // Small connector line from badge to dot
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(245, 158, 11, 0.5)';
+            ctx.lineWidth = 1;
+            if (above) {
+                ctx.moveTo(cx, by + bh);
+                ctx.lineTo(cx, cy - dotR);
+            } else {
+                ctx.moveTo(cx, by);
+                ctx.lineTo(cx, cy + dotR);
+            }
+            ctx.stroke();
         });
 
         // Snake
+        const sLen = this.snake.length;
         this.snake.forEach((seg, i) => {
             const px = seg.x * CELL;
             const py = seg.y * CELL;
-            const pad = 1;
-            const r = 5;
+            const r = Math.max(2, CELL * 0.2);
             if (i === 0) {
                 // Head
                 ctx.fillStyle = '#60a5fa';
-                this.roundRect(ctx, px + pad, py + pad, CELL - pad*2, CELL - pad*2, r);
+                this.roundRect(ctx, px + 0.5, py + 0.5, CELL - 1, CELL - 1, r);
                 ctx.fill();
-                // Eyes
-                ctx.fillStyle = '#1e293b';
-                const eyeSize = Math.max(2, CELL * 0.12);
-                let e1x, e1y, e2x, e2y;
-                if (this.dir.x === 1) { e1x = px+CELL*0.65; e1y = py+CELL*0.3; e2x = px+CELL*0.65; e2y = py+CELL*0.7; }
-                else if (this.dir.x === -1) { e1x = px+CELL*0.35; e1y = py+CELL*0.3; e2x = px+CELL*0.35; e2y = py+CELL*0.7; }
-                else if (this.dir.y === -1) { e1x = px+CELL*0.3; e1y = py+CELL*0.35; e2x = px+CELL*0.7; e2y = py+CELL*0.35; }
-                else { e1x = px+CELL*0.3; e1y = py+CELL*0.65; e2x = px+CELL*0.7; e2y = py+CELL*0.65; }
-                ctx.beginPath(); ctx.arc(e1x, e1y, eyeSize, 0, Math.PI*2); ctx.fill();
-                ctx.beginPath(); ctx.arc(e2x, e2y, eyeSize, 0, Math.PI*2); ctx.fill();
             } else {
-                // Body - gradient from blue to purple
-                const t = i / this.snake.length;
-                const r2 = Math.round(96 + t * 48);
-                const g = Math.round(165 - t * 90);
-                const b = Math.round(250 - t * 30);
-                ctx.fillStyle = `rgb(${r2},${g},${b})`;
-                this.roundRect(ctx, px + pad, py + pad, CELL - pad*2, CELL - pad*2, r);
+                // Body - gradient blue to purple
+                const t = i / sLen;
+                const cr = Math.round(96 + t * 48);
+                const cg = Math.round(165 - t * 90);
+                const cb = Math.round(250 - t * 30);
+                ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+                this.roundRect(ctx, px + 0.5, py + 0.5, CELL - 1, CELL - 1, r);
                 ctx.fill();
             }
         });
@@ -17534,7 +17578,7 @@ class KanjiHebiGame {
             ctx.globalAlpha = p.life;
             ctx.fillStyle = p.color;
             ctx.beginPath();
-            ctx.arc(p.x, p.y, 3 * p.life, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, Math.max(2, CELL * 0.15) * p.life, 0, Math.PI * 2);
             ctx.fill();
         });
         ctx.globalAlpha = 1;
