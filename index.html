@@ -7815,6 +7815,7 @@ body.modal-open-lock #scrollToTopBtn {
     width: 100%; display: flex; justify-content: space-between;
     align-items: center; padding: 2px 4px; flex-shrink: 0;
 }
+.kd-hud-group { display: flex; align-items: center; gap: 3px; }
 .kd-hud-item { display: flex; align-items: center; gap: 3px; }
 .kd-hud-item .material-symbols-outlined { font-size: 16px; }
 .kd-hud-points { color: #fbbf24; font-size: 14px; }
@@ -7871,6 +7872,9 @@ body.modal-open-lock #scrollToTopBtn {
 .kd-ans-btn:active { background: #334155; transform: scale(0.95); }
 .kd-ans-btn.correct { background: #064e3b; border-color: #34d399; color: #34d399; }
 .kd-ans-btn.wrong { background: #7f1d1d; border-color: #fca5a5; color: #fca5a5; }
+.kd-prompt-answers { width: 100%; flex-shrink: 0; }
+.kd-prompt-answers .kd-game-prompt { width: calc(100% - 4px); }
+.kd-prompt-answers .kd-answers { padding-top: 2px; }
 .kd-gameover-overlay {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 10001;
     background: rgba(15,23,42,0.92); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -17110,9 +17114,9 @@ function togglePlaygroundMode() {
 
 const KD_TOWERS = {
     samurai:  { name:'Samurai',  emoji:'\u2694\uFE0F', cost:50,  dmg:20, range:2.5, rate:1400, color:'#60a5fa', projColor:'#93c5fd' },
-    shimenawa:{ name:'Shimenawa',emoji:'\U0001F33B', cost:80,  dmg:10, range:2.0, rate:1800, color:'#34d399', projColor:'#6ee7b7', slow:0.5, slowDur:2500 },
-    hanabi:   { name:'Hanabi',   emoji:'\U0001F386', cost:120, dmg:15, range:2.0, rate:2200, color:'#f472b6', projColor:'#f9a8d4', aoe:1.0 },
-    tiger:    { name:'Tiger',    emoji:'\U0001F42F', cost:200, dmg:45, range:3.0, rate:2800, color:'#fb923c', projColor:'#fdba74' }
+    shimenawa:{ name:'Shimenawa',emoji:'🌻', cost:80,  dmg:10, range:2.0, rate:1800, color:'#34d399', projColor:'#6ee7b7', slow:0.5, slowDur:2500 },
+    hanabi:   { name:'Hanabi',   emoji:'🎆', cost:120, dmg:15, range:2.0, rate:2200, color:'#f472b6', projColor:'#f9a8d4', aoe:1.0 },
+    tiger:    { name:'Tiger',    emoji:'🐯', cost:200, dmg:45, range:3.0, rate:2800, color:'#fb923c', projColor:'#fdba74' }
 };
 const KD_ZOMBIE_TYPES = {
     normal: { hp:80,  speed:0.35, size:0.7, color:'#dc2626' },
@@ -17132,7 +17136,7 @@ let kdGame = null, kdAnimFrame = null;
 
 function openKanjiDefenseSetup() {
     const levels = ['N5','N4','N3','N2','N1'];
-    let html = '<div id="kdSetupModal" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(15,23,42,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()"><div data-kd-level="N5" style="background:#1e293b;border-radius:20px;border:1px solid #334155;width:100%;max-width:400px;padding:28px 24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,0.5);"><div style="font-size:40px;margin-bottom:8px;">\U0001F33F</div><h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#f1f5f9;">Kanji Defense</h2><p style="margin:0 0 16px;font-size:13px;color:#94a3b8;">Plants vs Zombies - Ngon ngu nhat</p><div style="display:flex;gap:8px;justify-content:center;margin-bottom:20px;">';
+    let html = '<div id="kdSetupModal" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(15,23,42,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()"><div data-kd-level="N5" style="background:#1e293b;border-radius:20px;border:1px solid #334155;width:100%;max-width:400px;padding:28px 24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,0.5);"><div style="font-size:40px;margin-bottom:8px;">🌿</div><h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#f1f5f9;">Kanji Defense</h2><p style="margin:0 0 16px;font-size:13px;color:#94a3b8;">Plants vs Zombies - Ngon ngu nhat</p><div style="display:flex;gap:8px;justify-content:center;margin-bottom:20px;">';
     levels.forEach((lv, i) => {
         html += '<button class="kh-level-btn'+(i===0?' active':'')+'" data-level="'+lv+'" onclick="document.querySelectorAll(\'#kdSetupModal .kh-level-btn\').forEach(b=>b.classList.remove(\'active\'));this.classList.add(\'active\');document.getElementById(\'kdSetupModal\').querySelector(\'[data-kd-level]\').dataset.kdLevel=\''+lv+'\'" style="padding:8px 16px;border-radius:8px;border:1.5px solid #475569;background:'+(i===0?'#334155':'#1e293b')+';color:#f1f5f9;font-weight:700;font-size:14px;cursor:pointer;">'+lv+'</button>';
     });
@@ -17146,6 +17150,7 @@ async function startKanjiDefense(level) {
     overlay.style.display = 'none'; overlay.innerHTML = '';
     wrapper.style.display = 'flex';
     document.body.style.overflow = 'hidden';
+    document.getElementById('kdPauseIcon').textContent = 'pause';
     const canvasWrap = document.getElementById('kdCanvasWrap');
     const canvas = document.getElementById('kdGameCanvas');
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -17174,6 +17179,30 @@ function exitKanjiDefense() {
     document.getElementById('kdGameoverOverlay').style.display = 'none';
     document.getElementById('kdGameoverOverlay').innerHTML = '';
     document.body.style.overflow = '';
+}
+
+function kdTogglePause() {
+    if (!kdGame) return;
+    if (kdGame.state === 'playing') {
+        kdGame.state = 'paused';
+        if (kdAnimFrame) { cancelAnimationFrame(kdAnimFrame); kdAnimFrame = null; }
+        document.getElementById('kdPauseIcon').textContent = 'play_arrow';
+    } else if (kdGame.state === 'paused') {
+        kdGame.state = 'playing';
+        kdGame.lastTick = performance.now();
+        kdGame.loop(performance.now());
+        document.getElementById('kdPauseIcon').textContent = 'pause';
+    }
+}
+
+function kdQuitToGameOver() {
+    if (!kdGame) return;
+    if (kdAnimFrame) { cancelAnimationFrame(kdAnimFrame); kdAnimFrame = null; }
+    kdGame.state = 'over';
+    const correctWords = kdGame.accumulatedWords.filter(w => w.correct);
+    const wrongWords = kdGame.accumulatedWords.filter(w => !w.correct);
+    if (wrongWords.length > 0) saveToRemedialDeck(wrongWords.map(w => ({ front: w.word })));
+    showKanjiDefenseGameOver(kdGame.score, kdGame.wave, kdGame.maxCombo, kdGame.totalKills, correctWords, wrongWords, false);
 }
 
 /* ======================================================================
@@ -17226,7 +17255,7 @@ class KanjiDefenseGame {
         for (const [key, t] of Object.entries(KD_TOWERS)) {
             const btn = document.createElement('button');
             btn.className = 'kd-shop-btn'; btn.dataset.type = key;
-            btn.innerHTML = '<span class="kd-shop-emoji">'+t.emoji+'</span><span style="font-size:10px;">'+t.name+'</span><span class="kd-shop-cost">\U0001F4B0 '+t.cost+'</span>';
+            btn.innerHTML = '<span class="kd-shop-emoji">'+t.emoji+'</span><span style="font-size:10px;">'+t.name+'</span><span class="kd-shop-cost">💰 '+t.cost+'</span>';
             btn.onclick = () => { this.selectedType = this.selectedType === key ? null : key;
                 document.querySelectorAll('.kd-shop-btn').forEach(b => b.classList.toggle('selected', b.dataset.type === this.selectedType)); };
             shop.appendChild(btn);
@@ -17448,13 +17477,38 @@ class KanjiDefenseGame {
             ctx.fillText(t.emoji, tx+C/2, ty+C/2);
             for (let i = 0; i < t.level; i++) { ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.arc(tx+C/2-(t.level-1)*4+i*8, ty+C-4, 2, 0, Math.PI*2); ctx.fill(); }
         }
-        // Zombies
+        // Zombies (robot sprites)
         for (const z of this.zombies) {
             if (z.dead) continue;
-            const zx = z.x*C - C*z.size/2, zy = z.row*C + (C - C*z.size)/2, zs = C*z.size;
-            if (z.slowTimer > 0) { ctx.fillStyle = 'rgba(56,189,248,0.15)'; ctx.beginPath(); ctx.arc(z.x*C, z.row*C+C/2, zs*0.7, 0, Math.PI*2); ctx.fill(); }
-            ctx.fillStyle = z.color; this.roundRect(ctx, zx, zy, zs, zs, 5); ctx.fill();
-            const hpW = zs-4, hpX = zx+2, hpY = zy-6;
+            const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
+            const s = this.CELL * z.size * 0.45;
+            if (z.slowTimer > 0) { ctx.fillStyle = 'rgba(56,189,248,0.15)'; ctx.beginPath(); ctx.arc(cx, cy, s*1.8, 0, Math.PI*2); ctx.fill(); }
+            // Body
+            ctx.fillStyle = z.color;
+            this.roundRect(ctx, cx-s, cy-s*0.6, s*2, s*1.4, 4); ctx.fill();
+            // Head
+            ctx.fillStyle = z.type==='tank' ? '#5b21b6' : z.type==='fast' ? '#b91c1c' : '#991b1b';
+            this.roundRect(ctx, cx-s*0.7, cy-s*1.3, s*1.4, s*0.8, 4); ctx.fill();
+            // Eyes (glowing)
+            ctx.fillStyle = '#fbbf24';
+            ctx.beginPath(); ctx.arc(cx - s*0.3, cy - s*1.0, s*0.15, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(cx + s*0.3, cy - s*1.0, s*0.15, 0, Math.PI*2); ctx.fill();
+            // Antenna
+            ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(cx, cy - s*1.3); ctx.lineTo(cx, cy - s*1.7); ctx.stroke();
+            ctx.fillStyle = z.slowTimer > 0 ? '#38bdf8' : '#f87171';
+            ctx.beginPath(); ctx.arc(cx, cy - s*1.7, s*0.12, 0, Math.PI*2); ctx.fill();
+            // Legs
+            ctx.fillStyle = z.color;
+            ctx.fillRect(cx - s*0.6, cy + s*0.8, s*0.3, s*0.5);
+            ctx.fillRect(cx + s*0.3, cy + s*0.8, s*0.3, s*0.5);
+            // Tank shield
+            if (z.type === 'tank') {
+                ctx.strokeStyle = '#a78bfa'; ctx.lineWidth = 2;
+                this.roundRect(ctx, cx-s*1.1, cy-s*1.5, s*2.2, s*2.6, 6); ctx.stroke();
+            }
+            // HP bar
+            const hpW = s*2, hpX = cx - s, hpY = cy - s*1.8;
             ctx.fillStyle = '#334155'; ctx.fillRect(hpX, hpY, hpW, 3);
             ctx.fillStyle = z.hp > z.maxHp*0.3 ? '#34d399' : '#ef4444';
             ctx.fillRect(hpX, hpY, hpW * Math.max(0, z.hp/z.maxHp), 3);
@@ -17506,11 +17560,11 @@ class KanjiDefenseGame {
     }
     updateHUD() {
         let lh = '';
-        for (let i = 0; i < 3; i++) lh += '<span class="kd-hud-heart'+(i>=this.lives?' lost':'')+'"><span class="material-symbols-outlined">favorite</span></span>';
+        for (let i = 0; i < 3; i++) lh += '<span class="kd-hud-heart'+(i>=this.lives?' lost':'')+'" style="font-size:14px;">&#10084;</span>';
         document.getElementById('kdLives').innerHTML = lh;
         document.getElementById('kdPoints').textContent = this.points;
         document.getElementById('kdWave').textContent = this.wave + '/' + KD_MAX_WAVES;
-        document.getElementById('kdCombo').textContent = 'x' + this.combo;
+        document.getElementById('kdCombo').textContent = this.combo;
     }
     gameOver(victory) {
         this.state = 'over'; if (kdAnimFrame) cancelAnimationFrame(kdAnimFrame); kdAnimFrame = null;
@@ -17526,13 +17580,26 @@ function showKanjiDefenseGameOver(score, wave, maxCombo, kills, correctWords, wr
     const uc = correctWords.filter((w,i,a) => a.findIndex(x=>x.word===w.word)===i);
     const uw = wrongWords.filter((w,i,a) => a.findIndex(x=>x.word===w.word)===i);
     let wh = '';
-    if (uc.length) { wh += '<div class="kd-words-section-title"><span class="material-symbols-outlined" style="font-size:14px;color:#34d399;">check_circle</span> Tu dung ('+uc.length+')</div>';
+    if (uc.length) { wh += '<div class="kd-words-section-title"><span style="color:#34d399;">&#10003;</span> Tu dung ('+uc.length+')</div>';
         uc.forEach(w => { wh += '<div class="kd-word-item"><div><div class="kd-word-kanji">'+w.word+'</div><div class="kd-word-meaning">'+w.meaning+'</div></div><span class="kd-word-badge kd-badge-ok">DUNG</span></div>'; }); }
-    if (uw.length) { wh += '<div class="kd-words-section-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fca5a5;">cancel</span> Tu sai ('+uw.length+') — Da luu Remedial</div>';
+    if (uw.length) { wh += '<div class="kd-words-section-title"><span style="color:#fca5a5;">&#10007;</span> Tu sai ('+uw.length+') — Da luu Remedial</div>';
         uw.forEach(w => { wh += '<div class="kd-word-item"><div><div class="kd-word-kanji">'+w.word+'</div><div class="kd-word-meaning">'+w.meaning+'</div></div><span class="kd-word-badge kd-badge-fail">SAI</span></div>'; }); }
     if (!wh) wh = '<div style="text-align:center;padding:16px;color:#64748b;">Chua co tu nao.</div>';
-    overlay.innerHTML = '<div class="kd-gameover-card"><div class="kd-gameover-header"><h2 class="kd-gameover-title">'+(victory?'\U0001F3C6 Chien thang!':'Game Over!')+'</h2><p class="kd-gameover-subtitle">Kanji Defense - Ket qua</p></div><div class="kd-gameover-stats"><div class="kd-stat-box"><div class="kd-stat-value pts-val">'+score+'</div><div class="kd-stat-label">Diem</div></div><div class="kd-stat-box"><div class="kd-stat-value wave-val">'+wave+'</div><div class="kd-stat-label">Wave</div></div><div class="kd-stat-box"><div class="kd-stat-value combo-val">x'+maxCombo+'</div><div class="kd-stat-label">Combo</div></div></div><div class="kd-words-list">'+wh+'</div><div class="kd-gameover-actions"><button class="kh-btn kh-btn-secondary" onclick="exitKanjiDefense()"><span class="material-symbols-outlined">close</span> Thoat</button><button class="kh-btn kh-btn-primary" onclick="exitKanjiDefense();openKanjiDefenseSetup();"><span class="material-symbols-outlined">replay</span> Choi lai</button></div></div>';
+    const hasSrs = uc.length > 0;
+    overlay.innerHTML = '<div class="kd-gameover-card"><div class="kd-gameover-header"><h2 class="kd-gameover-title">'+(victory?'🏆 Chien thang!':'Game Over!')+'</h2><p class="kd-gameover-subtitle">Kanji Defense - Ket qua</p></div><div class="kd-gameover-stats"><div class="kd-stat-box"><div class="kd-stat-value pts-val">'+score+'</div><div class="kd-stat-label">Diem</div></div><div class="kd-stat-box"><div class="kd-stat-value wave-val">'+wave+'</div><div class="kd-stat-label">Wave</div></div><div class="kd-stat-box"><div class="kd-stat-value combo-val">x'+maxCombo+'</div><div class="kd-stat-label">Combo</div></div></div><div class="kd-words-list">'+wh+'</div><div class="kd-gameover-actions"><button class="kh-btn kh-btn-secondary" onclick="exitKanjiDefense()">Thoat</button>'+(hasSrs?'<button class="kh-btn kh-btn-primary" id="kdSrsBtn" onclick="kdSubmitSRS()">Cap nhat SRS ('+uc.length+')</button>':'')+'<button class="kh-btn kh-btn-primary" onclick="exitKanjiDefense();openKanjiDefenseSetup();">Choi lai</button></div></div>';
     overlay.style.display = 'flex';
+}
+
+function kdSubmitSRS() {
+    if (!kdGame) return;
+    const correctWords = kdGame.accumulatedWords.filter(w => w.correct);
+    const unique = correctWords.filter((w,i,a) => a.findIndex(x=>x.word===w.word)===i);
+    unique.forEach(w => {
+        srsPendingQueue.push({ word: w.word, reading: w.reading, meaning: w.meaning, level: 'good' });
+    });
+    flushSrsQueue();
+    const btn = document.getElementById('kdSrsBtn');
+    if (btn) { btn.textContent = 'Da cap nhat!'; btn.disabled = true; btn.style.opacity = '0.5'; }
 }
 
 /* ======================================================================
@@ -34317,15 +34384,23 @@ function startMiniAssessment(card) {
 <!-- KANJI DEFENSE GAME CONTAINER -->
 <div id="kdGameWrapper" class="kd-game-wrapper" style="display:none;">
     <div class="kd-game-hud">
-        <div class="kd-hud-item"><div class="kd-hud-lives" id="kdLives"></div></div>
-        <div class="kd-hud-item kd-hud-points"><span class="material-symbols-outlined">paid</span><span id="kdPoints">100</span></div>
-        <div class="kd-hud-item kd-hud-wave"><span class="material-symbols-outlined">layers</span><span id="kdWave">1/20</span></div>
-        <div class="kd-hud-item kd-hud-combo" id="kdComboWrap"><span class="material-symbols-outlined">local_fire_department</span><span id="kdCombo">x0</span></div>
+        <div class="kd-hud-group">
+            <button class="kh-hud-icon-btn" id="kdPauseBtn" onclick="kdTogglePause()"><span class="material-symbols-outlined" id="kdPauseIcon" style="font-size:18px;">pause</span></button>
+            <div class="kd-hud-lives" id="kdLives"></div>
+        </div>
+        <div class="kd-hud-item kd-hud-points">$<span id="kdPoints">100</span></div>
+        <div class="kd-hud-group">
+            <div class="kd-hud-item kd-hud-combo" id="kdComboWrap">x<span id="kdCombo">0</span></div>
+            <div class="kd-hud-item kd-hud-wave"><span id="kdWave">0/20</span></div>
+            <button class="kh-hud-icon-btn" onclick="kdQuitToGameOver()"><span class="material-symbols-outlined" style="font-size:18px;">close</span></button>
+        </div>
     </div>
-    <div class="kd-game-prompt" id="kdPrompt"><div class="kd-prompt-label">Chon kanji dung</div><div class="kd-prompt-text" id="kdPromptText">...</div></div>
     <div class="kd-canvas-wrap" id="kdCanvasWrap"><canvas id="kdGameCanvas"></canvas></div>
     <div class="kd-shop" id="kdShop"></div>
-    <div class="kd-answers" id="kdAnswers"></div>
+    <div class="kd-prompt-answers">
+        <div class="kd-game-prompt" id="kdPrompt"><div class="kd-prompt-label">Chon kanji dung</div><div class="kd-prompt-text" id="kdPromptText">...</div></div>
+        <div class="kd-answers" id="kdAnswers"></div>
+    </div>
 </div>
 <div id="kdGameoverOverlay" class="kd-gameover-overlay" style="display:none;"></div>
 
