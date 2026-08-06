@@ -17114,10 +17114,10 @@ function togglePlaygroundMode() {
    ====================================================================== */
 
 const KD_TOWERS = {
-    samurai:  { name:'Samurai',  emoji:'\u2694\uFE0F', cost:50,  dmg:20, range:2.5, rate:1400, color:'#60a5fa', projColor:'#93c5fd' },
-    shimenawa:{ name:'Shimenawa',emoji:'🌻', cost:80,  dmg:10, range:2.0, rate:1800, color:'#34d399', projColor:'#6ee7b7', slow:0.5, slowDur:2500 },
-    hanabi:   { name:'Hanabi',   emoji:'🔥', cost:120, dmg:15, range:2.0, rate:2200, color:'#f472b6', projColor:'#f9a8d4', aoe:1.0 },
-    tiger:    { name:'Tiger',    emoji:'🐯', cost:200, dmg:45, range:3.0, rate:2800, color:'#fb923c', projColor:'#fdba74' }
+    samurai:  { name:'Samurai',  emoji:'\u2694\uFE0F', cost:50,  dmg:20, range:2.5, rate:1400, color:'#60a5fa', projColor:'#93c5fd', hp:100 },
+    shimenawa:{ name:'Shimenawa',emoji:'🌻', cost:80,  dmg:10, range:2.0, rate:1800, color:'#34d399', projColor:'#6ee7b7', slow:0.5, slowDur:2500, hp:120 },
+    hanabi:   { name:'Hanabi',   emoji:'🔥', cost:120, dmg:15, range:2.0, rate:2200, color:'#f472b6', projColor:'#f9a8d4', aoe:1.0, hp:80 },
+    tiger:    { name:'Tiger',    emoji:'🐯', cost:200, dmg:45, range:3.0, rate:2800, color:'#fb923c', projColor:'#fdba74', hp:200 }
 };
 const KD_ZOMBIE_TYPES = {
     normal: { hp:80,  speed:0.35, size:0.7, color:'#dc2626' },
@@ -17270,7 +17270,7 @@ class KanjiDefenseGame {
         const t = KD_TOWERS[type];
         const tower = { row, col, type, level:1, dmg:t.dmg, range:t.range, rate:t.rate,
             color:t.color, emoji:t.emoji, projColor:t.projColor,
-            slow:t.slow||0, slowDur:t.slowDur||0, aoe:t.aoe||0, fireTimer:0 };
+            slow:t.slow||0, slowDur:t.slowDur||0, aoe:t.aoe||0, fireTimer:0, hp:t.hp, maxHp:t.hp };
         this.grid[row][col] = tower; this.towers.push(tower);
         this.points -= t.cost; this.updateHUD(); this.updateShopState();
     }
@@ -17351,11 +17351,9 @@ class KanjiDefenseGame {
             this.towers.forEach(t => { t.fireTimer = Math.max(0, t.fireTimer - t.rate * 0.6); });
             this.spawnFloatText(loot.x * this.CELL, loot.y * this.CELL - 10, 'SPEED!', '#38bdf8');
         } else if (loot.type === 'upgrade') {
-            const up = this.towers.filter(t => t.level < 3);
-            if (up.length) { const t = up[Math.floor(Math.random() * up.length)];
-                t.level++; t.dmg = Math.floor(t.dmg * 1.3); t.range += 0.2;
-                if (t.level >= 2) t.rate = Math.max(600, Math.floor(t.rate * 0.9));
-                this.spawnFloatText(t.col * this.CELL + this.CELL/2, t.row * this.CELL, 'UP!', '#a78bfa'); }
+            const pts = 30 + this.wave * 2;
+            this.points += pts; this.score += pts;
+            this.spawnFloatText(loot.x * this.CELL, loot.y * this.CELL - 10, '+' + pts, '#a78bfa');
         }
         this.updateHUD(); this.updateShopState();
     }
@@ -17427,7 +17425,7 @@ class KanjiDefenseGame {
         if (proj && proj.slow > 0) { z.speed = z.baseSpeed * (1 - proj.slow); z.slowTimer = proj.slowDur || 2000; }
         if (z.hp <= 0 && !z.dead) {
             z.dead = true; this.totalKills++;
-            this.spawnLoot(z.x, z.row + 0.5);
+            if (z.type === 'tank') this.spawnLoot(z.x, z.row + 0.5);
             this.spawnExplosion(z.x * this.CELL, (z.row + 0.5) * this.CELL, z.color);
         }
     }
@@ -17437,7 +17435,31 @@ class KanjiDefenseGame {
             const z = this.zombies[i];
             if (z.dead) { this.zombies.splice(i, 1); continue; }
             if (z.slowTimer > 0) { z.slowTimer -= dt; if (z.slowTimer <= 0) z.speed = z.baseSpeed; }
-            z.x -= z.speed * ds;
+            // Check if zombie is blocked by a tower in its current cell
+            let blocked = false;
+            const zCol = Math.floor(z.x);
+            if (zCol >= 0 && zCol < KD_COLS) {
+                const tower = this.grid[z.row] && this.grid[z.row][zCol];
+                if (tower) {
+                    blocked = true;
+                    z.attackTimer = (z.attackTimer || 0) - dt;
+                    if (z.attackTimer <= 0) {
+                        const atkDmg = z.type === 'tank' ? 25 : z.type === 'fast' ? 6 : 10;
+                        const atkRate = z.type === 'tank' ? 1200 : z.type === 'fast' ? 600 : 1000;
+                        tower.hp -= atkDmg;
+                        z.attackTimer = atkRate;
+                        tower._hitFlash = 150;
+                        if (tower.hp <= 0) {
+                            this.grid[tower.row][tower.col] = null;
+                            const tidx = this.towers.indexOf(tower);
+                            if (tidx >= 0) this.towers.splice(tidx, 1);
+                            this.spawnExplosion(tower.col * this.CELL + this.CELL/2, tower.row * this.CELL + this.CELL/2, '#ef4444');
+                            blocked = false;
+                        }
+                    }
+                }
+            }
+            if (!blocked) z.x -= z.speed * ds;
             if (z.x < -0.5) { this.zombies.splice(i, 1); this.lives--; this.updateHUD();
                 if (this.lives <= 0) this.gameOver(false); }
         }
@@ -17473,6 +17495,19 @@ class KanjiDefenseGame {
             ctx.font = Math.floor(C*0.5) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText(t.emoji, tx+C/2, ty+C/2);
             for (let i = 0; i < t.level; i++) { ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.arc(tx+C/2-(t.level-1)*4+i*8, ty+C-4, 2, 0, Math.PI*2); ctx.fill(); }
+            // Tower HP bar
+            const tHpW = C * 0.6, tHpH = 3;
+            const tHpX = tx + (C - tHpW) / 2, tHpY = ty + 2;
+            ctx.fillStyle = '#1e293b'; ctx.fillRect(tHpX, tHpY, tHpW, tHpH);
+            const hpRatio = Math.max(0, t.hp / t.maxHp);
+            ctx.fillStyle = hpRatio > 0.5 ? '#34d399' : hpRatio > 0.25 ? '#fbbf24' : '#ef4444';
+            ctx.fillRect(tHpX, tHpY, tHpW * hpRatio, tHpH);
+            // Tower hit flash
+            if (t._hitFlash > 0) {
+                ctx.fillStyle = 'rgba(239,68,68,' + (t._hitFlash / 150 * 0.3) + ')';
+                ctx.fillRect(tx, ty, C, C);
+                t._hitFlash -= 16;
+            }
         }
         // Zombies (robot sprites)
         for (const z of this.zombies) {
