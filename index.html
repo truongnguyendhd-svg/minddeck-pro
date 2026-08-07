@@ -17156,19 +17156,19 @@ function togglePlaygroundMode() {
    ====================================================================== */
 
 const KD_TOWERS = {
-    samurai:  { name:'Samurai',  emoji:'\u2694\uFE0F', cost:100, dmg:20, range:2.5, rate:1400, color:'#60a5fa', projColor:'#93c5fd', hp:300,
+    samurai:  { name:'Samurai',  emoji:'⚔️', cost:100, dmg:20, range:9, rate:1400, color:'#60a5fa', projColor:'#93c5fd', hp:300,
         levels:[{lv:1,cost:100,label:'Peashooter'},{lv:2,cost:200,label:'Dmg +30%'},{lv:3,cost:350,label:'Dmg +60%'}] },
-    shimenawa:{ name:'Shimenawa',emoji:'☀', cost:175, dmg:20, range:2.0, rate:1400, color:'#34d399', projColor:'#6ee7b7', slow:0.4, slowDur:2500, hp:300,
+    shimenawa:{ name:'Shimenawa',emoji:'☀', cost:175, dmg:20, range:9, rate:1400, color:'#34d399', projColor:'#6ee7b7', slow:0.4, slowDur:2500, hp:300,
         levels:[{lv:1,cost:175,label:'Snow Pea -40%'},{lv:2,cost:300,label:'Dmg+30% Slow+10%'},{lv:3,cost:450,label:'Dmg+60% Slow+20%'}] },
-    hanabi:   { name:'Hanabi',   emoji:'🔥', cost:150, dmg:180, range:2.0, rate:3500, color:'#f472b6', projColor:'#f9a8d4', aoe:1.5, hp:300,
-        levels:[{lv:1,cost:150,label:'Cherry Bomb AOE'},{lv:2,cost:250,label:'No rong Dmg+30%'},{lv:3,cost:400,label:'No manh Dmg+60%'}] },
-    tiger:    { name:'Tiger',    emoji:'🐯', cost:200, dmg:40, range:3.0, rate:1400, color:'#fb923c', projColor:'#fdba74', hp:300,
+    hanabi:   { name:'Hanabi',   emoji:'🔥', cost:150, dmg:30, range:9, rate:1400, color:'#f472b6', projColor:'#f9a8d4', hp:300,
+        levels:[{lv:1,cost:150,label:'8 huong'},{lv:2,cost:250,label:'Dmg+30%'},{lv:3,cost:400,label:'Dmg+60%'}] },
+    tiger:    { name:'Tiger',    emoji:'🐯', cost:200, dmg:40, range:9, rate:1400, color:'#fb923c', projColor:'#fdba74', hp:300,
         levels:[{lv:1,cost:200,label:'Repeater x2'},{lv:2,cost:350,label:'Sieu Dmg'},{lv:3,cost:500,label:'Cuc dai'}] }
 };
 const KD_ZOMBIE_TYPES = {
-    normal: { hp:200, speed:0.35, size:0.7, color:'#dc2626', emoji:'\ud83d\udc7b' },
-    fast:   { hp:500, speed:0.55, size:0.5, color:'#f87171', emoji:'\ud83d\udc7e' },
-    tank:   { hp:1300,speed:0.2,  size:0.85,color:'#7c3aed', emoji:'\ud83d\udc79' }
+    normal: { hp:200, speed:0.213, size:0.7, color:'#dc2626', emoji:'\ud83d\udc7b' },
+    fast:   { hp:500, speed:0.4, size:0.5, color:'#f87171', emoji:'\ud83d\udc7e' },
+    tank:   { hp:1300,speed:0.17,  size:0.85,color:'#7c3aed', emoji:'\ud83d\udc79' }
 };
 const KD_LOOT_TABLE = [
     { type:'heart',   weight:35, pts:0,   color:'#ef4444', label:'\u2764' },
@@ -17587,19 +17587,37 @@ class KanjiDefenseGame {
     updateTowers(dt) {
         for (const tower of this.towers) {
             tower.fireTimer -= dt; if (tower.fireTimer > 0) continue;
-            let target = null, minD = Infinity;
-            for (const z of this.zombies) {
-                if (z.dead) continue;
-                const rd = Math.abs(z.row - tower.row);
-                if (rd > 1 && !tower.aoe) continue; if (rd > 2) continue;
-                const d = Math.sqrt((z.x - (tower.col + 0.5))**2 + (z.row - tower.row)**2);
-                if (d <= tower.range && z.x > tower.col && d < minD) { minD = d; target = z; }
-            }
-            if (target) {
-                tower.fireTimer = tower.rate;
-                this.projectiles.push({ x: (tower.col+0.5)*this.CELL, y: (tower.row+0.5)*this.CELL,
-                    targetId: target.id, dmg: tower.dmg, color: tower.projColor, speed: 5,
-                    slow: tower.slow, slowDur: tower.slowDur, aoe: tower.aoe });
+            if (tower.type === 'hanabi') {
+                let hasTarget = false;
+                for (const z of this.zombies) {
+                    if (z.dead) continue;
+                    const d = Math.sqrt((z.x-(tower.col+0.5))**2+((z.row+0.5)-(tower.row+0.5))**2);
+                    if (d <= tower.range) { hasTarget = true; break; }
+                }
+                if (hasTarget) {
+                    tower.fireTimer = tower.rate;
+                    for (let a = 0; a < 8; a++) {
+                        const angle = Math.PI * a / 4;
+                        this.projectiles.push({ x:(tower.col+0.5)*this.CELL, y:(tower.row+0.5)*this.CELL,
+                            dirAngle:angle, dmg:tower.dmg, color:tower.projColor, speed:6,
+                            maxDist:tower.range*this.CELL, traveled:0, isDir:true });
+                    }
+                }
+            } else {
+                let target = null, minD = Infinity;
+                for (const z of this.zombies) {
+                    if (z.dead) continue;
+                    const rd = Math.abs(z.row - tower.row);
+                    if (rd > 1 && !tower.aoe) continue; if (rd > 2) continue;
+                    const d = Math.sqrt((z.x - (tower.col + 0.5))**2 + (z.row - tower.row)**2);
+                    if (d <= tower.range && z.x > tower.col && d < minD) { minD = d; target = z; }
+                }
+                if (target) {
+                    tower.fireTimer = tower.rate;
+                    this.projectiles.push({ x: (tower.col+0.5)*this.CELL, y: (tower.row+0.5)*this.CELL,
+                        targetId: target.id, dmg: tower.dmg, color: tower.projColor, speed: 5,
+                        slow: tower.slow, slowDur: tower.slowDur, aoe: tower.aoe });
+                }
             }
         }
     }
@@ -17607,6 +17625,26 @@ class KanjiDefenseGame {
         const ds = dt / 1000;
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const p = this.projectiles[i];
+            if (p.isDir) {
+                const sp = p.speed * this.CELL * ds;
+                p.x += Math.cos(p.dirAngle) * sp;
+                p.y += Math.sin(p.dirAngle) * sp;
+                p.traveled += sp;
+                if (p.traveled > p.maxDist || p.x < 0 || p.x > this.W || p.y < 0 || p.y > this.H) {
+                    this.projectiles.splice(i, 1); continue;
+                }
+                let hit = false;
+                for (const z of this.zombies) {
+                    if (z.dead) continue;
+                    const zx = z.x * this.CELL, zy = (z.row + 0.5) * this.CELL;
+                    if (Math.sqrt((p.x-zx)**2 + (p.y-zy)**2) < this.CELL * 0.5) {
+                        this.damageZombie(z, p.dmg, null);
+                        hit = true; break;
+                    }
+                }
+                if (hit) { this.spawnExplosion(p.x, p.y, p.color); this.projectiles.splice(i, 1); }
+                continue;
+            }
             const tgt = this.zombies.find(z => z.id === p.targetId && !z.dead);
             if (!tgt) { this.projectiles.splice(i, 1); continue; }
             const tx = tgt.x * this.CELL, ty = (tgt.row + 0.5) * this.CELL;
