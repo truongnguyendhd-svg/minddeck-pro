@@ -7881,6 +7881,85 @@ body.modal-open-lock #scrollToTopBtn {
 .kd-shop-card-name { font-size: 10px; font-weight: 700; color: #f1f5f9; line-height: 1.2; }
 .kd-shop-card-feat { font-size: 8px; color: #94a3b8; line-height: 1.1; white-space: nowrap; }
 .kd-shop-cost { color: #fbbf24; font-size: 9px; flex-shrink: 0; }
+/* Tower Picker Button in shop */
+.kd-picker-btn {
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    min-width: 48px; height: 48px; padding: 3px 8px;
+    border-radius: 6px; border: 1.5px dashed #475569;
+    background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700;
+    cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none;
+    transition: 0.15s; flex-shrink: 0; position: relative;
+}
+.kd-picker-btn:hover { border-color: #60a5fa; color: #60a5fa; }
+.kd-picker-btn .kd-picker-count {
+    position: absolute; top: -4px; right: -4px; background: #fbbf24; color: #0f172a;
+    font-size: 8px; font-weight: 800; min-width: 14px; height: 14px;
+    border-radius: 7px; display: flex; align-items: center; justify-content: center;
+    padding: 0 3px;
+}
+/* Tower Picker Modal */
+.kd-picker-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 10002; background: rgba(15,23,42,0.95);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 12px; animation: kdFadeIn 0.15s ease;
+}
+@keyframes kdFadeIn { from { opacity:0; } to { opacity:1; } }
+.kd-picker-modal {
+    background: #1e293b; border: 1px solid #334155; border-radius: 16px;
+    width: 100%; max-width: 520px; max-height: 85vh;
+    display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+}
+.kd-picker-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 16px 12px; border-bottom: 1px solid #334155; flex-shrink: 0;
+}
+.kd-picker-header h3 { margin: 0; font-size: 16px; font-weight: 800; color: #f1f5f9; }
+.kd-picker-header span { font-size: 12px; color: #94a3b8; }
+.kd-picker-close {
+    background: none; border: none; color: #94a3b8; font-size: 20px;
+    cursor: pointer; padding: 4px 8px; line-height: 1; border-radius: 6px;
+}
+.kd-picker-close:hover { color: #f1f5f9; background: #334155; }
+.kd-picker-info {
+    padding: 8px 16px; font-size: 11px; color: #64748b; flex-shrink: 0;
+    border-bottom: 1px solid #1e293b;
+}
+.kd-picker-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+    padding: 12px 16px; overflow-y: auto; flex: 1;
+}
+.kd-picker-tile {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 10px 4px; border-radius: 10px; border: 2px solid #334155;
+    background: #0f172a; color: #e2e8f0; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; user-select: none;
+    transition: 0.15s; position: relative;
+}
+.kd-picker-tile.active { border-color: #fbbf24; background: #1a2744; }
+.kd-picker-tile:active { transform: scale(0.95); }
+.kd-picker-tile .kd-picker-emoji { font-size: 28px; }
+.kd-picker-tile .kd-picker-name { font-size: 10px; font-weight: 700; text-align: center; line-height: 1.2; }
+.kd-picker-tile .kd-picker-feat { font-size: 8px; color: #64748b; text-align: center; }
+.kd-picker-tile .kd-picker-check {
+    position: absolute; top: 4px; right: 6px; font-size: 12px; color: #fbbf24;
+    opacity: 0; transition: 0.15s;
+}
+.kd-picker-tile.active .kd-picker-check { opacity: 1; }
+.kd-picker-footer {
+    padding: 10px 16px; border-top: 1px solid #334155;
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.kd-picker-footer span { font-size: 11px; color: #94a3b8; }
+.kd-picker-done {
+    padding: 8px 20px; border-radius: 8px; border: none;
+    background: #fbbf24; color: #0f172a; font-size: 12px; font-weight: 800;
+    cursor: pointer; transition: 0.15s;
+}
+.kd-picker-done:hover { background: #fde047; }
+.kd-picker-done:disabled { opacity: 0.4; cursor: default; }
 .kd-inv-bar {
     width: 100%; display: flex; gap: 0;
     padding: 0; flex-shrink: 0; align-items: stretch;
@@ -17526,6 +17605,9 @@ class KanjiDefenseGame {
         this.inventory = { heart: 0, energy: 0, upgrade: 0 };
         this.selectedTower = null; this.selectedItem = null;
         this._fetching = false;
+        // Tower picker: load saved selection or default first 6
+        this.activeTowers = JSON.parse(localStorage.getItem('kd_activeTowers') || 'null')
+            || Object.keys(KD_TOWERS).slice(0, 6);
         this._bindEvents();
     }
     _bindEvents() {
@@ -17555,7 +17637,7 @@ class KanjiDefenseGame {
         this._onWrapperClick = (e) => {
             if (this.state !== 'playing' || !this.selectedTower) return;
             const t = e.target;
-            if (t.closest('.kd-inv-bar') || t.closest('.kd-shop') || t.closest('.kd-prompt-answers') || t.closest('.kd-game-hud')) return;
+            if (t.closest('.kd-inv-bar') || t.closest('.kd-shop') || t.closest('.kd-prompt-answers') || t.closest('.kd-game-hud') || t.closest('.kd-picker-overlay')) return;
             if (!this.canvas.contains(t)) { this.deselectTower(); }
         };
         document.getElementById('kdGameWrapper').addEventListener('mousedown', this._onWrapperClick);
@@ -17586,8 +17668,92 @@ class KanjiDefenseGame {
         shop.appendChild(tabRow);
         const cardRow = document.createElement('div');
         cardRow.className = 'kd-shop-cards'; cardRow.id = 'kdShopCards';
+        // Add picker button at the start
+        const pickerBtn = document.createElement('button');
+        pickerBtn.className = 'kd-picker-btn';
+        pickerBtn.id = 'kdPickerBtn';
+        pickerBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">tune</span><span class="kd-picker-count" id="kdPickerCount">' + this.activeTowers.length + '</span>';
+        pickerBtn.onclick = (e) => { e.stopPropagation(); this._openTowerPicker(); };
+        cardRow.appendChild(pickerBtn);
         shop.appendChild(cardRow);
         this.selectedLevel = 1; this._renderShopTabs(); this._renderShopCards();
+    }
+    _openTowerPicker() {
+        // Remove existing modal if any
+        const old = document.getElementById('kdPickerOverlay');
+        if (old) old.remove();
+        const self = this;
+        const overlay = document.createElement('div');
+        overlay.id = 'kdPickerOverlay'; overlay.className = 'kd-picker-overlay';
+        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+        const modal = document.createElement('div'); modal.className = 'kd-picker-modal';
+        // Header
+        const header = document.createElement('div'); header.className = 'kd-picker-header';
+        header.innerHTML = '<div><h3>Chon thap phong thu</h3><span>Tich chon toi da 10 thap cho tran dau</span></div>';
+        const closeBtn = document.createElement('button'); closeBtn.className = 'kd-picker-close';
+        closeBtn.innerHTML = '✕';
+        closeBtn.onclick = () => overlay.remove();
+        header.appendChild(closeBtn);
+        modal.appendChild(header);
+        // Info
+        const info = document.createElement('div'); info.className = 'kd-picker-info';
+        info.id = 'kdPickerInfo';
+        modal.appendChild(info);
+        // Grid
+        const grid = document.createElement('div'); grid.className = 'kd-picker-grid'; grid.id = 'kdPickerGrid';
+        for (const [key, t] of Object.entries(KD_TOWERS)) {
+            const tile = document.createElement('div');
+            tile.className = 'kd-picker-tile' + (self.activeTowers.includes(key) ? ' active' : '');
+            tile.dataset.key = key;
+            const featText = (t.slow ? 'Slow ' : '') + (t.aoe ? 'AoE ' : '') + (t.pierce ? 'Xuyen ' : '') + (t.stunDur ? 'Choang ' : '') + (t.pushback ? 'Day lui ' : '') + (t.noAttack && t.thornDmg ? 'Gai ' : '') + (t.noAttack && t.reflect ? 'Phan ' : '') + (t.noAttack && t.income ? 'Tien ' : '') + (t.buffDmg ? 'Buff Dmg ' : '') + (t.buffRate ? 'Buff Toc ' : '') + (t.noAttack && !t.thornDmg && !t.reflect && !t.income ? 'Tuong ' : '') + (t.rowWave ? 'Song hang ' : '');
+            tile.innerHTML = '<span class="kd-picker-check">✓</span>'
+                + '<span class="kd-picker-emoji">' + t.emoji + '</span>'
+                + '<span class="kd-picker-name">' + t.name + '</span>'
+                + '<span class="kd-picker-feat">' + featText.trim() + '</span>';
+            tile.onclick = () => {
+                const isActive = tile.classList.toggle('active');
+                if (isActive) {
+                    if (self.activeTowers.length >= 10) { tile.classList.remove('active'); return; }
+                    self.activeTowers.push(key);
+                } else {
+                    self.activeTowers = self.activeTowers.filter(k => k !== key);
+                }
+                self._updatePickerInfo();
+            };
+            grid.appendChild(tile);
+        }
+        modal.appendChild(grid);
+        // Footer
+        const footer = document.createElement('div'); footer.className = 'kd-picker-footer';
+        const countSpan = document.createElement('span');
+        countSpan.id = 'kdPickerFooterCount';
+        footer.appendChild(countSpan);
+        const doneBtn = document.createElement('button');
+        doneBtn.className = 'kd-picker-done'; doneBtn.textContent = 'Xac nhan';
+        doneBtn.onclick = () => {
+            if (self.activeTowers.length === 0) return;
+            localStorage.setItem('kd_activeTowers', JSON.stringify(self.activeTowers));
+            overlay.remove();
+            // Deselect if current type no longer active
+            if (self.selectedType && !self.activeTowers.includes(self.selectedType)) {
+                self.selectedType = null; self.selectedLevel = null;
+            }
+            self._renderShopCards();
+            const cnt = document.getElementById('kdPickerCount');
+            if (cnt) cnt.textContent = self.activeTowers.length;
+        };
+        footer.appendChild(doneBtn);
+        modal.appendChild(footer);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        this._updatePickerInfo();
+    }
+    _updatePickerInfo() {
+        const info = document.getElementById('kdPickerInfo');
+        const cnt = document.getElementById('kdPickerFooterCount');
+        const text = 'Da chon: ' + this.activeTowers.length + ' / 10';
+        if (info) info.textContent = text;
+        if (cnt) cnt.textContent = text;
     }
     _renderShopTabs() {
         document.querySelectorAll('.kd-shop-tab').forEach(t => {
@@ -17596,10 +17762,15 @@ class KanjiDefenseGame {
     }
     _renderShopCards() {
         const row = document.getElementById('kdShopCards');
-        if (!row) return; row.innerHTML = '';
+        if (!row) return;
+        // Keep picker button, remove only tower cards
+        const pickerBtn = document.getElementById('kdPickerBtn');
+        row.innerHTML = '';
+        if (pickerBtn) row.appendChild(pickerBtn);
         if (!this.selectedLevel) return;
         const lv = this.selectedLevel;
-        for (const [key, t] of Object.entries(KD_TOWERS)) {
+        for (const key of this.activeTowers) {
+            const t = KD_TOWERS[key]; if (!t) continue;
             if (!t.levels || !t.levels[lv-1]) continue;
             const info = t.levels[lv-1];
             const card = document.createElement('button');
