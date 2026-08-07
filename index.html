@@ -7885,7 +7885,7 @@ body.modal-open-lock #scrollToTopBtn {
     width: 100%; display: flex; gap: 0;
     padding: 0; flex-shrink: 0; align-items: stretch;
     border: 1px solid #334155; border-radius: 8px; margin: 0 2px;
-    background: #0f172a; min-height: 38px; overflow: hidden;
+    background: #0f172a;
 }
 .kd-inv-items { display: flex; gap: 4px; flex: 1; overflow-x: auto; align-items: center; padding: 4px 3px; justify-content: center; }
 
@@ -7894,7 +7894,7 @@ body.modal-open-lock #scrollToTopBtn {
     padding: 3px 6px; border-radius: 6px; border: 1.5px solid #334155;
     background: #1e293b; color: #e2e8f0; font-size: 10px; font-weight: 700;
     cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none;
-    transition: 0.15s; flex-shrink: 0; opacity: 0.4;
+    transition: 0.15s; flex-shrink: 0; opacity: 0.4; min-width: 0;
 }
 .kd-inv-card.bright { opacity: 1; }
 .kd-inv-card.selected { border-color: #fbbf24; background: #1a2744; opacity: 1; }
@@ -17293,10 +17293,18 @@ class KanjiDefenseGame {
         };
         this.canvas.addEventListener('touchstart', this._onClick, {passive:false});
         this.canvas.addEventListener('mousedown', this._onClick);
+        this._onWrapperClick = (e) => {
+            if (this.state !== 'playing' || !this.selectedTower) return;
+            if (!this.canvas.contains(e.target)) { this.deselectTower(); }
+        };
+        document.getElementById('kdGameWrapper').addEventListener('mousedown', this._onWrapperClick);
+        document.getElementById('kdGameWrapper').addEventListener('touchstart', this._onWrapperClick, {passive:true});
     }
     destroy() {
         this.canvas.removeEventListener('touchstart', this._onClick);
         this.canvas.removeEventListener('mousedown', this._onClick);
+        const w = document.getElementById('kdGameWrapper');
+        if (w) { w.removeEventListener('mousedown', this._onWrapperClick); w.removeEventListener('touchstart', this._onWrapperClick); }
     }
     buildShop() {
         const shop = document.getElementById('kdShop'); shop.innerHTML = '';
@@ -17458,12 +17466,12 @@ class KanjiDefenseGame {
             const canUse = count > 0 && hasTower;
             const card = document.createElement('button');
             card.className = 'kd-inv-card' + ((count > 0 || canBuy) ? ' bright' : '');
+            const valHtml = count > 0
+                ? '<span class="kd-shop-card-feat" style="color:#fbbf24">x'+count+'</span>'
+                : '<span class="kd-shop-card-feat" style="color:#fbbf24">$'+price+'</span>';
             card.innerHTML = '<span class="kd-shop-emoji">'+it.emoji+'</span>'
                 +'<span class="kd-shop-card-info"><span class="kd-shop-card-name">'+it.name+'</span>'
-                +'<span class="kd-shop-card-feat">'+it.feat+'</span></span>'
-                +(count > 0
-                    ? '<span class="kd-inv-count">x'+count+'</span>'
-                    : '<span class="kd-shop-cost">$'+price+'</span>');
+                +'<span class="kd-shop-card-feat">'+it.feat+'</span>'+valHtml+'</span>';
             if (canUse) {
                 card.onclick = () => this.applyItemToTower(it.key);
             } else if (canBuy) {
@@ -17484,8 +17492,8 @@ class KanjiDefenseGame {
         upgCard.className = 'kd-inv-card' + (canUpg ? ' bright' : '');
         upgCard.innerHTML = '<span class="kd-shop-emoji">⬆</span>'
             +'<span class="kd-shop-card-info"><span class="kd-shop-card-name">Nang cap</span>'
-            +'<span class="kd-shop-card-feat">'+(isMax ? 'MAX' : 'Lv'+(this.selectedTower?this.selectedTower.level+1:0))+'</span></span>'
-            +(upgCost && !isMax ? '<span class="kd-shop-cost">$'+upgCost+'</span>' : '');
+            +'<span class="kd-shop-card-feat">'+(isMax ? 'MAX' : 'Lv'+(this.selectedTower?this.selectedTower.level+1:0))+'</span>'
+            +(upgCost && !isMax ? '<span class="kd-shop-card-feat" style="color:#fbbf24">$'+upgCost+'</span>' : '') +'</span>';
         if (canUpg) { upgCard.onclick = () => this.upgradeTower(); }
         else { upgCard.style.pointerEvents = 'none'; }
         cont.appendChild(upgCard);
