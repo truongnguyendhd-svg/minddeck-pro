@@ -17180,16 +17180,45 @@ const KD_ROWS = 5, KD_COLS = 9, KD_MAX_WAVES = 20;
 let kdGame = null, kdAnimFrame = null;
 
 function openKanjiDefenseSetup() {
-    const levels = ['N5','N4','N3','N2','N1'];
-    let html = '<div id="kdSetupModal" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(15,23,42,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()"><div data-kd-level="N5" style="background:#1e293b;border-radius:20px;border:1px solid #334155;width:100%;max-width:400px;padding:28px 24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,0.5);"><div style="font-size:40px;margin-bottom:8px;">🌿</div><h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#f1f5f9;">Kanji Defense</h2><p style="margin:0 0 16px;font-size:13px;color:#94a3b8;">Plants vs Zombies - Ngon ngu nhat</p><div style="display:flex;gap:8px;justify-content:center;margin-bottom:20px;">';
-    levels.forEach((lv, i) => {
-        html += '<button class="kh-level-btn'+(i===0?' active':'')+'" data-level="'+lv+'" onclick="document.querySelectorAll(\'#kdSetupModal .kh-level-btn\').forEach(b=>b.classList.remove(\'active\'));this.classList.add(\'active\');document.getElementById(\'kdSetupModal\').querySelector(\'[data-kd-level]\').dataset.kdLevel=\''+lv+'\'" style="padding:8px 16px;border-radius:8px;border:1.5px solid #475569;background:'+(i===0?'#334155':'#1e293b')+';color:#f1f5f9;font-weight:700;font-size:14px;cursor:pointer;">'+lv+'</button>';
-    });
-    html += '</div><button class="kh-btn kh-btn-primary" style="width:100%;" onclick="var card=document.getElementById(\'kdSetupModal\').querySelector(\'[data-kd-level]\');var lv=card?card.dataset.kdLevel:\'N5\';document.getElementById(\'kdSetupModal\').remove();startKanjiDefense(lv);"><span class="material-symbols-outlined">play_arrow</span> Bat dau</button><button style="margin-top:8px;background:none;border:none;color:#64748b;font-size:13px;cursor:pointer;padding:8px 16px;" onclick="document.getElementById(\'kdSetupModal\').remove()">Huy</button></div></div>';
+    const html = '<div id="kdSetupModal" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(15,23,42,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()"><div style="background:#1e293b;border-radius:20px;border:1px solid #334155;width:100%;max-width:400px;padding:28px 24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,0.5);"><div style="font-size:40px;margin-bottom:8px;">\u2694\uFE0F</div><h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#f1f5f9;">Kanji Defense</h2><p style="margin:0 0 6px;font-size:13px;color:#94a3b8;">Plants vs Zombies</p><p id="kdVocabCount" style="margin:0 0 20px;font-size:12px;color:#64748b;">Dang tai...</p><button class="kh-btn kh-btn-primary" style="width:100%;" onclick="document.getElementById(\'kdSetupModal\').remove();startKanjiDefense();"><span class="material-symbols-outlined">play_arrow</span> Bat dau</button><button style="margin-top:8px;background:none;border:none;color:#64748b;font-size:13px;cursor:pointer;padding:8px 16px;" onclick="document.getElementById(\'kdSetupModal\').remove()">Huy</button></div></div>';
     document.body.insertAdjacentHTML('beforeend', html);
+    (async () => {
+        try {
+            const { count } = await sb.from('user_vocabulary_mastery').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id);
+            const el = document.getElementById('kdVocabCount');
+            if (el) el.textContent = 'Ban co ' + (count || 0) + ' tu vung';
+        } catch(e) {}
+    })();
 }
 
-async function startKanjiDefense(level) {
+async function fetchUserVocabForGame(limit) {
+    if (!currentUser) throw new Error('Chua dang nhap');
+    const cnt = limit || 100;
+    // 1. Lay danh sach ID (nhe - chi so nguyen)
+    const { data: allIds, error: idErr } = await sb.from('user_vocabulary_mastery')
+        .select('id').eq('user_id', currentUser.id);
+    if (idErr) throw idErr;
+    if (!allIds || allIds.length === 0) return [];
+    // 2. Random chon cnt ID
+    const shuffled = allIds.map(x => x.id).sort(() => Math.random() - 0.5);
+    const picked = shuffled.slice(0, cnt);
+    // 3. Chi fetch full data cho cnt tu duoc chon
+    const { data, error } = await sb.from('user_vocabulary_mastery')
+        .select('id, word_text, back').eq('user_id', currentUser.id).in('id', picked);
+    if (error) throw error;
+    if (!data || data.length === 0) return [];
+    const words = data.map(c => {
+        const parsed = parseCardData({ front: c.word_text, back: c.back });
+        return { ...c, _wordText: c.word_text, meaning: parsed.meaning, reading: parsed.reading };
+    }).filter(w => w._wordText && w.meaning);
+    for (let i = words.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [words[i], words[j]] = [words[j], words[i]];
+    }
+    return words;
+}
+
+async function startKanjiDefense() {
     const wrapper = document.getElementById('kdGameWrapper');
     const overlay = document.getElementById('kdGameoverOverlay');
     overlay.style.display = 'none'; overlay.innerHTML = '';
@@ -17208,9 +17237,9 @@ async function startKanjiDefense(level) {
     ctx.fillStyle = '#94a3b8'; ctx.font = '16px Noto Sans JP'; ctx.textAlign = 'center';
     ctx.fillText('Dang tai tu vung...', canvas.width/2, canvas.height/2);
     try {
-        const words = await fetchKanjiHebiWords(level);
-        if (!words || words.length < 4) { alert('Khong du tu vung!'); exitKanjiDefense(); return; }
-        kdGame = new KanjiDefenseGame(words, canvas, ctx, cellSize, canvas.width, canvas.height, level);
+        const words = await fetchUserVocabForGame();
+        if (!words || words.length < 4) { alert('Ban can it nhat 4 tu vung de choi. Hay them tu vung truoc!'); exitKanjiDefense(); return; }
+        kdGame = new KanjiDefenseGame(words, canvas, ctx, cellSize, canvas.width, canvas.height);
         kdGame.buildShop();
         kdGame.renderInventory();
         kdGame.newPrompt();
@@ -17383,7 +17412,7 @@ class KanjiDefenseGame {
         if (this._fetching) return;
         this._fetching = true;
         try {
-            const newWords = await fetchKanjiHebiWords(this.level, 150);
+            const newWords = await fetchUserVocabForGame(100);
             if (newWords && newWords.length > 0) {
                 const existing = new Set(this.words.map(w => w._wordText));
                 const unique = newWords.filter(w => !existing.has(w._wordText));
