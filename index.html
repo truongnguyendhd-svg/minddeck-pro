@@ -17210,7 +17210,7 @@ async function startKanjiDefense(level) {
     try {
         const words = await fetchKanjiHebiWords(level);
         if (!words || words.length < 4) { alert('Khong du tu vung!'); exitKanjiDefense(); return; }
-        kdGame = new KanjiDefenseGame(words, canvas, ctx, cellSize, canvas.width, canvas.height);
+        kdGame = new KanjiDefenseGame(words, canvas, ctx, cellSize, canvas.width, canvas.height, level);
         kdGame.buildShop();
         kdGame.renderInventory();
         kdGame.newPrompt();
@@ -17250,9 +17250,10 @@ function kdQuitToGameOver() {
    KANJI DEFENSE GAME CLASS
    ====================================================================== */
 class KanjiDefenseGame {
-    constructor(words, canvas, ctx, cellSize, cw, ch) {
+    constructor(words, canvas, ctx, cellSize, cw, ch, level) {
         this.words = words; this.canvas = canvas; this.ctx = ctx;
         this.CELL = cellSize; this.W = cw; this.H = ch;
+        this.level = level || 'N5';
         this.grid = Array.from({length:KD_ROWS}, () => Array(KD_COLS).fill(null));
         this.towers = []; this.zombies = []; this.projectiles = [];
         this.loots = []; this.particles = [];
@@ -17267,6 +17268,7 @@ class KanjiDefenseGame {
         this.totalKills = 0; this.totalCorrect = 0;
         this.inventory = { heart: 0, energy: 0, upgrade: 0 };
         this.selectedTower = null; this.selectedItem = null;
+        this._fetching = false;
         this._bindEvents();
     }
     _bindEvents() {
@@ -17377,8 +17379,25 @@ class KanjiDefenseGame {
         const cost = t.levels[lvl-1].cost;
         this.points -= cost; this.updateHUD(); this.updateShopState();
     }
-    newPrompt() {
+    async refetchWords() {
+        if (this._fetching) return;
+        this._fetching = true;
+        try {
+            const newWords = await fetchKanjiHebiWords(this.level, 150);
+            if (newWords && newWords.length > 0) {
+                const existing = new Set(this.words.map(w => w._wordText));
+                const unique = newWords.filter(w => !existing.has(w._wordText));
+                if (unique.length > 0) {
+                    this.words.push(...unique);
+                    this.spawnFloatText(this.W/2, this.H - 20, '+' + unique.length + ' tu', '#60a5fa');
+                }
+            }
+        } catch(e) { console.warn('Refetch failed:', e); }
+        this._fetching = false;
+    }
+    async newPrompt() {
         const avail = this.words.filter(w => !this.usedWords.has(w._wordText));
+        if (avail.length < 20 && !this._fetching) this.refetchWords();
         const pool = avail.length >= 4 ? avail : this.words;
         if (pool.length < 4) return;
         const sh = [...pool].sort(() => Math.random() - 0.5);
@@ -17974,9 +17993,11 @@ async function startKanjiHebi(level) {
 }
 
 // --- Fetch & filter words with SRS awareness ---
-async function fetchKanjiHebiWords(level) {
-    // 1. Fetch 100 random words from D1
-    const resp = await fetch(`${DICT_API_URL}/api/jlpt-random?level=${level}&limit=100`);
+async function fetchKanjiHebiWords(level, limit) {
+    const cnt = limit || 100;
+    const keep = Math.floor(cnt * 0.8);
+    // 1. Fetch random words from API
+    const resp = await fetch(`${DICT_API_URL}/api/jlpt-random?level=${level}&limit=${cnt}`);
     if (!resp.ok) throw new Error('Failed to fetch words');
     const words = await resp.json();
     if (!words || words.length === 0) return [];
@@ -17993,7 +18014,7 @@ async function fetchKanjiHebiWords(level) {
         [enriched[i], enriched[j]] = [enriched[j], enriched[i]];
     }
 
-    return enriched.slice(0, 80);
+    return enriched.slice(0, keep);
 }
 
 // --- Quit to game over screen ---
