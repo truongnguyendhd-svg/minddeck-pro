@@ -17279,7 +17279,7 @@ class KanjiDefenseGame {
             else { cx = e.clientX; cy = e.clientY; }
             const col = Math.floor((cx - r.left) * sx / this.CELL);
             const row = Math.floor((cy - r.top) * sy / this.CELL);
-            if (row < 0 || row >= KD_ROWS || col < 0 || col >= KD_COLS) return;
+            if (row < 0 || row >= KD_ROWS || col < 0 || col >= KD_COLS) { this.deselectTower(); return; }
             if (this.grid[row][col]) {
                 this.selectTower(row, col);
             } else if (this.selectedType && this.selectedLevel) {
@@ -17453,38 +17453,33 @@ class KanjiDefenseGame {
         ];
         for (const it of items) {
             const count = this.inventory[it.key] || 0;
-            const canUse = hasTower && count > 0;
             const card = document.createElement('button');
-            card.className = 'kd-inv-card'
-                + (canUse ? ' bright' : '')
-                + (this.selectedItem === it.key ? ' selected' : '');
+            card.className = 'kd-inv-card' + (count > 0 ? ' bright' : '');
             card.innerHTML = '<span class="kd-shop-emoji">'+it.emoji+'</span>'
                 +'<span class="kd-shop-card-info"><span class="kd-shop-card-name">'+it.name+'</span>'
                 +'<span class="kd-shop-card-feat">'+it.feat+'</span></span>'
                 +(count > 0 ? '<span class="kd-inv-count">x'+count+'</span>' : '');
-            if (canUse) {
-                card.onclick = () => {
-                    this.selectedItem = this.selectedItem === it.key ? null : it.key;
-                    this.renderInventory();
-                };
+            if (count > 0 && hasTower) {
+                card.onclick = () => this.applyItemToTower(it.key);
             } else { card.style.pointerEvents = 'none'; }
             cont.appendChild(card);
         }
         // Upgrade card
-        const upgCost = hasTower ? this.getUpgradeCost(this.selectedTower) : '';
+        const upgCost = hasTower ? this.getUpgradeCost(this.selectedTower) : null;
         const isMax = hasTower && this.selectedTower && this.selectedTower.level >= 3;
+        const canUpg = hasTower && !isMax && typeof upgCost === 'number' && this.points >= upgCost;
         const upgCard = document.createElement('button');
-        upgCard.className = 'kd-inv-card' + (hasTower && !isMax ? ' upgrade-active' : '');
+        upgCard.className = 'kd-inv-card' + (canUpg ? ' upgrade-active' : '');
         upgCard.innerHTML = '<span class="kd-shop-emoji">⬆</span>'
             +'<span class="kd-shop-card-info"><span class="kd-shop-card-name">Nang cap</span>'
             +'<span class="kd-shop-card-feat">'+(isMax ? 'MAX' : 'Lv'+(this.selectedTower?this.selectedTower.level+1:0))+'</span></span>'
             +(upgCost && !isMax ? '<span class="kd-shop-cost">$'+upgCost+'</span>' : '');
-        if (hasTower && !isMax) { upgCard.onclick = () => this.upgradeTower(); }
+        if (canUpg) { upgCard.onclick = () => this.upgradeTower(); }
         else { upgCard.style.pointerEvents = 'none'; }
         if (rightCont) rightCont.appendChild(upgCard);
         // Remove card
         const rmCard = document.createElement('button');
-        rmCard.className = 'kd-inv-card' + (hasTower ? ' remove-active' : '');
+        rmCard.className = 'kd-inv-card' + (hasTower ? ' bright' : '');
         rmCard.innerHTML = '<span class="kd-shop-emoji">✖</span>'
             +'<span class="kd-shop-card-info"><span class="kd-shop-card-name">Xoa</span>'
             +'<span class="kd-shop-card-feat">Bo thap</span></span>'
@@ -17526,21 +17521,20 @@ class KanjiDefenseGame {
         this.spawnFloatText(t.col * this.CELL + this.CELL/2, t.row * this.CELL, 'UP!', '#a78bfa');
         this.selectTower(t.row, t.col); this.updateHUD(); this.updateShopState();
     }
-    applyItemToTower() {
-        const t = this.selectedTower; if (!t || !this.selectedItem) return;
-        if (this.inventory[this.selectedItem] <= 0) return;
-        this.inventory[this.selectedItem]--;
-        if (this.selectedItem === 'heart') {
+    applyItemToTower(itemKey) {
+        const t = this.selectedTower; if (!t) return;
+        if (!itemKey || this.inventory[itemKey] <= 0) return;
+        this.inventory[itemKey]--;
+        if (itemKey === 'heart') {
             t.hp = Math.min(t.maxHp, t.hp + Math.floor(t.maxHp * 0.5));
             this.spawnFloatText(t.col * this.CELL + this.CELL/2, t.row * this.CELL, '+HP', '#ef4444');
-        } else if (this.selectedItem === 'energy') {
+        } else if (itemKey === 'energy') {
             t.fireTimer = 0;
             this.spawnFloatText(t.col * this.CELL + this.CELL/2, t.row * this.CELL, 'SPEED!', '#38bdf8');
-        } else if (this.selectedItem === 'upgrade') {
+        } else if (itemKey === 'upgrade') {
             t.dmg = Math.floor(t.dmg * 1.15); t.range += 0.1;
             this.spawnFloatText(t.col * this.CELL + this.CELL/2, t.row * this.CELL, 'BOOST!', '#a78bfa');
         }
-        this.selectedItem = null;
         this.renderInventory(); this.selectTower(t.row, t.col);
     }
     spawnFloatText(x, y, text, color) { this.particles.push({ x, y, text, color, life: 1000, maxLife: 1000 }); }
