@@ -7887,8 +7887,8 @@ body.modal-open-lock #scrollToTopBtn {
     border: 1px solid #334155; border-radius: 8px; margin: 0 2px;
     background: #0f172a; min-height: 38px; overflow: hidden;
 }
-.kd-inv-items { display: flex; gap: 4px; flex: 1; overflow-x: auto; align-items: center; padding: 4px 3px; }
-.kd-inv-right { display: flex; gap: 0; flex-shrink: 0; align-items: stretch; border-left: 1px solid #334155; }
+.kd-inv-items { display: flex; gap: 4px; flex: 1; overflow-x: auto; align-items: center; padding: 4px 3px; justify-content: center; }
+
 .kd-inv-card {
     display: flex; align-items: center; gap: 4px;
     padding: 3px 6px; border-radius: 6px; border: 1.5px solid #334155;
@@ -17212,6 +17212,7 @@ async function startKanjiDefense(level) {
         if (!words || words.length < 4) { alert('Khong du tu vung!'); exitKanjiDefense(); return; }
         kdGame = new KanjiDefenseGame(words, canvas, ctx, cellSize, canvas.width, canvas.height);
         kdGame.buildShop();
+        kdGame.renderInventory();
         kdGame.newPrompt();
         kdGame.loop(performance.now());
     } catch(e) {
@@ -17442,10 +17443,9 @@ class KanjiDefenseGame {
     }
     renderInventory() {
         const cont = document.getElementById('kdInvItems');
-        const rightCont = document.getElementById('kdInvRight');
         if (!cont) return; cont.innerHTML = '';
-        if (rightCont) rightCont.innerHTML = '';
         const hasTower = !!this.selectedTower;
+        const itemPrices = { heart: 30, energy: 25, upgrade: 40 };
         const items = [
             { key:'heart', emoji:'❤️', name:'Hoi phuc', feat:'+50% HP' },
             { key:'energy', emoji:'⚡', name:'Tang toc', feat:'Reset CD' },
@@ -17453,14 +17453,26 @@ class KanjiDefenseGame {
         ];
         for (const it of items) {
             const count = this.inventory[it.key] || 0;
+            const price = itemPrices[it.key];
+            const canBuy = count === 0 && this.points >= price;
+            const canUse = count > 0 && hasTower;
             const card = document.createElement('button');
-            card.className = 'kd-inv-card' + (count > 0 ? ' bright' : '');
+            card.className = 'kd-inv-card' + ((count > 0 || canBuy) ? ' bright' : '');
             card.innerHTML = '<span class="kd-shop-emoji">'+it.emoji+'</span>'
                 +'<span class="kd-shop-card-info"><span class="kd-shop-card-name">'+it.name+'</span>'
                 +'<span class="kd-shop-card-feat">'+it.feat+'</span></span>'
-                +(count > 0 ? '<span class="kd-inv-count">x'+count+'</span>' : '');
-            if (count > 0 && hasTower) {
+                +(count > 0
+                    ? '<span class="kd-inv-count">x'+count+'</span>'
+                    : '<span class="kd-shop-cost">$'+price+'</span>');
+            if (canUse) {
                 card.onclick = () => this.applyItemToTower(it.key);
+            } else if (canBuy) {
+                card.onclick = () => {
+                    this.points -= price;
+                    this.inventory[it.key] = 1;
+                    this.spawnFloatText(this.W/2, this.H/2, '-\$'+price, '#fbbf24');
+                    this.updateHUD(); this.renderInventory();
+                };
             } else { card.style.pointerEvents = 'none'; }
             cont.appendChild(card);
         }
@@ -17469,23 +17481,23 @@ class KanjiDefenseGame {
         const isMax = hasTower && this.selectedTower && this.selectedTower.level >= 3;
         const canUpg = hasTower && !isMax && typeof upgCost === 'number' && this.points >= upgCost;
         const upgCard = document.createElement('button');
-        upgCard.className = 'kd-inv-card' + (canUpg ? ' upgrade-active' : '');
+        upgCard.className = 'kd-inv-card' + (canUpg ? ' bright' : '');
         upgCard.innerHTML = '<span class="kd-shop-emoji">⬆</span>'
             +'<span class="kd-shop-card-info"><span class="kd-shop-card-name">Nang cap</span>'
             +'<span class="kd-shop-card-feat">'+(isMax ? 'MAX' : 'Lv'+(this.selectedTower?this.selectedTower.level+1:0))+'</span></span>'
             +(upgCost && !isMax ? '<span class="kd-shop-cost">$'+upgCost+'</span>' : '');
         if (canUpg) { upgCard.onclick = () => this.upgradeTower(); }
         else { upgCard.style.pointerEvents = 'none'; }
-        if (rightCont) rightCont.appendChild(upgCard);
+        cont.appendChild(upgCard);
         // Remove card
         const rmCard = document.createElement('button');
         rmCard.className = 'kd-inv-card' + (hasTower ? ' bright' : '');
         rmCard.innerHTML = '<span class="kd-shop-emoji">✖</span>'
             +'<span class="kd-shop-card-info"><span class="kd-shop-card-name">Xoa</span>'
-            +'<span class="kd-shop-card-feat">Bo thap</span></span>'
+            +'<span class="kd-shop-card-feat">Bo thap</span></span>';
         if (hasTower) { rmCard.onclick = () => this.removeTower(); }
         else { rmCard.style.pointerEvents = 'none'; }
-        if (rightCont) rightCont.appendChild(rmCard);
+        cont.appendChild(rmCard);
     }
     selectTower(row, col) {
         const tower = this.grid[row] && this.grid[row][col];
@@ -34632,7 +34644,6 @@ function startMiniAssessment(card) {
     </div>
     <div class="kd-inv-bar" id="kdInventory">
         <div class="kd-inv-items" id="kdInvItems"></div>
-        <div class="kd-inv-right" id="kdInvRight"></div>
     </div>
     <div class="kd-canvas-wrap" id="kdCanvasWrap"><canvas id="kdGameCanvas"></canvas></div>
     <div class="kd-shop" id="kdShop"></div>
