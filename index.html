@@ -7845,9 +7845,30 @@ body.modal-open-lock #scrollToTopBtn {
 #kdGameCanvas { display: block; background: #0f172a; border-radius: 0; max-width: 100%; max-height: 100%; }
 .kd-shop {
     width: 100%; flex-shrink: 0; overflow: hidden;
-    display: flex; flex-direction: column; gap: 0; padding: 0;
+    display: flex; flex-direction: row; align-items: stretch; padding: 0;
     border: 1px solid #334155; border-radius: 8px; margin: 0 2px;
     background: #0f172a;
+}
+.kd-shop-trigger {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px; padding: 4px 8px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; user-select: none;
+    flex-shrink: 0; transition: 0.15s; min-width: 42px; position: relative;
+}
+.kd-shop-trigger:active { background: #1e293b; }
+.kd-shop-trigger-icon { font-size: 18px; color: #94a3b8; line-height: 1; }
+.kd-shop-trigger-name { font-size: 7px; font-weight: 700; color: #64748b; white-space: nowrap; letter-spacing: 0.3px; }
+.kd-shop-trigger-badge {
+    position: absolute; top: 1px; right: 1px; background: #fbbf24; color: #0f172a;
+    font-size: 7px; font-weight: 800; min-width: 12px; height: 12px;
+    border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    padding: 0 2px; line-height: 1;
+}
+.kd-shop-divider {
+    width: 1px; background: #334155; flex-shrink: 0; align-self: stretch;
+}
+.kd-shop-content {
+    flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden;
 }
 .kd-shop-tabs {
     display: flex; gap: 0;
@@ -8158,6 +8179,13 @@ body.modal-open-lock #scrollToTopBtn {
         overflow: hidden;
         box-sizing: border-box;
     }
+    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-trigger {
+        padding: 8px 14px; min-width: 64px; gap: 4px;
+    }
+    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-trigger-icon { font-size: 24px; color: #f1f5f9; }
+    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-trigger-name { font-size: 9px; color: #94a3b8; }
+    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-trigger-badge { font-size: 9px; min-width: 16px; height: 16px; top: 2px; right: 2px; }
+    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-divider { background: #475569; }
     .kd-game-wrapper.kd-active > .kd-shop .kd-shop-tabs {
         border-radius: 0;
     }
@@ -17642,7 +17670,7 @@ class KanjiDefenseGame {
         this._onWrapperClick = (e) => {
             if (this.state !== 'playing' || !this.selectedTower) return;
             const t = e.target;
-            if (t.closest('.kd-inv-bar') || t.closest('.kd-shop') || t.closest('.kd-prompt-answers') || t.closest('.kd-game-hud') || t.closest('.kd-picker-overlay')) return;
+            if (t.closest('.kd-inv-bar') || t.closest('.kd-shop') || t.closest('.kd-prompt-answers') || t.closest('.kd-game-hud') || t.closest('.kd-picker-overlay') || t.closest('.kd-shop-trigger')) return;
             if (!this.canvas.contains(t)) { this.deselectTower(); }
         };
         document.getElementById('kdGameWrapper').addEventListener('mousedown', this._onWrapperClick);
@@ -17656,6 +17684,23 @@ class KanjiDefenseGame {
     }
     buildShop() {
         const shop = document.getElementById('kdShop'); shop.innerHTML = '';
+        // LEFT: Shop trigger (icon + name) — click opens tower picker modal
+        const trigger = document.createElement('div');
+        trigger.className = 'kd-shop-trigger';
+        trigger.id = 'kdShopTrigger';
+        trigger.innerHTML = '<span class="material-symbols-outlined kd-shop-trigger-icon">storefront</span>'
+            + '<span class="kd-shop-trigger-name">Shop</span>'
+            + '<span class="kd-shop-trigger-badge" id="kdShopTriggerBadge">' + this.activeTowers.length + '</span>';
+        trigger.onclick = (e) => { e.stopPropagation(); this._openTowerPicker(); };
+        shop.appendChild(trigger);
+        // Vertical divider
+        const divider = document.createElement('div');
+        divider.className = 'kd-shop-divider';
+        shop.appendChild(divider);
+        // RIGHT: Shop content (tabs + cards)
+        const content = document.createElement('div');
+        content.className = 'kd-shop-content';
+        content.id = 'kdShopContent';
         const tabRow = document.createElement('div');
         tabRow.className = 'kd-shop-tabs';
         ['Level 1', 'Level 2', 'Level 3'].forEach((lbl, idx) => {
@@ -17670,17 +17715,11 @@ class KanjiDefenseGame {
             };
             tabRow.appendChild(tab);
         });
-        shop.appendChild(tabRow);
+        content.appendChild(tabRow);
         const cardRow = document.createElement('div');
         cardRow.className = 'kd-shop-cards'; cardRow.id = 'kdShopCards';
-        // Add picker button at the start
-        const pickerBtn = document.createElement('button');
-        pickerBtn.className = 'kd-picker-btn';
-        pickerBtn.id = 'kdPickerBtn';
-        pickerBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">tune</span><span class="kd-picker-count" id="kdPickerCount">' + this.activeTowers.length + '</span>';
-        pickerBtn.onclick = (e) => { e.stopPropagation(); this._openTowerPicker(); };
-        cardRow.appendChild(pickerBtn);
-        shop.appendChild(cardRow);
+        content.appendChild(cardRow);
+        shop.appendChild(content);
         this.selectedLevel = 1; this._renderShopTabs(); this._renderShopCards();
     }
     _openTowerPicker() {
@@ -17744,7 +17783,7 @@ class KanjiDefenseGame {
                 self.selectedType = null; self.selectedLevel = null;
             }
             self._renderShopCards();
-            const cnt = document.getElementById('kdPickerCount');
+            const cnt = document.getElementById('kdShopTriggerBadge');
             if (cnt) cnt.textContent = self.activeTowers.length;
         };
         footer.appendChild(doneBtn);
@@ -17769,9 +17808,7 @@ class KanjiDefenseGame {
         const row = document.getElementById('kdShopCards');
         if (!row) return;
         // Keep picker button, remove only tower cards
-        const pickerBtn = document.getElementById('kdPickerBtn');
         row.innerHTML = '';
-        if (pickerBtn) row.appendChild(pickerBtn);
         if (!this.selectedLevel) return;
         const lv = this.selectedLevel;
         for (const key of this.activeTowers) {
