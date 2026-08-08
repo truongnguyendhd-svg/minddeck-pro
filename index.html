@@ -17451,9 +17451,9 @@ const KD_TOWERS = {
     /* --- Row Shockwave --- */
     lotus:    { name:'Hoa sen',  emoji:'🪷', cost:155, dmg:18, range:12,rate:2000, color:'#e879f9', projColor:'#f0abfc', hp:260, rowWave:true,
         levels:[{lv:1,cost:155,label:'Sóng hàng'},{lv:2,cost:280,label:'Dmg+30%'},{lv:3,cost:450,label:'Dmg+60% Tốc+15%'}] },
-    /* --- Heavy Root/Slow --- */
-    herb:     { name:'Cỏ rễ',   emoji:'🌿', cost:120, dmg:10, range:6, rate:2000, color:'#4ade80', projColor:'#86efac', hp:250, slow:0.8, slowDur:3000,
-        levels:[{lv:1,cost:120,label:'Rễ giữ'},{lv:2,cost:220,label:'Slow+10%'},{lv:3,cost:380,label:'Slow+20% Dmg+60%'}] },
+    /* --- Hypno --- */
+    hypno:    { name:'Hypno-shroom', emoji:'🍄', cost:75, dmg:0, range:0, rate:999999, color:'#a78bfa', projColor:'#c084fc', hp:300, noAttack:true, isHypno:true,
+        levels:[{lv:1,cost:75,label:'Thôi miên'},{lv:2,cost:140,label:'HP+30%'},{lv:3,cost:220,label:'HP+60%'}] },
     /* --- Damage Buff Aura --- */
     clover:   { name:'Ba lá',   emoji:'🍀', cost:140, dmg:0,  range:3, rate:999999,color:'#22c55e', projColor:'#4ade80', hp:300, buffDmg:0.2, noAttack:true,
         levels:[{lv:1,cost:140,label:'Buff +20%'},{lv:2,cost:250,label:'Buff +30%'},{lv:3,cost:400,label:'Buff +40%'}] },
@@ -17814,7 +17814,7 @@ class KanjiDefenseGame {
             color:t.color, emoji:t.emoji, projColor:t.projColor,
             slow:Math.min(0.85,(t.slow||0)+(lvl-1)*0.05), slowDur:(t.slowDur||0)+(lvl-1)*500,
             aoe:(t.aoe||0)+(lvl-1)*0.3, fireTimer:0, hp:Math.floor(t.hp*hpMult), maxHp:Math.floor(t.hp*hpMult),
-            noAttack:!!t.noAttack, rowWave:!!t.rowWave, isMine:!!t.isMine, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null,
+            noAttack:!!t.noAttack, rowWave:!!t.rowWave, isMine:!!t.isMine, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null, isHypno:!!t.isHypno,
             armTime: t.armTime || 0,
             armTimer: t.armTime ? t.armTime - (lvl-1)*1000 : 0, armed: !t.armTime,
             pierce: (t.pierce||0)+(lvl-1),
@@ -17839,7 +17839,7 @@ class KanjiDefenseGame {
             const aoeR = t.instantAoE + (lvl-1)*0.5;
             const cx = (col+0.5)*this.CELL, cy = (row+0.5)*this.CELL;
             for (const z of this.zombies) {
-                if (z.dead) continue;
+                if (z.dead || z.hypno) continue;
                 const zd = Math.sqrt((z.x-(col+0.5))**2+((z.row+0.5)-(row+0.5))**2);
                 if (zd <= aoeR) this.damageZombie(z, z.maxHp, null);
             }
@@ -17850,7 +17850,7 @@ class KanjiDefenseGame {
         } else if (t.instantRow) {
             const rowY = (row+0.5)*this.CELL;
             for (const z of this.zombies) {
-                if (z.dead || z.row !== row) continue;
+                if (z.dead || z.hypno || z.row !== row) continue;
                 this.damageZombie(z, z.maxHp, null);
             }
             this.spawnRowFire(row);
@@ -18143,11 +18143,11 @@ class KanjiDefenseGame {
             }
             // Check zombie touching (same cell)
             for (const z of this.zombies) {
-                if (z.dead) continue;
+                if (z.dead || z.hypno) continue;
                 if (z.row !== mt.row || Math.floor(z.x) !== mt.col) continue;
                 const cx = (mt.col+0.5)*this.CELL, cy = (mt.row+0.5)*this.CELL;
                 for (const z2 of this.zombies) {
-                    if (z2.dead) continue;
+                    if (z2.dead || z2.hypno) continue;
                     const zd = Math.sqrt((z2.x-(mt.col+0.5))**2+((z2.row+0.5)-(mt.row+0.5))**2);
                     if (zd <= mt.range) this.damageZombie(z2, mt.dmg * (1 - zd/mt.range*0.3), null);
                 }
@@ -18198,7 +18198,7 @@ class KanjiDefenseGame {
             if (tower.rowWave) {
                 let hasTarget = false;
                 for (const z of this.zombies) {
-                    if (z.dead || z.row !== tower.row) continue;
+                    if (z.dead || z.hypno || z.row !== tower.row) continue;
                     if (z.x > tower.col && z.x - tower.col <= tower.range) { hasTarget = true; break; }
                 }
                 if (hasTarget) {
@@ -18213,7 +18213,7 @@ class KanjiDefenseGame {
             if (tower.pierce > 0) {
                 let target = null, minD = Infinity;
                 for (const z of this.zombies) {
-                    if (z.dead) continue;
+                    if (z.dead || z.hypno) continue;
                     const d = Math.sqrt((z.x-(tower.col+0.5))**2+((z.row+0.5)-(tower.row+0.5))**2);
                     if (d <= tower.range && z.x > tower.col && d < minD) { minD = d; target = z; }
                 }
@@ -18233,7 +18233,7 @@ class KanjiDefenseGame {
             // Normal towers: homing projectile
             let target = null, minD = Infinity;
             for (const z of this.zombies) {
-                if (z.dead) continue;
+                if (z.dead || z.hypno) continue;
                 const rd = Math.abs(z.row - tower.row);
                 if (rd > 1 && !tower.aoe) continue; if (rd > 2) continue;
                 const d = Math.sqrt((z.x - (tower.col + 0.5))**2 + (z.row - tower.row)**2);
@@ -18287,7 +18287,7 @@ class KanjiDefenseGame {
                 }
                 let remove = false;
                 for (const z of this.zombies) {
-                    if (z.dead) continue;
+                    if (z.dead || z.hypno) continue;
                     if (p.hitIds && p.hitIds.has(z.id)) continue;
                     const zx = z.x * this.CELL, zy = (z.row + 0.5) * this.CELL;
                     if (Math.sqrt((p.x-zx)**2 + (p.y-zy)**2) < this.CELL * 0.5) {
@@ -18307,7 +18307,7 @@ class KanjiDefenseGame {
             const dx = tx - p.x, dy = ty - p.y, dist = Math.sqrt(dx*dx + dy*dy);
             if (dist < 8) {
                 if (p.aoe > 0) {
-                    for (const z of this.zombies) { if (z.dead) continue;
+                    for (const z of this.zombies) { if (z.dead || z.hypno) continue;
                         const zd = Math.sqrt((z.x*this.CELL-tx)**2+((z.row+0.5)*this.CELL-ty)**2);
                         if (zd < p.aoe * this.CELL) this.damageZombie(z, p.dmg * (1 - zd/(p.aoe*this.CELL)*0.5), p); }
                     this.spawnAoEExplosion(tx, ty, p.aoe * this.CELL, p.color);
@@ -18339,32 +18339,64 @@ class KanjiDefenseGame {
             if (z.dead) { this.zombies.splice(i, 1); continue; }
             if (z.slowTimer > 0) { z.slowTimer -= dt; if (z.slowTimer <= 0) z.speed = z.baseSpeed; }
             if (z.stunTimer > 0) { z.stunTimer -= dt; continue; }
+            // Hypnotized zombie: move right, attack other zombies
+            if (z.hypno) {
+                z.x += z.speed * ds;
+                z.hypnoAtkTimer = (z.hypnoAtkTimer || 0) - dt;
+                for (const z2 of this.zombies) {
+                    if (z2.dead || z2.hypno || z2.row !== z.row) continue;
+                    if (Math.abs(z2.x - z.x) < 0.7 && z2.x > z.x) {
+                        if (z.hypnoAtkTimer <= 0) {
+                            const atkDmg = z.type === 'tank' ? 50 : z.type === 'fast' ? 15 : 25;
+                            const atkRate = z.type === 'tank' ? 1000 : z.type === 'fast' ? 500 : 800;
+                            z2.hp -= atkDmg;
+                            z.hypnoAtkTimer = atkRate;
+                            if (z2.hp <= 0 && !z2.dead) {
+                                z2.dead = true; this.totalKills++;
+                                this.spawnExplosion(z2.x * this.CELL, (z2.row + 0.5) * this.CELL, z2.color);
+                            }
+                        }
+                        z.x -= z.speed * ds; break;
+                    }
+                }
+                if (z.x > KD_COLS + 1) { this.zombies.splice(i, 1); }
+                continue;
+            }
             // Check if zombie is blocked by a tower in its current cell
             let blocked = false;
             const zCol = Math.floor(z.x);
             if (zCol >= 0 && zCol < KD_COLS) {
                 const tower = this.grid[z.row] && this.grid[z.row][zCol];
                 if (tower) {
-                    blocked = true;
-                    z.attackTimer = (z.attackTimer || 0) - dt;
-                    if (z.attackTimer <= 0) {
-                        const atkDmg = z.type === 'tank' ? 50 : z.type === 'fast' ? 15 : 25;
-                        const atkRate = z.type === 'tank' ? 1000 : z.type === 'fast' ? 500 : 800;
-                        tower.hp -= atkDmg;
-                        if (tower.thornDmg) z.hp -= tower.thornDmg;
-                        if (tower.reflect) z.hp -= Math.floor(atkDmg * tower.reflect);
-                        z.attackTimer = atkRate;
-                        tower._hitFlash = 150;
-                        if (z.hp <= 0 && !z.dead) {
-                            z.dead = true; this.totalKills++;
-                            this.spawnExplosion(z.x * this.CELL, (z.row + 0.5) * this.CELL, z.color);
-                        }
-                        if (tower.hp <= 0) {
-                            this.grid[tower.row][tower.col] = null;
-                            const tidx = this.towers.indexOf(tower);
-                            if (tidx >= 0) this.towers.splice(tidx, 1);
-                            this.spawnExplosion(tower.col * this.CELL + this.CELL/2, tower.row * this.CELL + this.CELL/2, '#ef4444');
-                            blocked = false;
+                    if (tower.isHypno) {
+                        z.hypno = true; z.speed = z.baseSpeed; z.slowTimer = 0;
+                        this.grid[tower.row][tower.col] = null;
+                        const tidx = this.towers.indexOf(tower);
+                        if (tidx >= 0) this.towers.splice(tidx, 1);
+                        this.spawnExplosion(tower.col*this.CELL+this.CELL/2, tower.row*this.CELL+this.CELL/2, '#c084fc');
+                        this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL - this.CELL*0.5, 'Thôi miên!', '#c084fc');
+                    } else {
+                        blocked = true;
+                        z.attackTimer = (z.attackTimer || 0) - dt;
+                        if (z.attackTimer <= 0) {
+                            const atkDmg = z.type === 'tank' ? 50 : z.type === 'fast' ? 15 : 25;
+                            const atkRate = z.type === 'tank' ? 1000 : z.type === 'fast' ? 500 : 800;
+                            tower.hp -= atkDmg;
+                            if (tower.thornDmg) z.hp -= tower.thornDmg;
+                            if (tower.reflect) z.hp -= Math.floor(atkDmg * tower.reflect);
+                            z.attackTimer = atkRate;
+                            tower._hitFlash = 150;
+                            if (z.hp <= 0 && !z.dead) {
+                                z.dead = true; this.totalKills++;
+                                this.spawnExplosion(z.x * this.CELL, (z.row + 0.5) * this.CELL, z.color);
+                            }
+                            if (tower.hp <= 0) {
+                                this.grid[tower.row][tower.col] = null;
+                                const tidx = this.towers.indexOf(tower);
+                                if (tidx >= 0) this.towers.splice(tidx, 1);
+                                this.spawnExplosion(tower.col * this.CELL + this.CELL/2, tower.row * this.CELL + this.CELL/2, '#ef4444');
+                                blocked = false;
+                            }
                         }
                     }
                 }
@@ -18443,7 +18475,13 @@ class KanjiDefenseGame {
             const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
             const s = this.CELL * z.size * 0.45;
             if (z.slowTimer > 0) { ctx.fillStyle = 'rgba(56,189,248,0.15)'; ctx.beginPath(); ctx.arc(cx, cy, s*1.8, 0, Math.PI*2); ctx.fill(); }
-            // Emoji
+            if (z.hypno) {
+                ctx.fillStyle = 'rgba(192,132,252,0.2)'; ctx.beginPath(); ctx.arc(cx, cy, s*2, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = '#c084fc'; ctx.lineWidth = 2; ctx.setLineDash([3,3]);
+                ctx.beginPath(); ctx.arc(cx, cy, s*1.8, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+                ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#c084fc';
+                ctx.fillText('💫', cx + s*1.2, cy - s*1.2);
+            }
             const zt = KD_ZOMBIE_TYPES[z.type];
             ctx.font = (this.CELL * z.size * 1.1) + 'px serif';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
