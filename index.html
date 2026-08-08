@@ -17466,9 +17466,9 @@ const KD_TOWERS = {
     /* --- Wall --- */
     rock:     { name:'Wall-nut', emoji:'🥥', cost:50,  dmg:0,  range:0, rate:999999,color:'#d97706', projColor:'#fbbf24', hp:4000, noAttack:true, reflect:0, maxLevels:2,
         levels:[{lv:1,cost:50,label:'4000 HP'},{lv:2,cost:125,label:'→ Palm 8000 HP Phản 30%'}] },
-    /* --- Income --- */
-    rice:     { name:'Lúa vàng', emoji:'🌾', cost:100, dmg:0,  range:0, rate:999999,color:'#eab308', projColor:'#facc15', hp:300, noAttack:true, income:30,
-        levels:[{lv:1,cost:100,label:'+30/wave'},{lv:2,cost:180,label:'+50/wave'},{lv:3,cost:300,label:'+80/wave'}] },
+    /* --- Chain Lightning --- */
+    lightning: { name:'Lightning Reed', emoji:'🌾', cost:125, dmg:10, range:9, rate:1500, color:'#fbbf24', projColor:'#fde047', hp:300, chainLightning:4, chainRange:3,
+        levels:[{lv:1,cost:125,label:'Xích 4'},{lv:2,cost:220,label:'Xích 5'},{lv:3,cost:380,label:'Xích 6 Dmg+60%'}] },
     /* --- Attack Speed Buff Aura --- */
     bonsai:   { name:'Bonsai',   emoji:'🪴', cost:145, dmg:0,  range:3, rate:999999,color:'#059669', projColor:'#34d399', hp:300, buffRate:0.25, noAttack:true,
         levels:[{lv:1,cost:145,label:'Tốc +25%'},{lv:2,cost:260,label:'Tốc +35%'},{lv:3,cost:420,label:'Tốc +45%'}] },
@@ -17710,7 +17710,7 @@ class KanjiDefenseGame {
             const tile = document.createElement('div');
             tile.className = 'kd-picker-tile' + (self.activeTowers.includes(key) ? ' active' : '');
             tile.dataset.key = key;
-            const featText = (t.instantAoE ? 'No 3x3 ' : '') + (t.instantRow ? 'Dot hang ' : '') + (t.isMine && t.armTime ? 'Min ' : '') + (t.butterChance ? 'Butter ' : '') + (t.slow ? 'Slow ' : '') + (t.aoe && !t.instantAoE ? 'AoE ' : '') + (t.pierce ? 'Xuyen ' : '') + (t.stunDur ? 'Choang ' : '') + (t.pushback ? 'Day lui ' : '') + (t.noAttack && t.thornDmg ? 'Gai ' : '') + (t.noAttack && t.reflect ? 'Phan ' : '') + (t.noAttack && t.income ? 'Tien ' : '') + (t.buffDmg ? 'Buff Dmg ' : '') + (t.buffRate ? 'Buff Toc ' : '') + (t.noAttack && !t.thornDmg && !t.reflect && !t.income && !t.instantAoE && !t.instantRow && !t.isMine ? 'Tuong ' : '') + (t.rowWave ? 'Song hang ' : '');
+            const featText = (t.instantAoE ? 'No 3x3 ' : '') + (t.instantRow ? 'Dot hang ' : '') + (t.isMine && t.armTime ? 'Min ' : '') + (t.butterChance ? 'Butter ' : '') + (t.slow ? 'Slow ' : '') + (t.aoe && !t.instantAoE ? 'AoE ' : '') + (t.pierce ? 'Xuyen ' : '') + (t.stunDur ? 'Choang ' : '') + (t.pushback ? 'Day lui ' : '') + (t.noAttack && t.thornDmg ? 'Gai ' : '') + (t.noAttack && t.reflect ? 'Phan ' : '') + (t.noAttack && t.income ? 'Tien ' : '') + (t.buffDmg ? 'Buff Dmg ' : '') + (t.buffRate ? 'Buff Toc ' : '') + (t.noAttack && !t.thornDmg && !t.reflect && !t.income && !t.instantAoE && !t.instantRow && !t.isMine ? 'Tuong ' : '') + (t.rowWave ? 'Song hang ' : '') + (t.chainLightning ? 'Xich dien ' : '');
             tile.innerHTML = '<span class="kd-picker-check">✓</span>'
                 + '<span class="kd-picker-emoji">' + t.emoji + '</span>'
                 + '<span class="kd-picker-name">' + t.name + '</span>'
@@ -17808,7 +17808,7 @@ class KanjiDefenseGame {
             color:t.color, emoji:t.emoji, projColor:t.projColor,
             slow:Math.min(0.85,(t.slow||0)+(lvl-1)*0.05), slowDur:(t.slowDur||0)+(lvl-1)*500,
             aoe:(t.aoe||0)+(lvl-1)*0.3, fireTimer:0, hp:Math.floor(t.hp*hpMult), maxHp:Math.floor(t.hp*hpMult),
-            noAttack:!!t.noAttack, rowWave:!!t.rowWave, isMine:!!t.isMine, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null, isHypno:!!t.isHypno,
+            noAttack:!!t.noAttack, rowWave:!!t.rowWave, isMine:!!t.isMine, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null, isHypno:!!t.isHypno, chainLightning:t.chainLightning||0, chainRange:t.chainRange||3,
             armTime: t.armTime || 0,
             armTimer: t.armTime ? t.armTime - (lvl-1)*1000 : 0, armed: !t.armTime,
             pierce: (t.pierce||0)+(lvl-1),
@@ -18183,6 +18183,35 @@ class KanjiDefenseGame {
             tower.fireTimer = effectiveRate;
             // Skip non-attacking towers
             if (tower.noAttack) continue;
+            // Chain Lightning (Lightning Reed)
+            if (tower.chainLightning > 0) {
+                let target = null, minD = Infinity;
+                for (const z of this.zombies) {
+                    if (z.dead || z.hypno) continue;
+                    const rd = Math.abs(z.row - tower.row); if (rd > 3) continue;
+                    const d = Math.sqrt((z.x-(tower.col+0.5))**2+((z.row+0.5)-(tower.row+0.5))**2);
+                    if (d <= tower.range && z.x > tower.col && d < minD) { minD = d; target = z; }
+                }
+                if (target) {
+                    const chainPts = [{x:(tower.col+0.5)*this.CELL, y:(tower.row+0.5)*this.CELL}];
+                    let current = target;
+                    const hitIds = new Set();
+                    for (let c = 0; c < tower.chainLightning && current; c++) {
+                        hitIds.add(current.id);
+                        chainPts.push({x:current.x*this.CELL, y:(current.row+0.5)*this.CELL});
+                        this.damageZombie(current, effectiveDmg, null);
+                        let nextTarget = null, nextMinD = Infinity;
+                        for (const z of this.zombies) {
+                            if (z.dead || z.hypno || hitIds.has(z.id)) continue;
+                            const zd = Math.sqrt((z.x-current.x)**2+((z.row+0.5)-(current.row+0.5))**2);
+                            if (zd < tower.chainRange && zd < nextMinD) { nextMinD = zd; nextTarget = z; }
+                        }
+                        current = nextTarget;
+                    }
+                    this.particles.push({points:chainPts, color:'#fbbf24', life:300, maxLife:300, isLightning:true});
+                }
+                continue;
+            }
             // Hanabi: 8-directional burst
             if (tower.type === 'hanabi') {
                 let hasTarget = false;
@@ -18602,6 +18631,30 @@ class KanjiDefenseGame {
                 ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, sz, 0, Math.PI*2); ctx.fill();
                 if (p.size && p.size > 2) {
                     ctx.fillStyle = p.color + '44'; ctx.beginPath(); ctx.arc(p.x, p.y, sz * 1.8, 0, Math.PI*2); ctx.fill();
+                }
+            }
+            else if (p.isLightning && p.points && p.points.length > 1) {
+                for (let i = 0; i < p.points.length - 1; i++) {
+                    const p1 = p.points[i], p2 = p.points[i+1];
+                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3 * a; ctx.globalAlpha = a * 0.9;
+                    ctx.beginPath(); ctx.moveTo(p1.x, p1.y);
+                    const segs = 5;
+                    for (let s = 1; s <= segs; s++) {
+                        const t = s / segs;
+                        const mx = p1.x + (p2.x-p1.x)*t + (s < segs ? (Math.random()-0.5)*12 : 0);
+                        const my = p1.y + (p2.y-p1.y)*t + (s < segs ? (Math.random()-0.5)*12 : 0);
+                        ctx.lineTo(mx, my);
+                    }
+                    ctx.stroke();
+                    ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.5 * a; ctx.globalAlpha = a * 0.6;
+                    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+                }
+                // Glow at each hit point
+                for (let i = 1; i < p.points.length; i++) {
+                    ctx.fillStyle = '#fff'; ctx.globalAlpha = a * 0.5;
+                    ctx.beginPath(); ctx.arc(p.points[i].x, p.points[i].y, 8*a, 0, Math.PI*2); ctx.fill();
+                    ctx.fillStyle = '#fbbf24'; ctx.globalAlpha = a * 0.3;
+                    ctx.beginPath(); ctx.arc(p.points[i].x, p.points[i].y, 14*a, 0, Math.PI*2); ctx.fill();
                 }
             }
             else { ctx.fillStyle = p.color; ctx.font = 'bold 14px Noto Sans JP'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
