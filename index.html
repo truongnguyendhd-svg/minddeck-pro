@@ -7884,24 +7884,28 @@ body.modal-open-lock #scrollToTopBtn {
 .kd-shop-tab.active { background: #1e293b; color: #f1f5f9; border-radius: 0; }
 .kd-shop-tab:active { background: #334155; }
 .kd-shop-cards {
-    display: flex; gap: 4px; justify-content: center;
-    min-height: 48px; align-items: center; padding: 4px 3px;
+    display: grid;
+    gap: 4px;
+    min-height: 48px;
+    padding: 4px 3px;
+    align-items: stretch;
 }
 .kd-shop-card {
-    display: flex; align-items: center; gap: 4px;
-    padding: 3px 6px; border-radius: 6px; border: 1.5px solid #334155;
-    background: #1e293b; color: #e2e8f0; font-size: 10px; font-weight: 700;
-    cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none;
-    transition: 0.15s; flex-shrink: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 1px; padding: 4px 2px 3px; border-radius: 6px;
+    border: 1.5px solid #334155; background: #1e293b; color: #e2e8f0;
+    font-size: 10px; font-weight: 700; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; user-select: none;
+    transition: 0.15s; min-width: 0; overflow: hidden;
 }
 .kd-shop-card.selected { border-color: #fbbf24; background: #1a2744; }
 .kd-shop-card.disabled { opacity: 0.4; pointer-events: none; }
 .kd-shop-card:active { transform: scale(0.95); }
-.kd-shop-emoji { font-size: 16px; flex-shrink: 0; }
-.kd-shop-card-info { display: flex; flex-direction: column; gap: 0; align-items: flex-start; min-height: 28px; }
-.kd-shop-card-name { font-size: 10px; font-weight: 700; color: #f1f5f9; line-height: 1.2; }
-.kd-shop-card-feat { font-size: 8px; color: #94a3b8; line-height: 1.1; white-space: nowrap; }
-.kd-shop-cost { color: #fbbf24; font-size: 9px; flex-shrink: 0; }
+.kd-shop-emoji { font-size: 20px; flex-shrink: 0; line-height: 1.2; }
+.kd-shop-card-info { display: flex; flex-direction: column; align-items: center; gap: 0; min-height: 0; }
+.kd-shop-card-name { font-size: 8px; font-weight: 700; color: #f1f5f9; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.kd-shop-card-feat { font-size: 7px; color: #94a3b8; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.kd-shop-cost { color: #fbbf24; font-size: 9px; font-weight: 800; flex-shrink: 0; line-height: 1.2; }
 /* Tower Picker Button in shop */
 .kd-picker-btn {
     display: flex; align-items: center; justify-content: center; gap: 4px;
@@ -8194,19 +8198,20 @@ body.modal-open-lock #scrollToTopBtn {
         padding: 8px 0;
     }
     .kd-game-wrapper.kd-active > .kd-shop .kd-shop-cards {
-        min-height: 60px;
+        min-height: 70px;
         padding: 8px 10px;
         gap: 8px;
     }
     .kd-game-wrapper.kd-active > .kd-shop .kd-shop-card {
-        padding: 8px 12px;
+        padding: 8px 6px 6px;
         border-radius: 10px;
         border-width: 2px;
+        gap: 2px;
     }
-    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-card .kd-shop-emoji { font-size: 24px; }
-    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-card .kd-shop-card-name { font-size: 13px; }
-    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-card .kd-shop-card-feat { font-size: 11px; }
-    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-card .kd-shop-cost { font-size: 13px; }
+    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-card .kd-shop-emoji { font-size: 28px; }
+    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-card .kd-shop-card-name { font-size: 10px; }
+    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-card .kd-shop-card-feat { font-size: 9px; }
+    .kd-game-wrapper.kd-active > .kd-shop .kd-shop-card .kd-shop-cost { font-size: 12px; }
 }
 
 .kd-gameover-overlay {
@@ -17807,10 +17812,18 @@ class KanjiDefenseGame {
     _renderShopCards() {
         const row = document.getElementById('kdShopCards');
         if (!row) return;
-        // Keep picker button, remove only tower cards
         row.innerHTML = '';
         if (!this.selectedLevel) return;
         const lv = this.selectedLevel;
+        // Count visible towers and set grid columns to evenly distribute
+        let visibleCount = 0;
+        for (const key of this.activeTowers) {
+            const t = KD_TOWERS[key];
+            if (t && t.levels && t.levels[lv-1]) visibleCount++;
+        }
+        if (visibleCount > 0) {
+            row.style.gridTemplateColumns = 'repeat(' + visibleCount + ', 1fr)';
+        }
         for (const key of this.activeTowers) {
             const t = KD_TOWERS[key]; if (!t) continue;
             if (!t.levels || !t.levels[lv-1]) continue;
@@ -17820,9 +17833,9 @@ class KanjiDefenseGame {
             if (this.selectedType === key && this.selectedLevel === lv) card.classList.add('selected');
             if (this.points < info.cost) card.classList.add('disabled');
             card.innerHTML = '<span class="kd-shop-emoji">'+t.emoji+'</span>'
-                +'<span class="kd-shop-card-info"><span class="kd-shop-card-name">'+t.name+'</span>'
-                +'<span class="kd-shop-card-feat">'+info.label+'</span></span>'
-                +'<span class="kd-shop-cost">' + info.cost + '</span>';
+                +'<span class="kd-shop-card-name">'+t.name+'</span>'
+                +'<span class="kd-shop-card-feat">'+info.label+'</span>'
+                +'<span class="kd-shop-cost">$'+info.cost+'</span>';
             card.onclick = () => {
                 if (this.selectedType === key && this.selectedLevel === lv)
                     { this.selectedType = null; this.selectedLevel = null; }
