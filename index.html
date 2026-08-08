@@ -17476,7 +17476,7 @@ const KD_TOWERS = {
     bonsai:   { name:'Bonsai',   emoji:'🪴', cost:145, dmg:0,  range:3, rate:999999,color:'#059669', projColor:'#34d399', hp:300, buffRate:0.25, noAttack:true,
         levels:[{lv:1,cost:145,label:'Tốc +25%'},{lv:2,cost:260,label:'Tốc +35%'},{lv:3,cost:420,label:'Tốc +45%'}] },
     /* --- Screen Lightning --- */
-    crystal:  { name:'Electric Crystal',emoji:'⚡', cost:150, dmg:5000, range:99,rate:12000, color:'#818cf8', projColor:'#c4b5fd', hp:300, isScreenLightning:true,
+    crystal:  { name:'Electric Crystal',emoji:'🔮', cost:150, dmg:5000, range:99,rate:12000, color:'#818cf8', projColor:'#c4b5fd', hp:300, isScreenLightning:true,
         levels:[{lv:1,cost:150,label:'5000 Dmg'},{lv:2,cost:280,label:'6000 Dmg'},{lv:3,cost:450,label:'7000 Dmg Ưu tiên Trâu'}] }
 };
 const KD_ZOMBIE_TYPES = {
@@ -18165,16 +18165,28 @@ class KanjiDefenseGame {
                 }
             }
             if (!triggered) continue;
-            // Explosion!
+            // Find the triggering zombie for charge target
             const cx = (mt.col+0.5)*this.CELL, cy = (mt.row+0.5)*this.CELL;
-            // Jump-smash visual for boulder
+            let chargeTarget = null;
             if (trigR > 0) {
-                this.particles.push({x:cx, y:cy, text:mt.emoji, color:'#fff', life:350, maxLife:350, isJumpSmash:true, smashY:cy - this.CELL*1.5, finalY:cy});
-                for (let i = 0; i < 10; i++) {
+                let minD2 = Infinity;
+                for (const z of this.zombies) {
+                    if (z.dead || z.hypno) continue;
+                    const zd = Math.sqrt((z.x-(mt.col+0.5))**2+((z.row+0.5)-(mt.row+0.5))**2);
+                    if (zd <= trigR && zd < minD2) { minD2 = zd; chargeTarget = z; }
+                }
+            }
+            const tx = chargeTarget ? chargeTarget.x * this.CELL : cx;
+            const ty = chargeTarget ? (chargeTarget.row+0.5) * this.CELL : cy;
+            // Charge visual for boulder
+            if (trigR > 0) {
+                this.particles.push({x:cx, y:cy, text:mt.emoji, color:'#fff', life:250, maxLife:250, isChargeSmash:true,
+                    startX:cx, startY:cy, endX:tx, endY:ty});
+                for (let i = 0; i < 8; i++) {
                     const ang = Math.random()*Math.PI*2;
-                    const spd = 2 + Math.random()*4;
-                    this.particles.push({x:cx, y:cy, vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd - 3,
-                        color:'#a8a29e', life:500, maxLife:500, size:3+Math.random()*5, gravity:0.15});
+                    const spd = 2 + Math.random()*3;
+                    this.particles.push({x:tx, y:ty, vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd - 2,
+                        color: i%2 ? '#a8a29e' : '#78716c', life:400, maxLife:400, size:3+Math.random()*5, gravity:0.12});
                 }
             }
             for (const z2 of this.zombies) {
@@ -18185,7 +18197,7 @@ class KanjiDefenseGame {
                     this.damageZombie(z2, mt.dmg * falloff, null);
                 }
             }
-            this.spawnAoEExplosion(cx, cy, mt.range * this.CELL, mt.color);
+            this.spawnAoEExplosion(trigR > 0 ? tx : cx, trigR > 0 ? ty : cy, mt.range * this.CELL, mt.color);
             this.grid[mt.row][mt.col] = null;
             this.towers.splice(mi, 1);
         }
@@ -18732,30 +18744,35 @@ class KanjiDefenseGame {
                     ctx.beginPath(); ctx.arc(p.points[i].x, p.points[i].y, boltGlow*a, 0, Math.PI*2); ctx.fill();
                 }
             }
-            else if (p.isJumpSmash) {
+            else if (p.isChargeSmash) {
                 const progress = 1 - p.life / p.maxLife;
-                let jy;
-                if (progress < 0.4) {
-                    const t = progress / 0.4;
-                    jy = p.y + (p.smashY - p.y) * Math.sin(t * Math.PI / 2);
-                } else {
-                    const t = (progress - 0.4) / 0.6;
-                    jy = p.smashY + (p.finalY - p.smashY) * (t * t);
-                }
-                const scale = 1 + Math.sin(progress * Math.PI) * 0.5;
+                const t = Math.min(1, progress / 0.7);
+                const ease = t * t * (3 - 2 * t);
+                const px = p.startX + (p.endX - p.startX) * ease;
+                const py = p.startY + (p.endY - p.startY) * ease;
+                const scale = 1 + Math.sin(progress * Math.PI) * 0.3;
                 ctx.font = Math.floor(this.CELL * 0.55 * scale) + 'px serif';
-                ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.globalAlpha = a;
-                if (progress >= 0.4) {
-                    const shadowScale = 1 + ((progress - 0.4) / 0.6) * 0.5;
-                    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.globalAlpha = a * 0.3;
-                    ctx.beginPath(); ctx.ellipse(p.x, p.finalY + this.CELL*0.35, this.CELL*0.3*shadowScale, this.CELL*0.08*shadowScale, 0, 0, Math.PI*2); ctx.fill();
-                    ctx.globalAlpha = a;
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                // Trail
+                if (progress < 0.8) {
+                    for (let tr = 1; tr <= 3; tr++) {
+                        const tt = Math.max(0, (t - tr * 0.08));
+                        const te = tt * tt * (3 - 2 * tt);
+                        const trx = p.startX + (p.endX - p.startX) * te;
+                        const tr_y = p.startY + (p.endY - p.startY) * te;
+                        ctx.globalAlpha = a * (0.15 / tr);
+                        ctx.fillText(p.text, trx, tr_y);
+                    }
                 }
-                ctx.fillText(p.text, p.x, jy);
-                if (progress > 0.85) {
-                    const flashA = (progress - 0.85) / 0.15;
-                    ctx.fillStyle = '#fff'; ctx.globalAlpha = flashA * 0.6;
-                    ctx.beginPath(); ctx.arc(p.x, p.finalY, this.CELL * (0.8 + flashA * 0.5), 0, Math.PI*2); ctx.fill();
+                ctx.globalAlpha = a;
+                ctx.fillText(p.text, px, py);
+                // Impact flash
+                if (progress > 0.7) {
+                    const flashA = (progress - 0.7) / 0.3;
+                    ctx.fillStyle = '#fff'; ctx.globalAlpha = flashA * 0.5;
+                    ctx.beginPath(); ctx.arc(p.endX, p.endY, this.CELL * (0.6 + flashA * 0.6), 0, Math.PI*2); ctx.fill();
+                    ctx.fillStyle = '#a8a29e'; ctx.globalAlpha = flashA * 0.3;
+                    ctx.beginPath(); ctx.arc(p.endX, p.endY, this.CELL * (0.9 + flashA * 0.4), 0, Math.PI*2); ctx.fill();
                 }
             }
             else { ctx.fillStyle = p.color; ctx.font = 'bold 14px Noto Sans JP'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
