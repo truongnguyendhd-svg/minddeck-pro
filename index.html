@@ -17429,8 +17429,8 @@ const KD_TOWERS = {
     tiger:    { name:'Tiger',    emoji:'🌵', cost:200, dmg:40, range:9, rate:1400, color:'#fb923c', projColor:'#fdba74', hp:300,
         levels:[{lv:1,cost:200,label:'Repeater x2'},{lv:2,cost:350,label:'Sieu Dmg'},{lv:3,cost:500,label:'Cuc dai'}] },
     /* --- AoE Splash --- */
-    mushroom: { name:'Nấm độc',  emoji:'🍄', cost:130, dmg:18, range:8, rate:1800, color:'#a78bfa', projColor:'#c4b5fd', hp:250, aoe:1.5,
-        levels:[{lv:1,cost:130,label:'AoE Nổ'},{lv:2,cost:250,label:'Dmg+30%'},{lv:3,cost:400,label:'Dmg+60% AoE+'}] },
+    mushroom: { name:'Nấm độc',  emoji:'🍄', cost:130, dmg:220, range:1.8, rate:999999, color:'#a78bfa', projColor:'#c4b5fd', hp:120, aoe:2.0, isMine:true,
+        levels:[{lv:1,cost:130,label:'Mìn nổ'},{lv:2,cost:250,label:'Dmg+30% AoE+'},{lv:3,cost:400,label:'Dmg+60% AoE++'}] },
     /* --- Rapid Fire --- */
     rose:     { name:'Hoa hồng', emoji:'🌹', cost:90,  dmg:8,  range:5, rate:600,  color:'#fb7185', projColor:'#fda4af', hp:200,
         levels:[{lv:1,cost:90,label:'Bắn nhanh'},{lv:2,cost:180,label:'Dmg+30%'},{lv:3,cost:300,label:'Dmg+60% Tốc+20%'}] },
@@ -17705,7 +17705,7 @@ class KanjiDefenseGame {
             const tile = document.createElement('div');
             tile.className = 'kd-picker-tile' + (self.activeTowers.includes(key) ? ' active' : '');
             tile.dataset.key = key;
-            const featText = (t.slow ? 'Slow ' : '') + (t.aoe ? 'AoE ' : '') + (t.pierce ? 'Xuyen ' : '') + (t.stunDur ? 'Choang ' : '') + (t.pushback ? 'Day lui ' : '') + (t.noAttack && t.thornDmg ? 'Gai ' : '') + (t.noAttack && t.reflect ? 'Phan ' : '') + (t.noAttack && t.income ? 'Tien ' : '') + (t.buffDmg ? 'Buff Dmg ' : '') + (t.buffRate ? 'Buff Toc ' : '') + (t.noAttack && !t.thornDmg && !t.reflect && !t.income ? 'Tuong ' : '') + (t.rowWave ? 'Song hang ' : '');
+            const featText = (t.isMine ? 'Min ' : '') + (t.slow ? 'Slow ' : '') + (t.aoe && !t.isMine ? 'AoE ' : '') + (t.pierce ? 'Xuyen ' : '') + (t.stunDur ? 'Choang ' : '') + (t.pushback ? 'Day lui ' : '') + (t.noAttack && t.thornDmg ? 'Gai ' : '') + (t.noAttack && t.reflect ? 'Phan ' : '') + (t.noAttack && t.income ? 'Tien ' : '') + (t.buffDmg ? 'Buff Dmg ' : '') + (t.buffRate ? 'Buff Toc ' : '') + (t.noAttack && !t.thornDmg && !t.reflect && !t.income ? 'Tuong ' : '') + (t.rowWave ? 'Song hang ' : '');
             tile.innerHTML = '<span class="kd-picker-check">✓</span>'
                 + '<span class="kd-picker-emoji">' + t.emoji + '</span>'
                 + '<span class="kd-picker-name">' + t.name + '</span>'
@@ -17803,7 +17803,7 @@ class KanjiDefenseGame {
             color:t.color, emoji:t.emoji, projColor:t.projColor,
             slow:Math.min(0.85,(t.slow||0)+(lvl-1)*0.05), slowDur:(t.slowDur||0)+(lvl-1)*500,
             aoe:(t.aoe||0)+(lvl-1)*0.3, fireTimer:0, hp:Math.floor(t.hp*hpMult), maxHp:Math.floor(t.hp*hpMult),
-            noAttack:!!t.noAttack, rowWave:!!t.rowWave,
+            noAttack:!!t.noAttack, rowWave:!!t.rowWave, isMine:!!t.isMine,
             pierce: (t.pierce||0)+(lvl-1),
             stunDur: (t.stunDur||0)+(lvl-1)*500,
             pushback: (t.pushback||0)+(lvl-1)*1,
@@ -18021,6 +18021,33 @@ class KanjiDefenseGame {
     spawnExplosion(x, y, color) {
         for (let i = 0; i < 6; i++) this.particles.push({ x, y, color, vx: (Math.random()-0.5)*3, vy: (Math.random()-0.5)*3, life: 500, maxLife: 500, isParticle: true });
     }
+    spawnAoEExplosion(x, y, radius, color) {
+        // Screen shake
+        this._shakeTimer = 200; this._shakeIntensity = 4;
+        // Bright center flash
+        this.particles.push({ x, y, color: '#fff', life: 120, maxLife: 120, isAoE: true, aoeRadius: radius * 0.3 });
+        // Main expanding ring (slow, thick)
+        this.particles.push({ x, y, color, life: 500, maxLife: 500, isAoE: true, aoeRadius: radius });
+        // Second ring (faster, thinner)
+        this.particles.push({ x, y, color: '#fef08a', life: 350, maxLife: 350, isAoE: true, aoeRadius: radius * 1.2 });
+        // Shockwave debris particles
+        for (let i = 0; i < 24; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 1.5 + Math.random() * 3;
+            this.particles.push({ x, y,
+                color: i % 3 === 0 ? '#fef08a' : i % 3 === 1 ? color : '#f97316',
+                vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
+                life: 350 + Math.random()*200, maxLife: 550, isParticle: true, size: 2 + Math.random()*3 });
+        }
+        // Fire particles (slower, linger)
+        for (let i = 0; i < 8; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = Math.random() * radius * 0.4;
+            this.particles.push({ x: x + Math.cos(angle)*dist, y: y + Math.sin(angle)*dist,
+                color: '#fbbf24', vx: (Math.random()-0.5)*1.5, vy: -Math.random()*2,
+                life: 500 + Math.random()*200, maxLife: 700, isParticle: true, size: 3 + Math.random()*2 });
+        }
+    }
     loop(ts) {
         if (this.state !== 'playing') return;
         const dt = ts - this.lastTick; this.lastTick = ts;
@@ -18063,7 +18090,33 @@ class KanjiDefenseGame {
             const effectiveRate = Math.max(200, Math.floor(tower.rate * rateBuff));
             tower.fireTimer = effectiveRate;
             // Skip non-attacking towers
-            if (tower.noAttack) continue;
+            if (tower.noAttack && !tower.isMine) continue;
+            // Mine towers: detonate when zombie is close
+            if (tower.isMine) {
+                for (const z of this.zombies) {
+                    if (z.dead) continue;
+                    const d = Math.sqrt((z.x-(tower.col+0.5))**2+((z.row+0.5)-(tower.row+0.5))**2);
+                    if (d <= tower.range) {
+                        // Detonate! AoE damage to all zombies in aoe radius
+                        const cx = (tower.col+0.5)*this.CELL, cy = (tower.row+0.5)*this.CELL;
+                        for (const z2 of this.zombies) {
+                            if (z2.dead) continue;
+                            const zd = Math.sqrt((z2.x-(tower.col+0.5))**2+((z2.row+0.5)-(tower.row+0.5))**2);
+                            if (zd <= tower.aoe) {
+                                const falloff = 1 - zd / tower.aoe * 0.4;
+                                this.damageZombie(z2, tower.dmg * falloff, null);
+                            }
+                        }
+                        this.spawnAoEExplosion(cx, cy, tower.aoe * this.CELL, tower.color);
+                        // Remove the mine tower
+                        this.grid[tower.row][tower.col] = null;
+                        const tidx = this.towers.indexOf(tower);
+                        if (tidx >= 0) this.towers.splice(tidx, 1);
+                        break;
+                    }
+                }
+                continue;
+            }
             // Hanabi: 8-directional burst
             if (tower.type === 'hanabi') {
                 let hasTarget = false;
@@ -18172,7 +18225,7 @@ class KanjiDefenseGame {
                     for (const z of this.zombies) { if (z.dead) continue;
                         const zd = Math.sqrt((z.x*this.CELL-tx)**2+((z.row+0.5)*this.CELL-ty)**2);
                         if (zd < p.aoe * this.CELL) this.damageZombie(z, p.dmg * (1 - zd/(p.aoe*this.CELL)*0.5), p); }
-                    this.spawnExplosion(tx, ty, p.color);
+                    this.spawnAoEExplosion(tx, ty, p.aoe * this.CELL, p.color);
                 } else this.damageZombie(tgt, p.dmg, p);
                 this.projectiles.splice(i, 1);
             } else { const sp = p.speed * this.CELL * ds; p.x += (dx/dist)*sp; p.y += (dy/dist)*sp; }
@@ -18241,6 +18294,7 @@ class KanjiDefenseGame {
         }
     }
     updateParticles(dt) {
+        if (this._shakeTimer > 0) this._shakeTimer -= dt;
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const p = this.particles[i]; p.life -= dt;
             if (p.life <= 0) { this.particles.splice(i, 1); continue; }
@@ -18249,6 +18303,12 @@ class KanjiDefenseGame {
     }
     render() {
         const ctx = this.ctx, C = this.CELL;
+        ctx.save();
+        // Screen shake
+        if (this._shakeTimer > 0) {
+            const si = this._shakeIntensity * (this._shakeTimer / 200);
+            ctx.translate((Math.random()-0.5)*si*2, (Math.random()-0.5)*si*2);
+        }
         ctx.clearRect(0, 0, this.W, this.H);
         ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, this.W, this.H);
         for (let r = 0; r < KD_ROWS; r++) for (let c = 0; c < KD_COLS; c++) {
@@ -18268,6 +18328,15 @@ class KanjiDefenseGame {
         // Towers
         for (const t of this.towers) {
             const tx = t.col*C, ty = t.row*C;
+            // Mine pulse glow
+            if (t.isMine) {
+                const pulse = 0.3 + Math.sin(Date.now()/200) * 0.2;
+                ctx.fillStyle = 'rgba(167,139,250,' + pulse + ')';
+                ctx.beginPath(); ctx.arc(tx+C/2, ty+C/2, C*0.45, 0, Math.PI*2); ctx.fill();
+                // Trigger range ring
+                ctx.strokeStyle = 'rgba(167,139,250,0.15)'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.arc(tx+C/2, ty+C/2, t.range*C, 0, Math.PI*2); ctx.stroke();
+            }
             ctx.font = Math.floor(C*0.5) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText(t.emoji, tx+C/2, ty+C/2);
             for (let i = 0; i < t.level; i++) { ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.arc(tx+C/2-(t.level-1)*4+i*8, ty+C-4, 2, 0, Math.PI*2); ctx.fill(); }
@@ -18309,8 +18378,15 @@ class KanjiDefenseGame {
         }
         // Projectiles
         for (const p of this.projectiles) {
-            ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = p.color + '44'; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill();
+            if (p.aoe > 0) {
+                // Bomb-style projectile: draw 💣 emoji with glow trail
+                ctx.fillStyle = p.color + '33'; ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fill();
+                ctx.font = '16px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('💣', p.x, p.y);
+            } else {
+                ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = p.color + '44'; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill();
+            }
         }
         // Loot
         for (const l of this.loots) {
@@ -18327,7 +18403,30 @@ class KanjiDefenseGame {
         // Particles
         for (const p of this.particles) {
             const a = Math.max(0, p.life/p.maxLife); ctx.globalAlpha = a;
-            if (p.isParticle) { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 3*a, 0, Math.PI*2); ctx.fill(); }
+            if (p.isAoE) {
+                // Expanding ring effect
+                const expand = 1 - a; // 0 -> 1 as it fades
+                const r = p.aoeRadius * expand;
+                // Outer ring glow
+                ctx.strokeStyle = p.color; ctx.lineWidth = 4 * a;
+                ctx.globalAlpha = a * 0.7;
+                ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2); ctx.stroke();
+                // Inner fill
+                ctx.fillStyle = p.color; ctx.globalAlpha = a * 0.2;
+                ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2); ctx.fill();
+                // Extra bright edge
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * a;
+                ctx.globalAlpha = a * 0.3;
+                ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.9, 0, Math.PI*2); ctx.stroke();
+                ctx.globalAlpha = 1;
+            }
+            else if (p.isParticle) {
+                const sz = p.size ? p.size * a : 3 * a;
+                ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, sz, 0, Math.PI*2); ctx.fill();
+                if (p.size && p.size > 2) {
+                    ctx.fillStyle = p.color + '44'; ctx.beginPath(); ctx.arc(p.x, p.y, sz * 1.8, 0, Math.PI*2); ctx.fill();
+                }
+            }
             else { ctx.fillStyle = p.color; ctx.font = 'bold 14px Noto Sans JP'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText(p.text, p.x, p.y - (1-a)*20); }
             ctx.globalAlpha = 1;
@@ -18344,6 +18443,7 @@ class KanjiDefenseGame {
         const grad = ctx.createLinearGradient(0, 0, C*0.5, 0);
         grad.addColorStop(0, 'rgba(239,68,68,0.1)'); grad.addColorStop(1, 'rgba(239,68,68,0)');
         ctx.fillStyle = grad; ctx.fillRect(0, 0, C*0.5, this.H);
+        ctx.restore();
     }
     roundRect(ctx, x, y, w, h, r) {
         r = Math.min(r, w/2, h/2); ctx.beginPath(); ctx.moveTo(x+r, y); ctx.lineTo(x+w-r, y);
