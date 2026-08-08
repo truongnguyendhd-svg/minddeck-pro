@@ -7933,7 +7933,7 @@ body.modal-open-lock #scrollToTopBtn {
 @keyframes kdFadeIn { from { opacity:0; } to { opacity:1; } }
 .kd-picker-modal {
     background: #1e293b; border: 1px solid #334155; border-radius: 16px;
-    width: 100%; max-width: 520px; max-height: 85vh;
+    width: 100%; max-width: 600px; max-height: 85vh;
     display: flex; flex-direction: column; overflow: hidden;
     box-shadow: 0 25px 50px rgba(0,0,0,0.5);
 }
@@ -7952,25 +7952,45 @@ body.modal-open-lock #scrollToTopBtn {
     padding: 8px 16px; font-size: 11px; color: #64748b; flex-shrink: 0;
     border-bottom: 1px solid #1e293b;
 }
+.kd-picker-tabs {
+    display: flex; gap: 0; background: transparent; overflow: hidden;
+    border-bottom: 1px solid #334155; flex-shrink: 0;
+}
+.kd-picker-tab {
+    flex: 1; padding: 8px 0; border: none; background: transparent;
+    color: #64748b; font-size: 12px; font-weight: 700; cursor: pointer;
+    transition: 0.15s; -webkit-tap-highlight-color: transparent;
+    user-select: none; text-align: center;
+}
+.kd-picker-tab.active { color: #f1f5f9; background: rgba(251,191,36,0.1); border-bottom: 2px solid #fbbf24; }
+.kd-picker-tab:active { background: #334155; }
 .kd-picker-grid {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-    padding: 12px 16px; overflow-y: auto; flex: 1;
+    padding: 12px; overflow-y: auto; flex: 1; align-content: start;
 }
 .kd-picker-tile {
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
-    padding: 10px 4px; border-radius: 10px; border: 2px solid #334155;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 10px 6px 8px; border-radius: 10px; border: 2px solid #334155;
     background: #0f172a; color: #e2e8f0; cursor: pointer;
     -webkit-tap-highlight-color: transparent; user-select: none;
     transition: 0.15s; position: relative;
 }
 .kd-picker-tile.active { border-color: #fbbf24; background: #1a2744; }
 .kd-picker-tile:active { transform: scale(0.95); }
-.kd-picker-tile .kd-picker-emoji { font-size: 28px; }
-.kd-picker-tile .kd-picker-name { font-size: 10px; font-weight: 700; text-align: center; line-height: 1.2; }
-.kd-picker-tile .kd-picker-feat { font-size: 8px; color: #64748b; text-align: center; }
+.kd-picker-tile .kd-picker-emoji { font-size: 32px; line-height: 1.1; }
+.kd-picker-tile .kd-picker-name { font-size: 10px; font-weight: 700; text-align: center; line-height: 1.2; color: #f1f5f9; }
+.kd-picker-tile .kd-picker-stats {
+    display: flex; justify-content: center; gap: 8px; width: 100%; font-size: 8px; color: #94a3b8; line-height: 1.4;
+}
+.kd-picker-tile .kd-picker-stats span { white-space: nowrap; }
+.kd-picker-tile .kd-picker-stats .kd-stat-val { color: #e2e8f0; font-weight: 600; }
+.kd-picker-tile .kd-picker-mech { font-size: 8px; color: #a78bfa; text-align: center; line-height: 1.2; min-height: 10px; }
+.kd-picker-tile .kd-picker-price { font-size: 11px; font-weight: 800; color: #fbbf24; margin-top: auto; }
 .kd-picker-tile .kd-picker-check {
-    position: absolute; top: 4px; right: 6px; font-size: 12px; color: #fbbf24;
+    position: absolute; top: 4px; right: 6px; font-size: 14px; color: #fbbf24;
     opacity: 0; transition: 0.15s;
+    background: #0f172a; border-radius: 50%; width: 18px; height: 18px;
+    display: flex; align-items: center; justify-content: center;
 }
 .kd-picker-tile.active .kd-picker-check { opacity: 1; }
 .kd-picker-footer {
@@ -17728,10 +17748,10 @@ class KanjiDefenseGame {
         this.selectedLevel = 1; this._renderShopTabs(); this._renderShopCards();
     }
     _openTowerPicker() {
-        // Remove existing modal if any
         const old = document.getElementById('kdPickerOverlay');
         if (old) old.remove();
         const self = this;
+        let pickerLevel = 1;
         const overlay = document.createElement('div');
         overlay.id = 'kdPickerOverlay'; overlay.className = 'kd-picker-overlay';
         overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
@@ -17744,38 +17764,70 @@ class KanjiDefenseGame {
         closeBtn.onclick = () => overlay.remove();
         header.appendChild(closeBtn);
         modal.appendChild(header);
+        // Level tabs
+        const tabRow = document.createElement('div'); tabRow.className = 'kd-picker-tabs';
+        ['Level 1', 'Level 2', 'Level 3'].forEach((lbl, idx) => {
+            const tab = document.createElement('button');
+            tab.className = 'kd-picker-tab' + (idx === 0 ? ' active' : '');
+            tab.textContent = lbl;
+            tab.onclick = () => {
+                pickerLevel = idx + 1;
+                tabRow.querySelectorAll('.kd-picker-tab').forEach((t,i) => t.classList.toggle('active', i === idx));
+                renderGrid();
+            };
+            tabRow.appendChild(tab);
+        });
+        modal.appendChild(tabRow);
         // Info
-        const info = document.createElement('div'); info.className = 'kd-picker-info';
-        info.id = 'kdPickerInfo';
+        const info = document.createElement('div'); info.className = 'kd-picker-info'; info.id = 'kdPickerInfo';
         modal.appendChild(info);
         // Grid
         const grid = document.createElement('div'); grid.className = 'kd-picker-grid'; grid.id = 'kdPickerGrid';
-        for (const [key, t] of Object.entries(KD_TOWERS)) {
-            const tile = document.createElement('div');
-            tile.className = 'kd-picker-tile' + (self.activeTowers.includes(key) ? ' active' : '');
-            tile.dataset.key = key;
-            const featText = (t.instantAoE ? 'No 3x3 ' : '') + (t.instantRow ? 'Dot hang ' : '') + (t.isMine && t.armTime ? 'Min ' : '') + (t.mineTriggerRange ? 'Đè ' : '') + (t.butterChance ? 'Butter ' : '') + (t.slow ? 'Slow ' : '') + (t.aoe && !t.instantAoE ? 'AoE ' : '') + (t.pierce ? 'Xuyen ' : '') + (t.stunDur ? 'Choang ' : '') + (t.pushback ? 'Day lui ' : '') + (t.noAttack && t.thornDmg ? 'Gai ' : '') + (t.noAttack && t.reflect ? 'Phan ' : '') + (t.noAttack && t.income ? 'Tien ' : '') + (t.buffDmg ? 'Buff Dmg ' : '') + (t.buffRate ? 'Buff Toc ' : '') + (t.noAttack && !t.thornDmg && !t.reflect && !t.income && !t.instantAoE && !t.instantRow && !t.isMine ? 'Tuong ' : '') + (t.isScreenLightning ? 'Sét ' : '') + (t.isBloomerang ? 'Boomerang ' : '') + (t.chainLightning ? 'Xich dien ' : '');
-            tile.innerHTML = '<span class="kd-picker-check">✓</span>'
-                + '<span class="kd-picker-emoji">' + t.emoji + '</span>'
-                + '<span class="kd-picker-name">' + t.name + '</span>'
-                + '<span class="kd-picker-feat">' + featText.trim() + '</span>';
-            tile.onclick = () => {
-                const isActive = tile.classList.toggle('active');
-                if (isActive) {
-                    if (self.activeTowers.length >= 10) { tile.classList.remove('active'); return; }
-                    self.activeTowers.push(key);
-                } else {
-                    self.activeTowers = self.activeTowers.filter(k => k !== key);
-                }
-                self._updatePickerInfo();
-            };
-            grid.appendChild(tile);
+        function getMechText(t) {
+            return (t.instantAoE ? 'Nổ 3x3' : '') + (t.instantRow ? 'Đốt hàng' : '') + (t.isMine && t.armTime ? 'Mìn' : '') + (t.mineTriggerRange ? 'Đè' : '') + (t.butterChance ? 'Butter' : '') + (t.slow ? 'Slow' : '') + (t.aoe && !t.instantAoE ? 'AoE' : '') + (t.pierce ? 'Xuyên' : '') + (t.stunDur ? 'Choáng' : '') + (t.pushback ? 'Đẩy' : '') + (t.noAttack && t.thornDmg ? 'Gai' : '') + (t.noAttack && t.reflect ? 'Phản' : '') + (t.noAttack && t.income ? 'Tiền' : '') + (t.buffDmg ? 'Buff Dmg' : '') + (t.buffRate ? 'Buff Tốc' : '') + (t.noAttack && !t.thornDmg && !t.reflect && !t.income && !t.instantAoE && !t.instantRow && !t.isMine ? 'Tường' : '') + (t.isScreenLightning ? 'Sét' : '') + (t.isBloomerang ? 'Boomerang' : '') + (t.chainLightning ? 'Xích điện' : '') + (t.isHypno ? 'Thôi miên' : '') || '-';
         }
+        function getStatLine(t, lv) {
+            const mult = 1 + (lv - 1) * 0.3;
+            const hp = t.noAttack && t.reflect && lv === 2 ? 8000 : Math.floor(t.hp * (1 + (lv-1)*0.2));
+            const dmg = Math.floor(t.dmg * mult);
+            const rateVal = t.rate < 999999 ? (Math.max(400, Math.floor(t.rate * (1 - (lv-1)*0.1))) / 1000).toFixed(1) + 's' : '-';
+            const rangeVal = t.range > 0 ? (t.range + (lv-1)*0.2).toFixed(1) : '-';
+            return '<span>HP <b class="kd-stat-val">' + hp + '</b></span><span>Dmg <b class="kd-stat-val">' + (dmg > 9000 ? '∞' : dmg) + '</b></span>'
+                + '<br><span>Tốc <b class="kd-stat-val">' + rateVal + '</b></span><span>Range <b class="kd-stat-val">' + rangeVal + '</b></span>';
+        }
+        function renderGrid() {
+            grid.innerHTML = '';
+            const lv = pickerLevel;
+            for (const [key, t] of Object.entries(KD_TOWERS)) {
+                if (!t.levels || !t.levels[lv-1]) continue;
+                const info = t.levels[lv-1];
+                const tile = document.createElement('div');
+                tile.className = 'kd-picker-tile' + (self.activeTowers.includes(key) ? ' active' : '');
+                tile.dataset.key = key;
+                tile.innerHTML = '<span class="kd-picker-check">✓</span>'
+                    + '<span class="kd-picker-emoji">' + t.emoji + '</span>'
+                    + '<span class="kd-picker-name">' + t.name + '</span>'
+                    + '<div class="kd-picker-stats">' + getStatLine(t, lv) + '</div>'
+                    + '<span class="kd-picker-mech">' + getMechText(t) + '</span>'
+                    + '<span class="kd-picker-price">$' + info.cost + '</span>';
+                tile.onclick = () => {
+                    const isActive = tile.classList.toggle('active');
+                    if (isActive) {
+                        if (self.activeTowers.length >= 10) { tile.classList.remove('active'); return; }
+                        self.activeTowers.push(key);
+                    } else {
+                        self.activeTowers = self.activeTowers.filter(k => k !== key);
+                    }
+                    self._updatePickerInfo();
+                };
+                grid.appendChild(tile);
+            }
+        }
+        renderGrid();
         modal.appendChild(grid);
         // Footer
         const footer = document.createElement('div'); footer.className = 'kd-picker-footer';
-        const countSpan = document.createElement('span');
-        countSpan.id = 'kdPickerFooterCount';
+        const countSpan = document.createElement('span'); countSpan.id = 'kdPickerFooterCount';
         footer.appendChild(countSpan);
         const doneBtn = document.createElement('button');
         doneBtn.className = 'kd-picker-done'; doneBtn.textContent = 'Xac nhan';
@@ -17783,7 +17835,6 @@ class KanjiDefenseGame {
             if (self.activeTowers.length === 0) return;
             localStorage.setItem('kd_activeTowers', JSON.stringify(self.activeTowers));
             overlay.remove();
-            // Deselect if current type no longer active
             if (self.selectedType && !self.activeTowers.includes(self.selectedType)) {
                 self.selectedType = null; self.selectedLevel = null;
             }
@@ -17796,8 +17847,7 @@ class KanjiDefenseGame {
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
         this._updatePickerInfo();
-    }
-    _updatePickerInfo() {
+    }    _updatePickerInfo() {
         const info = document.getElementById('kdPickerInfo');
         const cnt = document.getElementById('kdPickerFooterCount');
         const text = 'Da chon: ' + this.activeTowers.length + ' / 10';
