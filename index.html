@@ -17808,6 +17808,7 @@ class KanjiDefenseGame {
             slow:Math.min(0.85,(t.slow||0)+(lvl-1)*0.05), slowDur:(t.slowDur||0)+(lvl-1)*500,
             aoe:(t.aoe||0)+(lvl-1)*0.3, fireTimer:0, hp:Math.floor(t.hp*hpMult), maxHp:Math.floor(t.hp*hpMult),
             noAttack:!!t.noAttack, rowWave:!!t.rowWave, isMine:!!t.isMine,
+            armTime: t.armTime || 0,
             armTimer: t.armTime ? t.armTime - (lvl-1)*1000 : 0, armed: !t.armTime,
             pierce: (t.pierce||0)+(lvl-1),
             stunDur: (t.stunDur||0)+(lvl-1)*500,
@@ -18127,22 +18128,20 @@ class KanjiDefenseGame {
                 if (mt.armTimer <= 0) mt.armed = true;
                 continue;
             }
-            // Check zombie proximity
+            // Check zombie touching (same cell)
             for (const z of this.zombies) {
                 if (z.dead) continue;
-                const d = Math.sqrt((z.x-(mt.col+0.5))**2+((z.row+0.5)-(mt.row+0.5))**2);
-                if (d <= mt.range) {
-                    const cx = (mt.col+0.5)*this.CELL, cy = (mt.row+0.5)*this.CELL;
-                    for (const z2 of this.zombies) {
-                        if (z2.dead) continue;
-                        const zd = Math.sqrt((z2.x-(mt.col+0.5))**2+((z2.row+0.5)-(mt.row+0.5))**2);
-                        if (zd <= mt.range) this.damageZombie(z2, mt.dmg * (1 - zd/mt.range*0.3), null);
-                    }
-                    this.spawnAoEExplosion(cx, cy, mt.range * this.CELL, mt.color);
-                    this.grid[mt.row][mt.col] = null;
-                    this.towers.splice(mi, 1);
-                    break;
+                if (z.row !== mt.row || Math.floor(z.x) !== mt.col) continue;
+                const cx = (mt.col+0.5)*this.CELL, cy = (mt.row+0.5)*this.CELL;
+                for (const z2 of this.zombies) {
+                    if (z2.dead) continue;
+                    const zd = Math.sqrt((z2.x-(mt.col+0.5))**2+((z2.row+0.5)-(mt.row+0.5))**2);
+                    if (zd <= mt.range) this.damageZombie(z2, mt.dmg * (1 - zd/mt.range*0.3), null);
                 }
+                this.spawnAoEExplosion(cx, cy, mt.range * this.CELL, mt.color);
+                this.grid[mt.row][mt.col] = null;
+                this.towers.splice(mi, 1);
+                break;
             }
         }
         for (const tower of this.towers) {
