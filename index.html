@@ -17435,6 +17435,9 @@ const KD_TOWERS = {
         levels:[{lv:1,cost:200,label:'Đốt 1 hàng'},{lv:2,cost:350,label:'Dmg+'},{lv:3,cost:500,label:'Dmg++'}] },
     potato:   { name:'Potato Mine', emoji:'🥔', cost:50, dmg:250, range:1.5, rate:0, color:'#a16207', projColor:'#eab308', hp:150, noAttack:true, isMine:true, armTime:3000,
         levels:[{lv:1,cost:50,label:'Mìn 3s'},{lv:2,cost:100,label:'Dmg+30%'},{lv:3,cost:175,label:'Dmg+60% Nhanh+1s'}] },
+    /* --- Butter Stun --- */
+    kernel:   { name:'Kernel-pult', emoji:'🌽', cost:150, dmg:20, range:9, rate:2000, color:'#eab308', projColor:'#fde047', hp:250, butterChance:0.25, butterStun:2500,
+        levels:[{lv:1,cost:150,label:'Bắn bắp'},{lv:2,cost:280,label:'Butter+5%'},{lv:3,cost:450,label:'Butter+10% Dmg+60%'}] },
     /* --- Rapid Fire --- */
     rose:     { name:'Hoa hồng', emoji:'🌹', cost:90,  dmg:8,  range:5, rate:600,  color:'#fb7185', projColor:'#fda4af', hp:200,
         levels:[{lv:1,cost:90,label:'Bắn nhanh'},{lv:2,cost:180,label:'Dmg+30%'},{lv:3,cost:300,label:'Dmg+60% Tốc+20%'}] },
@@ -17709,7 +17712,7 @@ class KanjiDefenseGame {
             const tile = document.createElement('div');
             tile.className = 'kd-picker-tile' + (self.activeTowers.includes(key) ? ' active' : '');
             tile.dataset.key = key;
-            const featText = (t.instantAoE ? 'No 3x3 ' : '') + (t.instantRow ? 'Dot hang ' : '') + (t.isMine && t.armTime ? 'Min ' : '') + (t.slow ? 'Slow ' : '') + (t.aoe && !t.instantAoE ? 'AoE ' : '') + (t.pierce ? 'Xuyen ' : '') + (t.stunDur ? 'Choang ' : '') + (t.pushback ? 'Day lui ' : '') + (t.noAttack && t.thornDmg ? 'Gai ' : '') + (t.noAttack && t.reflect ? 'Phan ' : '') + (t.noAttack && t.income ? 'Tien ' : '') + (t.buffDmg ? 'Buff Dmg ' : '') + (t.buffRate ? 'Buff Toc ' : '') + (t.noAttack && !t.thornDmg && !t.reflect && !t.income && !t.instantAoE && !t.instantRow && !t.isMine ? 'Tuong ' : '') + (t.rowWave ? 'Song hang ' : '');
+            const featText = (t.instantAoE ? 'No 3x3 ' : '') + (t.instantRow ? 'Dot hang ' : '') + (t.isMine && t.armTime ? 'Min ' : '') + (t.butterChance ? 'Butter ' : '') + (t.slow ? 'Slow ' : '') + (t.aoe && !t.instantAoE ? 'AoE ' : '') + (t.pierce ? 'Xuyen ' : '') + (t.stunDur ? 'Choang ' : '') + (t.pushback ? 'Day lui ' : '') + (t.noAttack && t.thornDmg ? 'Gai ' : '') + (t.noAttack && t.reflect ? 'Phan ' : '') + (t.noAttack && t.income ? 'Tien ' : '') + (t.buffDmg ? 'Buff Dmg ' : '') + (t.buffRate ? 'Buff Toc ' : '') + (t.noAttack && !t.thornDmg && !t.reflect && !t.income && !t.instantAoE && !t.instantRow && !t.isMine ? 'Tuong ' : '') + (t.rowWave ? 'Song hang ' : '');
             tile.innerHTML = '<span class="kd-picker-check">✓</span>'
                 + '<span class="kd-picker-emoji">' + t.emoji + '</span>'
                 + '<span class="kd-picker-name">' + t.name + '</span>'
@@ -17818,7 +17821,9 @@ class KanjiDefenseGame {
             income: t.income ? Math.floor(t.income*(1+(lvl-1)*0.6)) : 0,
             buffDmg: t.buffDmg ? t.buffDmg+(lvl-1)*0.1 : 0,
             buffRate: t.buffRate ? t.buffRate+(lvl-1)*0.1 : 0,
-            buffRange: t.range || 3
+            buffRange: t.range || 3,
+            butterChance: (t.butterChance||0) + (lvl-1)*0.05,
+            butterStun: (t.butterStun||0) + (lvl-1)*300
         };
         this.grid[row][col] = tower; this.towers.push(tower);
         const cost = t.levels[lvl-1].cost;
@@ -18227,10 +18232,12 @@ class KanjiDefenseGame {
                 if (d <= tower.range && z.x > tower.col && d < minD) { minD = d; target = z; }
             }
             if (target) {
+                const isButter = tower.butterChance && Math.random() < tower.butterChance;
                 this.projectiles.push({ x: (tower.col+0.5)*this.CELL, y: (tower.row+0.5)*this.CELL,
-                    targetId: target.id, dmg: effectiveDmg, color: tower.projColor, speed: 5,
+                    targetId: target.id, dmg: effectiveDmg, color: isButter ? '#fef08a' : tower.projColor, speed: 5,
                     slow: tower.slow, slowDur: tower.slowDur, aoe: tower.aoe,
-                    stunDur: tower.stunDur, pushback: tower.pushback });
+                    stunDur: tower.stunDur, pushback: tower.pushback,
+                    isButter: !!isButter, butterStun: isButter ? tower.butterStun : 0 });
             }
         }
     }
@@ -18282,6 +18289,7 @@ class KanjiDefenseGame {
         if (proj) {
             if (proj.slow > 0) { z.speed = z.baseSpeed * (1 - proj.slow); z.slowTimer = proj.slowDur || 2000; }
             if (proj.stunDur > 0) { z.stunTimer = proj.stunDur; }
+            if (proj.butterStun > 0) { z.stunTimer = proj.butterStun; }
             if (proj.pushback > 0) { z.x = Math.min(KD_COLS + 0.5, z.x + proj.pushback); }
         }
         if (z.hp <= 0 && !z.dead) {
@@ -18420,10 +18428,13 @@ class KanjiDefenseGame {
         // Projectiles
         for (const p of this.projectiles) {
             if (p.aoe > 0) {
-                // Bomb-style projectile: draw 💣 emoji with glow trail
                 ctx.fillStyle = p.color + '33'; ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fill();
                 ctx.font = '16px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText('💣', p.x, p.y);
+            } else if (p.isButter) {
+                ctx.fillStyle = '#fef08a44'; ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI*2); ctx.fill();
+                ctx.font = '14px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('🧈', p.x, p.y);
             } else {
                 ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
                 ctx.fillStyle = p.color + '44'; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill();
