@@ -17436,6 +17436,9 @@ const KD_TOWERS = {
     /* --- Butter Stun --- */
     kernel:   { name:'Kernel-pult', emoji:'🌽', cost:150, dmg:20, range:9, rate:2000, color:'#eab308', projColor:'#fde047', hp:250, butterChance:0.25, butterStun:2500,
         levels:[{lv:1,cost:150,label:'Bắn bắp'},{lv:2,cost:280,label:'Butter+5%'},{lv:3,cost:450,label:'Butter+10% Dmg+60%'}] },
+    /* --- Splash Lob --- */
+    melon:    { name:'Melon-pult', emoji:'🍈', cost:300, dmg:80, range:9, rate:2900, color:'#22c55e', projColor:'#4ade80', hp:300, aoe:1.5, isLob:true,
+        levels:[{lv:1,cost:300,label:'Dưa 3x3'},{lv:2,cost:500,label:'Dmg+30%'},{lv:3,cost:750,label:'Dmg+60% AoE+'}] },
     /* --- Rapid Fire --- */
     rose:     { name:'Hoa hồng', emoji:'🌹', cost:90,  dmg:8,  range:5, rate:600,  color:'#fb7185', projColor:'#fda4af', hp:200,
         levels:[{lv:1,cost:90,label:'Bắn nhanh'},{lv:2,cost:180,label:'Dmg+30%'},{lv:3,cost:300,label:'Dmg+60% Tốc+20%'}] },
@@ -17808,7 +17811,7 @@ class KanjiDefenseGame {
             color:t.color, emoji:t.emoji, projColor:t.projColor,
             slow:Math.min(0.85,(t.slow||0)+(lvl-1)*0.05), slowDur:(t.slowDur||0)+(lvl-1)*500,
             aoe:(t.aoe||0)+(lvl-1)*0.3, fireTimer:0, hp:Math.floor(t.hp*hpMult), maxHp:Math.floor(t.hp*hpMult),
-            noAttack:!!t.noAttack, rowWave:!!t.rowWave, isMine:!!t.isMine,
+            noAttack:!!t.noAttack, rowWave:!!t.rowWave, isMine:!!t.isMine, isLob:!!t.isLob,
             armTime: t.armTime || 0,
             armTimer: t.armTime ? t.armTime - (lvl-1)*1000 : 0, armed: !t.armTime,
             pierce: (t.pierce||0)+(lvl-1),
@@ -18240,9 +18243,12 @@ class KanjiDefenseGame {
                     tower._burstLeft--;
                     tower.fireTimer = 120; // 120ms between burst shots
                     this.projectiles.push({ x: (tower.col+0.5)*this.CELL, y: (tower.row+0.5)*this.CELL,
-                        targetId: target.id, dmg: effectiveDmg, color: tower.projColor, speed: 5,
+                        targetId: target.id, dmg: effectiveDmg, color: tower.projColor, speed: tower.isLob?4:5,
                         slow: tower.slow, slowDur: tower.slowDur, aoe: tower.aoe,
-                        stunDur: tower.stunDur, pushback: tower.pushback });
+                        stunDur: tower.stunDur, pushback: tower.pushback,
+                        isLob: tower.isLob||false,
+                        startX: (tower.col+0.5)*this.CELL, startY: (tower.row+0.5)*this.CELL,
+                        lobTotalDist: Math.sqrt((target.x*this.CELL-(tower.col+0.5)*this.CELL)**2+((target.row+0.5)*this.CELL-(tower.row+0.5)*this.CELL)**2) });
                 } else {
                     // Start new burst
                     const isButter = tower.butterChance && Math.random() < tower.butterChance;
@@ -18251,10 +18257,13 @@ class KanjiDefenseGame {
                         tower.fireTimer = 120;
                     }
                     this.projectiles.push({ x: (tower.col+0.5)*this.CELL, y: (tower.row+0.5)*this.CELL,
-                        targetId: target.id, dmg: effectiveDmg, color: isButter ? '#fef08a' : tower.projColor, speed: 5,
+                        targetId: target.id, dmg: effectiveDmg, color: isButter ? '#fef08a' : tower.projColor, speed: tower.isLob?4:5,
                         slow: tower.slow, slowDur: tower.slowDur, aoe: tower.aoe,
                         stunDur: tower.stunDur, pushback: tower.pushback,
-                        isButter: !!isButter, butterStun: isButter ? tower.butterStun : 0 });
+                        isButter: !!isButter, butterStun: isButter ? tower.butterStun : 0,
+                        isLob: tower.isLob||false,
+                        startX: (tower.col+0.5)*this.CELL, startY: (tower.row+0.5)*this.CELL,
+                        lobTotalDist: Math.sqrt((target.x*this.CELL-(tower.col+0.5)*this.CELL)**2+((target.row+0.5)*this.CELL-(tower.row+0.5)*this.CELL)**2) });
                 }
             }
         }
@@ -18297,6 +18306,8 @@ class KanjiDefenseGame {
                         const zd = Math.sqrt((z.x*this.CELL-tx)**2+((z.row+0.5)*this.CELL-ty)**2);
                         if (zd < p.aoe * this.CELL) this.damageZombie(z, p.dmg * (1 - zd/(p.aoe*this.CELL)*0.5), p); }
                     this.spawnAoEExplosion(tx, ty, p.aoe * this.CELL, p.color);
+                    if (p.isLob) { for (let j=0;j<10;j++) { const a=Math.random()*Math.PI*2,sp=1+Math.random()*3;
+                        this.particles.push({x:tx,y:ty,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-2,color:j%2?'#86efac':'#22c55e',life:500,maxLife:500,isParticle:true,size:3+Math.random()*5}); } }
                 } else this.damageZombie(tgt, p.dmg, p);
                 this.projectiles.splice(i, 1);
             } else { const sp = p.speed * this.CELL * ds; p.x += (dx/dist)*sp; p.y += (dy/dist)*sp; }
@@ -18445,7 +18456,21 @@ class KanjiDefenseGame {
         }
         // Projectiles
         for (const p of this.projectiles) {
-            if (p.aoe > 0) {
+            if (p.isLob) {
+                const traveled = Math.sqrt((p.x-p.startX)**2+(p.y-p.startY)**2);
+                const progress = Math.min(1, traveled / Math.max(1, p.lobTotalDist));
+                const arcH = this.CELL * 2;
+                const yOff = -Math.sin(progress * Math.PI) * arcH;
+                // Shadow on ground
+                ctx.globalAlpha = 0.25;
+                ctx.fillStyle = '#000';
+                ctx.beginPath(); ctx.ellipse(p.x, p.y, 7, 3, 0, 0, Math.PI*2); ctx.fill();
+                ctx.globalAlpha = 1;
+                // Melon in arc
+                const scale = 0.8 + Math.sin(progress * Math.PI) * 0.4;
+                ctx.font = Math.floor(18*scale) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('🍈', p.x, p.y + yOff);
+            } else if (p.aoe > 0) {
                 ctx.fillStyle = p.color + '33'; ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fill();
                 ctx.font = '16px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText('💣', p.x, p.y);
