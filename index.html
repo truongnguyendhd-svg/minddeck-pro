@@ -17999,7 +17999,7 @@ class KanjiDefenseGame {
             balloon: 'Bay qua tất cả cây, chỉ Cactus/Bloomerang bắn được. Rơi → thành Fast',
             newspaper: 'Đọc báo chậm, khi báo rách → Phẫn nộ x2 tốc độ & sát thương',
             jackbox: 'Đi lại bình thường, nổ RNG bất kỳ đâu trên đường đi (0-12s), phá cây 3x3',
-            digger: 'Đào ngầm qua cây, xuất hiện bên trái cây và ăn ngược',
+            digger: 'Xuất hiện đã đào ngầm, miễn nhiễm đạn. Đào tới cột 0, choáng 2-3s, rối ăn ngược',
             zamboni: 'Xe碾压 toàn bộ cây trên đường đi, phá tức thì',
             gargantuar: 'Khổng lồ phá cây tức thì, ném Imp (👾) ra xa phía trước'
         };
@@ -18239,11 +18239,17 @@ class KanjiDefenseGame {
             attackTimer: 0, dps: zt.dps || 100, atkRate: zt.atkRate || 800,
             flies: !!zt.flies, flying: !!zt.flies, // balloon starts flying
             enraged: false, // newspaper rage state
-            digging: !!zt.digs, digProgress: 0, // digger underground state
+            digging: false, digProgress: 0, eatingBack: false, diggerSurfaced: false, // digger states
             jackExplodeTimer: zt.explodeChance ? Math.random() * 12000 : 0, // jack-in-box timer (0-12s, completely random)
             hasScreen: !!zt.blockStraight, screenHp: zt.blockStraight ? zt.hp * 0.5 : 0, // screen door HP
             throwCooldown: zt.throwsImp ? 8000 : 0 // gargantuar throw timer
         };
+        // Digger: start digging immediately from the right edge
+        if (zt.digs) {
+            z.digging = true;
+            z.speed = 0.6; // fast underground speed
+            z.baseSpeed = 0.6;
+        }
         this.zombies.push(z);
     }
     spawnLoot(x, y) {
@@ -18793,6 +18799,8 @@ class KanjiDefenseGame {
         }
     }
     damageZombie(z, dmg, proj) {
+        // Digger: immune to all damage while underground
+        if (z.digging) return;
         // Screen Door: block straight projectiles
         if (proj && proj.isDir && z.hasScreen && z.screenHp > 0) {
             z.screenHp -= dmg;
@@ -18858,7 +18866,7 @@ class KanjiDefenseGame {
             const z = this.zombies[i];
             if (z.dead) { this.zombies.splice(i, 1); continue; }
             if (z.slowTimer > 0) { z.slowTimer -= dt; if (z.slowTimer <= 0) z.speed = z.baseSpeed; }
-            if (z.stunTimer > 0) { z.stunTimer -= dt; continue; }
+            if (z.stunTimer > 0) { z.stunTimer -= dt; if (z.stunTimer <= 0 && z.diggerSurfaced) { z.eatingBack = true; z.speed = (KD_ZOMBIE_TYPES[z.type]||{}).digSlowSpeed || 0.21; z.baseSpeed = z.speed; } continue; }
             const zt = KD_ZOMBIE_TYPES[z.type];
             // === HYPNOTIZED ZOMBIE ===
             if (z.hypno) {
@@ -18878,13 +18886,19 @@ class KanjiDefenseGame {
                 if (z.x > KD_COLS + 1) { this.zombies.splice(i, 1); }
                 continue;
             }
-            // === DIGGER: dig underground, skip plants, eat from left ===
+            // === DIGGER: dig underground to column 0, then surface stunned ===
             if (z.digging) {
-                z.digProgress -= ds;
-                if (z.digProgress <= 0) { z.digging = false; z.speed = zt.digSlowSpeed; z.baseSpeed = z.speed; }
                 z.x -= z.speed * ds;
-                if (z.x < -0.5) { this.zombies.splice(i, 1); this.lives--; this.updateHUD();
-                    if (this.lives <= 0) this.gameOver(false); }
+                // Surface when reaching column 0 (near the house)
+                if (z.x <= 0.5) {
+                    z.digging = false;
+                    z.diggerSurfaced = true;
+                    z.x = 0.5;
+                    z.stunTimer = 2000 + Math.random() * 1000; // stunned 2-3 seconds
+                    z.hat = ''; // drop pickaxe
+                    this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL - this.CELL*0.6, 'Chui lên!', '#854d0e');
+                    this.spawnExplosion(z.x*this.CELL, (z.row+0.5)*this.CELL, '#854d0e');
+                }
                 continue;
             }
             // === JACK-IN-BOX: random self-destruct ===
@@ -18916,7 +18930,7 @@ class KanjiDefenseGame {
                         color: '#f87171', slowTimer: 0, dead: false,
                         attackTimer: 0, dps: 100, atkRate: 500,
                         flies: false, flying: false, enraged: false,
-                        digging: false, digProgress: 0, jackExplodeTimer: 0,
+                        digging: false, digProgress: 0, eatingBack: false, diggerSurfaced: false, jackExplodeTimer: 0,
                         hasScreen: false, screenHp: 0, throwCooldown: 0, thrown: true };
                     this.zombies.push(imp);
                     this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL - this.CELL*0.6, 'Ném!', '#a78bfa');
@@ -18978,16 +18992,7 @@ class KanjiDefenseGame {
                     }
                 }
             }
-            // Digger: start digging when reaching a plant
-            if (!blocked && zt && zt.digs && !z.digging && zCol >= 0 && zCol < KD_COLS) {
-                const tower = this.grid[z.row] && this.grid[z.row][zCol];
-                if (tower && !tower.isHypno) {
-                    z.digging = true;
-                    z.digProgress = 3; // dig for 3 seconds
-                    z.speed = 0.6; // fast underground
-                    this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL - this.CELL*0.6, 'Đào!', '#854d0e');
-                }
-            }
+
             // Check if blocked by a hypno zombie ahead
             if (!blocked) {
                 for (const z2 of this.zombies) {
@@ -19006,8 +19011,15 @@ class KanjiDefenseGame {
                     }
                 }
             }
-            if (!blocked) z.x -= z.speed * ds;
-            if (z.x < -0.5) { this.zombies.splice(i, 1); this.lives--; this.updateHUD();
+            if (!blocked) {
+                if (z.eatingBack) {
+                    z.x += z.speed * ds; // move RIGHT when eating backwards
+                    if (z.x > KD_COLS + 1) { this.zombies.splice(i, 1); continue; } // leave screen right, no life lost
+                } else {
+                    z.x -= z.speed * ds;
+                }
+            }
+            if (!z.eatingBack && z.x < -0.5) { this.zombies.splice(i, 1); this.lives--; this.updateHUD();
                 if (this.lives <= 0) this.gameOver(false); }
         }
     }
