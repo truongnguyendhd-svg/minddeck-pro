@@ -18842,11 +18842,12 @@ class KanjiDefenseGame {
             const zt = KD_ZOMBIE_TYPES[z.type];
             if (zt && zt.explodeRadius) {
                 const cx = z.x, cy = z.row + 0.5;
-                for (const z2 of this.zombies) {
-                    if (z2.dead || z2 === z) continue;
-                    const zd = Math.sqrt((z2.x - cx)**2 + (z2.row + 0.5 - cy)**2);
-                    if (zd <= zt.explodeRadius) { z2.hp -= z2.maxHp; }
-                }
+                // Also destroy nearby towers on death
+                for (let r = Math.max(0,Math.floor(cy-zt.explodeRadius)); r <= Math.min(KD_ROWS-1,Math.ceil(cy+zt.explodeRadius)); r++) {
+                    for (let c = Math.max(0,Math.floor(cx-zt.explodeRadius)); c <= Math.min(KD_COLS-1,Math.ceil(cx+zt.explodeRadius)); c++) {
+                        const tw = this.grid[r] && this.grid[r][c];
+                        if (tw) { tw.hp -= tw.maxHp; if (tw.hp <= 0) { this.grid[r][c] = null; const ti = this.towers.indexOf(tw); if (ti >= 0) this.towers.splice(ti,1);
+                            this.spawnExplosion(c*this.CELL+this.CELL/2, r*this.CELL+this.CELL/2, '#ef4444'); }}}}
                 this.spawnAoEExplosion(cx * this.CELL, cy * this.CELL, zt.explodeRadius * this.CELL, '#a78bfa');
             }
         }
@@ -18891,10 +18892,7 @@ class KanjiDefenseGame {
                 z.jackExplodeTimer -= dt;
                 if (z.jackExplodeTimer <= 0) {
                     const cx = z.x, cy = z.row + 0.5;
-                    for (const z2 of this.zombies) { if (!z2.dead && z2 !== z) {
-                        const zd = Math.sqrt((z2.x-cx)**2+((z2.row+0.5)-cy)**2);
-                        if (zd <= (zt.explodeRadius||1.5)) z2.hp -= z2.maxHp; }}
-                    // Also damage nearby towers
+                    // Damage nearby towers (no longer damages other zombies)
                     for (let r = Math.max(0,Math.floor(cy-zt.explodeRadius)); r <= Math.min(KD_ROWS-1,Math.ceil(cy+zt.explodeRadius)); r++) {
                         for (let c = Math.max(0,Math.floor(cx-zt.explodeRadius)); c <= Math.min(KD_COLS-1,Math.ceil(cx+zt.explodeRadius)); c++) {
                             const tw = this.grid[r] && this.grid[r][c];
