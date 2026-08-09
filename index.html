@@ -19084,12 +19084,34 @@ class KanjiDefenseGame {
             // Helper: render emoji without background squares
             const _renderEmoji = (emoji, x, y, fontSize) => {
                 const tc = document.createElement('canvas');
-                const ts = fontSize * 1.4;
+                const ts = Math.ceil(fontSize * 1.4);
                 tc.width = ts; tc.height = ts;
                 const tctx = tc.getContext('2d');
                 tctx.font = fontSize + 'px serif';
                 tctx.textAlign = 'center'; tctx.textBaseline = 'middle';
                 tctx.fillText(emoji, ts/2, ts/2);
+                // Remove background: sample corners, make matching pixels transparent
+                const id = tctx.getImageData(0, 0, ts, ts);
+                const d = id.data;
+                const corners = [
+                    [0,0],[ts-1,0],[0,ts-1],[ts-1,ts-1],
+                    [Math.floor(ts/2),0],[Math.floor(ts/2),ts-1],
+                    [0,Math.floor(ts/2)],[ts-1,Math.floor(ts/2)]
+                ];
+                const bgColors = [];
+                for (const [cx2,cy2] of corners) {
+                    const i = (cy2*ts+cx2)*4;
+                    bgColors.push([d[i],d[i+1],d[i+2],d[i+3]]);
+                }
+                for (let i = 0; i < d.length; i += 4) {
+                    for (const bg of bgColors) {
+                        if (Math.abs(d[i]-bg[0])<15 && Math.abs(d[i+1]-bg[1])<15 && Math.abs(d[i+2]-bg[2])<15 && d[i+3]>200) {
+                            d[i+3] = 0;
+                            break;
+                        }
+                    }
+                }
+                tctx.putImageData(id, 0, 0);
                 ctx.drawImage(tc, x - ts/2, y - ts/2, ts, ts);
             };
             _renderEmoji(zt.emoji, cx, cy, baseFontSize);
