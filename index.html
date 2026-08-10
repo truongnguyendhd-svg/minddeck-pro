@@ -17629,6 +17629,7 @@ const KD_ZOMBIE_TYPES = {
     jackbox:    { hp:340,  speed:0.4,  size:0.7,  color:'#a78bfa', emoji:'\ud83d\udc7b', hat:'\ud83c\udf81', hatPos:'chest', dps:100, atkRate:800, waveMin:4, explodeChance:0.15, explodeRadius:1.5 },
     /* --- Tier 5: Advanced --- */
     digger:     { hp:300,  speed:0.4,  size:0.7,  color:'#854d0e', emoji:'\ud83d\udc7b', hat:'\u26cf\ufe0f', hatPos:'shoulder', dps:100, atkRate:800, waveMin:7, digs:true, digSlowSpeed:0.21 },
+    pogo:      { hp:340,  speed:0.45, size:0.8,  color:'#f97316', emoji:'\ud83d\udc7b', hat:'\ud83e\udd98', hatPos:'chest', dps:100, atkRate:800, waveMin:1, pogo:true, pogoSpeed:0.45, walkSpeed:0.23, jumpsOver:true },
     dancing:    { hp:340,  speed:0.18, size:0.9, color:'#ec4899', emoji:'\ud83d\udc7b', hat:'\ud83c\udfa9', hatPos:'head', hat2:'\ud83d\udd76\ufe0f', hat2Pos:'eyes', dps:100, atkRate:800, waveMin:1, summonsBackup:true, summonInterval:8000 },
     backup:     { hp:200,  speed:0.18, size:0.55, color:'#f472b6', emoji:'\ud83d\udc7b', hat:'\ud83c\udfa9', hatPos:'head', dps:100, atkRate:800, isBackup:true },
     /* --- Tier 6: Boss --- */
@@ -18011,6 +18012,7 @@ class KanjiDefenseGame {
             newspaper: 'Đọc báo chậm, khi báo rách → Phẫn nộ x2 tốc độ & sát thương',
             jackbox: 'Đi lại bình thường, nổ RNG bất kỳ đâu trên đường đi (0-12s), phá cây 3x3',
             digger: 'Xuất hiện đã đào ngầm, miễn nhiễm đạn. Đào tới cột 0, choáng 2-3s, rối ăn ngược',
+            pogo: 'Cưỡi kangaru nhảy qua Rock/Wall-nut/Mine, ăn cây khác 100 DPS. Bay tạm thời mỗi nhịp nảy → né đạn mặt đất',
             zamboni: 'Xe đi chậm phá cây tức thì, để lại băng tuyết cấm trồng cây. Băng gọi Bobsled Team',
             bobsled: 'Xe trượt 🛷🛷 chở 4 zombie, chạy cực nhanh trên băng. Xe 300HP — bị phá hoặc hết băng → 4 zombie nhảy xuống (200HP/con)',
             gargantuar: 'Khổng lồ phá cây tức thì, ném Imp (👾) ra xa phía trước'
@@ -18294,6 +18296,12 @@ class KanjiDefenseGame {
             for (let i = 0; i < n; i++) this.waveQueue.push('digger');
         }
 
+        // ===== POGO (wave 8+) — bounces over blocking plants =====
+        if (w >= 8) {
+            const n = Math.min(1 + Math.floor((w - 7) / 6), 5);
+            for (let i = 0; i < n; i++) this.waveQueue.push('pogo');
+        }
+
         // ===== DANCING (wave 1+) — summons 4 backup dancers in cross pattern =====
         if (w >= 1) {
             const n = Math.min(1 + Math.floor((w - 0) / 6), 4);
@@ -18382,6 +18390,8 @@ class KanjiDefenseGame {
             hasScreen: !!zt.blockStraight, screenHp: zt.blockStraight ? zt.hp * 0.5 : 0, // screen door HP
             throwCooldown: zt.throwsImp ? 8000 : 0, // gargantuar throw timer
             hasPole: !!zt.vaults, // pole vaulting zombie
+            hasPogo: !!zt.pogo, // pogo zombie riding kangaroo
+            pogoBouncePhase: 0, // bounce animation phase
             summonTimer: zt.summonsBackup ? (zt.summonInterval || 8000) + Math.random() * 3000 : 0, // dancing zombie summon timer
             summonCastTimer: 0, summoning: false, // dancing zombie casting state
             parentId: 0 // backup dancer parent link
@@ -18575,7 +18585,7 @@ class KanjiDefenseGame {
                 flies: false, flying: false, enraged: false,
                 digging: false, digProgress: 0, eatingBack: false, diggerSurfaced: false,
                 jackExplodeTimer: 0, hasScreen: false, screenHp: 0,
-                throwCooldown: 0, hasPole: false,
+                throwCooldown: 0, hasPole: false, hasPogo: false, pogoBouncePhase: 0,
                 summonTimer: 0, summonCastTimer: 0, summoning: false,
                 parentId: 0, bobsledDismounted: true
             };
@@ -18672,7 +18682,7 @@ class KanjiDefenseGame {
                         flies: false, flying: false, enraged: false,
                         digging: false, digProgress: 0, eatingBack: false, diggerSurfaced: false,
                         jackExplodeTimer: 0, hasScreen: false, screenHp: 0,
-                        throwCooldown: 0, hasPole: false,
+                        throwCooldown: 0, hasPole: false, hasPogo: false, pogoBouncePhase: 0,
                         summonTimer: 0, summonCastTimer: 0, summoning: false,
                         parentId: 0, passengers: 4 // carries 4 zombies
                     };
@@ -19256,6 +19266,10 @@ class KanjiDefenseGame {
             }
             return; // Always return - other towers cannot damage flying balloon
         }
+        // Pogo zombie airborne: dodge ground-only projectiles (lobbed projectiles still hit)
+        if (z.hasPogo && z._pogoAirborne && !z.dead) {
+            if (proj && !proj.isLob) return; // ground projectile misses airborne pogo
+        }
         z.hp -= dmg; z._hitFlash = 120;
         if (proj) {
             if (proj.slow > 0) { z.speed = z.baseSpeed * (1 - proj.slow); z.slowTimer = proj.slowDur || 2000; }
@@ -19403,6 +19417,7 @@ class KanjiDefenseGame {
                                     digging: false, digProgress: 0, eatingBack: false, diggerSurfaced: false,
                                     jackExplodeTimer: 0, hasScreen: false, screenHp: 0,
                                     throwCooldown: 0, hasPole: false,
+                                    hasPogo: false, pogoBouncePhase: 0,
                                     summonTimer: 0, summonCastTimer: 0, summoning: false,
                                     parentId: z.id
                                 };
@@ -19428,6 +19443,12 @@ class KanjiDefenseGame {
                     }
                 }
             }
+            // === POGO ZOMBIE: bounce animation + temporary flying during bounce ===
+            if (z.hasPogo && !z.dead) {
+                z.pogoBouncePhase = (z.pogoBouncePhase || 0) + dt * 0.008;
+                // During upward half of bounce, zombie is airborne (immune to ground-only attacks)
+                z._pogoAirborne = Math.sin(z.pogoBouncePhase) > 0.1;
+            }
             // === CHECK IF BLOCKED BY TOWER ===
             const zCol = Math.floor(z.x);
             // Balloon: fly over plants (not blocked unless balloon popped)
@@ -19448,6 +19469,16 @@ class KanjiDefenseGame {
                             this.particles.push({x:(tower.col+0.5)*this.CELL, y:(tower.row+0.5)*this.CELL,
                                 vx:(Math.random()-0.5)*3, vy:-Math.random()*3-1,
                                 color:'#fb923c', life:400, maxLife:400, isParticle:true, size:3, gravity:0.08});
+                        }
+                    // === POGO: nhảy qua cây chắn (Rock/Wall-nut/Mine), ăn cây khác bình thường ===
+                    } else if (z.hasPogo && !z.hypno && (tower.noAttack || tower.isMine)) {
+                        // Jump over blocking plant (Rock, Wall-nut, Potato Mine, Boulder)
+                        z.x = tower.col - 0.5;
+                        this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL - this.CELL*0.6, 'Bounce!', '#f97316');
+                        for (let p = 0; p < 4; p++) {
+                            this.particles.push({x:(tower.col+0.5)*this.CELL, y:(tower.row+0.5)*this.CELL,
+                                vx:(Math.random()-0.5)*2, vy:-Math.random()*2-1,
+                                color:'#f97316', life:300, maxLife:300, isParticle:true, size:2, gravity:0.06});
                         }
                     } else if (tower.isHypno) {
                         z.hypno = true; z.speed = z.baseSpeed; z.slowTimer = 0;
@@ -19758,6 +19789,25 @@ class KanjiDefenseGame {
                 const bobOffset = Math.sin(performance.now() / 250 + z.id) * s * 0.15;
                 ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#f472b6';
                 ctx.fillText('\ud83c\udfb6', cx, cy + s * 1.1 + bobOffset);
+            }
+            // Pogo zombie: kangaroo 🦘 below + bouncing effect
+            if (z.type === 'pogo' && z.hasPogo) {
+                const bounceY = Math.abs(Math.sin(z.pogoBouncePhase || 0)) * this.CELL * 0.15;
+                // Kangaroo emoji below zombie (rides it)
+                const kangSize = this.CELL * 0.55;
+                ctx.font = kangSize + 'px serif';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('\ud83e\udd98', cx, cy + s * 0.9 - bounceY * 0.3);
+                // Orange bounce ring
+                ctx.strokeStyle = 'rgba(249,115,22,0.4)'; ctx.lineWidth = 1.5;
+                ctx.setLineDash([3, 3]);
+                this.roundRect(ctx, cx-s*1.2, cy-s*1.2, s*2.4, s*2.4, 6); ctx.stroke();
+                ctx.setLineDash([]);
+                // Bounce indicator ⬆ when airborne
+                if (z._pogoAirborne) {
+                    ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#f97316';
+                    ctx.fillText('\u2b06', cx + s * 0.9, cy - s * 1.1);
+                }
             }
             // HP bar: an
         }
