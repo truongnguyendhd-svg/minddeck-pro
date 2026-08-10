@@ -17629,6 +17629,8 @@ const KD_ZOMBIE_TYPES = {
     jackbox:    { hp:340,  speed:0.4,  size:0.7,  color:'#a78bfa', emoji:'\ud83d\udc7b', hat:'\ud83c\udf81', hatPos:'chest', dps:100, atkRate:800, waveMin:4, explodeChance:0.15, explodeRadius:1.5 },
     /* --- Tier 5: Advanced --- */
     digger:     { hp:300,  speed:0.4,  size:0.7,  color:'#854d0e', emoji:'\ud83d\udc7b', hat:'\u26cf\ufe0f', hatPos:'shoulder', dps:100, atkRate:800, waveMin:7, digs:true, digSlowSpeed:0.21 },
+    dancing:    { hp:340,  speed:0.18, size:0.85, color:'#ec4899', emoji:'\ud83d\udc7b', hat:'\ud83c\udfa4', hatPos:'head', dps:100, atkRate:800, waveMin:1, summonsBackup:true, summonInterval:8000 },
+    backup:     { hp:200,  speed:0.18, size:0.55, color:'#f472b6', emoji:'\ud83d\udc7b', dps:100, atkRate:800, isBackup:true },
     /* --- Tier 6: Boss --- */
     tank:       { hp:2000, speed:0.13, size:0.85, color:'#78716c', emoji:'\ud83d\udc7b', hat:'\ud83d\udee1\ufe0f', hatPos:'left', dps:120, atkRate:600, waveMin:6 },
     zamboni:    { hp:1280, speed:0.15, size:1.0,  color:'#6b7280', emoji:'\ud83d\ude9c', dps:0, atkRate:0, waveMin:8, instantKill:true, crushes:true },
@@ -18283,6 +18285,12 @@ class KanjiDefenseGame {
             for (let i = 0; i < n; i++) this.waveQueue.push('digger');
         }
 
+        // ===== DANCING (wave 1+) — summons 4 backup dancers in cross pattern =====
+        if (w >= 1) {
+            const n = Math.min(1 + Math.floor((w - 0) / 6), 4);
+            for (let i = 0; i < n; i++) this.waveQueue.push('dancing');
+        }
+
         // ===== BUCKETHEAD (wave 8+) — heavy head armor =====
         if (w >= 8) {
             const n = Math.min(1 + Math.floor((w - 7) / 4), 10);
@@ -18367,7 +18375,10 @@ class KanjiDefenseGame {
             jackExplodeTimer: zt.explodeChance ? Math.random() * 12000 : 0, // jack-in-box timer (0-12s, completely random)
             hasScreen: !!zt.blockStraight, screenHp: zt.blockStraight ? zt.hp * 0.5 : 0, // screen door HP
             throwCooldown: zt.throwsImp ? 8000 : 0, // gargantuar throw timer
-            hasPole: !!zt.vaults // pole vaulting zombie
+            hasPole: !!zt.vaults, // pole vaulting zombie
+            summonTimer: zt.summonsBackup ? (zt.summonInterval || 8000) + Math.random() * 3000 : 0, // dancing zombie summon timer
+            summonCastTimer: 0, summoning: false, // dancing zombie casting state
+            parentId: 0 // backup dancer parent link
         };
         // Digger: start digging immediately from the right edge
         if (zt.digs) {
@@ -19280,6 +19291,67 @@ class KanjiDefenseGame {
                     this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL - this.CELL*0.6, 'Ném!', '#a78bfa');
                 }
             }
+            // === DANCING ZOMBIE: summon backup dancers in cross pattern ===
+            if (zt && zt.summonsBackup) {
+                if (z.summoning) {
+                    // Casting animation: stop and summon after cast completes
+                    z.summonCastTimer -= dt;
+                    blocked = true; // freeze while summoning
+                    if (z.summonCastTimer <= 0) {
+                        z.summoning = false;
+                        // Count living backups linked to this dancer
+                        const livingBackups = this.zombies.filter(z2 => !z2.dead && z2.parentId === z.id && z2.type === 'backup').length;
+                        if (livingBackups < 4) {
+                            const needed = 4 - livingBackups;
+                            // Cross pattern: Up, Down, Left (behind), Right (ahead)
+                            const crossPositions = [
+                                { row: z.row - 1, x: z.x },       // Up
+                                { row: z.row + 1, x: z.x },       // Down
+                                { row: z.row, x: z.x + 0.8 },     // Right (ahead, same row)
+                                { row: z.row, x: z.x - 0.8 },     // Left (behind, same row)
+                            ];
+                            let spawned = 0;
+                            for (const pos of crossPositions) {
+                                if (spawned >= needed) break;
+                                if (pos.row < 0 || pos.row >= KD_ROWS || pos.x < 0) continue;
+                                const bzt = KD_ZOMBIE_TYPES.backup;
+                                const bhm = 1 + (this.wave - 1) * 0.08, bsm = 1 + (this.wave - 1) * 0.02;
+                                const backup = {
+                                    id: Date.now() + Math.random(), row: pos.row, type: 'backup',
+                                    x: Math.min(pos.x, KD_COLS + 0.5),
+                                    hp: bzt.hp * bhm, maxHp: bzt.hp * bhm,
+                                    speed: bzt.speed * bsm, baseSpeed: bzt.speed * bsm, size: bzt.size,
+                                    color: bzt.color, slowTimer: 0, dead: false,
+                                    attackTimer: 0, dps: bzt.dps || 100, atkRate: bzt.atkRate || 800,
+                                    flies: false, flying: false, enraged: false,
+                                    digging: false, digProgress: 0, eatingBack: false, diggerSurfaced: false,
+                                    jackExplodeTimer: 0, hasScreen: false, screenHp: 0,
+                                    throwCooldown: 0, hasPole: false,
+                                    summonTimer: 0, summonCastTimer: 0, summoning: false,
+                                    parentId: z.id
+                                };
+                                this.zombies.push(backup);
+                                spawned++;
+                            }
+                            // Vfx
+                            this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL - this.CELL*0.6, 'Dance!', '#ec4899');
+                            for (let p = 0; p < 8; p++) {
+                                const angle = (Math.PI * 2 / 8) * p;
+                                this.particles.push({x:z.x*this.CELL, y:(z.row+0.5)*this.CELL,
+                                    vx:Math.cos(angle)*2, vy:Math.sin(angle)*2,
+                                    color:'#ec4899', life:500, maxLife:500, isParticle:true, size:3, gravity:0});
+                            }
+                        }
+                        z.summonTimer = zt.summonInterval || 8000;
+                    }
+                } else {
+                    z.summonTimer -= dt;
+                    if (z.summonTimer <= 0) {
+                        z.summoning = true;
+                        z.summonCastTimer = 1500; // 1.5s cast time
+                    }
+                }
+            }
             // === CHECK IF BLOCKED BY TOWER ===
             let blocked = false;
             const zCol = Math.floor(z.x);
@@ -19546,6 +19618,35 @@ class KanjiDefenseGame {
             if (['tank','buckethead','gargantuar'].includes(z.type)) {
                 ctx.strokeStyle = z.type === 'gargantuar' ? '#fbbf24' : '#a78bfa'; ctx.lineWidth = 2;
                 this.roundRect(ctx, cx-s*1.3, cy-s*1.3, s*2.6, s*2.6, 6); ctx.stroke();
+            }
+            // Dancing zombie: pink glow + summoning indicator + bobbing animation
+            if (z.type === 'dancing') {
+                ctx.strokeStyle = '#ec4899'; ctx.lineWidth = 2;
+                ctx.setLineDash([4, 3]);
+                this.roundRect(ctx, cx-s*1.3, cy-s*1.3, s*2.6, s*2.6, 8); ctx.stroke();
+                ctx.setLineDash([]);
+                // Bobbing effect (simulate dancing)
+                const bobOffset = Math.sin(performance.now() / 200) * s * 0.15;
+                ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#ec4899';
+                ctx.fillText('💃', cx, cy - s * 1.3 + bobOffset);
+                // Summoning cast indicator
+                if (z.summoning) {
+                    ctx.fillStyle = 'rgba(236,72,153,0.15)'; ctx.beginPath(); ctx.arc(cx, cy, s*2.5, 0, Math.PI*2); ctx.fill();
+                    ctx.strokeStyle = '#ec4899'; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.arc(cx, cy, s*2.5, 0, Math.PI*2); ctx.stroke();
+                    // Cast progress ring
+                    const castProgress = 1 - (z.summonCastTimer / 1500);
+                    ctx.strokeStyle = '#f9a8d4'; ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.arc(cx, cy, s*2.5, -Math.PI/2, -Math.PI/2 + castProgress * Math.PI * 2); ctx.stroke();
+                }
+            }
+            // Backup dancer: small pink indicator
+            if (z.type === 'backup') {
+                ctx.strokeStyle = '#f9a8d4'; ctx.lineWidth = 1;
+                this.roundRect(ctx, cx-s*1.0, cy-s*1.0, s*2.0, s*2.0, 4); ctx.stroke();
+                const bobOffset = Math.sin(performance.now() / 250 + z.id) * s * 0.1;
+                ctx.font = '8px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#f472b6';
+                ctx.fillText('🎶', cx + s*0.6, cy - s*0.8 + bobOffset);
             }
             // HP bar: an
         }
