@@ -19674,6 +19674,41 @@ class KanjiDefenseGame {
             }
             
         }
+        // Helper: render emoji without background squares (DPR-aware) — shared for all zombie renders
+        const _dpr = window.devicePixelRatio || 1;
+        const _renderEmoji = (emoji, x, y, fontSize) => {
+            const tc = document.createElement('canvas');
+            const ts = Math.ceil(fontSize * 1.4);
+            tc.width = ts * _dpr; tc.height = ts * _dpr;
+            const tctx = tc.getContext('2d');
+            tctx.scale(_dpr, _dpr);
+            tctx.font = fontSize + 'px serif';
+            tctx.textAlign = 'center'; tctx.textBaseline = 'middle';
+            tctx.fillText(emoji, ts/2, ts/2);
+            // Remove background: sample corners, make matching pixels transparent
+            const id = tctx.getImageData(0, 0, tc.width, tc.height);
+            const d = id.data;
+            const corners = [
+                [0,0],[tc.width-1,0],[0,tc.height-1],[tc.width-1,tc.height-1],
+                [Math.floor(tc.width/2),0],[Math.floor(tc.width/2),tc.height-1],
+                [0,Math.floor(tc.height/2)],[tc.width-1,Math.floor(tc.height/2)]
+            ];
+            const bgColors = [];
+            for (const [cx2,cy2] of corners) {
+                const i = (cy2*tc.width+cx2)*4;
+                bgColors.push([d[i],d[i+1],d[i+2],d[i+3]]);
+            }
+            for (let i = 0; i < d.length; i += 4) {
+                for (const bg of bgColors) {
+                    if (Math.abs(d[i]-bg[0])<15 && Math.abs(d[i+1]-bg[1])<15 && Math.abs(d[i+2]-bg[2])<15 && d[i+3]>200) {
+                        d[i+3] = 0;
+                        break;
+                    }
+                }
+            }
+            tctx.putImageData(id, 0, 0);
+            ctx.drawImage(tc, 0, 0, tc.width, tc.height, x - ts/2, y - ts/2, ts, ts);
+        };
         // Zombies (robot sprites)
         for (const z of this.zombies) {
             if (z.dead) continue;
@@ -19695,41 +19730,6 @@ class KanjiDefenseGame {
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             // Digger: semi-transparent when underground
             if (z.digging) { ctx.globalAlpha = 0.3; }
-            // Helper: render emoji without background squares (DPR-aware)
-            const _dpr = window.devicePixelRatio || 1;
-            const _renderEmoji = (emoji, x, y, fontSize) => {
-                const tc = document.createElement('canvas');
-                const ts = Math.ceil(fontSize * 1.4);
-                tc.width = ts * _dpr; tc.height = ts * _dpr;
-                const tctx = tc.getContext('2d');
-                tctx.scale(_dpr, _dpr);
-                tctx.font = fontSize + 'px serif';
-                tctx.textAlign = 'center'; tctx.textBaseline = 'middle';
-                tctx.fillText(emoji, ts/2, ts/2);
-                // Remove background: sample corners, make matching pixels transparent
-                const id = tctx.getImageData(0, 0, tc.width, tc.height);
-                const d = id.data;
-                const corners = [
-                    [0,0],[tc.width-1,0],[0,tc.height-1],[tc.width-1,tc.height-1],
-                    [Math.floor(tc.width/2),0],[Math.floor(tc.width/2),tc.height-1],
-                    [0,Math.floor(tc.height/2)],[tc.width-1,Math.floor(tc.height/2)]
-                ];
-                const bgColors = [];
-                for (const [cx2,cy2] of corners) {
-                    const i = (cy2*tc.width+cx2)*4;
-                    bgColors.push([d[i],d[i+1],d[i+2],d[i+3]]);
-                }
-                for (let i = 0; i < d.length; i += 4) {
-                    for (const bg of bgColors) {
-                        if (Math.abs(d[i]-bg[0])<15 && Math.abs(d[i+1]-bg[1])<15 && Math.abs(d[i+2]-bg[2])<15 && d[i+3]>200) {
-                            d[i+3] = 0;
-                            break;
-                        }
-                    }
-                }
-                tctx.putImageData(id, 0, 0);
-                ctx.drawImage(tc, 0, 0, tc.width, tc.height, x - ts/2, y - ts/2, ts, ts);
-            };
             if (z.slowTimer > 0) { ctx.filter = "sepia(0.8) hue-rotate(180deg) saturate(1.8)"; } else if (z._hitFlash > 0) { ctx.filter = "brightness(2) hue-rotate(-30deg)"; z._hitFlash -= 16; }
             _renderEmoji(zt.emoji, cx, cy, baseFontSize);
             ctx.filter = "none";
@@ -19827,13 +19827,10 @@ class KanjiDefenseGame {
             ctx.fill();
             // Kangaroo to bên dưới
             const kangSize = this.CELL * 0.85;
-            ctx.font = kangSize + 'px serif';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText('\ud83e\udd98', cx, jumpCy + this.CELL * 0.12);
+            _renderEmoji('\ud83e\udd98', cx, jumpCy + this.CELL * 0.12, kangSize);
             // Zombie nhỏ ngồi trên kangaroo
             const zomSize = this.CELL * 0.35;
-            ctx.font = zomSize + 'px serif';
-            ctx.fillText('\ud83d\udc7b', cx, jumpCy - this.CELL * 0.32);
+            _renderEmoji('\ud83d\udc7b', cx, jumpCy - this.CELL * 0.32, zomSize);
             // ⬆ indicator khi airborne
             if (z._pogoAirborne) {
                 ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#f97316';
