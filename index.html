@@ -19330,26 +19330,28 @@ class KanjiDefenseGame {
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             // Digger: semi-transparent when underground
             if (z.digging) { ctx.globalAlpha = 0.3; }
-            // Helper: render emoji without background squares
+            // Helper: render emoji without background squares (DPR-aware)
+            const _dpr = window.devicePixelRatio || 1;
             const _renderEmoji = (emoji, x, y, fontSize) => {
                 const tc = document.createElement('canvas');
                 const ts = Math.ceil(fontSize * 1.4);
-                tc.width = ts; tc.height = ts;
+                tc.width = ts * _dpr; tc.height = ts * _dpr;
                 const tctx = tc.getContext('2d');
+                tctx.scale(_dpr, _dpr);
                 tctx.font = fontSize + 'px serif';
                 tctx.textAlign = 'center'; tctx.textBaseline = 'middle';
                 tctx.fillText(emoji, ts/2, ts/2);
                 // Remove background: sample corners, make matching pixels transparent
-                const id = tctx.getImageData(0, 0, ts, ts);
+                const id = tctx.getImageData(0, 0, tc.width, tc.height);
                 const d = id.data;
                 const corners = [
-                    [0,0],[ts-1,0],[0,ts-1],[ts-1,ts-1],
-                    [Math.floor(ts/2),0],[Math.floor(ts/2),ts-1],
-                    [0,Math.floor(ts/2)],[ts-1,Math.floor(ts/2)]
+                    [0,0],[tc.width-1,0],[0,tc.height-1],[tc.width-1,tc.height-1],
+                    [Math.floor(tc.width/2),0],[Math.floor(tc.width/2),tc.height-1],
+                    [0,Math.floor(tc.height/2)],[tc.width-1,Math.floor(tc.height/2)]
                 ];
                 const bgColors = [];
                 for (const [cx2,cy2] of corners) {
-                    const i = (cy2*ts+cx2)*4;
+                    const i = (cy2*tc.width+cx2)*4;
                     bgColors.push([d[i],d[i+1],d[i+2],d[i+3]]);
                 }
                 for (let i = 0; i < d.length; i += 4) {
@@ -19361,7 +19363,7 @@ class KanjiDefenseGame {
                     }
                 }
                 tctx.putImageData(id, 0, 0);
-                ctx.drawImage(tc, x - ts/2, y - ts/2, ts, ts);
+                ctx.drawImage(tc, 0, 0, tc.width, tc.height, x - ts/2, y - ts/2, ts, ts);
             };
             if (z.slowTimer > 0) { ctx.filter = "sepia(0.8) hue-rotate(180deg) saturate(1.8)"; } else if (z._hitFlash > 0) { ctx.filter = "brightness(2) hue-rotate(-30deg)"; z._hitFlash -= 16; }
             _renderEmoji(zt.emoji, cx, cy, baseFontSize);
