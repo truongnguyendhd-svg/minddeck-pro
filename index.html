@@ -17574,8 +17574,8 @@ const KD_TOWERS = {
     boulder:  { name:'Rock', emoji:'🪨', cost:50, dmg:1800, range:1.5, rate:0, color:'#78716c', projColor:'#a8a29e', hp:300, noAttack:true, isMine:true, mineTriggerRange:1.5, armTime:0,
         levels:[{lv:1,cost:50,label:'Đè 1800'},{lv:2,cost:100,label:'Đè 2340'},{lv:3,cost:175,label:'Đè 3042'}] },
     /* --- Butter Stun --- */
-    kernel:   { name:'Kernel-pult', emoji:'🌽', cost:150, dmg:20, range:9, rate:2000, color:'#eab308', projColor:'#fde047', hp:300, butterChance:0.25, butterStun:2500,
-        levels:[{lv:1,cost:150,label:'Bắn bắp'},{lv:2,cost:280,label:'Butter+5%'},{lv:3,cost:450,label:'Butter+10% Dmg+60%'}] },
+    kernel:   { name:'Kernel-pult', emoji:'🌽', cost:100, dmg:20, range:9, rate:2900, color:'#eab308', projColor:'#fde047', hp:300, butterChance:0.25, butterStun:5000, butterDmg:40,
+        levels:[{lv:1,cost:100,label:'Ngo 75% / Bo 25%'},{lv:2,cost:200,label:'Bo+5% Dmg+'},{lv:3,cost:350,label:'Bo+10% Dmg++'}] },
     /* --- Splash Lob --- */
     melon:    { name:'Melon-pult', emoji:'🍈', cost:300, dmg:80, range:9, rate:2900, color:'#22c55e', projColor:'#4ade80', hp:300, aoe:1.5, isLob:true, lobEmoji:'🍈',
         levels:[{lv:1,cost:300,label:'Dưa 3x3'},{lv:2,cost:500,label:'Dmg+30%'},{lv:3,cost:750,label:'Dmg+60% AoE+'}] },
@@ -18102,7 +18102,7 @@ class KanjiDefenseGame {
             noAttack:!!t.noAttack, isBloomerang:!!t.isBloomerang, bloomMax:t.bloomMax||3, isMine:!!t.isMine, mineTriggerRange:t.mineTriggerRange||0, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null, isHypno:!!t.isHypno, isScreenLightning:!!t.isScreenLightning, chainLightning:t.chainLightning||0, chainRange:t.chainRange||3,
             armTime: t.armTime || 0,
             armTimer: t.armTime ? t.armTime - (lvl-1)*1000 : 0, armed: !t.armTime,
-            pierce: (t.pierce||0)+(lvl-1),
+            pierce: (t.pierce||0),
             stunDur: (t.stunDur||0)+(lvl-1)*500,
             pushback: (t.pushback||0)+(lvl-1)*1,
             thornDmg: t.thornDmg ? Math.floor(t.thornDmg*(1+(lvl-1)*0.5)) : 0,
@@ -18112,7 +18112,8 @@ class KanjiDefenseGame {
             buffRate: t.buffRate ? t.buffRate+(lvl-1)*0.1 : 0,
             buffRange: t.range || 3,
             butterChance: (t.butterChance||0) + (lvl-1)*0.05,
-            butterStun: (t.butterStun||0) + (lvl-1)*300,
+            butterStun: (t.butterStun||0) + (lvl-1)*500,
+            butterDmg: (t.butterDmg||0) ? Math.floor(t.butterDmg * (1 + (lvl-1)*0.3)) : 0,
             burst: t.burst ? t.burst[Math.min(lvl-1, t.burst.length-1)] : 1,
             _burstLeft: 0
         };
@@ -18388,7 +18389,8 @@ class KanjiDefenseGame {
             t.stunDur = (td.stunDur||0) + (lvl-1)*500;
             t.pushback = (td.pushback||0) + (lvl-1)*1;
             t.butterChance = (td.butterChance||0) + (lvl-1)*0.05;
-            t.butterStun = (td.butterStun||0) + (lvl-1)*300;
+            t.butterStun = (td.butterStun||0) + (lvl-1)*500;
+            t.butterDmg = (td.butterDmg||0) ? Math.floor(td.butterDmg * (1 + (lvl-1)*0.3)) : 0;
             if (td.burst) t.burst = td.burst[Math.min(lvl-1, td.burst.length-1)];
             if (t.isBloomerang) t.bloomMax = (td.bloomMax||3) + lvl - 1;
             t.armTimer = td.armTime ? td.armTime - (lvl-1)*1000 : 0;
@@ -18705,6 +18707,41 @@ class KanjiDefenseGame {
                 }
                 continue;
             }
+            // Kernel-pult: ban ngo/bo theo duong cong tren cung hang
+            if (tower.type === 'kernel') {
+                let hasTarget = false;
+                for (const z of this.zombies) {
+                    if (z.dead || z.hypno) continue;
+                    if (z.row === tower.row && z.x > tower.col && z.x - tower.col <= tower.range) { hasTarget = true; break; }
+                }
+                if (hasTarget) {
+                    const isButter = Math.random() < tower.butterChance;
+                    const pDmg = isButter ? tower.butterDmg : effectiveDmg;
+                    const pEmoji = isButter ? '🧈' : '🟡';
+                    const pColor = isButter ? '#fef08a' : '#fde047';
+                    // Tim zombie xa nhat tren hang de tinh quang duong bay
+                    let farthestX = tower.col + 3;
+                    for (const z of this.zombies) {
+                        if (z.dead || z.hypno || z.row !== tower.row) continue;
+                        if (z.x > tower.col && z.x <= tower.col + tower.range) farthestX = Math.max(farthestX, z.x);
+                    }
+                    const startX = (tower.col+0.5)*this.CELL;
+                    const startY = (tower.row+0.5)*this.CELL;
+                    const endX = farthestX * this.CELL;
+                    const endY = (tower.row+0.5)*this.CELL;
+                    this.projectiles.push({
+                        x:startX, y:startY, dirAngle:0,
+                        dmg:pDmg, color:pColor, speed:4,
+                        maxDist:tower.range*this.CELL, traveled:0, isDir:true,
+                        isKernel:true, isKernelButter:!!isButter,
+                        butterStun: isButter ? tower.butterStun : 0,
+                        kernelEmoji:pEmoji,
+                        startX:startX, startY:startY,
+                        lobTotalDist: Math.abs(endX - startX),
+                        sourceType:tower.type });
+                }
+                continue;
+            }
             // Pierce towers: directional projectile (Cactus)
             if (tower.pierce > 0) {
                 let target = null, minD = Infinity;
@@ -18747,8 +18784,6 @@ class KanjiDefenseGame {
                         stunDur: tower.stunDur, pushback: tower.pushback,
                         isLob: tower.isLob||false,
                         lobEmoji: tower.lobEmoji||null,
-                        isKernelButter: false,
-                        kernelEmoji: (tower.type === 'kernel') ? '🟡' : null,
                         startX: (tower.col+0.5)*this.CELL, startY: (tower.row+0.5)*this.CELL,
                         lobTotalDist: Math.sqrt((target.x*this.CELL-(tower.col+0.5)*this.CELL)**2+((target.row+0.5)*this.CELL-(tower.row+0.5)*this.CELL)**2),
                         sourceType:tower.type });
@@ -18760,14 +18795,11 @@ class KanjiDefenseGame {
                         tower.fireTimer = 120;
                     }
                     this.projectiles.push({ x: (tower.col+0.5)*this.CELL, y: (tower.row+0.5)*this.CELL,
-                        targetId: target.id, dmg: effectiveDmg, color: isButter ? '#fef08a' : tower.projColor, speed: tower.isLob?4:5,
+                        targetId: target.id, dmg: effectiveDmg, color: tower.projColor, speed: tower.isLob?4:5,
                         slow: tower.slow, slowDur: tower.slowDur, aoe: tower.aoe,
                         stunDur: tower.stunDur, pushback: tower.pushback,
-                        isButter: !!isButter, butterStun: isButter ? tower.butterStun : 0,
                         isLob: tower.isLob||false,
                         lobEmoji: tower.lobEmoji||null,
-                        isKernelButter: !!isButter,
-                        kernelEmoji: (tower.type === 'kernel') ? (isButter ? '🧈' : '🟡') : null,
                         startX: (tower.col+0.5)*this.CELL, startY: (tower.row+0.5)*this.CELL,
                         lobTotalDist: Math.sqrt((target.x*this.CELL-(tower.col+0.5)*this.CELL)**2+((target.row+0.5)*this.CELL-(tower.row+0.5)*this.CELL)**2),
                         sourceType:tower.type });
@@ -18840,6 +18872,16 @@ class KanjiDefenseGame {
                     if (p.hitIds && p.hitIds.has(z.id)) continue;
                     const zx = z.x * this.CELL, zy = (z.row + 0.5) * this.CELL;
                     if (Math.sqrt((p.x-zx)**2 + (p.y-zy)**2) < this.CELL * 0.5) {
+                        // Kernel-pult 🟡/🧈: cham zombie
+                        if (p.isKernel) {
+                            this.damageZombie(z, p.dmg, p);
+                            // Hieu ung dung bo: hien 🧈 tren dau zombie
+                            if (p.isKernelButter) {
+                                this.particles.push({x:zx, y:zy - this.CELL*0.4, text:'🧈', color:'#fef08a', life:p.butterStun, maxLife:p.butterStun});
+                                this.spawnFloatText(zx, zy - this.CELL*0.7, 'Dính bơ!', '#fbbf24');
+                            }
+                            remove = true; break;
+                        }
                         // Hanabi 🏵️: no 8 huong khi cham zombie
                         if (p.isHanabi) {
                             const splashR = this.CELL * 1.2;
@@ -19341,9 +19383,9 @@ class KanjiDefenseGame {
                 ctx.arc(p.x, p.y, 5, 0, Math.PI*2);
                 ctx.fill();
                 ctx.globalAlpha = 1;
-            } else if (p.isLob && p.kernelEmoji) {
-                // Kernel-pult 🟡 / 🧈: render emoji dang vung cung
-                const traveled = Math.sqrt((p.x-p.startX)**2+(p.y-p.startY)**2);
+            } else if (p.isKernel) {
+                // Kernel-pult 🟡 / 🧈: vung cung theo duong cong
+                const traveled = Math.abs(p.x - p.startX);
                 const progress = Math.min(1, traveled / Math.max(1, p.lobTotalDist));
                 const arcH = this.CELL * 2;
                 const yOff = -Math.sin(progress * Math.PI) * arcH;
@@ -19353,8 +19395,13 @@ class KanjiDefenseGame {
                 ctx.beginPath(); ctx.ellipse(p.x, p.y, 6, 3, 0, 0, Math.PI*2); ctx.fill();
                 ctx.globalAlpha = 1;
                 const scale = 0.8 + Math.sin(progress * Math.PI) * 0.3;
-                ctx.font = Math.floor(16*scale) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                ctx.fillText(p.kernelEmoji, p.x, p.y + yOff);
+                ctx.font = Math.floor(this.CELL*0.3*scale) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(p.kernelEmoji || '🟡', p.x, p.y + yOff);
+                // Trail nho
+                ctx.globalAlpha = 0.12;
+                ctx.fillStyle = p.isKernelButter ? '#fef08a' : '#fde047';
+                ctx.beginPath(); ctx.arc(p.x - 5, p.y + yOff*0.8, 2.5, 0, Math.PI*2); ctx.fill();
+                ctx.globalAlpha = 1;
             } else if (p.isLob) {
                 const traveled = Math.sqrt((p.x-p.startX)**2+(p.y-p.startY)**2);
                 const progress = Math.min(1, traveled / Math.max(1, p.lobTotalDist));
@@ -19373,10 +19420,6 @@ class KanjiDefenseGame {
                 ctx.fillStyle = p.color + '33'; ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fill();
                 ctx.font = '16px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText('💣', p.x, p.y);
-            } else if (p.isButter) {
-                ctx.fillStyle = '#fef08a44'; ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI*2); ctx.fill();
-                ctx.font = '14px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                ctx.fillText('🧈', p.x, p.y);
             } else if (p.isPea) {
                 // Peashooter 🟢: nho gon, khong glow
                 const peaFont = Math.max(12, Math.floor(this.CELL * 0.25));
