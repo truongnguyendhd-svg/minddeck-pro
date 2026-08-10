@@ -17639,7 +17639,7 @@ const KD_LOOT_TABLE = [
     { type:'energy',  weight:35, pts:0,   color:'#38bdf8', label:'\u26A1' },
     { type:'upgrade', weight:30, pts:0,   color:'#a78bfa', label:'\u2B06' }
 ];
-const KD_ROWS = 5, KD_COLS = 9, KD_MAX_WAVES = 20;
+const KD_ROWS = 5, KD_COLS = 9, KD_MAX_WAVES = 44;
 
 let kdGame = null, kdAnimFrame = null;
 
@@ -18212,34 +18212,142 @@ class KanjiDefenseGame {
     }
     startWave() {
         this.wave++; const w = this.wave; this.waveQueue = [];
-        // Basic zombies every wave
-        for (let i = 0; i < 2 + Math.floor(w * 0.8); i++) this.waveQueue.push('normal');
-        // Fast from wave 3
-        if (w >= 3) for (let i = 0; i < Math.floor(w / 3); i++) this.waveQueue.push('fast');
-        // Tier 2: Flag (wave 1+), Conehead (wave 2+), Newspaper (wave 3+)
-        if (w >= 1) for (let i = 0; i < Math.floor(w / 3); i++) this.waveQueue.push('flag');
-        if (w >= 2) for (let i = 0; i < Math.floor((w-1) / 3); i++) this.waveQueue.push('conehead');
-        if (w >= 3) for (let i = 0; i < Math.floor((w-2) / 4); i++) this.waveQueue.push('newspaper');
-        // Tier 3: Buckethead (wave 8+), Screen Door (wave 5+)
-        if (w >= 8) for (let i = 0; i < Math.floor((w-7) / 4); i++) this.waveQueue.push('buckethead');
-        if (w >= 5) for (let i = 0; i < Math.floor((w-4) / 5); i++) this.waveQueue.push('screen');
-        // Balloon (wave 4+), Jack-in-Box (wave 4+)
-        if (w >= 4) for (let i = 0; i < Math.floor((w-3) / 4); i++) this.waveQueue.push('balloon');
-        // Pole (wave 6+)
-        if (w >= 6) for (let i = 0; i < Math.ceil((w-5) / 4); i++) this.waveQueue.push('pole');
-        if (w >= 4) for (let i = 0; i < Math.floor((w-3) / 5); i++) this.waveQueue.push('jackbox');
-        // Football (wave 6+)
-        if (w >= 6) for (let i = 0; i < Math.floor((w-5) / 4); i++) this.waveQueue.push('football');
-        // Digger (wave 7+)
-        if (w >= 7) for (let i = 0; i < Math.floor((w-6) / 5); i++) this.waveQueue.push('digger');
-        // Tank (wave 6+)
-        if (w >= 6) for (let i = 0; i < Math.floor((w - 4) / 4); i++) this.waveQueue.push('tank');
-        // Zamboni (wave 8+)
-        if (w >= 8 && w % 3 === 0) this.waveQueue.push('zamboni');
-        // Gargantuar (wave 10+, every 5 waves)
-        if (w >= 10 && w % 5 === 0) this.waveQueue.push('gargantuar');
+
+        // ===== BASE: Normal zombies every wave (ramps up steadily over 44 waves) =====
+        const normalCount = Math.min(3 + Math.floor(w * 0.7), 35);
+        for (let i = 0; i < normalCount; i++) this.waveQueue.push('normal');
+
+        // ===== FAST (wave 3+) — quick & fragile =====
+        if (w >= 3) {
+            const n = Math.min(1 + Math.floor((w - 2) / 2), 14);
+            for (let i = 0; i < n; i++) this.waveQueue.push('fast');
+        }
+
+        // ===== FLAG (wave 1+) — signal wave, always present =====
+        if (w >= 1) {
+            const n = Math.min(1 + Math.floor(w / 4), 8);
+            for (let i = 0; i < n; i++) this.waveQueue.push('flag');
+        }
+
+        // ===== CONEHEAD (wave 2+) — first armored zombie =====
+        if (w >= 2) {
+            const n = Math.min(1 + Math.floor((w - 1) / 3), 12);
+            for (let i = 0; i < n; i++) this.waveQueue.push('conehead');
+        }
+
+        // ===== NEWSPAPER (wave 3+) — slow then rage =====
+        if (w >= 3) {
+            const n = Math.min(1 + Math.floor((w - 2) / 4), 10);
+            for (let i = 0; i < n; i++) this.waveQueue.push('newspaper');
+        }
+
+        // ===== SCREEN DOOR (wave 5+) — blocks straight shots =====
+        if (w >= 5) {
+            const n = Math.min(1 + Math.floor((w - 4) / 4), 8);
+            for (let i = 0; i < n; i++) this.waveQueue.push('screen');
+        }
+
+        // ===== BALLOON (wave 4+) — flying, bypasses ground defense =====
+        if (w >= 4) {
+            const n = Math.min(1 + Math.floor((w - 3) / 4), 8);
+            for (let i = 0; i < n; i++) this.waveQueue.push('balloon');
+        }
+
+        // ===== JACK-IN-BOX (wave 4+) — explode on death =====
+        if (w >= 4) {
+            const n = Math.min(1 + Math.floor((w - 3) / 5), 6);
+            for (let i = 0; i < n; i++) this.waveQueue.push('jackbox');
+        }
+
+        // ===== POLE VAULTING (wave 6+) — vaults over first tower, FIXED: always >=1 =====
+        if (w >= 6) {
+            const n = Math.max(1, Math.min(1 + Math.floor((w - 5) / 3), 10));
+            for (let i = 0; i < n; i++) this.waveQueue.push('pole');
+        }
+
+        // ===== FOOTBALL (wave 6+) — fast + armored =====
+        if (w >= 6) {
+            const n = Math.min(1 + Math.floor((w - 5) / 4), 8);
+            for (let i = 0; i < n; i++) this.waveQueue.push('football');
+        }
+
+        // ===== TANK (wave 7+) — heavy armor, slow but tough =====
+        if (w >= 7) {
+            const n = Math.min(1 + Math.floor((w - 6) / 5), 7);
+            for (let i = 0; i < n; i++) this.waveQueue.push('tank');
+        }
+
+        // ===== DIGGER (wave 8+) — tunnels underground =====
+        if (w >= 8) {
+            const n = Math.min(1 + Math.floor((w - 7) / 5), 6);
+            for (let i = 0; i < n; i++) this.waveQueue.push('digger');
+        }
+
+        // ===== BUCKETHEAD (wave 8+) — heavy head armor =====
+        if (w >= 8) {
+            const n = Math.min(1 + Math.floor((w - 7) / 4), 10);
+            for (let i = 0; i < n; i++) this.waveQueue.push('buckethead');
+        }
+
+        // ===== ZAMBONI (wave 10+) — ice machine, crushes & freezes =====
+        if (w >= 10) {
+            // Every 3 waves starting from wave 12, plus wave 10 itself
+            if (w === 10 || (w >= 12 && w % 3 === 0)) {
+                const n = (w >= 30) ? 2 : 1;
+                for (let i = 0; i < n; i++) this.waveQueue.push('zamboni');
+            }
+        }
+
+        // ===== GARGANTUAR (wave 12+) — boss, throws imp, instant-kill smash =====
+        if (w >= 12) {
+            // Every 4 waves starting wave 12; doubles at wave 30+
+            if (w % 4 === 0) {
+                const n = (w >= 30) ? 2 : 1;
+                for (let i = 0; i < n; i++) this.waveQueue.push('gargantuar');
+            }
+        }
+
+        // ===== LATE-WAVE SURGE: extra normal zombies in final waves =====
+        if (w >= 35) {
+            const surge = Math.floor((w - 34) * 2);
+            for (let i = 0; i < surge; i++) this.waveQueue.push('normal');
+        }
+
+        // ===== BOSS WAVES: 20, 40, 44 have massive spawns =====
+        if (w === 20) {
+            for (let i = 0; i < 5; i++) this.waveQueue.push('buckethead');
+            for (let i = 0; i < 3; i++) this.waveQueue.push('football');
+            for (let i = 0; i < 2; i++) this.waveQueue.push('tank');
+            this.waveQueue.push('gargantuar');
+        }
+        if (w === 40) {
+            for (let i = 0; i < 8; i++) this.waveQueue.push('buckethead');
+            for (let i = 0; i < 5; i++) this.waveQueue.push('football');
+            for (let i = 0; i < 4; i++) this.waveQueue.push('tank');
+            for (let i = 0; i < 3; i++) this.waveQueue.push('pole');
+            for (let i = 0; i < 2; i++) this.waveQueue.push('gargantuar');
+            this.waveQueue.push('zamboni');
+        }
+        if (w === 44) {
+            // FINAL WAVE — massive army
+            for (let i = 0; i < 12; i++) this.waveQueue.push('normal');
+            for (let i = 0; i < 6; i++) this.waveQueue.push('fast');
+            for (let i = 0; i < 8; i++) this.waveQueue.push('conehead');
+            for (let i = 0; i < 10; i++) this.waveQueue.push('buckethead');
+            for (let i = 0; i < 6; i++) this.waveQueue.push('football');
+            for (let i = 0; i < 5; i++) this.waveQueue.push('pole');
+            for (let i = 0; i < 5; i++) this.waveQueue.push('tank');
+            for (let i = 0; i < 3; i++) this.waveQueue.push('digger');
+            for (let i = 0; i < 3; i++) this.waveQueue.push('gargantuar');
+            for (let i = 0; i < 2; i++) this.waveQueue.push('zamboni');
+            for (let i = 0; i < 4; i++) this.waveQueue.push('screen');
+            for (let i = 0; i < 4; i++) this.waveQueue.push('balloon');
+        }
+
         this.waveQueue.sort(() => Math.random() - 0.5);
-        this.spawnTimer = 0; this.spawnInterval = Math.max(1000, 3000 - w * 100);
+        // Spawn interval decreases over waves: starts at 3000ms, floor at 800ms
+        this.spawnTimer = 0;
+        this.spawnInterval = Math.max(800, 3000 - w * 50);
         this.waveAnnounce = 'Wave ' + w + '/' + KD_MAX_WAVES;
         this.waveAnnounceTimer = 2000; this.updateHUD();
     }
