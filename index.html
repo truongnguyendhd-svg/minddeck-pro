@@ -18742,8 +18742,26 @@ class KanjiDefenseGame {
                 }
                 continue;
             }
-            // Pierce towers: directional projectile (Cactus)
-            if (tower.pierce > 0) {
+            // Cactus (hibiscus): ban gai thang phai tren cung hang, xuyen qua zombie (pierce)
+            if (tower.type === 'hibiscus') {
+                let hasTarget = false;
+                for (const z of this.zombies) {
+                    if (z.dead || z.hypno) continue;
+                    if (z.row === tower.row && z.x > tower.col && z.x - tower.col <= tower.range) { hasTarget = true; break; }
+                }
+                if (hasTarget) {
+                    this.projectiles.push({
+                        x:(tower.col+0.5)*this.CELL,
+                        y:(tower.row+0.5)*this.CELL,
+                        dirAngle:0, dmg:effectiveDmg, color:tower.projColor, speed:8,
+                        maxDist:tower.range*this.CELL, traveled:0, isDir:true,
+                        isCactusSpike:true, peaEmoji:'🌵', peaLevel:tower.level,
+                        pierce:tower.pierce, hitIds:new Set(), sourceType:'hibiscus' });
+                }
+                continue;
+            }
+            // Pierce towers: directional projectile (fallback — khong con Cactus o day)
+            if (tower.pierce > 0 && tower.type !== 'hibiscus') {
                 let target = null, minD = Infinity;
                 for (const z of this.zombies) {
                     if (z.dead || z.hypno) continue;
@@ -19420,6 +19438,11 @@ class KanjiDefenseGame {
                 ctx.fillStyle = p.color + '33'; ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fill();
                 ctx.font = '16px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText('💣', p.x, p.y);
+            } else if (p.isCactusSpike) {
+                // Cactus 🌵: gai ban thang, nho gon
+                const spikeFont = Math.max(12, Math.floor(this.CELL * 0.3));
+                ctx.font = spikeFont + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(p.peaEmoji || '🌵', p.x, p.y);
             } else if (p.isPea) {
                 // Peashooter 🟢: nho gon, khong glow
                 const peaFont = Math.max(12, Math.floor(this.CELL * 0.25));
