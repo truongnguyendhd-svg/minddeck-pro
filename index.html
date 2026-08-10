@@ -17629,7 +17629,7 @@ const KD_ZOMBIE_TYPES = {
     jackbox:    { hp:340,  speed:0.4,  size:0.7,  color:'#a78bfa', emoji:'\ud83d\udc7b', hat:'\ud83c\udf81', hatPos:'chest', dps:100, atkRate:800, waveMin:4, explodeChance:0.15, explodeRadius:1.5 },
     /* --- Tier 5: Advanced --- */
     digger:     { hp:300,  speed:0.4,  size:0.7,  color:'#854d0e', emoji:'\ud83d\udc7b', hat:'\u26cf\ufe0f', hatPos:'shoulder', dps:100, atkRate:800, waveMin:7, digs:true, digSlowSpeed:0.21 },
-    pogo:      { hp:340,  speed:0.45, size:0.8,  color:'#f97316', emoji:'\ud83d\udc7b', hat:'\ud83e\udd98', hatPos:'chest', dps:100, atkRate:800, waveMin:1, pogo:true, pogoSpeed:0.45, walkSpeed:0.23, jumpsOver:true },
+    pogo:      { hp:340,  speed:0.45, size:0.8,  color:'#f97316', emoji:'\ud83d\udc7b', dps:100, atkRate:800, waveMin:1, pogo:true, pogoSpeed:0.45, walkSpeed:0.23, jumpsOver:true },
     dancing:    { hp:340,  speed:0.18, size:0.9, color:'#ec4899', emoji:'\ud83d\udc7b', hat:'\ud83c\udfa9', hatPos:'head', hat2:'\ud83d\udd76\ufe0f', hat2Pos:'eyes', dps:100, atkRate:800, waveMin:1, summonsBackup:true, summonInterval:8000 },
     backup:     { hp:200,  speed:0.18, size:0.55, color:'#f472b6', emoji:'\ud83d\udc7b', hat:'\ud83c\udfa9', hatPos:'head', dps:100, atkRate:800, isBackup:true },
     /* --- Tier 6: Boss --- */
@@ -19448,6 +19448,8 @@ class KanjiDefenseGame {
                 z.pogoBouncePhase = (z.pogoBouncePhase || 0) + dt * 0.008;
                 // During upward half of bounce, zombie is airborne (immune to ground-only attacks)
                 z._pogoAirborne = Math.sin(z.pogoBouncePhase) > 0.1;
+                // Tick down jump animation counter
+                if (z._pogoJumping > 0) z._pogoJumping--;
             }
             // === CHECK IF BLOCKED BY TOWER ===
             const zCol = Math.floor(z.x);
@@ -19472,13 +19474,21 @@ class KanjiDefenseGame {
                         }
                     // === POGO: nhảy qua cây chắn (Rock/Wall-nut/Mine), ăn cây khác bình thường ===
                     } else if (z.hasPogo && !z.hypno && (tower.noAttack || tower.isMine)) {
-                        // Jump over blocking plant (Rock, Wall-nut, Potato Mine, Boulder)
+                        // Cả cụm nhảy qua chướng ngại — nhảy tới bên trái cây
                         z.x = tower.col - 0.5;
-                        this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL - this.CELL*0.6, 'Bounce!', '#f97316');
-                        for (let p = 0; p < 4; p++) {
-                            this.particles.push({x:(tower.col+0.5)*this.CELL, y:(tower.row+0.5)*this.CELL,
-                                vx:(Math.random()-0.5)*2, vy:-Math.random()*2-1,
-                                color:'#f97316', life:300, maxLife:300, isParticle:true, size:2, gravity:0.06});
+                        z._pogoJumping = 6; // 6 frames jump animation
+                        this.spawnFloatText((tower.col+0.5)*this.CELL, (z.row+0.5)*this.CELL - this.CELL*0.8, 'Boing!', '#f97316');
+                        // Vfx nhảy mạnh
+                        for (let p = 0; p < 8; p++) {
+                            this.particles.push({x:(tower.col+0.5)*this.CELL, y:(z.row+0.5)*this.CELL,
+                                vx:(Math.random()-0.5)*3, vy:-Math.random()*4-2,
+                                color:'#f97316', life:500, maxLife:500, isParticle:true, size:3, gravity:0.1});
+                        }
+                        // Dust cloud dưới chân lúc cất nhảy
+                        for (let p = 0; p < 5; p++) {
+                            this.particles.push({x:(tower.col+1.5)*this.CELL, y:(z.row+0.5)*this.CELL + this.CELL*0.3,
+                                vx:(Math.random()-0.5)*2, vy:Math.random()*-1,
+                                color:'#a3a3a3', life:400, maxLife:400, isParticle:true, size:2, gravity:0.02});
                         }
                     } else if (tower.isHypno) {
                         z.hypno = true; z.speed = z.baseSpeed; z.slowTimer = 0;
@@ -19658,8 +19668,8 @@ class KanjiDefenseGame {
         // Zombies (robot sprites)
         for (const z of this.zombies) {
             if (z.dead) continue;
-            // Bobsled has custom render below — skip normal zombie render
-            if (z.type === 'bobsled') continue;
+            // Bobsled + Pogo have custom render below — skip normal zombie render
+            if (z.type === 'bobsled' || z.type === 'pogo') continue;
             const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
             const s = this.CELL * z.size * 0.45;
             // Slow: an vong xanh, doi mau emoji thay the (xu ly o ctx.filter phia duoi)
@@ -19790,23 +19800,31 @@ class KanjiDefenseGame {
                 ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#f472b6';
                 ctx.fillText('\ud83c\udfb6', cx, cy + s * 1.1 + bobOffset);
             }
-            // Pogo zombie: kangaroo 🦘 below + bouncing effect
+            // Pogo zombie: kangaroo 🦘 (big) + small zombie 👻 riding on top, bouncing
             if (z.type === 'pogo' && z.hasPogo) {
-                const bounceY = Math.abs(Math.sin(z.pogoBouncePhase || 0)) * this.CELL * 0.15;
-                // Kangaroo emoji below zombie (rides it)
-                const kangSize = this.CELL * 0.55;
+                const bounceY = Math.abs(Math.sin(z.pogoBouncePhase || 0)) * this.CELL * 0.2;
+                // Khi đang nhảy qua chướng ngại, nhảy cao hơn gấp đôi
+                const jumpBoost = (z._pogoJumping > 0) ? this.CELL * 0.35 : 0;
+                const jumpCy = cy - bounceY - jumpBoost;
+                // Shadow dưới đất (lớn hơn khi nhảy cao)
+                const shadowAlpha = Math.min(0.25, 0.08 + jumpBoost / (this.CELL * 2));
+                ctx.fillStyle = 'rgba(0,0,0,' + shadowAlpha + ')';
+                ctx.beginPath();
+                ctx.ellipse(cx, cy + this.CELL * 0.35, this.CELL * 0.3 + jumpBoost * 0.3, this.CELL * 0.06, 0, 0, Math.PI * 2);
+                ctx.fill();
+                // Kangaroo to bên dưới
+                const kangSize = this.CELL * 0.85;
                 ctx.font = kangSize + 'px serif';
                 ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                ctx.fillText('\ud83e\udd98', cx, cy + s * 0.9 - bounceY * 0.3);
-                // Orange bounce ring
-                ctx.strokeStyle = 'rgba(249,115,22,0.4)'; ctx.lineWidth = 1.5;
-                ctx.setLineDash([3, 3]);
-                this.roundRect(ctx, cx-s*1.2, cy-s*1.2, s*2.4, s*2.4, 6); ctx.stroke();
-                ctx.setLineDash([]);
-                // Bounce indicator ⬆ when airborne
+                ctx.fillText('\ud83e\udd98', cx, jumpCy + this.CELL * 0.12);
+                // Zombie nhỏ ngồi trên kangaroo
+                const zomSize = this.CELL * 0.35;
+                ctx.font = zomSize + 'px serif';
+                ctx.fillText('\ud83d\udc7b', cx, jumpCy - this.CELL * 0.32);
+                // ⬆ indicator khi airborne
                 if (z._pogoAirborne) {
                     ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#f97316';
-                    ctx.fillText('\u2b06', cx + s * 0.9, cy - s * 1.1);
+                    ctx.fillText('\u2b06', cx + this.CELL * 0.4, jumpCy - this.CELL * 0.55);
                 }
             }
             // HP bar: an
