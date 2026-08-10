@@ -17633,7 +17633,8 @@ const KD_ZOMBIE_TYPES = {
     backup:     { hp:200,  speed:0.18, size:0.55, color:'#f472b6', emoji:'\ud83d\udc7b', hat:'\ud83c\udfa9', hatPos:'head', dps:100, atkRate:800, isBackup:true },
     /* --- Tier 6: Boss --- */
     tank:       { hp:2000, speed:0.13, size:0.85, color:'#78716c', emoji:'\ud83d\udc7b', hat:'\ud83d\udee1\ufe0f', hatPos:'left', dps:120, atkRate:600, waveMin:6 },
-    zamboni:    { hp:1280, speed:0.15, size:1.0,  color:'#6b7280', emoji:'\ud83d\ude9c', dps:0, atkRate:0, waveMin:8, instantKill:true, crushes:true },
+    zamboni:    { hp:1280, speed:0.15, size:1.25, color:'#6b7280', emoji:'\ud83d\ude9c', dps:0, atkRate:0, waveMin:1, instantKill:true, leavesIce:true },
+    bobsled:    { hp:300,  speed:0.8,  size:0.65, color:'#38bdf8', emoji:'\ud83d\udc7b', hat:'\ud83d\uddf6', hatPos:'chest', dps:100, atkRate:800, isBobsled:true, needsIce:true },
     gargantuar: { hp:3000, speed:0.21, size:1.2,  color:'#7c3aed', emoji:'\ud83d\udc79', hat:'\u26d1\ufe0f', hatPos:'head', hat2:'\ud83d\udc7e', hat2Pos:'chest', dps:0, atkRate:0, waveMin:10, instantKill:true, throwsImp:true }
 };
 const KD_LOOT_TABLE = [
@@ -17774,6 +17775,8 @@ class KanjiDefenseGame {
         this.inventory = { heart: 0, energy: 0, upgrade: 0 };
         this.selectedTower = null; this.selectedItem = null;
         this._fetching = false; this._screenFlash = 0;
+        this.iceTiles = {}; // 'row,col' → true, set by Zamboni
+        this.bobsledSpawnTimer = 0; // cooldown before next bobsled team spawn
         // Tower picker: load saved selection or default first 6
         this.activeTowers = JSON.parse(localStorage.getItem('kd_activeTowers') || 'null')
             || Object.keys(KD_TOWERS).slice(0, 6);
@@ -18008,7 +18011,8 @@ class KanjiDefenseGame {
             newspaper: 'Đọc báo chậm, khi báo rách → Phẫn nộ x2 tốc độ & sát thương',
             jackbox: 'Đi lại bình thường, nổ RNG bất kỳ đâu trên đường đi (0-12s), phá cây 3x3',
             digger: 'Xuất hiện đã đào ngầm, miễn nhiễm đạn. Đào tới cột 0, choáng 2-3s, rối ăn ngược',
-            zamboni: 'Xe碾压 toàn bộ cây trên đường đi, phá tức thì',
+            zamboni: 'Xe đi chậm phá cây tức thì, để lại băng tuyết cấm trồng cây. Băng gọi Bobsled Team',
+            bobsled: 'Nhóm 4 zombie trượt trên băng tuyết cực nhanh (0.8x), xuất hiện khi Zamboni tạo đủ băng',
             gargantuar: 'Khổng lồ phá cây tức thì, ném Imp (👾) ra xa phía trước'
         };
         for (const [key, zt] of Object.entries(KD_ZOMBIE_TYPES)) {
@@ -18094,6 +18098,11 @@ class KanjiDefenseGame {
         this._renderShopTabs(); this._renderShopCards();
     }
     placeTower(row, col, type, level) {
+        // Cannot plant on ice trail
+        if (this.iceTiles[row + ',' + col]) {
+            this.spawnFloatText(col*this.CELL+this.CELL/2, row*this.CELL+this.CELL/2, 'Băng!', '#7dd3fc');
+            return;
+        }
         const t = KD_TOWERS[type];
         const lvl = level || 1;
         // Neu level co dmg rieng thi dung, nguoc lai dung cong thuc chung
@@ -18297,13 +18306,10 @@ class KanjiDefenseGame {
             for (let i = 0; i < n; i++) this.waveQueue.push('buckethead');
         }
 
-        // ===== ZAMBONI (wave 10+) — ice machine, crushes & freezes =====
-        if (w >= 10) {
-            // Every 3 waves starting from wave 12, plus wave 10 itself
-            if (w === 10 || (w >= 12 && w % 3 === 0)) {
-                const n = (w >= 30) ? 2 : 1;
-                for (let i = 0; i < n; i++) this.waveQueue.push('zamboni');
-            }
+        // ===== ZAMBONI (wave 1+) — ice machine, leaves ice trail =====
+        if (w >= 1 && w % 4 === 1) {
+            const n = (w >= 30) ? 2 : 1;
+            for (let i = 0; i < n; i++) this.waveQueue.push('zamboni');
         }
 
         // ===== GARGANTUAR (wave 12+) — boss, throws imp, instant-kill smash =====
@@ -18608,6 +18614,43 @@ class KanjiDefenseGame {
         }
         if (this.waveQueue.length > 0) { this.spawnTimer -= dt; if (this.spawnTimer <= 0) { this.spawnNextZombie(); this.spawnTimer = this.spawnInterval; } }
         this.updateTowers(dt); this.updateProjectiles(dt); this.updateZombies(dt); this.updateLoot(dt); this.updateParticles(dt);
+        // === BOBSLED TEAM: spawn on ice trail ===
+        this.bobsledSpawnTimer = Math.max(0, (this.bobsledSpawnTimer || 0) - dt);
+        if (this.bobsledSpawnTimer <= 0 && this.wave >= 1) {
+            // Check if any ice row has >= 3 consecutive ice tiles (enough for bobsled)
+            for (let r = 0; r < KD_ROWS; r++) {
+                let maxConsecutive = 0, curConsecutive = 0;
+                for (let c = 0; c < KD_COLS; c++) {
+                    if (this.iceTiles[r + ',' + c]) { curConsecutive++; maxConsecutive = Math.max(maxConsecutive, curConsecutive); }
+                    else curConsecutive = 0;
+                }
+                if (maxConsecutive >= 3) {
+                    // Spawn team of 4 bobsled zombies on this row
+                    const bzt = KD_ZOMBIE_TYPES.bobsled;
+                    const hm = 1 + (this.wave - 1) * 0.08, sm = 1 + (this.wave - 1) * 0.02;
+                    for (let b = 0; b < 4; b++) {
+                        const bz = {
+                            id: Date.now() + Math.random(), row: r, type: 'bobsled',
+                            x: KD_COLS + 0.5 + b * 0.6, // staggered start
+                            hp: bzt.hp * hm, maxHp: bzt.hp * hm,
+                            speed: bzt.speed * sm, baseSpeed: bzt.speed * sm, size: bzt.size,
+                            color: bzt.color, slowTimer: 0, dead: false,
+                            attackTimer: 0, dps: bzt.dps || 100, atkRate: bzt.atkRate || 800,
+                            flies: false, flying: false, enraged: false,
+                            digging: false, digProgress: 0, eatingBack: false, diggerSurfaced: false,
+                            jackExplodeTimer: 0, hasScreen: false, screenHp: 0,
+                            throwCooldown: 0, hasPole: false,
+                            summonTimer: 0, summonCastTimer: 0, summoning: false,
+                            parentId: 0, bobsledSpeedBoost: true
+                        };
+                        this.zombies.push(bz);
+                    }
+                    this.spawnFloatText(KD_COLS * this.CELL, (r + 0.5) * this.CELL, 'Bobsled!', '#38bdf8');
+                    this.bobsledSpawnTimer = 15000; // 15s cooldown
+                    break; // only one team per check
+                }
+            }
+        }
         if (this.waveQueue.length === 0 && this.zombies.length === 0) {
             let income = 0;
             for (const t of this.towers) { if (t.income) income += t.income; }
@@ -19388,13 +19431,6 @@ class KanjiDefenseGame {
                         if (tidx >= 0) this.towers.splice(tidx, 1);
                         this.spawnExplosion(tower.col*this.CELL+this.CELL/2, tower.row*this.CELL+this.CELL/2, '#ef4444');
                         this.spawnFloatText(tower.col*this.CELL+this.CELL/2, tower.row*this.CELL, 'Phá hủy!', '#ef4444');
-                        // Zamboni: crush path (destroy all plants in path)
-                        if (zt.crushes) {
-                            for (let c = 0; c <= tower.col; c++) {
-                                const tw = this.grid[z.row] && this.grid[z.row][c];
-                                if (tw) { this.grid[z.row][c] = null; const ti = this.towers.indexOf(tw); if (ti >= 0) this.towers.splice(ti,1);
-                                    this.spawnExplosion(c*this.CELL+this.CELL/2, z.row*this.CELL+this.CELL/2, '#6b7280'); }}
-                        }
                         blocked = true; // pause briefly
                         z.attackTimer = 400;
                     } else {
@@ -19447,6 +19483,14 @@ class KanjiDefenseGame {
                     if (z.x > KD_COLS + 1) { this.zombies.splice(i, 1); continue; } // leave screen right, no life lost
                 } else {
                     z.x -= z.speed * ds;
+                    // === Zamboni: leave ice trail ===
+                    if (zt && zt.leavesIce && z.x >= 0 && z.x < KD_COLS) {
+                        const col = Math.floor(z.x);
+                        for (let dc = 0; dc <= 1; dc++) { // ice covers 2 cols (Zamboni is big)
+                            const ic = col + dc;
+                            if (ic >= 0 && ic < KD_COLS) this.iceTiles[z.row + ',' + ic] = true;
+                        }
+                    }
                 }
             }
             if (!z.eatingBack && z.x < -0.5) { this.zombies.splice(i, 1); this.lives--; this.updateHUD();
@@ -19485,6 +19529,14 @@ class KanjiDefenseGame {
         ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
         for (let r = 0; r <= KD_ROWS; r++) { ctx.beginPath(); ctx.moveTo(0, r*C); ctx.lineTo(this.W, r*C); ctx.stroke(); }
         for (let c = 0; c <= KD_COLS; c++) { ctx.beginPath(); ctx.moveTo(c*C, 0); ctx.lineTo(c*C, this.H); ctx.stroke(); }
+        // Ice trail from Zamboni
+        for (const key in this.iceTiles) {
+            const [r, c] = key.split(',').map(Number);
+            ctx.fillStyle = 'rgba(186,230,253,0.25)';
+            ctx.fillRect(c * C, r * C, C, C);
+            ctx.strokeStyle = 'rgba(125,211,252,0.3)'; ctx.lineWidth = 1;
+            ctx.strokeRect(c*C+1, r*C+1, C-2, C-2);
+        }
         // Selected tower highlight
         if (this.selectedTower) {
             const st = this.selectedTower;
@@ -19652,6 +19704,17 @@ class KanjiDefenseGame {
                 const bobOffset = Math.sin(performance.now() / 250 + z.id) * s * 0.15;
                 ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#f472b6';
                 ctx.fillText('\ud83c\udfb6', cx, cy + s * 1.1 + bobOffset);
+            }
+            // Bobsled: blue glow + ice trail effect
+            if (z.type === 'bobsled') {
+                ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 1.5;
+                this.roundRect(ctx, cx-s*1.1, cy-s*1.1, s*2.2, s*2.2, 5); ctx.stroke();
+                // Speed lines behind
+                const speedLen = s * 1.5;
+                ctx.strokeStyle = 'rgba(56,189,248,0.4)'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(cx + s*0.8, cy - s*0.3); ctx.lineTo(cx + s*0.8 + speedLen, cy - s*0.3); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(cx + s*0.8, cy + s*0.1); ctx.lineTo(cx + s*0.8 + speedLen, cy + s*0.1); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(cx + s*0.8, cy + s*0.5); ctx.lineTo(cx + s*0.8 + speedLen, cy + s*0.5); ctx.stroke();
             }
             // HP bar: an
         }
