@@ -17594,9 +17594,9 @@ const KD_TOWERS = {
     /* --- Damage Buff Aura --- */
     clover:   { name:'Ba lá',   emoji:'🍀', cost:140, dmg:0,  range:3, rate:999999,color:'#22c55e', projColor:'#4ade80', hp:300, buffDmg:0.2, noAttack:true,
         levels:[{lv:1,cost:140,label:'Buff +20%'},{lv:2,cost:250,label:'Buff +30%'},{lv:3,cost:400,label:'Buff +40%'}] },
-    /* --- Stun Shot --- */
-    tulip:    { name:'Tulip',    emoji:'🌷', cost:185, dmg:12, range:8, rate:2000, color:'#c084fc', projColor:'#d8b4fe', hp:300, stunDur:1500,
-        levels:[{lv:1,cost:185,label:'Choáng 1.5s'},{lv:2,cost:300,label:'Choáng 2s'},{lv:3,cost:480,label:'Choáng 2.5s Dmg+60%'}] },
+    /* --- Slow Leaf + Blow Flyers --- */
+    stallia:  { name:'Stallia', emoji:'🌿', cost:100, dmg:10, range:9, rate:1400, color:'#86efac', projColor:'#4ade80', hp:300, slow:0.5, slowDur:2000, blowFlyers:true,
+        levels:[{lv:1,cost:100,label:'Chậm 50%',slow:0.5,slowDur:2000},{lv:2,cost:200,label:'Chậm 60% Dmg+30%',slow:0.6,slowDur:2500,dmg:13},{lv:3,cost:320,label:'Chậm 70% Dmg+50%',slow:0.7,slowDur:3000,dmg:15}] },
     /* --- Pushback --- */
     water:    { name:'Nước',     emoji:'💧', cost:115, dmg:8,  range:7, rate:1500, color:'#38bdf8', projColor:'#7dd3fc', hp:300, pushback:2,
         levels:[{lv:1,cost:115,label:'Đẩy lùi'},{lv:2,cost:200,label:'Đẩy xa hơn'},{lv:3,cost:330,label:'Dmg+60% Push+50%'}] },
@@ -17903,7 +17903,7 @@ class KanjiDefenseGame {
                 hibiscus: 'Bắn gai nhọn xuyên qua tối đa 3 Zombie trên cùng 1 đường thẳng.',
                 hypno: 'Thôi miên Zombie đầu tiên bước lên nó, Zombie đó quay lại tấn công đồng đội.',
                 clover: 'Tăng 20% sát thương cho tất cả tháp phòng thủ trong vùng 3 ô xung quanh.',
-                tulip: 'Bắn đạn hoa tulip làm choáng Zombie 1.5 giây, chặn hành tiến của địch.',
+                stallia: 'Bắn lá xanh làm chậm 50% Zombie mặt đất trên hàng. Thổi bay ngay lập tức tất cả Zombie bay trên toàn sân.',
                 water: 'Bắn tia nước đẩy lùi Zombie về phía sau 2 ô, giúp tạo khoảng cách an toàn.',
                 rock: 'Chắn đường với 4000 HP. Level 2: Biến thành Palm 8000 HP và phản 30% sát thương.',
                 lightning: 'Phóng tia điện nhảy từ Zombie này sang tối đa 4 Zombie khác gần nó.',
@@ -18094,10 +18094,12 @@ class KanjiDefenseGame {
         const baseDmg = (lvData && lvData.dmg != null) ? lvData.dmg : t.dmg;
         const dmgMult = (lvData && lvData.dmg != null) ? 1 : 1 + (lvl-1)*0.3;
         const rateMult = 1 - (lvl-1)*0.1;
+        const baseSlow = (lvData && lvData.slow != null) ? lvData.slow : Math.min(0.85,(t.slow||0)+(lvl-1)*0.05);
+        const baseSlowDur = (lvData && lvData.slowDur != null) ? lvData.slowDur : (t.slowDur||0)+(lvl-1)*500;
         const hpMult = 1 + (lvl-1)*0.2;
         const tower = { row, col, type, level:lvl, dmg:Math.floor(baseDmg*dmgMult), range:t.range+(lvl-1)*0.2, rate:Math.max(400,Math.floor(t.rate*rateMult)),
             color:t.color, emoji:t.emoji, projColor:t.projColor,
-            slow:Math.min(0.85,(t.slow||0)+(lvl-1)*0.05), slowDur:(t.slowDur||0)+(lvl-1)*500,
+            slow:baseSlow, slowDur:baseSlowDur,
             aoe:(t.aoe||0)+(lvl-1)*0.3, fireTimer:0, hp:Math.floor(t.hp*hpMult), maxHp:Math.floor(t.hp*hpMult), _hitFlash:0,
             noAttack:!!t.noAttack, isBloomerang:!!t.isBloomerang, bloomMax:t.bloomMax||3, isMine:!!t.isMine, mineTriggerRange:t.mineTriggerRange||0, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null, isHypno:!!t.isHypno, isScreenLightning:!!t.isScreenLightning, chainLightning:t.chainLightning||0, chainRange:t.chainRange||3,
             armTime: t.armTime || 0,
@@ -18378,12 +18380,14 @@ class KanjiDefenseGame {
             const dmgMult = (lvData && lvData.dmg != null) ? 1 : 1 + (lvl-1)*0.3;
             const rateMult = 1 - (lvl-1)*0.1;
             const hpMult = 1 + (lvl-1)*0.2;
+            const baseSlow = (lvData && lvData.slow != null) ? lvData.slow : Math.min(0.85,(td.slow||0)+(lvl-1)*0.05);
+            const baseSlowDur = (lvData && lvData.slowDur != null) ? lvData.slowDur : (td.slowDur||0)+(lvl-1)*500;
             t.dmg = Math.floor(baseDmg * dmgMult);
             t.range = td.range + (lvl-1)*0.2;
             t.rate = Math.max(400, Math.floor(td.rate * rateMult));
             t.maxHp = Math.floor(td.hp * hpMult); t.hp = t.maxHp;
-            t.slow = Math.min(0.85, (td.slow||0) + (lvl-1)*0.05);
-            t.slowDur = (td.slowDur||0) + (lvl-1)*500;
+            t.slow = baseSlow;
+            t.slowDur = baseSlowDur;
             t.aoe = (td.aoe||0) + (lvl-1)*0.3;
             t.pierce = (td.pierce||0) + (lvl-1);
             t.stunDur = (td.stunDur||0) + (lvl-1)*500;
@@ -18757,6 +18761,33 @@ class KanjiDefenseGame {
                         maxDist:tower.range*this.CELL, traveled:0, isDir:true,
                         isCactusSpike:true, peaEmoji:'🌵', peaLevel:tower.level,
                         pierce:tower.pierce, hitIds:new Set(), sourceType:'hibiscus' });
+                }
+                continue;
+            }
+            // Stallia: ban la xanh thang phai, lam cham ground zombie tren hang + thoi bay flying zombie toan san
+            if (tower.type === 'stallia') {
+                // Hieu ung thoi bay: blow away TAT CA flying zombie tren toan san (instant kill)
+                for (const fz of this.zombies) {
+                    if (fz.dead || !fz.flying) continue;
+                    fz.hp = 0; fz.dead = true;
+                    this.spawnFloatText(fz.x*this.CELL, (fz.row+0.5)*this.CELL - this.CELL*0.6, '💨 Bay!', '#86efac');
+                    this.particles.push({x:fz.x*this.CELL, y:(fz.row+0.5)*this.CELL, text:'💨', color:'#86efac', life:800, maxLife:800});
+                }
+                // Ban dan la thang phai tren cung hang (slow ground zombies)
+                let hasTarget = false;
+                for (const z of this.zombies) {
+                    if (z.dead || z.hypno) continue;
+                    if (z.row === tower.row && z.x > tower.col && z.x - tower.col <= tower.range) { hasTarget = true; break; }
+                }
+                if (hasTarget) {
+                    this.projectiles.push({
+                        x:(tower.col+0.5)*this.CELL,
+                        y:(tower.row+0.5)*this.CELL,
+                        dirAngle:0, dmg:effectiveDmg, color:tower.projColor, speed:7,
+                        maxDist:tower.range*this.CELL, traveled:0, isDir:true,
+                        isStalliaLeaf:true, peaEmoji:'🍃', peaLevel:tower.level,
+                        slow:tower.slow, slowDur:tower.slowDur,
+                        sourceType:'stallia' });
                 }
                 continue;
             }
@@ -19438,6 +19469,11 @@ class KanjiDefenseGame {
                 ctx.fillStyle = p.color + '33'; ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fill();
                 ctx.font = '16px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText('💣', p.x, p.y);
+            } else if (p.isStalliaLeaf) {
+                // Stallia 🍃: la xanh lam cham, kich thuoc 30%
+                const leafFont = Math.max(12, Math.floor(this.CELL * 0.3));
+                ctx.font = leafFont + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(p.peaEmoji || '🍃', p.x, p.y);
             } else if (p.isCactusSpike) {
                 // Cactus 🌵: gai ban thang, nho gon
                 const spikeFont = Math.max(12, Math.floor(this.CELL * 0.3));
