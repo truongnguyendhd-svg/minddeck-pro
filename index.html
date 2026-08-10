@@ -18571,8 +18571,19 @@ class KanjiDefenseGame {
     loop(ts) {
         if (this.state !== 'playing') return;
         try {
-        const dt = ts - this.lastTick; this.lastTick = ts;
-        if (dt > 0 && dt < 200) this.update(dt);
+        const rawDt = ts - this.lastTick; this.lastTick = ts;
+        if (rawDt > 0 && rawDt < 200) {
+            // Fixed timestep accumulator: 60 TPS (16.667ms per tick)
+            this._accumDt = (this._accumDt || 0) + rawDt;
+            const TICK = 1000 / 60;
+            let ticks = 0;
+            while (this._accumDt >= TICK && ticks < 5) {
+                this.update(TICK);
+                this._accumDt -= TICK;
+                ticks++;
+            }
+            if (this._accumDt > TICK * 2) this._accumDt = 0; // discard if too far behind
+        }
         this.render();
         } catch(e) { console.error('KD loop error:', e); }
         kdAnimFrame = requestAnimationFrame(t => this.loop(t));
