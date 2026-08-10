@@ -17601,6 +17601,9 @@ const KD_TOWERS = {
     /* --- Wall --- */
     rock:     { name:'Wall-nut', emoji:'🥥', cost:50,  dmg:0,  range:0, rate:999999,color:'#d97706', projColor:'#fbbf24', hp:4000, noAttack:true, reflect:0, maxLevels:2,
         levels:[{lv:1,cost:50,label:'4000 HP'},{lv:2,cost:125,label:'→ Palm 8000 HP Phản 30%'}] },
+    /* --- Tall Wall --- */
+    tallwall:  { name:'Tallwall', emoji:'🪵', cost:125, dmg:0,  range:0, rate:999999,color:'#92400e', projColor:'#a16207', hp:8000, noAttack:true, isTall:true, maxLevels:2,
+        levels:[{lv:1,cost:125,label:'8000 HP Chặn nhảy'},{lv:2,cost:250,label:'12000 HP Chặn nhảy'}] },
     /* --- Chain Lightning --- */
     lightning: { name:'Lightning Reed', emoji:'🌾', cost:125, dmg:10, range:9, rate:1500, color:'#fbbf24', projColor:'#fde047', hp:300, chainLightning:4, chainRange:3,
         levels:[{lv:1,cost:125,label:'Xích 4'},{lv:2,cost:220,label:'Xích 5'},{lv:3,cost:380,label:'Xích 6 Dmg+60%'}] },
@@ -17917,6 +17920,7 @@ class KanjiDefenseGame {
                 stallia: 'Bắn lá xanh làm chậm 50% Zombie mặt đất trên hàng. Thổi bay ngay lập tức tất cả Zombie bay trên toàn sân.',
                 primal: 'Bắn gió 💨 gây 50 Dame. 50% tỷ lệ đẩy lùi 1-2 ô và choáng 0.5s Zombie trên cùng hàng.',
                 rock: 'Chắn đường với 4000 HP. Level 2: Biến thành Palm 8000 HP và phản 30% sát thương.',
+                tallwall: 'Tường gỗ cao 8000 HP. Pogo/Pole KHÔNG thể nhảy qua! Va chạm → kangaroo chết, zombie rơi xuống đi bộ chậm.',
                 lightning: 'Phóng tia điện nhảy từ Zombie này sang tối đa 4 Zombie khác gần nó.',
                 bonsai: 'Tăng 25% tốc độ bắn cho tất cả tháp phòng thủ trong vùng 3 ô xung quanh.',
                 crystal: 'Giật điện toàn màn hình, gây 5000 sát thương lên 1 Zombie ngẫu nhiên. Mỗi 12 giây 1 lần.'
@@ -18121,6 +18125,7 @@ class KanjiDefenseGame {
             slow:baseSlow, slowDur:baseSlowDur,
             aoe: t.aoe ? t.aoe + (lvl-1)*0.3 : 0, fireTimer:0, hp:Math.floor(t.hp*hpMult), maxHp:Math.floor(t.hp*hpMult), _hitFlash:0,
             noAttack:!!t.noAttack, isBloomerang:!!t.isBloomerang, bloomMax:t.bloomMax||3, isMine:!!t.isMine, mineTriggerRange:t.mineTriggerRange||0, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null, isHypno:!!t.isHypno, isScreenLightning:!!t.isScreenLightning, chainLightning:t.chainLightning||0, chainRange:t.chainRange||3,
+            isTall:!!t.isTall,
             armTime: t.armTime || 0,
             armTimer: t.armTime ? t.armTime - (lvl-1)*1000 : 0, armed: !t.armTime,
             pierce: t.pierce ? t.pierce + (lvl-1) : 0,
@@ -19471,8 +19476,8 @@ class KanjiDefenseGame {
             if (!canFly && zCol >= 0 && zCol < KD_COLS) {
                 const tower = this.grid[z.row] && this.grid[z.row][zCol];
                 if (tower) {
-                    // === POLE VAULT: nhảy qua cây đầu tiên, mất sào, biến thành normal ===
-                    if (z.hasPole && !z.hypno) {
+                    // === POLE VAULT: nhảy qua cây đầu tiên, mất sào, biến thành normal (KHÔNG nhảy qua Tallwall) ===
+                    if (z.hasPole && !z.hypno && !tower.isTall) {
                         z.hasPole = false;
                         z.hat = '';
                         z.speed = 0.21;
@@ -19484,6 +19489,32 @@ class KanjiDefenseGame {
                             this.particles.push({x:(tower.col+0.5)*this.CELL, y:(tower.row+0.5)*this.CELL,
                                 vx:(Math.random()-0.5)*3, vy:-Math.random()*3-1,
                                 color:'#fb923c', life:400, maxLife:400, isParticle:true, size:3, gravity:0.08});
+                        }
+                    // === POGO vs TALLWALL: kangaroo chết, zombie rơi xuống đi bộ chậm ===
+                    } else if (z.hasPogo && !z.hypno && tower.isTall) {
+                        z.hasPogo = false;
+                        z._pogoAirborne = false;
+                        z._pogoJumping = 0;
+                        // Trở thành zombie đi bộ chậm
+                        const pzt = KD_ZOMBIE_TYPES.pogo;
+                        z.speed = pzt.walkSpeed * (1 + (this.wave - 1) * 0.02);
+                        z.baseSpeed = z.speed;
+                        z.dps = pzt.dps;
+                        z.atkRate = pzt.atkRate;
+                        z.pogoBouncePhase = 0;
+                        blocked = true; // dừng lại ăn cây
+                        this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL - this.CELL*0.8, 'Va ngã!', '#ef4444');
+                        // Vfx kangaroo bay đi
+                        for (let p = 0; p < 10; p++) {
+                            this.particles.push({x:z.x*this.CELL, y:(z.row+0.5)*this.CELL,
+                                vx:Math.random()*3+1, vy:-Math.random()*4-2,
+                                color:'#f97316', life:600, maxLife:600, isParticle:true, size:3, gravity:0.08});
+                        }
+                        // Zombie rơi xuống bụi
+                        for (let p = 0; p < 6; p++) {
+                            this.particles.push({x:z.x*this.CELL, y:(z.row+0.5)*this.CELL + this.CELL*0.3,
+                                vx:(Math.random()-0.5)*3, vy:Math.random()*2,
+                                color:'#a3a3a3', life:400, maxLife:400, isParticle:true, size:2, gravity:0.05});
                         }
                     // === POGO: nhảy qua cây chắn (Rock/Wall-nut/Mine), ăn cây khác bình thường ===
                     } else if (z.hasPogo && !z.hypno && (tower.noAttack || tower.isMine)) {
