@@ -17597,9 +17597,9 @@ const KD_TOWERS = {
     /* --- Slow Leaf + Blow Flyers --- */
     stallia:  { name:'Stallia', emoji:'🌿', cost:100, dmg:10, range:9, rate:1400, color:'#86efac', projColor:'#4ade80', hp:300, slow:0.5, slowDur:2000, blowFlyers:true,
         levels:[{lv:1,cost:100,label:'Chậm 50%',slow:0.5,slowDur:2000},{lv:2,cost:200,label:'Chậm 60% Dmg+30%',slow:0.6,slowDur:2500,dmg:13},{lv:3,cost:320,label:'Chậm 70% Dmg+50%',slow:0.7,slowDur:3000,dmg:15}] },
-    /* --- Pushback --- */
-    water:    { name:'Nước',     emoji:'🌱', cost:115, dmg:8,  range:7, rate:1500, color:'#38bdf8', projColor:'#7dd3fc', hp:300, pushback:2,
-        levels:[{lv:1,cost:115,label:'Đẩy lùi'},{lv:2,cost:200,label:'Đẩy xa hơn'},{lv:3,cost:330,label:'Dmg+60% Push+50%'}] },
+    /* --- Primal Wind --- */
+    primal:   { name:'Primal',   emoji:'🌱', cost:175, dmg:50, range:9, rate:3150, color:'#a3e635', projColor:'#84cc16', hp:300, pushChance:0.5, pushMin:1, pushMax:2, stunDur:500,
+        levels:[{lv:1,cost:175,label:'50 Dame',dmg:50,pushChance:0.5,stunDur:500},{lv:2,cost:300,label:'Dmg 60',dmg:60,pushChance:0.55,stunDur:500},{lv:3,cost:500,label:'Dmg 75 Push 70%',dmg:75,pushChance:0.7,stunDur:500}] },
     /* --- Wall --- */
     rock:     { name:'Wall-nut', emoji:'🥥', cost:50,  dmg:0,  range:0, rate:999999,color:'#d97706', projColor:'#fbbf24', hp:4000, noAttack:true, reflect:0, maxLevels:2,
         levels:[{lv:1,cost:50,label:'4000 HP'},{lv:2,cost:125,label:'→ Palm 8000 HP Phản 30%'}] },
@@ -17904,7 +17904,7 @@ class KanjiDefenseGame {
                 hypno: 'Thôi miên Zombie đầu tiên bước lên nó, Zombie đó quay lại tấn công đồng đội.',
                 clover: 'Tăng 20% sát thương cho tất cả tháp phòng thủ trong vùng 3 ô xung quanh.',
                 stallia: 'Bắn lá xanh làm chậm 50% Zombie mặt đất trên hàng. Thổi bay ngay lập tức tất cả Zombie bay trên toàn sân.',
-                water: 'Bắn tia nước đẩy lùi Zombie về phía sau 2 ô, giúp tạo khoảng cách an toàn.',
+                primal: 'Bắn gió 💨 gây 50 Dame. 50% tỷ lệ đẩy lùi 1-2 ô và choáng 0.5s Zombie trên cùng hàng.',
                 rock: 'Chắn đường với 4000 HP. Level 2: Biến thành Palm 8000 HP và phản 30% sát thương.',
                 lightning: 'Phóng tia điện nhảy từ Zombie này sang tối đa 4 Zombie khác gần nó.',
                 bonsai: 'Tăng 25% tốc độ bắn cho tất cả tháp phòng thủ trong vùng 3 ô xung quanh.',
@@ -18096,17 +18096,18 @@ class KanjiDefenseGame {
         const rateMult = 1 - (lvl-1)*0.1;
         const baseSlow = (lvData && lvData.slow != null) ? lvData.slow : Math.min(0.85,(t.slow||0)+(lvl-1)*0.05);
         const baseSlowDur = (lvData && lvData.slowDur != null) ? lvData.slowDur : (t.slowDur||0)+(lvl-1)*500;
+        const basePushChance = (lvData && lvData.pushChance != null) ? lvData.pushChance : (t.pushChance||0);
         const hpMult = 1 + (lvl-1)*0.2;
         const tower = { row, col, type, level:lvl, dmg:Math.floor(baseDmg*dmgMult), range:t.range+(lvl-1)*0.2, rate:Math.max(400,Math.floor(t.rate*rateMult)),
             color:t.color, emoji:t.emoji, projColor:t.projColor,
             slow:baseSlow, slowDur:baseSlowDur,
-            aoe:(t.aoe||0)+(lvl-1)*0.3, fireTimer:0, hp:Math.floor(t.hp*hpMult), maxHp:Math.floor(t.hp*hpMult), _hitFlash:0,
+            aoe: t.aoe ? t.aoe + (lvl-1)*0.3 : 0, fireTimer:0, hp:Math.floor(t.hp*hpMult), maxHp:Math.floor(t.hp*hpMult), _hitFlash:0,
             noAttack:!!t.noAttack, isBloomerang:!!t.isBloomerang, bloomMax:t.bloomMax||3, isMine:!!t.isMine, mineTriggerRange:t.mineTriggerRange||0, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null, isHypno:!!t.isHypno, isScreenLightning:!!t.isScreenLightning, chainLightning:t.chainLightning||0, chainRange:t.chainRange||3,
             armTime: t.armTime || 0,
             armTimer: t.armTime ? t.armTime - (lvl-1)*1000 : 0, armed: !t.armTime,
-            pierce: (t.pierce||0),
-            stunDur: (t.stunDur||0)+(lvl-1)*500,
-            pushback: (t.pushback||0)+(lvl-1)*1,
+            pierce: t.pierce ? t.pierce + (lvl-1) : 0,
+            stunDur: t.stunDur ? t.stunDur + (lvl-1)*500 : 0,
+            pushback: t.pushback ? t.pushback + (lvl-1)*1 : 0,
             thornDmg: t.thornDmg ? Math.floor(t.thornDmg*(1+(lvl-1)*0.5)) : 0,
             reflect: t.reflect ? Math.min(0.8, t.reflect+(lvl-1)*0.1) : 0,
             income: t.income ? Math.floor(t.income*(1+(lvl-1)*0.6)) : 0,
@@ -18116,6 +18117,7 @@ class KanjiDefenseGame {
             butterChance: (t.butterChance||0) + (lvl-1)*0.05,
             butterStun: (t.butterStun||0) + (lvl-1)*500,
             butterDmg: (t.butterDmg||0) ? Math.floor(t.butterDmg * (1 + (lvl-1)*0.3)) : 0,
+            pushChance: basePushChance, pushMin: t.pushMin||0, pushMax: t.pushMax||0,
             burst: t.burst ? t.burst[Math.min(lvl-1, t.burst.length-1)] : 1,
             _burstLeft: 0
         };
@@ -18388,13 +18390,14 @@ class KanjiDefenseGame {
             t.maxHp = Math.floor(td.hp * hpMult); t.hp = t.maxHp;
             t.slow = baseSlow;
             t.slowDur = baseSlowDur;
-            t.aoe = (td.aoe||0) + (lvl-1)*0.3;
+            t.aoe = td.aoe ? td.aoe + (lvl-1)*0.3 : 0;
             t.pierce = td.pierce ? td.pierce + (lvl-1) : 0;
             t.stunDur = td.stunDur ? td.stunDur + (lvl-1)*500 : 0;
-            t.pushback = (td.pushback||0) + (lvl-1)*1;
+            t.pushback = td.pushback ? td.pushback + (lvl-1)*1 : 0;
             t.butterChance = (td.butterChance||0) + (lvl-1)*0.05;
             t.butterStun = (td.butterStun||0) + (lvl-1)*500;
             t.butterDmg = (td.butterDmg||0) ? Math.floor(td.butterDmg * (1 + (lvl-1)*0.3)) : 0;
+            t.pushChance = (lvData && lvData.pushChance != null) ? lvData.pushChance : (td.pushChance||0); t.pushMin = td.pushMin||0; t.pushMax = td.pushMax||0;
             if (td.burst) t.burst = td.burst[Math.min(lvl-1, td.burst.length-1)];
             if (t.isBloomerang) t.bloomMax = (td.bloomMax||3) + lvl - 1;
             t.armTimer = td.armTime ? td.armTime - (lvl-1)*1000 : 0;
@@ -18761,6 +18764,27 @@ class KanjiDefenseGame {
                         maxDist:tower.range*this.CELL, traveled:0, isDir:true,
                         isCactusSpike:true, peaEmoji:'🌵', peaLevel:tower.level,
                         pierce:tower.pierce, hitIds:new Set(), sourceType:'hibiscus' });
+                }
+                continue;
+            }
+            // Primal: ban gio bang phai tren cung hang, 50% chance pushback + stun
+            if (tower.type === 'primal') {
+                let hasTarget = false;
+                for (const z of this.zombies) {
+                    if (z.dead || z.hypno) continue;
+                    if (z.row === tower.row && z.x > tower.col && z.x - tower.col <= tower.range) { hasTarget = true; break; }
+                }
+                if (hasTarget) {
+                    const willPush = Math.random() < tower.pushChance;
+                    this.projectiles.push({
+                        x:(tower.col+0.5)*this.CELL,
+                        y:(tower.row+0.5)*this.CELL,
+                        dirAngle:0, dmg:effectiveDmg, color:tower.projColor, speed:9,
+                        maxDist:tower.range*this.CELL, traveled:0, isDir:true,
+                        isPrimalWind:true, peaEmoji:'💨', peaLevel:tower.level,
+                        pushback: willPush ? tower.pushMin + Math.floor(Math.random()*(tower.pushMax - tower.pushMin + 1)) : 0,
+                        stunDur: willPush ? tower.stunDur : 0,
+                        sourceType:'primal' });
                 }
                 continue;
             }
@@ -19469,6 +19493,11 @@ class KanjiDefenseGame {
                 ctx.fillStyle = p.color + '33'; ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fill();
                 ctx.font = '16px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText('💣', p.x, p.y);
+            } else if (p.isPrimalWind) {
+                // Primal 💨: gio manh, kich thuoc 35%
+                const windFont = Math.max(14, Math.floor(this.CELL * 0.35));
+                ctx.font = windFont + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(p.peaEmoji || '💨', p.x, p.y);
             } else if (p.isStalliaLeaf) {
                 // Stallia 🍃: la xanh lam cham, kich thuoc 30%
                 const leafFont = Math.max(12, Math.floor(this.CELL * 0.3));
