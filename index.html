@@ -19443,13 +19443,26 @@ class KanjiDefenseGame {
                     }
                 }
             }
-            // === POGO ZOMBIE: bounce animation + temporary flying during bounce ===
+            // === POGO ZOMBIE: bounce animation + gradual jump over obstacles ===
             if (z.hasPogo && !z.dead) {
                 z.pogoBouncePhase = (z.pogoBouncePhase || 0) + dt * 0.008;
-                // During upward half of bounce, zombie is airborne (immune to ground-only attacks)
                 z._pogoAirborne = Math.sin(z.pogoBouncePhase) > 0.1;
-                // Tick down jump animation counter
-                if (z._pogoJumping > 0) z._pogoJumping--;
+                // Đang nhảy qua chướng ngại: di chuyển từ từ đến mục tiêu
+                if (z._pogoJumping > 0) {
+                    z._pogoJumping--;
+                    const progress = 1 - (z._pogoJumping / 20);
+                    z.x = z._pogoJumpStartX + (z._pogoTargetX - z._pogoJumpStartX) * progress;
+                    blocked = true; // không di chuyển bình thường trong lúc nhảy
+                    if (z._pogoJumping <= 0) {
+                        z.x = z._pogoTargetX;
+                        // Dust cloud lúc đáp đất
+                        for (let p = 0; p < 4; p++) {
+                            this.particles.push({x:z.x*this.CELL, y:(z.row+0.5)*this.CELL + this.CELL*0.3,
+                                vx:(Math.random()-0.5)*2, vy:Math.random()*-0.5,
+                                color:'#a3a3a3', life:300, maxLife:300, isParticle:true, size:2, gravity:0.02});
+                        }
+                    }
+                }
             }
             // === CHECK IF BLOCKED BY TOWER ===
             const zCol = Math.floor(z.x);
@@ -19474,19 +19487,14 @@ class KanjiDefenseGame {
                         }
                     // === POGO: nhảy qua cây chắn (Rock/Wall-nut/Mine), ăn cây khác bình thường ===
                     } else if (z.hasPogo && !z.hypno && (tower.noAttack || tower.isMine)) {
-                        // Cả cụm nhảy qua chướng ngại — nhảy tới bên trái cây
-                        z.x = tower.col - 0.5;
-                        z._pogoJumping = 12; // 12 frames jump animation (chậm hơn)
+                        // Bắt đầu nhảy: đặt mục tiêu, không teleport ngay
+                        z._pogoTargetX = tower.col - 0.5;
+                        z._pogoJumping = 20; // 20 frames để nhảy qua
+                        z._pogoJumpStartX = z.x;
                         this.spawnFloatText((tower.col+0.5)*this.CELL, (z.row+0.5)*this.CELL - this.CELL*0.8, 'Boing!', '#f97316');
-                        // Vfx nhảy mạnh
-                        for (let p = 0; p < 8; p++) {
-                            this.particles.push({x:(tower.col+0.5)*this.CELL, y:(z.row+0.5)*this.CELL,
-                                vx:(Math.random()-0.5)*3, vy:-Math.random()*4-2,
-                                color:'#f97316', life:500, maxLife:500, isParticle:true, size:3, gravity:0.1});
-                        }
-                        // Dust cloud dưới chân lúc cất nhảy
+                        // Dust cloud lúc cất nhảy
                         for (let p = 0; p < 5; p++) {
-                            this.particles.push({x:(tower.col+1.5)*this.CELL, y:(z.row+0.5)*this.CELL + this.CELL*0.3,
+                            this.particles.push({x:z.x*this.CELL, y:(z.row+0.5)*this.CELL + this.CELL*0.3,
                                 vx:(Math.random()-0.5)*2, vy:Math.random()*-1,
                                 color:'#a3a3a3', life:400, maxLife:400, isParticle:true, size:2, gravity:0.02});
                         }
