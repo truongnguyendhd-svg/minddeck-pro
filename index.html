@@ -18673,7 +18673,8 @@ class KanjiDefenseGame {
                 }
                 continue;
             }
-            // Peashooter (samurai): ban ha dau thang sang phai tren cung hang
+            // Peashooter (samurai): ban ha dau thang sang phai
+            // Lv1: 1 pea, Lv2: 2 peas, Lv3: 4 peas (spread)
             if (tower.type === 'samurai') {
                 let hasTarget = false;
                 for (const z of this.zombies) {
@@ -18683,16 +18684,36 @@ class KanjiDefenseGame {
                 if (hasTarget) {
                     if (tower._burstLeft > 0) {
                         tower._burstLeft--;
-                        tower.fireTimer = 120;
+                        // Shot cuoi cung cua burst → cooldown normal
+                        if (tower._burstLeft === 0 && tower.burst > 1) {
+                            tower.fireTimer = effectiveRate;
+                        } else {
+                            tower.fireTimer = 150;
+                        }
                     } else {
                         if (tower.burst > 1) {
                             tower._burstLeft = tower.burst - 1;
-                            tower.fireTimer = 120;
+                            tower.fireTimer = 150;
                         }
                     }
-                    this.projectiles.push({ x:(tower.col+0.5)*this.CELL, y:(tower.row+0.5)*this.CELL,
-                        dirAngle:0, dmg:effectiveDmg, color:'#4ade80', speed:9,
-                        maxDist:tower.range*this.CELL, traveled:0, isDir:true, isPea:true, peaEmoji:'🟢' });
+                    // Spread Y choLv2,Lv3: tung pea bay o do cao khac nhau
+                    const spreadAngles = [];
+                    if (tower.burst <= 1) {
+                        spreadAngles.push(0);
+                    } else if (tower.burst === 2) {
+                        spreadAngles.push(-0.08, 0.08);
+                    } else {
+                        spreadAngles.push(-0.15, -0.05, 0.05, 0.15);
+                    }
+                    const shotIdx = tower.burst - 1 - (tower._burstLeft || 0);
+                    const angle = spreadAngles[Math.min(shotIdx, spreadAngles.length - 1)];
+                    this.projectiles.push({
+                        x:(tower.col+0.5)*this.CELL,
+                        y:(tower.row+0.5)*this.CELL,
+                        dirAngle: angle,
+                        dmg:effectiveDmg, color:'#4ade80', speed:9,
+                        maxDist:tower.range*this.CELL, traveled:0, isDir:true,
+                        isPea:true, peaEmoji:'🟢', burstCount:tower.burst });
                 }
                 continue;
             }
@@ -19365,8 +19386,22 @@ class KanjiDefenseGame {
                 ctx.font = '14px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText('🧈', p.x, p.y);
             } else if (p.isPea) {
-                ctx.font = Math.floor(this.CELL*0.19) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                // Peashooter 🟢: emoji lon, them glow va trail
+                const peaFont = Math.max(14, Math.floor(this.CELL * 0.32));
+                // Glow
+                ctx.globalAlpha = 0.25;
+                ctx.fillStyle = '#4ade80';
+                ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI*2); ctx.fill();
+                ctx.globalAlpha = 1;
+                ctx.font = peaFont + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText(p.peaEmoji || '🟢', p.x, p.y);
+                // Trail nho phia sau
+                ctx.globalAlpha = 0.15;
+                ctx.fillStyle = '#86efac';
+                ctx.beginPath(); ctx.arc(p.x - 6, p.y, 2.5, 0, Math.PI*2); ctx.fill();
+                ctx.globalAlpha = 0.08;
+                ctx.beginPath(); ctx.arc(p.x - 11, p.y, 1.8, 0, Math.PI*2); ctx.fill();
+                ctx.globalAlpha = 1;
             } else {
                 ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
                 ctx.fillStyle = p.color + '44'; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill();
