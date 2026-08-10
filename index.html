@@ -17634,7 +17634,7 @@ const KD_ZOMBIE_TYPES = {
     /* --- Tier 6: Boss --- */
     tank:       { hp:2000, speed:0.13, size:0.85, color:'#78716c', emoji:'\ud83d\udc7b', hat:'\ud83d\udee1\ufe0f', hatPos:'left', dps:120, atkRate:600, waveMin:6 },
     zamboni:    { hp:1280, speed:0.15, size:1.25, color:'#6b7280', emoji:'\ud83d\ude9c', dps:0, atkRate:0, waveMin:1, instantKill:true, leavesIce:true },
-    bobsled:    { hp:300,  speed:0.8,  size:0.65, color:'#38bdf8', emoji:'\ud83d\udc7b', hat:'\ud83d\uddf6', hatPos:'chest', dps:100, atkRate:800, isBobsled:true, needsIce:true },
+    bobsled:    { hp:300,  speed:0.9,  size:1.2, color:'#38bdf8', dps:0, atkRate:0, isBobsled:true, needsIce:true, passengerHp:200, passengerDps:100, passengerAtkRate:800 },
     gargantuar: { hp:3000, speed:0.21, size:1.2,  color:'#7c3aed', emoji:'\ud83d\udc79', hat:'\u26d1\ufe0f', hatPos:'head', hat2:'\ud83d\udc7e', hat2Pos:'chest', dps:0, atkRate:0, waveMin:10, instantKill:true, throwsImp:true }
 };
 const KD_LOOT_TABLE = [
@@ -18012,7 +18012,7 @@ class KanjiDefenseGame {
             jackbox: 'Đi lại bình thường, nổ RNG bất kỳ đâu trên đường đi (0-12s), phá cây 3x3',
             digger: 'Xuất hiện đã đào ngầm, miễn nhiễm đạn. Đào tới cột 0, choáng 2-3s, rối ăn ngược',
             zamboni: 'Xe đi chậm phá cây tức thì, để lại băng tuyết cấm trồng cây. Băng gọi Bobsled Team',
-            bobsled: 'Nhóm 4 zombie trượt trên băng tuyết cực nhanh (0.8x), xuất hiện khi Zamboni tạo đủ băng',
+            bobsled: 'Xe trượt 🛷🛷 chở 4 zombie, chạy cực nhanh trên băng. Xe 300HP — bị phá hoặc hết băng → 4 zombie nhảy xuống (200HP/con)',
             gargantuar: 'Khổng lồ phá cây tức thì, ném Imp (👾) ra xa phía trước'
         };
         for (const [key, zt] of Object.entries(KD_ZOMBIE_TYPES)) {
@@ -18555,6 +18555,40 @@ class KanjiDefenseGame {
         this.renderInventory(); this.selectTower(t.row, t.col);
     }
     spawnFloatText(x, y, text, color) { this.particles.push({ x, y, text, color, life: 1000, maxLife: 1000 }); }
+    _bobsledDismount(bobsledZ) {
+        // Spawn 4 walking zombies when bobsled is destroyed or reaches end of ice
+        const bzt = KD_ZOMBIE_TYPES.bobsled;
+        const hm = 1 + (this.wave - 1) * 0.08;
+        const passengerCount = bobsledZ.passengers || 4;
+        for (let p = 0; p < passengerCount; p++) {
+            const passenger = {
+                id: Date.now() + Math.random(),
+                row: bobsledZ.row,
+                type: 'normal', // becomes regular zombie
+                x: bobsledZ.x + 0.3 * p, // stagger slightly behind sled
+                hp: bzt.passengerHp * hm,
+                maxHp: bzt.passengerHp * hm,
+                speed: 0.21 * (1 + (this.wave - 1) * 0.02),
+                baseSpeed: 0.21 * (1 + (this.wave - 1) * 0.02),
+                size: 0.7, color: '#dc2626', slowTimer: 0, dead: false,
+                attackTimer: 0, dps: bzt.passengerDps || 100, atkRate: bzt.passengerAtkRate || 800,
+                flies: false, flying: false, enraged: false,
+                digging: false, digProgress: 0, eatingBack: false, diggerSurfaced: false,
+                jackExplodeTimer: 0, hasScreen: false, screenHp: 0,
+                throwCooldown: 0, hasPole: false,
+                summonTimer: 0, summonCastTimer: 0, summoning: false,
+                parentId: 0, bobsledDismounted: true
+            };
+            this.zombies.push(passenger);
+        }
+        this.spawnFloatText(bobsledZ.x * this.CELL, (bobsledZ.row + 0.5) * this.CELL - this.CELL * 0.6, 'Nhảy xuống!', '#38bdf8');
+        // Vfx: small ice burst
+        for (let p = 0; p < 5; p++) {
+            this.particles.push({x:bobsledZ.x*this.CELL, y:(bobsledZ.row+0.5)*this.CELL,
+                vx:(Math.random()-0.5)*2, vy:-Math.random()*2-1,
+                color:'#7dd3fc', life:400, maxLife:400, isParticle:true, size:2, gravity:0.05});
+        }
+    }
     spawnExplosion(x, y, color) {
         for (let i = 0; i < 6; i++) this.particles.push({ x, y, color, vx: (Math.random()-0.5)*3, vy: (Math.random()-0.5)*3, life: 500, maxLife: 500, isParticle: true });
     }
@@ -18625,27 +18659,25 @@ class KanjiDefenseGame {
                     else curConsecutive = 0;
                 }
                 if (maxConsecutive >= 3) {
-                    // Spawn team of 4 bobsled zombies on this row
+                    // Spawn 1 bobsled vehicle carrying 4 passengers
                     const bzt = KD_ZOMBIE_TYPES.bobsled;
                     const hm = 1 + (this.wave - 1) * 0.08, sm = 1 + (this.wave - 1) * 0.02;
-                    for (let b = 0; b < 4; b++) {
-                        const bz = {
-                            id: Date.now() + Math.random(), row: r, type: 'bobsled',
-                            x: KD_COLS + 0.5 + b * 0.6, // staggered start
-                            hp: bzt.hp * hm, maxHp: bzt.hp * hm,
-                            speed: bzt.speed * sm, baseSpeed: bzt.speed * sm, size: bzt.size,
-                            color: bzt.color, slowTimer: 0, dead: false,
-                            attackTimer: 0, dps: bzt.dps || 100, atkRate: bzt.atkRate || 800,
-                            flies: false, flying: false, enraged: false,
-                            digging: false, digProgress: 0, eatingBack: false, diggerSurfaced: false,
-                            jackExplodeTimer: 0, hasScreen: false, screenHp: 0,
-                            throwCooldown: 0, hasPole: false,
-                            summonTimer: 0, summonCastTimer: 0, summoning: false,
-                            parentId: 0, bobsledSpeedBoost: true
-                        };
-                        this.zombies.push(bz);
-                    }
-                    this.spawnFloatText(KD_COLS * this.CELL, (r + 0.5) * this.CELL, 'Bobsled!', '#38bdf8');
+                    const bobsled = {
+                        id: Date.now() + Math.random(), row: r, type: 'bobsled',
+                        x: KD_COLS + 0.5,
+                        hp: bzt.hp * hm, maxHp: bzt.hp * hm,
+                        speed: bzt.speed * sm, baseSpeed: bzt.speed * sm, size: bzt.size,
+                        color: bzt.color, slowTimer: 0, dead: false,
+                        attackTimer: 0, dps: 0, atkRate: 0,
+                        flies: false, flying: false, enraged: false,
+                        digging: false, digProgress: 0, eatingBack: false, diggerSurfaced: false,
+                        jackExplodeTimer: 0, hasScreen: false, screenHp: 0,
+                        throwCooldown: 0, hasPole: false,
+                        summonTimer: 0, summonCastTimer: 0, summoning: false,
+                        parentId: 0, passengers: 4 // carries 4 zombies
+                    };
+                    this.zombies.push(bobsled);
+                    this.spawnFloatText(KD_COLS * this.CELL, (r + 0.5) * this.CELL, 'Bobsled Team!', '#38bdf8');
                     this.bobsledSpawnTimer = 15000; // 15s cooldown
                     break; // only one team per check
                 }
@@ -19477,6 +19509,25 @@ class KanjiDefenseGame {
                     }
                 }
             }
+            // === BOBSLED: vehicle logic — slides on ice, dismounts when destroyed or off ice ===
+            if (zt && zt.isBobsled && !z.dead) {
+                // Check if bobsled is still on ice trail
+                const bCol = Math.floor(z.x);
+                if (bCol >= 0 && bCol < KD_COLS && !this.iceTiles[z.row + ',' + bCol]) {
+                    // Reached end of ice → dismount passengers
+                    this._bobsledDismount(z);
+                    continue;
+                }
+                // Bobsled slides over towers on ice (never gets blocked)
+                blocked = false;
+            }
+            // Check if bobsled was destroyed by projectile damage
+            if (zt && zt.isBobsled && z.hp <= 0 && !z.dead) {
+                z.dead = true;
+                this.spawnExplosion(z.x * this.CELL, (z.row + 0.5) * this.CELL, '#38bdf8');
+                this._bobsledDismount(z);
+                continue;
+            }
             if (!blocked) {
                 if (z.eatingBack) {
                     z.x += z.speed * ds; // move RIGHT when eating backwards
@@ -19575,6 +19626,8 @@ class KanjiDefenseGame {
         // Zombies (robot sprites)
         for (const z of this.zombies) {
             if (z.dead) continue;
+            // Bobsled has custom render below — skip normal zombie render
+            if (z.type === 'bobsled') continue;
             const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
             const s = this.CELL * z.size * 0.45;
             // Slow: an vong xanh, doi mau emoji thay the (xu ly o ctx.filter phia duoi)
@@ -19705,18 +19758,41 @@ class KanjiDefenseGame {
                 ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#f472b6';
                 ctx.fillText('\ud83c\udfb6', cx, cy + s * 1.1 + bobOffset);
             }
-            // Bobsled: blue glow + ice trail effect
-            if (z.type === 'bobsled') {
-                ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 1.5;
-                this.roundRect(ctx, cx-s*1.1, cy-s*1.1, s*2.2, s*2.2, 5); ctx.stroke();
-                // Speed lines behind
-                const speedLen = s * 1.5;
-                ctx.strokeStyle = 'rgba(56,189,248,0.4)'; ctx.lineWidth = 1;
-                ctx.beginPath(); ctx.moveTo(cx + s*0.8, cy - s*0.3); ctx.lineTo(cx + s*0.8 + speedLen, cy - s*0.3); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(cx + s*0.8, cy + s*0.1); ctx.lineTo(cx + s*0.8 + speedLen, cy + s*0.1); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(cx + s*0.8, cy + s*0.5); ctx.lineTo(cx + s*0.8 + speedLen, cy + s*0.5); ctx.stroke();
-            }
             // HP bar: an
+        }
+        // Bobsled custom render (2 sleds + 4 zombies)
+        for (const z of this.zombies) {
+            if (z.dead || z.type !== 'bobsled') continue;
+            const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
+            const s = this.CELL * z.size * 0.45;
+            // HP bar for the sled vehicle
+            const sledHpRatio = z.hp / z.maxHp;
+            const barW = this.CELL * 1.8, barH = 4;
+            const barX = cx - barW/2, barY = cy - this.CELL*0.7;
+            ctx.fillStyle = '#1e293b'; ctx.fillRect(barX, barY, barW, barH);
+            ctx.fillStyle = sledHpRatio > 0.5 ? '#38bdf8' : sledHpRatio > 0.25 ? '#fbbf24' : '#ef4444';
+            ctx.fillRect(barX, barY, barW * sledHpRatio, barH);
+            // 2 sleds connected
+            const sledSize = this.CELL * 0.35;
+            const zombieSize = this.CELL * 0.28;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            // Sled 1 (front) + 2 passengers
+            ctx.font = sledSize + 'px serif';
+            ctx.fillText('\ud83d\uddf6', cx - this.CELL*0.3, cy + this.CELL*0.05);
+            ctx.font = zombieSize + 'px serif';
+            ctx.fillText('\ud83d\udc7b', cx - this.CELL*0.45, cy - this.CELL*0.22);
+            ctx.fillText('\ud83d\udc7b', cx - this.CELL*0.15, cy - this.CELL*0.22);
+            // Sled 2 (behind) + 2 passengers
+            ctx.font = sledSize + 'px serif';
+            ctx.fillText('\ud83d\uddf6', cx + this.CELL*0.3, cy + this.CELL*0.05);
+            ctx.font = zombieSize + 'px serif';
+            ctx.fillText('\ud83d\udc7b', cx + this.CELL*0.15, cy - this.CELL*0.22);
+            ctx.fillText('\ud83d\udc7b', cx + this.CELL*0.45, cy - this.CELL*0.22);
+            // Speed lines
+            const speedLen = this.CELL * 0.6;
+            ctx.strokeStyle = 'rgba(56,189,248,0.5)'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(cx + s*1.2, cy - s*0.1); ctx.lineTo(cx + s*1.2 + speedLen, cy - s*0.1); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(cx + s*1.2, cy + s*0.2); ctx.lineTo(cx + s*1.2 + speedLen, cy + s*0.2); ctx.stroke();
         }
         // Projectiles
         for (const p of this.projectiles) {
