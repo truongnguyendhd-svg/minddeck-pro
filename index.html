@@ -19622,14 +19622,23 @@ class KanjiDefenseGame {
         ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
         for (let r = 0; r <= KD_ROWS; r++) { ctx.beginPath(); ctx.moveTo(0, r*C); ctx.lineTo(this.W, r*C); ctx.stroke(); }
         for (let c = 0; c <= KD_COLS; c++) { ctx.beginPath(); ctx.moveTo(c*C, 0); ctx.lineTo(c*C, this.H); ctx.stroke(); }
-        // Ice trail from Zamboni
+        // Ice trail from Zamboni — render on empty cells only, add subtle ice indicator on tower cells
+        ctx.save();
         for (const key in this.iceTiles) {
             const [r, c] = key.split(',').map(Number);
+            if (this.grid[r] && this.grid[r][c]) {
+                // Tower on ice: just draw a subtle ice corner indicator
+                ctx.fillStyle = 'rgba(125,211,252,0.15)';
+                ctx.fillRect(c * C, r * C, 3, 3);
+                continue;
+            }
             ctx.fillStyle = 'rgba(186,230,253,0.25)';
             ctx.fillRect(c * C, r * C, C, C);
-            ctx.strokeStyle = 'rgba(125,211,252,0.3)'; ctx.lineWidth = 1;
+            ctx.strokeStyle = 'rgba(125,211,252,0.3)';
+            ctx.lineWidth = 1;
             ctx.strokeRect(c*C+1, r*C+1, C-2, C-2);
         }
+        ctx.restore();
         // Selected tower highlight
         if (this.selectedTower) {
             const st = this.selectedTower;
@@ -19800,34 +19809,45 @@ class KanjiDefenseGame {
                 ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#f472b6';
                 ctx.fillText('\ud83c\udfb6', cx, cy + s * 1.1 + bobOffset);
             }
-            // Pogo zombie: kangaroo 🦘 (big) + small zombie 👻 riding on top, bouncing
-            if (z.type === 'pogo' && z.hasPogo) {
-                const bounceY = Math.abs(Math.sin(z.pogoBouncePhase || 0)) * this.CELL * 0.2;
-                // Khi đang nhảy qua chướng ngại, nhảy cao hơn gấp đôi
-                const jumpBoost = (z._pogoJumping > 0) ? this.CELL * 0.35 : 0;
-                const jumpCy = cy - bounceY - jumpBoost;
-                // Shadow dưới đất (lớn hơn khi nhảy cao)
-                const shadowAlpha = Math.min(0.25, 0.08 + jumpBoost / (this.CELL * 2));
-                ctx.fillStyle = 'rgba(0,0,0,' + shadowAlpha + ')';
-                ctx.beginPath();
-                ctx.ellipse(cx, cy + this.CELL * 0.35, this.CELL * 0.3 + jumpBoost * 0.3, this.CELL * 0.06, 0, 0, Math.PI * 2);
-                ctx.fill();
-                // Kangaroo to bên dưới
-                const kangSize = this.CELL * 0.85;
-                ctx.font = kangSize + 'px serif';
-                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                ctx.fillText('\ud83e\udd98', cx, jumpCy + this.CELL * 0.12);
-                // Zombie nhỏ ngồi trên kangaroo
-                const zomSize = this.CELL * 0.35;
-                ctx.font = zomSize + 'px serif';
-                ctx.fillText('\ud83d\udc7b', cx, jumpCy - this.CELL * 0.32);
-                // ⬆ indicator khi airborne
-                if (z._pogoAirborne) {
-                    ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#f97316';
-                    ctx.fillText('\u2b06', cx + this.CELL * 0.4, jumpCy - this.CELL * 0.55);
-                }
-            }
             // HP bar: an
+        }
+        // Pogo custom render (kangaroo 🦘 + zombie 👻 bouncing)
+        for (const z of this.zombies) {
+            if (z.dead || z.type !== 'pogo') continue;
+            const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
+            const bounceY = Math.abs(Math.sin(z.pogoBouncePhase || 0)) * this.CELL * 0.2;
+            // Khi đang nhảy qua chướng ngại, nhảy cao hơn gấp đôi
+            const jumpBoost = (z._pogoJumping > 0) ? this.CELL * 0.35 : 0;
+            const jumpCy = cy - bounceY - jumpBoost;
+            // Shadow dưới đất (lớn hơn khi nhảy cao)
+            const shadowAlpha = Math.min(0.25, 0.08 + jumpBoost / (this.CELL * 2));
+            ctx.fillStyle = 'rgba(0,0,0,' + shadowAlpha + ')';
+            ctx.beginPath();
+            ctx.ellipse(cx, cy + this.CELL * 0.35, this.CELL * 0.3 + jumpBoost * 0.3, this.CELL * 0.06, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Kangaroo to bên dưới
+            const kangSize = this.CELL * 0.85;
+            ctx.font = kangSize + 'px serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('\ud83e\udd98', cx, jumpCy + this.CELL * 0.12);
+            // Zombie nhỏ ngồi trên kangaroo
+            const zomSize = this.CELL * 0.35;
+            ctx.font = zomSize + 'px serif';
+            ctx.fillText('\ud83d\udc7b', cx, jumpCy - this.CELL * 0.32);
+            // ⬆ indicator khi airborne
+            if (z._pogoAirborne) {
+                ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#f97316';
+                ctx.fillText('\u2b06', cx + this.CELL * 0.4, jumpCy - this.CELL * 0.55);
+            }
+            // HP bar
+            if (z.hp < z.maxHp) {
+                const pgoHpRatio = z.hp / z.maxHp;
+                const pgoBarW = this.CELL * 0.8, pgoBarH = 3;
+                const pgoBarX = cx - pgoBarW/2, pgoBarY = jumpCy - this.CELL * 0.55;
+                ctx.fillStyle = '#1e293b'; ctx.fillRect(pgoBarX, pgoBarY, pgoBarW, pgoBarH);
+                ctx.fillStyle = pgoHpRatio > 0.5 ? '#34d399' : pgoHpRatio > 0.25 ? '#fbbf24' : '#ef4444';
+                ctx.fillRect(pgoBarX, pgoBarY, pgoBarW * pgoHpRatio, pgoBarH);
+            }
         }
         // Bobsled custom render (2 sleds + 4 zombies)
         for (const z of this.zombies) {
