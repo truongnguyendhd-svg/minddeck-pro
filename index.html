@@ -20040,19 +20040,44 @@ class KanjiDefenseGame {
                 ctx.globalAlpha = 1;
             }
             if (t.isUmbrella) {
-                // Nấm nâu nhỏ góc dưới trái + ô lớn ở giữa
+                // Nấm nâu nhỏ góc dưới trái
                 ctx.save();
                 ctx.filter = 'sepia(1) saturate(3) brightness(0.65) hue-rotate(-10deg)';
-                const mushSize = Math.floor(C * 0.35);
+                const mushSize = Math.floor(C * 0.4);
                 ctx.font = mushSize + 'px serif';
                 ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
                 ctx.fillText('\ud83c\udf44', tx + 2, ty + C - 2);
                 ctx.restore();
-                // Ô lớn ở giữa
-                const umbSize = Math.floor(C * 0.75);
-                ctx.font = umbSize + 'px serif';
-                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                ctx.fillText('\u2602\ufe0f', tx + C/2, ty + C/2);
+                // Vẽ ô lớn bằng canvas (không dùng emoji text symbol)
+                ctx.save();
+                const ucx = tx + C * 0.5, ucy = ty + C * 0.35;
+                const ur = C * 0.35;
+                // Vòm ô (màu cam nâu)
+                ctx.fillStyle = '#92400e';
+                ctx.beginPath();
+                ctx.arc(ucx, ucy, ur, Math.PI, 0, false);
+                ctx.fill();
+                // Các nếp gấp vòm
+                ctx.strokeStyle = '#78350f';
+                ctx.lineWidth = 1.5;
+                for (let ai = 1; ai <= 3; ai++) {
+                    const ax = ucx - ur + (ur * 2 * ai / 4);
+                    ctx.beginPath();
+                    ctx.arc(ax, ucy, ur, Math.PI, 0, false);
+                    ctx.stroke();
+                }
+                // Chuôi ô
+                ctx.strokeStyle = '#a16207';
+                ctx.lineWidth = 2.5;
+                ctx.beginPath();
+                ctx.moveTo(ucx, ucy);
+                ctx.lineTo(ucx, ucy + C * 0.3);
+                ctx.stroke();
+                // Đuôi cong chuôi
+                ctx.beginPath();
+                ctx.arc(ucx + C * 0.06, ucy + C * 0.3, C * 0.06, Math.PI, 0, true);
+                ctx.stroke();
+                ctx.restore();
             } else {
                 ctx.font = Math.floor(C*0.65) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText(t.emoji, tx+C/2, ty+C/2);
@@ -20400,17 +20425,37 @@ class KanjiDefenseGame {
             const inflateScale = 1.3 + (t._umbrellaInflate / 500) * 0.4;
             ctx.save();
             ctx.globalAlpha = Math.min(1, t._umbrellaInflate / 200);
-            // Glow nền vàng
-            ctx.shadowColor = '#d97706';
-            ctx.shadowBlur = 15;
-            ctx.fillStyle = 'rgba(217,119,6,0.3)';
+            // Glow nền cam sáng
+            ctx.shadowColor = '#f97316';
+            ctx.shadowBlur = 25;
+            ctx.fillStyle = 'rgba(249,115,22,0.3)';
             ctx.beginPath();
-            ctx.arc(ux + C/2, uy + C/2, C * inflateScale * 0.5, 0, Math.PI * 2);
+            ctx.arc(ux + C/2, uy + C * 0.4, C * inflateScale * 0.55, 0, Math.PI * 2);
             ctx.fill();
-            // Emoji lá dù phóng to
-            ctx.font = Math.floor(C * 0.65 * inflateScale) + 'px serif';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText('\u2602\ufe0f', ux + C/2, uy + C/2);
+            // Vẽ ô phóng to bằng canvas
+            const iucx = ux + C * 0.5, iucy = uy + C * 0.3;
+            const iur = C * 0.4 * inflateScale;
+            // Vòm ô
+            ctx.fillStyle = '#b45309';
+            ctx.beginPath();
+            ctx.arc(iucx, iucy, iur, Math.PI, 0, false);
+            ctx.fill();
+            // Nếp gấp
+            ctx.strokeStyle = '#92400e';
+            ctx.lineWidth = 2;
+            for (let ai = 1; ai <= 3; ai++) {
+                const ax = iucx - iur + (iur * 2 * ai / 4);
+                ctx.beginPath();
+                ctx.arc(ax, iucy, iur, Math.PI, 0, false);
+                ctx.stroke();
+            }
+            // Chuôi
+            ctx.strokeStyle = '#d97706';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(iucx, iucy);
+            ctx.lineTo(iucx, iucy + C * 0.35 * inflateScale);
+            ctx.stroke();
             ctx.restore();
         }
         // Projectiles
@@ -20514,21 +20559,25 @@ class KanjiDefenseGame {
                 ctx.font = leafFont + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText(p.peaEmoji || '🍃', p.x, p.y);
             } else if (p.isBasketball) {
-                // Basketball 🏀: bóng rổ lob
-                const ballFont = Math.max(14, Math.floor(this.CELL * 0.35));
+                // Basketball 🏀: bóng rổ lob - vẽ to và rõ hơn
+                const ballFont = Math.max(18, Math.floor(this.CELL * 0.5));
                 ctx.save();
                 // Shadow dưới đất
-                ctx.globalAlpha = 0.25;
+                ctx.globalAlpha = 0.3;
                 ctx.fillStyle = '#000';
+                const shadowY = (p.targetRow !== undefined ? (p.targetRow + 0.5) * this.CELL : p.y) + this.CELL * 0.35;
                 ctx.beginPath();
-                ctx.ellipse(p.x, (p.targetRow !== undefined ? (p.targetRow + 0.5) * this.CELL : p.y) + this.CELL * 0.35, this.CELL * 0.2, this.CELL * 0.05, 0, 0, Math.PI * 2);
+                ctx.ellipse(p.x, shadowY, this.CELL * 0.25, this.CELL * 0.06, 0, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.globalAlpha = 1;
                 // Lob arc: bóng bay theo đường cong
                 const traveled = Math.sqrt((p.x - p.startX)**2 + (p.y - p.startY)**2);
                 const progress = Math.min(1, traveled / Math.max(1, p.lobTotalDist));
-                const arcH = this.CELL * 2;
+                const arcH = this.CELL * 2.5;
                 const yOff = -Math.sin(progress * Math.PI) * arcH;
+                // Vẽ bóng rổ với glow cam
+                ctx.shadowColor = '#f97316';
+                ctx.shadowBlur = 6;
                 ctx.font = ballFont + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText('\ud83c\udfc0', p.x, p.y + yOff);
                 ctx.restore();
