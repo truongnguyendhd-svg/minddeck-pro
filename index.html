@@ -17592,6 +17592,9 @@ const KD_TOWERS = {
     /* --- Ice-shroom (1 lần, đóng băng toàn màn hình) --- */
     iceshroom:{ name:'Ice-shroom', emoji:'🧊‍🍄', cost:75, dmg:20, range:0, rate:0, color:'#7dd3fc', projColor:'#bae6fd', hp:1, noAttack:true, instantScreenFreeze:true,
         levels:[{lv:1,cost:75,label:'Đóng băng 4.15s + Chậm 15s'},{lv:2,cost:150,label:'Đóng băng 5s + Chậm 17s'},{lv:3,cost:250,label:'Đóng băng 6s + Chậm 20s'}] },
+        /* --- Garlic (chuyền hàng zombie) --- */
+    garlic:   { name:'Garlic', emoji:'🧄', cost:50, dmg:0, range:0, rate:999999, color:'#fbbf24', projColor:'#fde047', hp:400, noAttack:true, isGarlic:true,
+        levels:[{lv:1,cost:50,label:'400 HP'},{lv:2,cost:100,label:'600 HP'},{lv:3,cost:175,label:'800 HP'}] },
     /* --- Damage Buff Aura --- */
     clover:   { name:'Ba lá',   emoji:'🍀', cost:140, dmg:0,  range:3, rate:999999,color:'#22c55e', projColor:'#4ade80', hp:300, buffDmg:0.2, noAttack:true,
         levels:[{lv:1,cost:140,label:'Buff +20%'},{lv:2,cost:250,label:'Buff +30%'},{lv:3,cost:400,label:'Buff +40%'}] },
@@ -17986,7 +17989,7 @@ class KanjiDefenseGame {
                 bonsai: 'Tăng 25% tốc độ bắn cho tất cả tháp phòng thủ trong vùng 3 ô xung quanh.',
                 crystal: 'Giật điện toàn màn hình, gây 5000 sát thương lên 1 Zombie ngẫu nhiên. Mỗi 12 giây 1 lần.',
                 iceshroom: 'Đóng băng toàn bộ Zombie trên màn hình 4.15 giây. Sau khi hết đóng băng, chậm 50% tốc độ trong thêm 15 giây. Gây 20 sat thương nhẹ. Dùng 1 lần rồi biến mất.',
-            };
+                garlic: 'Tối zombie cắn phải buộc chuyển sang hàng kề tiếp. Zombie dùng miệng cắn sẽ bị đổi hàng ngay lập tức. Zamboni, Gargantuar, Pogo, Balloon, Digger, Catapult và Jack-in-the-Box bỏ qua Garlic.',            };
             return D[key] || '-';
         }
         function getStatLine(t, lv) {
@@ -18188,7 +18191,7 @@ class KanjiDefenseGame {
             color:t.color, emoji:t.emoji, projColor:t.projColor,
             slow:baseSlow, slowDur:baseSlowDur,
             aoe: t.aoe ? t.aoe + (lvl-1)*0.3 : 0, fireTimer:0, hp:Math.floor(t.hp*hpMult), maxHp:Math.floor(t.hp*hpMult), _hitFlash:0,
-            noAttack:!!t.noAttack, isBloomerang:!!t.isBloomerang, bloomMax:t.bloomMax||3, isMine:!!t.isMine, mineTriggerRange:t.mineTriggerRange||0, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null, isHypno:!!t.isHypno, isScreenLightning:!!t.isScreenLightning, chainLightning:t.chainLightning||0, chainRange:t.chainRange||3,
+            noAttack:!!t.noAttack, isBloomerang:!!t.isBloomerang, bloomMax:t.bloomMax||3, isMine:!!t.isMine, mineTriggerRange:t.mineTriggerRange||0, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null, isHypno:!!t.isHypno, isGarlic:!!t.isGarlic, isScreenLightning:!!t.isScreenLightning, chainLightning:t.chainLightning||0, chainRange:t.chainRange||3,
             isTall:!!t.isTall,
             armTime: t.armTime || 0,
             armTimer: t.armTime ? t.armTime - (lvl-1)*1000 : 0, armed: !t.armTime,
@@ -19921,6 +19924,19 @@ class KanjiDefenseGame {
                         blocked = true; // pause briefly
                         z.attackTimer = 400;
                     } else {
+                        // === GARLIC: chuyển zombie sang hàng khác ===
+                        if (tower.isGarlic) {
+                            const gb = zt && (zt.instantKill || zt.isCatapult || zt.isBobsled || zt.digs || z.hasPole || z.pogo || zt.explodeChance);
+                            if (!gb) {
+                                let nr;
+                                if (z.row === 0) nr = 1;
+                                else if (z.row >= KD_ROWS - 1) nr = KD_ROWS - 2;
+                                else nr = z.row + (Math.random() < 0.5 ? -1 : 1);
+                                z.row = nr; z.attackTimer = 0;
+                                this.spawnFloatText(z.x * this.CELL, (nr + 0.5) * this.CELL - this.CELL * 0.5, '🧄 Eww!', '#fbbf24');
+                                continue;
+                            }
+                        }
                         blocked = true;
                         z.attackTimer = (z.attackTimer || 0) - dt;
                         if (z.attackTimer <= 0) {
