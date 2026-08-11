@@ -17612,7 +17612,10 @@ const KD_TOWERS = {
         levels:[{lv:1,cost:145,label:'Tốc +25%'},{lv:2,cost:260,label:'Tốc +35%'},{lv:3,cost:420,label:'Tốc +45%'}] },
     /* --- Screen Lightning --- */
     crystal:  { name:'Electric Crystal',emoji:'🔮', cost:150, dmg:5000, range:99,rate:12000, color:'#818cf8', projColor:'#c4b5fd', hp:300, isScreenLightning:true,
-        levels:[{lv:1,cost:150,label:'5000 Dmg'},{lv:2,cost:280,label:'6000 Dmg'},{lv:3,cost:450,label:'7000 Dmg Ưu tiên Trâu'}] }
+        levels:[{lv:1,cost:150,label:'5000 Dmg'},{lv:2,cost:280,label:'6000 Dmg'},{lv:3,cost:450,label:'7000 Dmg Ưu tiên Trâu'}] },
+    /* --- Umbrella Leaf: chắn tấn công trên không --- */
+    umbrella: { name:'Umbrella', emoji:'🍄\u200d\udf3e', cost:100, dmg:0, range:1.5, rate:999999, color:'#a16207', projColor:'#d97706', hp:300, noAttack:true, isUmbrella:true,
+        levels:[{lv:1,cost:100,label:'Lá chắn 3x3'},{lv:2,cost:175,label:'HP+30%'},{lv:3,cost:280,label:'HP+60%'}] }
 };
 const KD_ZOMBIE_TYPES = {
     /* --- Tier 1: Basic --- */
@@ -17641,7 +17644,9 @@ const KD_ZOMBIE_TYPES = {
     bobsled:    { hp:300,  speed:0.9,  size:1.2, color:'#38bdf8', dps:0, atkRate:0, isBobsled:true, needsIce:true, passengerHp:200, passengerDps:100, passengerAtkRate:800 },
     gargantuar: { hp:3000, speed:0.21, size:1.2,  color:'#7c3aed', emoji:'\ud83d\udc79', hat:'\u26d1\ufe0f', hatPos:'head', hat2:'\ud83d\udc7e', hat2Pos:'chest', dps:0, atkRate:0, waveMin:10, instantKill:true, throwsImp:true },
     /* --- Tier 6: Air Special --- */
-    bungee:     { hp:450,  speed:0,    size:0.7,  color:'#8b5cf6', emoji:'\ud83d\udd77', dps:0, atkRate:0, waveMin:10, isBungee:true, bungeeHangTime:3000 }
+    bungee:     { hp:450,  speed:0,    size:0.7,  color:'#8b5cf6', emoji:'\ud83d\udd77', dps:0, atkRate:0, waveMin:10, isBungee:true, bungeeHangTime:3000 },
+    /* --- Tier 6: Siege --- */
+    catapult:   { hp:850,  speed:0.15, size:1.1,  color:'#92400e', emoji:'\ud83d\ude97', hat:'\ud83c\udfc0', hatPos:'catapultTop', dps:100, atkRate:800, waveMin:8, isCatapult:true, catapultAmmo:20, catapultFireRate:2900, catapultBallDmg:75, catapultStopCol:7 }
 };
 const KD_LOOT_TABLE = [
     { type:'heart',   weight:35, pts:0,   color:'#ef4444', label:'\u2764' },
@@ -18073,7 +18078,8 @@ class KanjiDefenseGame {
             zamboni: 'Xe đi chậm phá cây tức thì, để lại băng tuyết cấm trồng cây. Băng gọi Bobsled Team',
             bobsled: 'Xe trượt 🛷🛷 chở 4 zombie, chạy cực nhanh trên băng. Xe 300HP — bị phá hoặc hết băng → 4 zombie nhảy xuống (200HP/con)',
             gargantuar: 'Khổng lồ phá cây tức thì, ném Imp (👾) ra xa phía trước',
-            bungee: '🕷️ Nhện thả dây từ trời xuống 1 ô cây bất kỳ. Treo lơ lửng 3s — nếu không bị tiêu diệt → kẹp cây kéo lên trời, xóa sổ cây. Nếu bị kill trong 3s → cây rơi về an toàn'
+            bungee: '🕷️ Nhện thả dây từ trời xuống 1 ô cây bất kỳ. Treo lơ lửng 3s — nếu không bị tiêu diệt → kẹp cây kéo lên trời, xóa sổ cây. Nếu bị kill trong 3s → cây rơi về an toàn',
+            catapult: '🛻🏀 Xe ném bóng rổ từ xa. Dừng ở cột 7-8, ném 20 quả bóng (75 DMG/quả, 1 quả/2.9s) vào cây bên trái nhất. Hết đạn → lái xuyên qua phá tất cả cây trên hàng. Có thể bị Umbrella Leaf nảy bóng'
         };
         for (const [key, zt] of Object.entries(KD_ZOMBIE_TYPES)) {
             const card = document.createElement('div');
@@ -18385,6 +18391,14 @@ class KanjiDefenseGame {
             for (let i = 0; i < n; i++) this.waveQueue.push('bungee');
         }
 
+        // ===== CATAPULT (wave 1+) — throws basketballs from distance =====
+        if (w >= 1) {
+            if (w % 3 === 0) {
+                const n = (w >= 25) ? 2 : 1;
+                for (let i = 0; i < n; i++) this.waveQueue.push('catapult');
+            }
+        }
+
         // ===== GARGANTUAR (wave 12+) — boss, throws imp, instant-kill smash =====
         if (w >= 12) {
             // Every 4 waves starting wave 12; doubles at wave 30+
@@ -18461,6 +18475,13 @@ class KanjiDefenseGame {
             summonCastTimer: 0, summoning: false, // dancing zombie casting state
             parentId: 0 // backup dancer parent link
         };
+        // Catapult: init ammo and fire timer
+        if (zt.isCatapult) {
+            z.catapultAmmoLeft = zt.catapultAmmo || 20;
+            z.catapultFireTimer = 1500; // 1.5s delay before first shot
+            z.catapultPhase = 'driving'; // driving → stopped (throwing) → driving (ramming)
+            z.catapultStopCol = zt.catapultStopCol || 7;
+        }
         // Digger: start digging immediately from the right edge
         if (zt.digs) {
             z.digging = true;
@@ -19195,10 +19216,97 @@ class KanjiDefenseGame {
             }
         }
     }
+    _updateUmbrellaDeflect(dt) {
+        // Tìm tất cả Umbrella towers trên sân
+        for (const tower of this.towers) {
+            if (!tower.isUmbrella) continue;
+            const tr = tower.row, tc = tower.col;
+            const range = tower.range || 1.5;
+            // 1. Kiểm tra Bungee Zombie đang descend/hang vào vùng 3x3
+            for (const z of this.zombies) {
+                if (z.dead || z.type !== 'bungee' || !z.bungeePhase) continue;
+                if (z.bungeePhase === 'ascending') continue; // đã bị bật rồi
+                const bRow = z.bungeeTargetRow, bCol = z.bungeeTargetCol;
+                const d = Math.sqrt((bCol - tc)**2 + (bRow - tr)**2);
+                if (d <= range) {
+                    // Umbrella bật Bungee!
+                    z.bungeePhase = 'ascending';
+                    z.bungeeTimer = 400;
+                    // Trả cây về an toàn
+                    if (z.bungeeStolenTower) {
+                        if (this.grid[bRow] && !this.grid[bRow][bCol]) {
+                            this.grid[bRow][bCol] = z.bungeeStolenTower;
+                            if (!this.towers.includes(z.bungeeStolenTower)) this.towers.push(z.bungeeStolenTower);
+                        }
+                        z.bungeeStolenTower = null;
+                    }
+                    this.spawnFloatText(z.x * this.CELL, (z.row + 0.5) * this.CELL - this.CELL, 'Bật!', '#a16207');
+                    this.spawnExplosion(z.x * this.CELL, (z.row + 0.5) * this.CELL, '#d97706');
+                    // Vfx Umbrella phóng to
+                    tower._umbrellaInflate = 500;
+                }
+            }
+            // 2. Kiểm tra bóng rổ bay vào vùng 3x3
+            for (let i = this.projectiles.length - 1; i >= 0; i--) {
+                const p = this.projectiles[i];
+                if (!p.isBasketball) continue;
+                const pRow = p.targetRow, pCol = p.targetCol;
+                if (pRow === undefined || pCol === undefined) continue;
+                const d = Math.sqrt((pCol - tc)**2 + (pRow - tr)**2);
+                if (d <= range) {
+                    // Nảy bóng rổ ra ngoài!
+                    this.projectiles.splice(i, 1);
+                    this.spawnFloatText(p.x, p.y - this.CELL * 0.5, 'Nảy!', '#a16207');
+                    // Vfx nảy
+                    for (let j = 0; j < 5; j++) {
+                        const a = Math.random() * Math.PI * 2;
+                        this.particles.push({x:p.x, y:p.y, vx:Math.cos(a)*3, vy:-Math.abs(Math.sin(a)*3)-1,
+                            color:'#d97706', life:300, maxLife:300, isParticle:true, size:3, gravity:0.1});
+                    }
+                    tower._umbrellaInflate = 300;
+                }
+            }
+        }
+    }
     updateProjectiles(dt) {
         const ds = dt / 1000;
+        // === UMBRELLA DEFLECT CHECK: bật Bungee + bóng rổ ===
+        this._updateUmbrellaDeflect(dt);
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const p = this.projectiles[i];
+            // Basketball projectile: lob theo đường cong đến mục tiêu
+            if (p.isBasketball) {
+                const dx = p.targetX - p.x, dy = p.targetY - p.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                const sp = p.speed * this.CELL * ds;
+                if (dist < sp * 1.5 || p.traveled > p.lobTotalDist) {
+                    // Bóng rổ chạm đất → gây damage lên cây tại targetCol
+                    const tc = p.targetCol, tr = p.targetRow;
+                    if (this.grid[tr] && this.grid[tr][tc]) {
+                        const tw = this.grid[tr][tc];
+                        tw.hp -= p.dmg;
+                        tw._hitFlash = 150;
+                        if (tw.hp <= 0) {
+                            this.grid[tr][tc] = null;
+                            const tidx = this.towers.indexOf(tw);
+                            if (tidx >= 0) this.towers.splice(tidx, 1);
+                            this.spawnExplosion(tc * this.CELL + this.CELL/2, tr * this.CELL + this.CELL/2, '#ef4444');
+                        }
+                    }
+                    // Vfx bóng nổ
+                    for (let j = 0; j < 6; j++) {
+                        const a = Math.random() * Math.PI * 2;
+                        this.particles.push({x:p.targetX, y:p.targetY, vx:Math.cos(a)*2, vy:Math.sin(a)*2-1,
+                            color:'#f97316', life:300, maxLife:300, isParticle:true, size:3, gravity:0.08});
+                    }
+                    this.projectiles.splice(i, 1);
+                } else {
+                    p.x += (dx/dist) * sp;
+                    p.y += (dy/dist) * sp;
+                    p.traveled += sp;
+                }
+                continue;
+            }
             // Bloomerang: boomerang projectile
             if (p.isBloomerang) {
                 p.spin += dt * 0.015;
@@ -19402,7 +19510,7 @@ class KanjiDefenseGame {
                 z.bungeeStolenTower = null;
             }
             // Loot drop for armored/boss types
-            if (['tank','buckethead','screen','football','gargantuar','zamboni','bungee'].includes(z.type)) this.spawnLoot(z.x, z.row + 0.5);
+            if (['tank','buckethead','screen','football','gargantuar','zamboni','bungee','catapult'].includes(z.type)) this.spawnLoot(z.x, z.row + 0.5);
             this.spawnExplosion(z.x * this.CELL, (z.row + 0.5) * this.CELL, z.color);
             // Jack-in-Box: explode on death
             const zt = KD_ZOMBIE_TYPES[z.type];
@@ -19465,6 +19573,70 @@ class KanjiDefenseGame {
                 // Bungee zombie không bị splice ngay khi dead (để render ascending)
                 if (z.dead) { this.zombies.splice(i, 1); continue; }
                 continue; // Bungee không tham gia logic di chuyển bình thường
+            }
+            // === CATAPULT ZOMBIE: dừng → ném bóng rổ → lái xuyên qua ===
+            if (zt && zt.isCatapult) {
+                if (z.catapultPhase === 'driving') {
+                    // Lái xe về phía trái, dừng ở cột catapultStopCol
+                    z.x -= z.speed * ds;
+                    if (z.x <= z.catapultStopCol + 0.5) {
+                        z.catapultPhase = 'stopped';
+                        z.x = z.catapultStopCol + 0.5;
+                        z.catapultFireTimer = 1500; // delay trước phát đầu
+                        this.spawnFloatText(z.x * this.CELL, (z.row + 0.5) * this.CELL - this.CELL * 0.8, 'Ném bóng!', '#92400e');
+                    }
+                    blocked = true; // không bị chặn bởi cây khi đang lái đến vị trí
+                } else if (z.catapultPhase === 'stopped') {
+                    // Đang dừng và ném bóng rổ
+                    blocked = true;
+                    z.catapultFireTimer -= dt;
+                    if (z.catapultFireTimer <= 0 && z.catapultAmmoLeft > 0) {
+                        z.catapultAmmoLeft--;
+                        z.catapultFireTimer = zt.catapultFireRate || 2900;
+                        // Tìm cây bên trái nhất trong hàng
+                        let targetCol = -1;
+                        for (let c = 0; c < KD_COLS; c++) {
+                            if (this.grid[z.row] && this.grid[z.row][c]) { targetCol = c; break; }
+                        }
+                        if (targetCol >= 0) {
+                            // Ném bóng rổ đến ô cây
+                            const ballTargetX = (targetCol + 0.5) * this.CELL;
+                            const ballTargetY = (z.row + 0.5) * this.CELL;
+                            const startX = z.x * this.CELL;
+                            const startY = (z.row + 0.5) * this.CELL - this.CELL * 0.5;
+                            this.projectiles.push({
+                                x: startX, y: startY,
+                                targetX: ballTargetX, targetY: ballTargetY,
+                                targetRow: z.row, targetCol: targetCol,
+                                startX: startX, startY: startY,
+                                dmg: zt.catapultBallDmg || 75,
+                                color: '#f97316',
+                                speed: 5,
+                                traveled: 0,
+                                lobTotalDist: Math.sqrt((ballTargetX - startX)**2 + (ballTargetY - startY)**2),
+                                isBasketball: true,
+                                sourceZombieId: z.id
+                            });
+                        }
+                        if (z.catapultAmmoLeft <= 0) {
+                            // Hết đạn → chuyển sang lái xuyên qua
+                            z.catapultPhase = 'ramming';
+                            this.spawnFloatText(z.x * this.CELL, (z.row + 0.5) * this.CELL - this.CELL * 0.8, 'Hết đạn!', '#ef4444');
+                        }
+                    }
+                } else if (z.catapultPhase === 'ramming') {
+                    // Lái xe xuyên qua, phá hủy mọi cây chạm phải
+                    // Di chuyển bình thường, instant-kill towers
+                    z.x -= z.speed * 1.5 * ds; // ramming speed faster
+                    const zCol = Math.floor(z.x);
+                    if (zCol >= 0 && zCol < KD_COLS && this.grid[z.row] && this.grid[z.row][zCol]) {
+                        const tw = this.grid[z.row][zCol];
+                        this.grid[z.row][zCol] = null;
+                        const tidx = this.towers.indexOf(tw);
+                        if (tidx >= 0) this.towers.splice(tidx, 1);
+                        this.spawnExplosion(zCol * this.CELL + this.CELL/2, z.row * this.CELL + this.CELL/2, '#ef4444');
+                    }
+                }
             }
             // === HYPNOTIZED ZOMBIE ===
             if (z.hypno) {
@@ -19788,6 +19960,10 @@ class KanjiDefenseGame {
     }
     updateParticles(dt) {
         if (this._shakeTimer > 0) this._shakeTimer -= dt;
+        // Decay Umbrella inflate timers
+        for (const t of this.towers) {
+            if (t._umbrellaInflate > 0) t._umbrellaInflate -= dt;
+        }
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const p = this.particles[i]; p.life -= dt;
             if (p.life <= 0) { this.particles.splice(i, 1); continue; }
@@ -19838,6 +20014,21 @@ class KanjiDefenseGame {
         // Towers
         for (const t of this.towers) {
             const tx = t.col*C, ty = t.row*C;
+            // Umbrella: vẽ vùng bảo vệ 3x3
+            if (t.isUmbrella) {
+                ctx.fillStyle = 'rgba(217,119,6,0.08)';
+                const ur = t.range || 1.5;
+                for (let dr = -Math.ceil(ur); dr <= Math.ceil(ur); dr++) {
+                    for (let dc = -Math.ceil(ur); dc <= Math.ceil(ur); dc++) {
+                        const vr = t.row + dr, vc = t.col + dc;
+                        if (vr >= 0 && vr < KD_ROWS && vc >= 0 && vc < KD_COLS) {
+                            if (Math.sqrt(dr*dr + dc*dc) <= ur) {
+                                ctx.fillRect(vc * C, vr * C, C, C);
+                            }
+                        }
+                    }
+                }
+            }
             // Tower damaged: nen do nhap nhay
             if (t.hp < t.maxHp - 0.5) {
                 const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 200);
@@ -19902,7 +20093,7 @@ class KanjiDefenseGame {
         for (const z of this.zombies) {
             if (z.dead) continue;
             // Bobsled + Pogo + Bungee have custom render below — skip normal zombie render
-            if (z.type === 'bobsled' || z.type === 'pogo' || z.type === 'bungee') continue;
+            if (z.type === 'bobsled' || z.type === 'pogo' || z.type === 'bungee' || z.type === 'catapult') continue;
             const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
             const s = this.CELL * z.size * 0.45;
             // Slow: an vong xanh, doi mau emoji thay the (xu ly o ctx.filter phia duoi)
@@ -20147,6 +20338,64 @@ class KanjiDefenseGame {
             }
             ctx.restore();
         }
+        // Catapult Zombie custom render (🛻 + 🏀)
+        for (const z of this.zombies) {
+            if (z.dead || z.type !== 'catapult') continue;
+            const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
+            const C = this.CELL;
+            // Xe tải 🛻
+            const truckSize = C * 0.85;
+            ctx.font = truckSize + 'px serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('\ud83d\ude97', cx, cy + C * 0.05);
+            // Bóng rổ 🏀 trên xe (lớn hơn nếu đang stopped)
+            const ballScale = z.catapultPhase === 'stopped' ? 0.5 : 0.35;
+            const ballSize = C * ballScale;
+            ctx.font = ballSize + 'px serif';
+            ctx.fillText('\ud83c\udfc0', cx, cy - C * 0.38);
+            // Ammo indicator khi đang stopped
+            if (z.catapultPhase === 'stopped' && z.catapultAmmoLeft > 0) {
+                const ammoFont = Math.floor(C * 0.22);
+                ctx.font = 'bold ' + ammoFont + 'px sans-serif';
+                ctx.fillStyle = '#f97316';
+                ctx.fillText('x' + z.catapultAmmoLeft, cx, cy - C * 0.55);
+            }
+            // Ramming indicator
+            if (z.catapultPhase === 'ramming') {
+                ctx.font = Math.floor(C * 0.25) + 'px sans-serif';
+                ctx.fillStyle = '#ef4444';
+                ctx.fillText('\u26a1', cx + C * 0.4, cy - C * 0.4);
+            }
+            // HP bar
+            if (z.hp < z.maxHp) {
+                const hpW = C * 0.8, hpH = 4;
+                const hpX = cx - hpW/2, hpY = cy + C * 0.45;
+                const hpR = Math.max(0, z.hp / z.maxHp);
+                ctx.fillStyle = '#1e293b'; ctx.fillRect(hpX, hpY, hpW, hpH);
+                ctx.fillStyle = hpR > 0.5 ? '#34d399' : hpR > 0.25 ? '#fbbf24' : '#ef4444';
+                ctx.fillRect(hpX, hpY, hpW * hpR, hpH);
+            }
+        }
+        // Umbrella inflate effect (phóng to khi bật projectile)
+        for (const t of this.towers) {
+            if (!t.isUmbrella || !t._umbrellaInflate || t._umbrellaInflate <= 0) continue;
+            const ux = t.col * C, uy = t.row * C;
+            const inflateScale = 1.3 + (t._umbrellaInflate / 500) * 0.4;
+            ctx.save();
+            ctx.globalAlpha = Math.min(1, t._umbrellaInflate / 200);
+            // Glow nền vàng
+            ctx.shadowColor = '#d97706';
+            ctx.shadowBlur = 15;
+            ctx.fillStyle = 'rgba(217,119,6,0.3)';
+            ctx.beginPath();
+            ctx.arc(ux + C/2, uy + C/2, C * inflateScale * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+            // Emoji lá dù phóng to
+            ctx.font = Math.floor(C * 0.65 * inflateScale) + 'px serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('\ud83c\udf32', ux + C/2, uy + C/2);
+            ctx.restore();
+        }
         // Projectiles
         for (const p of this.projectiles) {
             if (p.isBloomerang) {
@@ -20247,6 +20496,25 @@ class KanjiDefenseGame {
                 const leafFont = Math.max(12, Math.floor(this.CELL * 0.3));
                 ctx.font = leafFont + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText(p.peaEmoji || '🍃', p.x, p.y);
+            } else if (p.isBasketball) {
+                // Basketball 🏀: bóng rổ lob
+                const ballFont = Math.max(14, Math.floor(this.CELL * 0.35));
+                ctx.save();
+                // Shadow dưới đất
+                ctx.globalAlpha = 0.25;
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.ellipse(p.x, (p.targetRow !== undefined ? (p.targetRow + 0.5) * this.CELL : p.y) + this.CELL * 0.35, this.CELL * 0.2, this.CELL * 0.05, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                // Lob arc: bóng bay theo đường cong
+                const traveled = Math.sqrt((p.x - p.startX)**2 + (p.y - p.startY)**2);
+                const progress = Math.min(1, traveled / Math.max(1, p.lobTotalDist));
+                const arcH = this.CELL * 2;
+                const yOff = -Math.sin(progress * Math.PI) * arcH;
+                ctx.font = ballFont + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('\ud83c\udfc0', p.x, p.y + yOff);
+                ctx.restore();
             } else if (p.isCactusSpike) {
                 // Cactus 🌵: gai ban thang, nho gon
                 const spikeFont = Math.max(12, Math.floor(this.CELL * 0.3));
