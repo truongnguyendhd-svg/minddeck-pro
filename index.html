@@ -17613,9 +17613,6 @@ const KD_TOWERS = {
     /* --- Screen Lightning --- */
     crystal:  { name:'Electric Crystal',emoji:'🔮', cost:150, dmg:5000, range:99,rate:12000, color:'#818cf8', projColor:'#c4b5fd', hp:300, isScreenLightning:true,
         levels:[{lv:1,cost:150,label:'5000 Dmg'},{lv:2,cost:280,label:'6000 Dmg'},{lv:3,cost:450,label:'7000 Dmg Ưu tiên Trâu'}] },
-    /* --- Umbrella Leaf: chắn tấn công trên không --- */
-    umbrella: { name:'Umbrella', emoji:'\u2602\ufe0f', cost:100, dmg:0, range:1.5, rate:999999, color:'#92400e', projColor:'#b45309', hp:300, noAttack:true, isUmbrella:true, umbrellaBrown:true,
-        levels:[{lv:1,cost:100,label:'Lá chắn 3x3'},{lv:2,cost:175,label:'HP+30%'},{lv:3,cost:280,label:'HP+60%'}] }
 };
 const KD_ZOMBIE_TYPES = {
     /* --- Tier 1: Basic --- */
@@ -18079,7 +18076,7 @@ class KanjiDefenseGame {
             bobsled: 'Xe trượt 🛷🛷 chở 4 zombie, chạy cực nhanh trên băng. Xe 300HP — bị phá hoặc hết băng → 4 zombie nhảy xuống (200HP/con)',
             gargantuar: 'Khổng lồ phá cây tức thì, ném Imp (👾) ra xa phía trước',
             bungee: '🕷️ Nhện thả dây từ trời xuống 1 ô cây bất kỳ. Treo lơ lửng 3s — nếu không bị tiêu diệt → kẹp cây kéo lên trời, xóa sổ cây. Nếu bị kill trong 3s → cây rơi về an toàn',
-            catapult: '🛻🏀 Xe ném bóng rổ từ xa. Dừng ở cột 7-8, ném 20 quả bóng (75 DMG/quả, 1 quả/2.9s) vào cây bên trái nhất. Hết đạn → lái xuyên qua phá tất cả cây trên hàng. Có thể bị Umbrella Leaf nảy bóng'
+            catapult: '🛻🏀 Xe ném bóng rổ từ xa. Dừng ở cột 7-8, ném 20 quả bóng (75 DMG/quả, 1 quả/2.9s) vào cây bên trái nhất. Hết đạn → lái xuyên qua phá tất cả cây trên hàng'
         };
         for (const [key, zt] of Object.entries(KD_ZOMBIE_TYPES)) {
             const card = document.createElement('div');
@@ -18185,7 +18182,7 @@ class KanjiDefenseGame {
             slow:baseSlow, slowDur:baseSlowDur,
             aoe: t.aoe ? t.aoe + (lvl-1)*0.3 : 0, fireTimer:0, hp:Math.floor(t.hp*hpMult), maxHp:Math.floor(t.hp*hpMult), _hitFlash:0,
             noAttack:!!t.noAttack, isBloomerang:!!t.isBloomerang, bloomMax:t.bloomMax||3, isMine:!!t.isMine, mineTriggerRange:t.mineTriggerRange||0, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null, isHypno:!!t.isHypno, isScreenLightning:!!t.isScreenLightning, chainLightning:t.chainLightning||0, chainRange:t.chainRange||3,
-            isTall:!!t.isTall, isUmbrella:!!t.isUmbrella, umbrellaBrown:!!t.umbrellaBrown,
+            isTall:!!t.isTall,
             armTime: t.armTime || 0,
             armTimer: t.armTime ? t.armTime - (lvl-1)*1000 : 0, armed: !t.armTime,
             pierce: t.pierce ? t.pierce + (lvl-1) : 0,
@@ -19214,62 +19211,8 @@ class KanjiDefenseGame {
             }
         }
     }
-    _updateUmbrellaDeflect(dt) {
-        // Tìm tất cả Umbrella towers trên sân
-        for (const tower of this.towers) {
-            if (!tower.isUmbrella) continue;
-            const tr = tower.row, tc = tower.col;
-            const range = tower.range || 1.5;
-            // 1. Kiểm tra Bungee Zombie đang descend/hang vào vùng 3x3
-            for (const z of this.zombies) {
-                if (z.dead || z.type !== 'bungee' || !z.bungeePhase) continue;
-                if (z.bungeePhase === 'ascending') continue; // đã bị bật rồi
-                const bRow = z.bungeeTargetRow, bCol = z.bungeeTargetCol;
-                const d = Math.sqrt((bCol - tc)**2 + (bRow - tr)**2);
-                if (d <= range) {
-                    // Umbrella bật Bungee!
-                    z.bungeePhase = 'ascending';
-                    z.bungeeTimer = 400;
-                    // Trả cây về an toàn
-                    if (z.bungeeStolenTower) {
-                        if (this.grid[bRow] && !this.grid[bRow][bCol]) {
-                            this.grid[bRow][bCol] = z.bungeeStolenTower;
-                            if (!this.towers.includes(z.bungeeStolenTower)) this.towers.push(z.bungeeStolenTower);
-                        }
-                        z.bungeeStolenTower = null;
-                    }
-                    this.spawnFloatText(z.x * this.CELL, (z.row + 0.5) * this.CELL - this.CELL, 'Bật!', '#a16207');
-                    this.spawnExplosion(z.x * this.CELL, (z.row + 0.5) * this.CELL, '#d97706');
-                    // Vfx Umbrella phóng to
-                    tower._umbrellaInflate = 500;
-                }
-            }
-            // 2. Kiểm tra bóng rổ bay vào vùng 3x3
-            for (let i = this.projectiles.length - 1; i >= 0; i--) {
-                const p = this.projectiles[i];
-                if (!p.isBasketball) continue;
-                const pRow = p.targetRow, pCol = p.targetCol;
-                if (pRow === undefined || pCol === undefined) continue;
-                const d = Math.sqrt((pCol - tc)**2 + (pRow - tr)**2);
-                if (d <= range) {
-                    // Nảy bóng rổ ra ngoài!
-                    this.projectiles.splice(i, 1);
-                    this.spawnFloatText(p.x, p.y - this.CELL * 0.5, 'Nảy!', '#a16207');
-                    // Vfx nảy
-                    for (let j = 0; j < 5; j++) {
-                        const a = Math.random() * Math.PI * 2;
-                        this.particles.push({x:p.x, y:p.y, vx:Math.cos(a)*3, vy:-Math.abs(Math.sin(a)*3)-1,
-                            color:'#d97706', life:300, maxLife:300, isParticle:true, size:3, gravity:0.1});
-                    }
-                    tower._umbrellaInflate = 300;
-                }
-            }
-        }
-    }
     updateProjectiles(dt) {
         const ds = dt / 1000;
-        // === UMBRELLA DEFLECT CHECK: bật Bungee + bóng rổ ===
-        this._updateUmbrellaDeflect(dt);
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const p = this.projectiles[i];
             // Basketball projectile: lob theo đường cong đến mục tiêu
@@ -19959,10 +19902,6 @@ class KanjiDefenseGame {
     }
     updateParticles(dt) {
         if (this._shakeTimer > 0) this._shakeTimer -= dt;
-        // Decay Umbrella inflate timers
-        for (const t of this.towers) {
-            if (t._umbrellaInflate > 0) t._umbrellaInflate -= dt;
-        }
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const p = this.particles[i]; p.life -= dt;
             if (p.life <= 0) { this.particles.splice(i, 1); continue; }
@@ -20013,21 +19952,6 @@ class KanjiDefenseGame {
         // Towers
         for (const t of this.towers) {
             const tx = t.col*C, ty = t.row*C;
-            // Umbrella: vẽ vùng bảo vệ 3x3
-            if (t.isUmbrella) {
-                ctx.fillStyle = 'rgba(217,119,6,0.08)';
-                const ur = t.range || 1.5;
-                for (let dr = -Math.ceil(ur); dr <= Math.ceil(ur); dr++) {
-                    for (let dc = -Math.ceil(ur); dc <= Math.ceil(ur); dc++) {
-                        const vr = t.row + dr, vc = t.col + dc;
-                        if (vr >= 0 && vr < KD_ROWS && vc >= 0 && vc < KD_COLS) {
-                            if (Math.sqrt(dr*dr + dc*dc) <= ur) {
-                                ctx.fillRect(vc * C, vr * C, C, C);
-                            }
-                        }
-                    }
-                }
-            }
             // Tower damaged: nen do nhap nhay
             if (t.hp < t.maxHp - 0.5) {
                 const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 200);
@@ -20039,49 +19963,8 @@ class KanjiDefenseGame {
                 ctx.fillRect(tx, ty, C, C);
                 ctx.globalAlpha = 1;
             }
-            if (t.isUmbrella) {
-                // Nấm nâu nhỏ góc dưới trái
-                ctx.save();
-                ctx.filter = 'sepia(1) saturate(3) brightness(0.65) hue-rotate(-10deg)';
-                const mushSize = Math.floor(C * 0.4);
-                ctx.font = mushSize + 'px serif';
-                ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-                ctx.fillText('\ud83c\udf44', tx + 2, ty + C - 2);
-                ctx.restore();
-                // Vẽ ô lớn bằng canvas (không dùng emoji text symbol)
-                ctx.save();
-                const ucx = tx + C * 0.5, ucy = ty + C * 0.35;
-                const ur = C * 0.35;
-                // Vòm ô (màu cam nâu)
-                ctx.fillStyle = '#92400e';
-                ctx.beginPath();
-                ctx.arc(ucx, ucy, ur, Math.PI, 0, false);
-                ctx.fill();
-                // Các nếp gấp vòm
-                ctx.strokeStyle = '#78350f';
-                ctx.lineWidth = 1.5;
-                for (let ai = 1; ai <= 3; ai++) {
-                    const ax = ucx - ur + (ur * 2 * ai / 4);
-                    ctx.beginPath();
-                    ctx.arc(ax, ucy, ur, Math.PI, 0, false);
-                    ctx.stroke();
-                }
-                // Chuôi ô
-                ctx.strokeStyle = '#a16207';
-                ctx.lineWidth = 2.5;
-                ctx.beginPath();
-                ctx.moveTo(ucx, ucy);
-                ctx.lineTo(ucx, ucy + C * 0.3);
-                ctx.stroke();
-                // Đuôi cong chuôi
-                ctx.beginPath();
-                ctx.arc(ucx + C * 0.06, ucy + C * 0.3, C * 0.06, Math.PI, 0, true);
-                ctx.stroke();
-                ctx.restore();
-            } else {
-                ctx.font = Math.floor(C*0.65) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                ctx.fillText(t.emoji, tx+C/2, ty+C/2);
-            }
+            ctx.font = Math.floor(C*0.65) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(t.emoji, tx+C/2, ty+C/2);
             for (let i = 0; i < t.level; i++) { ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.arc(tx+C/2-(t.level-1)*5+i*10, ty+C-6, 2.5, 0, Math.PI*2); ctx.fill(); }
             // Tower HP: chi hien thanh cho Potato Mine chua kich hoat
             if (t.isMine && t.armTime && !t.armed) {
@@ -20417,46 +20300,6 @@ class KanjiDefenseGame {
                 ctx.fillStyle = hpR > 0.5 ? '#34d399' : hpR > 0.25 ? '#fbbf24' : '#ef4444';
                 ctx.fillRect(hpX, hpY, hpW * hpR, hpH);
             }
-        }
-        // Umbrella inflate effect (phóng to khi bật projectile)
-        for (const t of this.towers) {
-            if (!t.isUmbrella || !t._umbrellaInflate || t._umbrellaInflate <= 0) continue;
-            const ux = t.col * C, uy = t.row * C;
-            const inflateScale = 1.3 + (t._umbrellaInflate / 500) * 0.4;
-            ctx.save();
-            ctx.globalAlpha = Math.min(1, t._umbrellaInflate / 200);
-            // Glow nền cam sáng
-            ctx.shadowColor = '#f97316';
-            ctx.shadowBlur = 25;
-            ctx.fillStyle = 'rgba(249,115,22,0.3)';
-            ctx.beginPath();
-            ctx.arc(ux + C/2, uy + C * 0.4, C * inflateScale * 0.55, 0, Math.PI * 2);
-            ctx.fill();
-            // Vẽ ô phóng to bằng canvas
-            const iucx = ux + C * 0.5, iucy = uy + C * 0.3;
-            const iur = C * 0.4 * inflateScale;
-            // Vòm ô
-            ctx.fillStyle = '#b45309';
-            ctx.beginPath();
-            ctx.arc(iucx, iucy, iur, Math.PI, 0, false);
-            ctx.fill();
-            // Nếp gấp
-            ctx.strokeStyle = '#92400e';
-            ctx.lineWidth = 2;
-            for (let ai = 1; ai <= 3; ai++) {
-                const ax = iucx - iur + (iur * 2 * ai / 4);
-                ctx.beginPath();
-                ctx.arc(ax, iucy, iur, Math.PI, 0, false);
-                ctx.stroke();
-            }
-            // Chuôi
-            ctx.strokeStyle = '#d97706';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(iucx, iucy);
-            ctx.lineTo(iucx, iucy + C * 0.35 * inflateScale);
-            ctx.stroke();
-            ctx.restore();
         }
         // Projectiles
         for (const p of this.projectiles) {
