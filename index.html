@@ -17589,6 +17589,9 @@ const KD_TOWERS = {
     /* --- Hypno --- */
     hypno:    { name:'Hypno-shroom', emoji:'🍄', cost:75, dmg:0, range:0, rate:999999, color:'#a78bfa', projColor:'#c084fc', hp:300, noAttack:true, isHypno:true,
         levels:[{lv:1,cost:75,label:'Thôi miên'},{lv:2,cost:140,label:'HP+30%'},{lv:3,cost:220,label:'HP+60%'}] },
+    /* --- Ice-shroom (1 lần, đóng băng toàn màn hình) --- */
+    iceshroom:{ name:'Ice-shroom', emoji:'🧊‍🍄', cost:75, dmg:20, range:0, rate:0, color:'#7dd3fc', projColor:'#bae6fd', hp:1, noAttack:true, instantScreenFreeze:true,
+        levels:[{lv:1,cost:75,label:'Đóng băng 4.15s + Chậm 15s'},{lv:2,cost:150,label:'Đóng băng 5s + Chậm 17s'},{lv:3,cost:250,label:'Đóng băng 6s + Chậm 20s'}] },
     /* --- Damage Buff Aura --- */
     clover:   { name:'Ba lá',   emoji:'🍀', cost:140, dmg:0,  range:3, rate:999999,color:'#22c55e', projColor:'#4ade80', hp:300, buffDmg:0.2, noAttack:true,
         levels:[{lv:1,cost:140,label:'Buff +20%'},{lv:2,cost:250,label:'Buff +30%'},{lv:3,cost:400,label:'Buff +40%'}] },
@@ -17612,6 +17615,7 @@ const KD_TOWERS = {
         levels:[{lv:1,cost:145,label:'Tốc +25%'},{lv:2,cost:260,label:'Tốc +35%'},{lv:3,cost:420,label:'Tốc +45%'}] },
     /* --- Screen Lightning --- */
     crystal:  { name:'Electric Crystal',emoji:'🔮', cost:150, dmg:5000, range:99,rate:12000, color:'#818cf8', projColor:'#c4b5fd', hp:300, isScreenLightning:true,
+
         levels:[{lv:1,cost:150,label:'5000 Dmg'},{lv:2,cost:280,label:'6000 Dmg'},{lv:3,cost:450,label:'7000 Dmg Ưu tiên Trâu'}] },
 };
 const KD_ZOMBIE_TYPES = {
@@ -17790,7 +17794,7 @@ class KanjiDefenseGame {
         this.totalKills = 0; this.totalCorrect = 0;
         this.inventory = { heart: 0, energy: 0, upgrade: 0 };
         this.selectedTower = null; this.selectedItem = null;
-        this._fetching = false; this._screenFlash = 0;
+        this._fetching = false; this._screenFlash = 0; this._iceFlash = 0;
         this.iceTiles = {}; // 'row,col' → true, set by Zamboni
         this.bobsledSpawnTimer = 0; // cooldown before next bobsled team spawn
         // Tower picker: load saved selection or default first 6
@@ -17980,7 +17984,8 @@ class KanjiDefenseGame {
                 tallwall: 'Tường gỗ cao 8000 HP. Pogo/Pole KHÔNG thể nhảy qua! Va chạm → kangaroo chết, zombie rơi xuống đi bộ chậm.',
                 lightning: 'Phóng tia điện nhảy từ Zombie này sang tối đa 4 Zombie khác gần nó.',
                 bonsai: 'Tăng 25% tốc độ bắn cho tất cả tháp phòng thủ trong vùng 3 ô xung quanh.',
-                crystal: 'Giật điện toàn màn hình, gây 5000 sát thương lên 1 Zombie ngẫu nhiên. Mỗi 12 giây 1 lần.'
+                crystal: 'Giật điện toàn màn hình, gây 5000 sát thương lên 1 Zombie ngẫu nhiên. Mỗi 12 giây 1 lần.',
+                iceshroom: 'Đóng băng toàn bộ Zombie trên màn hình 4.15 giây. Sau khi hết đóng băng, chậm 50% tốc độ trong thêm 15 giây. Gây 20 sat thương nhẹ. Dùng 1 lần rồi biến mất.',
             };
             return D[key] || '-';
         }
@@ -18226,6 +18231,22 @@ class KanjiDefenseGame {
                 this.damageZombie(z, z.maxHp, null);
             }
             this.spawnRowFire(row);
+            this.grid[row][col] = null;
+            const idx = this.towers.indexOf(tower);
+            if (idx >= 0) this.towers.splice(idx, 1);
+        } else if (t.instantScreenFreeze) {
+            const freezeDur = [4150, 5000, 6000][lvl-1] || 4150;
+            const slowDur = [15000, 17000, 20000][lvl-1] || 15000;
+            for (const z of this.zombies) {
+                if (z.dead || z.hypno) continue;
+                this.damageZombie(z, 20, null);
+                if (z.dead) continue;
+                z.stunTimer = freezeDur;
+                z._iceShroomSlowTimer = slowDur;
+                z._iceShroomSlowAmt = 0.5;
+            }
+            this._iceFlash = 300;
+            for (const z of this.zombies) { if (!z.dead && !z.hypno) { for (let p = 0; p < 3; p++) this.particles.push({ x: z.x * this.CELL + (Math.random()-0.5) * this.CELL, y: (z.row+0.5) * this.CELL + (Math.random()-0.5) * this.CELL, vx: (Math.random()-0.5)*2, vy: -Math.random()*3, life: 800, maxLife: 800, color: "#7dd3fc", size: 4 + Math.random()*4, emoji: "\u{1f9ca}" }); } }
             this.grid[row][col] = null;
             const idx = this.towers.indexOf(tower);
             if (idx >= 0) this.towers.splice(idx, 1);
@@ -19517,7 +19538,7 @@ class KanjiDefenseGame {
             const z = this.zombies[i];
             if (z.dead) { this.zombies.splice(i, 1); continue; }
             if (z.slowTimer > 0) { z.slowTimer -= dt; if (z.slowTimer <= 0) z.speed = z.baseSpeed; }
-            if (z.stunTimer > 0) { z.stunTimer -= dt; if (z.stunTimer <= 0 && z.diggerSurfaced) { z.eatingBack = true; z.speed = (KD_ZOMBIE_TYPES[z.type]||{}).digSlowSpeed || 0.21; z.baseSpeed = z.speed; } continue; }
+            if (z.stunTimer > 0) { z.stunTimer -= dt; if (z.stunTimer <= 0) { if (z._iceShroomSlowTimer > 0) { z.speed = z.baseSpeed * (1 - z._iceShroomSlowAmt); z.slowTimer = z._iceShroomSlowTimer; z._iceShroomSlowTimer = 0; z._iceShroomSlowAmt = 0; } if (z.diggerSurfaced) { z.eatingBack = true; z.speed = (KD_ZOMBIE_TYPES[z.type]||{}).digSlowSpeed || 0.21; z.baseSpeed = z.speed; } } continue; }
             const zt = KD_ZOMBIE_TYPES[z.type];
             let blocked = false; // declare BEFORE any usage (bungee/catapult/dancing all need it)
             // === BUNGEE ZOMBIE: treo lơ lửng, kéo cây lên trời ===
@@ -20181,10 +20202,17 @@ class KanjiDefenseGame {
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             // Digger: semi-transparent when underground
             if (z.digging) { ctx.globalAlpha = 0.3; }
-            if (z.slowTimer > 0) { ctx.filter = "sepia(0.8) hue-rotate(180deg) saturate(1.8)"; } else if (z._hitFlash > 0) { ctx.filter = "brightness(2) hue-rotate(-30deg)"; z._hitFlash -= 16; }
+            if (z.stunTimer > 0 && z._iceShroomSlowTimer > 0) { ctx.filter = "hue-rotate(180deg) saturate(2) brightness(1.2)"; } else if (z.slowTimer > 0) { ctx.filter = "sepia(0.8) hue-rotate(180deg) saturate(1.8)"; } else if (z._hitFlash > 0) { ctx.filter = "brightness(2) hue-rotate(-30deg)"; z._hitFlash -= 16; }
             _renderEmoji(zt.emoji, cx, cy, baseFontSize);
             ctx.filter = "none";
             ctx.globalAlpha = 1;
+            // Ice-shroom freeze indicator
+            if (z.stunTimer > 0 && z._iceShroomSlowTimer > 0) {
+                ctx.font = (baseFontSize * 0.6) + "px serif";
+                ctx.globalAlpha = 0.7;
+                ctx.fillText("🧊", cx + s * 0.8, cy - s * 0.8);
+                ctx.globalAlpha = 1;
+            }
             // Draw accessories (hat, items) — ưu tiên z.hat (instance) cho zombie có thể thay đổi
             const _hat = z.hat !== undefined ? z.hat : zt.hat;
             const _hatPos = z.hatPos !== undefined ? z.hatPos : zt.hatPos;
@@ -20775,6 +20803,12 @@ class KanjiDefenseGame {
             ctx.fillStyle = '#c4b5fd'; ctx.fillRect(0, 0, this.W, this.H);
             ctx.globalAlpha = 1;
             this._screenFlash -= 16;
+        if (this._iceFlash > 0) {
+            ctx.globalAlpha = (this._iceFlash / 300) * 0.4;
+            ctx.fillStyle = "#7dd3fc"; ctx.fillRect(0, 0, this.W, this.H);
+            ctx.globalAlpha = 1;
+            this._iceFlash -= 16;
+        }
         }
         ctx.restore();
     }
