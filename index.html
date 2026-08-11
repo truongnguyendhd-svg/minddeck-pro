@@ -17633,7 +17633,6 @@ const KD_ZOMBIE_TYPES = {
     /* --- Tier 5: Advanced --- */
     digger:     { hp:300,  speed:0.4,  size:0.7,  color:'#854d0e', emoji:'\ud83d\udc7b', hat:'\u26cf\ufe0f', hatPos:'shoulder', dps:100, atkRate:800, waveMin:7, digs:true, digSlowSpeed:0.21 },
     pogo:      { hp:340,  speed:0.45, size:0.8,  color:'#f97316', emoji:'\ud83d\udc7b', dps:100, atkRate:800, waveMin:1, pogo:true, pogoSpeed:0.45, walkSpeed:0.23, jumpsOver:true },
-    bungee:    { hp:450,  speed:0,    size:0.8,  color:'#ef4444', emoji:'\ud83e\udd9e', dps:0,   atkRate:999999, waveMin:5, bungee:true },
     dancing:    { hp:340,  speed:0.18, size:0.9, color:'#ec4899', emoji:'\ud83d\udc7b', hat:'\ud83c\udfa9', hatPos:'head', hat2:'\ud83d\udd76\ufe0f', hat2Pos:'eyes', dps:100, atkRate:800, waveMin:1, summonsBackup:true, summonInterval:8000 },
     backup:     { hp:200,  speed:0.18, size:0.55, color:'#f472b6', emoji:'\ud83d\udc7b', hat:'\ud83c\udfa9', hatPos:'head', dps:100, atkRate:800, isBackup:true },
     /* --- Tier 6: Boss --- */
@@ -18018,7 +18017,6 @@ class KanjiDefenseGame {
             jackbox: 'Đi lại bình thường, nổ RNG bất kỳ đâu trên đường đi (0-12s), phá cây 3x3',
             digger: 'Xuất hiện đã đào ngầm, miễn nhiễm đạn. Đào tới cột 0, choáng 2-3s, rối ăn ngược',
             pogo: 'Cưỡi kangaru nhảy qua Rock/Wall-nut/Mine, ăn cây khác 100 DPS. Bay tạm thời mỗi nhịp nảy → né đạn mặt đất',
-            bungee: 'Thả dây từ trời xuống ô cây bất kỳ, treo 3s. Hết 3s → kẹp cây kéo lên trời xóa sổ! Tiêu diệt trong 3s → cây an toàn',
             zamboni: 'Xe đi chậm phá cây tức thì, để lại băng tuyết cấm trồng cây. Băng gọi Bobsled Team',
             bobsled: 'Xe trượt 🛷🛷 chở 4 zombie, chạy cực nhanh trên băng. Xe 300HP — bị phá hoặc hết băng → 4 zombie nhảy xuống (200HP/con)',
             gargantuar: 'Khổng lồ phá cây tức thì, ném Imp (👾) ra xa phía trước'
@@ -18309,12 +18307,6 @@ class KanjiDefenseGame {
             for (let i = 0; i < n; i++) this.waveQueue.push('pogo');
         }
 
-        // ===== BUNGEE (wave 5+) — drops from sky, steals plant after 3s =====
-        if (w >= 5) {
-            const n = Math.min(1 + Math.floor((w - 4) / 8), 3);
-            for (let i = 0; i < n; i++) this.waveQueue.push('bungee');
-        }
-
         // ===== DANCING (wave 1+) — summons 4 backup dancers in cross pattern =====
         if (w >= 1) {
             const n = Math.min(1 + Math.floor((w - 0) / 6), 4);
@@ -18391,42 +18383,6 @@ class KanjiDefenseGame {
         const type = this.waveQueue.shift();
         const zt = KD_ZOMBIE_TYPES[type];
         const hm = 1 + (this.wave - 1) * 0.08, sm = 1 + (this.wave - 1) * 0.02;
-        // === BUNGEE ZOMBIE: drop from sky onto a random plant ===
-        if (zt && zt.bungee) {
-            // Find all towers on the grid
-            const targets = [];
-            for (let r = 0; r < KD_ROWS; r++) {
-                for (let c = 0; c < KD_COLS; c++) {
-                    if (this.grid[r] && this.grid[r][c]) targets.push({ row: r, col: c });
-                }
-            }
-            if (targets.length === 0) return; // no plants to target — skip spawn
-            const target = targets[Math.floor(Math.random() * targets.length)];
-            const bz = {
-                id: Date.now() + Math.random(),
-                row: target.row, type: 'bungee',
-                x: target.col + 0.5, // center of target column
-                hp: zt.hp * hm, maxHp: zt.hp * hm,
-                speed: 0, baseSpeed: 0, size: zt.size,
-                color: zt.color, slowTimer: 0, dead: false,
-                attackTimer: 0, dps: 0, atkRate: 999999,
-                flies: false, flying: false, enraged: false,
-                digging: false, digProgress: 0, eatingBack: false, diggerSurfaced: false,
-                jackExplodeTimer: 0, hasScreen: false, screenHp: 0,
-                throwCooldown: 0, hasPole: false, hasPogo: false, pogoBouncePhase: 0,
-                summonTimer: 0, summonCastTimer: 0, summoning: false, parentId: 0,
-                // Bungee-specific state
-                _bungeePhase: 'descending', // descending → hanging → grabbing → retracting → dead
-                _bungeeY: -this.CELL * 2, // start above canvas
-                _bungeeTargetY: (target.row + 0.5) * this.CELL, // target Y (center of plant cell)
-                _bungeeTimer: 0, // timer for hanging phase (3000ms)
-                _bungeeTargetCol: target.col,
-                _bungeeTargetRow: target.row
-            };
-            this.zombies.push(bz);
-            this.spawnFloatText((target.col + 0.5) * this.CELL, target.row * this.CELL, 'Bungee!', '#ef4444');
-            return;
-        }
         const z = { id: Date.now() + Math.random(), row: Math.floor(Math.random() * KD_ROWS),
             type, x: KD_COLS + 0.5, hp: zt.hp * hm, maxHp: zt.hp * hm,
             speed: zt.speed * sm, baseSpeed: zt.speed * sm, size: zt.size,
@@ -19168,7 +19124,7 @@ class KanjiDefenseGame {
                     // Hit zombies on the way out
                     for (const z of this.zombies) {
                         if (z.dead || z.hypno || p.hitIds.has(z.id)) continue;
-                        const zx = z.x * this.CELL, zy = z._bungeeY !== undefined ? z._bungeeY : (z.row + 0.5) * this.CELL;
+                        const zx = z.x * this.CELL, zy = (z.row + 0.5) * this.CELL;
                         if (Math.sqrt((p.x-zx)**2 + (p.y-zy)**2) < this.CELL * 0.55) {
                             this.damageZombie(z, p.dmg, p);
                             p.hitIds.add(z.id);
@@ -19194,7 +19150,7 @@ class KanjiDefenseGame {
                     // Hit previously-hit zombies on the way back
                     for (const z of this.zombies) {
                         if (z.dead || z.hypno || !p.hitIds.has(z.id) || p.returnHitIds.has(z.id)) continue;
-                        const zx = z.x * this.CELL, zy = z._bungeeY !== undefined ? z._bungeeY : (z.row + 0.5) * this.CELL;
+                        const zx = z.x * this.CELL, zy = (z.row + 0.5) * this.CELL;
                         if (Math.sqrt((p.x-zx)**2 + (p.y-zy)**2) < this.CELL * 0.55) {
                             this.damageZombie(z, p.dmg, p);
                             p.returnHitIds.add(z.id);
@@ -19215,7 +19171,7 @@ class KanjiDefenseGame {
                 for (const z of this.zombies) {
                     if (z.dead || z.hypno) continue;
                     if (p.hitIds && p.hitIds.has(z.id)) continue;
-                    const zx = z.x * this.CELL, zy = z._bungeeY !== undefined ? z._bungeeY : (z.row + 0.5) * this.CELL;
+                    const zx = z.x * this.CELL, zy = (z.row + 0.5) * this.CELL;
                     if (Math.sqrt((p.x-zx)**2 + (p.y-zy)**2) < this.CELL * 0.5) {
                         // Kernel-pult 🟡/🧈: cham zombie
                         if (p.isKernel) {
@@ -19272,7 +19228,7 @@ class KanjiDefenseGame {
             }
             const tgt = this.zombies.find(z => z.id === p.targetId && !z.dead);
             if (!tgt) { this.projectiles.splice(i, 1); continue; }
-            const tx = tgt.x * this.CELL, ty = tgt._bungeeY !== undefined ? tgt._bungeeY : (tgt.row + 0.5) * this.CELL;
+            const tx = tgt.x * this.CELL, ty = (tgt.row + 0.5) * this.CELL;
             const dx = tx - p.x, dy = ty - p.y, dist = Math.sqrt(dx*dx + dy*dy);
             if (dist < 8) {
                 if (p.aoe > 0) {
@@ -19561,10 +19517,6 @@ class KanjiDefenseGame {
                                 vx:(Math.random()-0.5)*3, vy:Math.random()*2,
                                 color:'#a3a3a3', life:400, maxLife:400, isParticle:true, size:2, gravity:0.05});
                         }
-                    // === POGO MID-JUMP: skip all non-tallwall collisions while airborne ===
-                    } else if (z.hasPogo && z._pogoJumping > 0) {
-                        // Đang nhảy qua chướng ngại — bỏ qua mọi collision trừ Tallwall
-                        // (Tallwall đã xử lý ở condition phía trên)
                     // === POGO: nhảy qua cây chắn (Rock/Wall-nut/Mine), ăn cây khác bình thường ===
                     } else if (z.hasPogo && !z.hypno && (tower.noAttack || tower.isMine)) {
                         // Bắt đầu nhảy: đặt mục tiêu, không teleport ngay
@@ -19657,62 +19609,6 @@ class KanjiDefenseGame {
                 this.spawnExplosion(z.x * this.CELL, (z.row + 0.5) * this.CELL, '#38bdf8');
                 this._bobsledDismount(z);
                 continue;
-            }
-            // Check if bungee zombie was killed — plant is saved!
-            if (zt && zt.bungee && z.hp <= 0 && !z.dead) {
-                z.dead = true;
-                this.totalKills++;
-                this.spawnExplosion(z.x * this.CELL, z._bungeeY, '#ef4444');
-                this.spawnFloatText(z.x * this.CELL, z._bungeeY - this.CELL * 0.5, 'Cứu cây!', '#22c55e');
-                // Vfx: cord snaps
-                for (let p = 0; p < 6; p++) {
-                    this.particles.push({x:z.x * this.CELL, y:z._bungeeY,
-                        vx:(Math.random()-0.5)*3, vy:Math.random()*2,
-                        color:'#a3a3a3', life:400, maxLife:400, isParticle:true, size:2, gravity:0.05});
-                }
-                continue;
-            }
-            // === BUNGEE ZOMBIE: phases — descending, hanging, grabbing, retracting ===
-            if (zt && zt.bungee && !z.dead) {
-                if (z._bungeePhase === 'descending') {
-                    // Descend from sky to target plant
-                    z._bungeeY += dt * 0.4; // descend speed
-                    if (z._bungeeY >= z._bungeeTargetY) {
-                        z._bungeeY = z._bungeeTargetY;
-                        z._bungeePhase = 'hanging';
-                        z._bungeeTimer = 0;
-                    }
-                } else if (z._bungeePhase === 'hanging') {
-                    // Hang for 3 seconds — vulnerable to damage
-                    z._bungeeTimer += dt;
-                    // Small swinging animation
-                    z._bungeeY = z._bungeeTargetY + Math.sin(z._bungeeTimer * 0.005) * this.CELL * 0.05;
-                    if (z._bungeeTimer >= 3000) {
-                        // Time's up — grab the plant!
-                        z._bungeePhase = 'grabbing';
-                        z._bungeeTimer = 0;
-                    }
-                } else if (z._bungeePhase === 'grabbing') {
-                    // Grab plant and remove it
-                    const bRow = z._bungeeTargetRow, bCol = z._bungeeTargetCol;
-                    if (this.grid[bRow] && this.grid[bRow][bCol]) {
-                        const tower = this.grid[bRow][bCol];
-                        this.grid[bRow][bCol] = null;
-                        const tidx = this.towers.indexOf(tower);
-                        if (tidx >= 0) this.towers.splice(tidx, 1);
-                        this.spawnExplosion((bCol + 0.5) * this.CELL, (bRow + 0.5) * this.CELL, '#ef4444');
-                        this.spawnFloatText((bCol + 0.5) * this.CELL, bRow * this.CELL, 'Kéo lên!', '#ef4444');
-                    }
-                    z._bungeePhase = 'retracting';
-                } else if (z._bungeePhase === 'retracting') {
-                    // Retract back up into the sky
-                    z._bungeeY -= dt * 0.5; // retract speed (faster than descend)
-                    if (z._bungeeY < -this.CELL * 2) {
-                        z.dead = true;
-                        this.totalKills++;
-                    }
-                }
-                continue; // bungee zombie doesn't use normal movement
             }
             if (!blocked) {
                 if (z.eatingBack) {
@@ -19857,7 +19753,7 @@ class KanjiDefenseGame {
         for (const z of this.zombies) {
             if (z.dead) continue;
             // Bobsled + Pogo have custom render below — skip normal zombie render
-            if (z.type === 'bobsled' || z.type === 'pogo' || z.type === 'bungee') continue;
+            if (z.type === 'bobsled' || z.type === 'pogo') continue;
             const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
             const s = this.CELL * z.size * 0.45;
             // Slow: an vong xanh, doi mau emoji thay the (xu ly o ctx.filter phia duoi)
@@ -20006,82 +19902,6 @@ class KanjiDefenseGame {
             ctx.strokeStyle = 'rgba(56,189,248,0.5)'; ctx.lineWidth = 1.5;
             ctx.beginPath(); ctx.moveTo(cx + s*1.2, cy - s*0.1); ctx.lineTo(cx + s*1.2 + speedLen, cy - s*0.1); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(cx + s*1.2, cy + s*0.2); ctx.lineTo(cx + s*1.2 + speedLen, cy + s*0.2); ctx.stroke();
-        }
-        // Bungee Zombie custom render (🦞 reversed + bungee cord + red crosshair)
-        for (const z of this.zombies) {
-            if (z.dead || z.type !== 'bungee') continue;
-            const cx = z.x * this.CELL;
-            const by = z._bungeeY || 0; // bungee Y position
-            // === Red crosshair at target plant ===
-            if (z._bungeePhase === 'descending' || z._bungeePhase === 'hanging') {
-                const tCx = (z._bungeeTargetCol + 0.5) * this.CELL;
-                const tCy = (z._bungeeTargetRow + 0.5) * this.CELL;
-                const crossSize = this.CELL * 0.4;
-                ctx.strokeStyle = 'rgba(239,68,68,0.7)'; ctx.lineWidth = 2;
-                ctx.setLineDash([4, 3]);
-                ctx.beginPath(); ctx.moveTo(tCx - crossSize, tCy); ctx.lineTo(tCx + crossSize, tCy); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(tCx, tCy - crossSize); ctx.lineTo(tCx, tCy + crossSize); ctx.stroke();
-                ctx.beginPath(); ctx.arc(tCx, tCy, crossSize * 0.7, 0, Math.PI * 2); ctx.stroke();
-                ctx.setLineDash([]);
-                // Pulsing red circle
-                const pulseAlpha = 0.15 + Math.sin(performance.now() * 0.006) * 0.1;
-                ctx.fillStyle = 'rgba(239,68,68,' + pulseAlpha + ')';
-                ctx.beginPath(); ctx.arc(tCx, tCy, crossSize, 0, Math.PI * 2); ctx.fill();
-                // Timer text when hanging
-                if (z._bungeePhase === 'hanging') {
-                    const remaining = Math.max(0, Math.ceil((3000 - z._bungeeTimer) / 1000));
-                    ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#ef4444';
-                    ctx.fillText(remaining + 's', tCx, tCy - crossSize - 8);
-                }
-            }
-            // === Bungee cord (wavy line from top of canvas to zombie) ===
-            ctx.save();
-            ctx.strokeStyle = '#78716c'; ctx.lineWidth = 2.5;
-            ctx.setLineDash([]);
-            ctx.beginPath();
-            ctx.moveTo(cx, 0); // top of canvas
-            // Wavy cord
-            const cordLen = by;
-            const segments = 8;
-            for (let s = 1; s <= segments; s++) {
-                const t = s / segments;
-                const sy = t * cordLen;
-                const wave = Math.sin(t * Math.PI * 3 + performance.now() * 0.003) * this.CELL * 0.06;
-                ctx.lineTo(cx + wave, sy);
-            }
-            ctx.stroke();
-            // Thin inner cord
-            ctx.strokeStyle = '#a3a3a3'; ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(cx, 0);
-            for (let s = 1; s <= segments; s++) {
-                const t = s / segments;
-                const sy = t * cordLen;
-                const wave = Math.sin(t * Math.PI * 3 + performance.now() * 0.003) * this.CELL * 0.06;
-                ctx.lineTo(cx + wave, sy);
-            }
-            ctx.stroke();
-            ctx.restore();
-            // === 🦞 emoji (reversed — facing left) ===
-            const lobSize = this.CELL * 0.7;
-            ctx.save();
-            ctx.translate(cx, by);
-            ctx.scale(-1, 1); // mirror horizontally for "facing left"
-            _renderEmoji('\ud83e\udd9e', 0, 0, lobSize);
-            ctx.restore();
-            // === 👻 zombie emoji (small, hanging below lobster) ===
-            const zomSize = this.CELL * 0.32;
-            _renderEmoji('\ud83d\udc7b', cx, by + this.CELL * 0.3, zomSize);
-            // === HP bar above zombie (only during hanging phase) ===
-            if (z._bungeePhase === 'hanging' || z._bungeePhase === 'descending') {
-                const hpW = this.CELL * 0.6, hpH = 4;
-                const hpX = cx - hpW / 2, hpY = by - this.CELL * 0.55;
-                ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(hpX - 1, hpY - 1, hpW + 2, hpH + 2);
-                ctx.fillStyle = '#ef4444'; ctx.fillRect(hpX, hpY, hpW * (z.hp / z.maxHp), hpH);
-            }
-            // Flash when hit
-            if (z._hitFlash > 0) { z._hitFlash -= 16; }
         }
         // Projectiles
         for (const p of this.projectiles) {
