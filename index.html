@@ -19814,18 +19814,18 @@ class KanjiDefenseGame {
             if (!canFly && zCol >= 0 && zCol < KD_COLS) {
                 const tower = this.grid[z.row] && this.grid[z.row][zCol];
                 if (tower) {
-                    // === CLIMB LADDER: TẤT CẢ zombie leo qua cây có thang ===
-                    if (tower._hasLadderOn && !z.hypno) {
-                        z.x = tower.col - 0.5; // climb over to the other side
-                        blocked = false; // don't stop
-                        // Vfx nhỏ khi leo thang
-                        if (!z._ladderClimbCooldown || z._ladderClimbCooldown <= 0) {
-                            z._ladderClimbCooldown = 500; // prevent spam
-                            for (let p = 0; p < 3; p++) {
-                                this.particles.push({x:(tower.col+0.5)*this.CELL, y:(z.row+0.5)*this.CELL,
-                                    vx:(Math.random()-0.5)*1.5, vy:-Math.random()*1.5,
-                                    color:'#a16207', life:250, maxLife:250, isParticle:true, size:2, gravity:0.04});
-                            }
+                    // === CLIMB LADDER: TẤT CẢ zombie leo qua cây có thang (animation leo lên + nhảy xuống) ===
+                    if (tower._hasLadderOn && !z.hypno && !zt.isBobsled) {
+                        if (!z._isClimbing) {
+                            z._isClimbing = true;
+                            z._climbTimer = 0;
+                            z._climbTotalTime = Math.max(800, 1000 / z.speed); // ~thời gian đi 1 ô
+                            z._climbStartX = z.x;
+                            z._climbTargetX = tower.col - 0.5;
+                            z._climbTowerCol = tower.col;
+                            z._climbYOff = 0;
+                            z._climbXOff = 0;
+                            blocked = true;
                         }
                     }
                     // === POLE VAULT: nhảy qua cây đầu tiên, mất sào, biến thành normal (KHÔNG nhảy qua Tallwall) ===
@@ -19972,6 +19972,36 @@ class KanjiDefenseGame {
             }
             // Decrement ladder climb cooldown
             if (z._ladderClimbCooldown > 0) z._ladderClimbCooldown -= dt;
+            // === CLIMB ANIMATION UPDATE: leo lên thang rồi nhảy xuống ===
+            if (z._isClimbing) {
+                z._climbTimer += dt;
+                const progress = Math.min(1, z._climbTimer / z._climbTotalTime);
+                const climbC = this.CELL;
+                if (progress < 0.5) {
+                    // Phase 1: leo LÊN thang
+                    const p = progress / 0.5;
+                    z._climbYOff = -p * climbC * 0.9;
+                    z._climbXOff = p * (z._climbTowerCol + 0.5 - z._climbStartX) * climbC * 0.5;
+                } else {
+                    // Phase 2: nhảy XUống bên kia
+                    const p = (progress - 0.5) / 0.5;
+                    z._climbYOff = -(1 - p) * climbC * 0.9;
+                    z._climbXOff = (z._climbTargetX - z._climbStartX) * climbC * (0.5 + p * 0.5);
+                }
+                // Vfx dust khi leo
+                if (Math.random() < 0.15) {
+                    this.particles.push({x:(z._climbTowerCol+0.5)*this.CELL + (z._climbXOff||0), 
+                        y:(z.row+0.5)*this.CELL + (z._climbYOff||0) + climbC*0.2,
+                        vx:(Math.random()-0.5)*1, vy:Math.random()*0.5,
+                        color:'#a16207', life:200, maxLife:200, isParticle:true, size:1.5, gravity:0.02});
+                }
+                if (progress >= 1) {
+                    z._isClimbing = false;
+                    z._climbYOff = 0;
+                    z._climbXOff = 0;
+                    z.x = z._climbTargetX;
+                }
+            }
             if (!blocked) {
                 if (z.eatingBack) {
                     z.x += z.speed * ds; // move RIGHT when eating backwards
@@ -20143,7 +20173,7 @@ class KanjiDefenseGame {
             if (z.dead) continue;
             // Bobsled + Pogo + Bungee have custom render below — skip normal zombie render
             if (z.type === 'bobsled' || z.type === 'pogo' || z.type === 'bungee' || z.type === 'catapult' || z.type === 'ladder') continue;
-            const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
+            const cx = z.x * this.CELL + (z._climbXOff || 0), cy = (z.row + 0.5) * this.CELL + (z._climbYOff || 0);
             const s = this.CELL * z.size * 0.45;
             // Slow: an vong xanh, doi mau emoji thay the (xu ly o ctx.filter phia duoi)
             if (z.hypno) {
@@ -20430,10 +20460,10 @@ class KanjiDefenseGame {
         // Ladder Zombie custom render (👻 + 🪜)
         for (const z of this.zombies) {
             if (z.dead || z.type !== 'ladder') continue;
-            const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
+            const cx = z.x * this.CELL + (z._climbXOff || 0), cy = (z.row + 0.5) * this.CELL + (z._climbYOff || 0);
             const C = this.CELL;
-            // Ghost body 👻
-            const ghostSize = C * 0.85;
+            // Ghost body 👻 — normal size when no ladder, slightly bigger when carrying
+            const ghostSize = z.hasLadder ? C * 0.78 : C * 0.58;
             ctx.font = ghostSize + 'px serif';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText('\ud83d\udc7b', cx, cy);
