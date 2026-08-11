@@ -19634,25 +19634,26 @@ class KanjiDefenseGame {
                     // Place ladder on any blocking plant (noAttack = defensive like Wall-nut, Tallwall, Rock, etc.)
                     if (ltw.noAttack || ltw.isMine) {
                         // Place ladder on this plant
-                        ltw._hasLadderOn = true; // mark the plant as laddered
-                        // Record ladder position in a global tracker for other zombies
+                        ltw._hasLadderOn = true;
                         if (!this.ladderedCells) this.ladderedCells = {};
                         this.ladderedCells[z.row + ',' + lCol] = true;
-                        // Ladder zombie climbs over instantly
                         z.hasLadder = false;
-                        z.x = lCol - 0.5; // teleport past the plant
-                        // Drop to normal speed after placing ladder
+                        // Drop to normal speed
                         if (z.normalSpeedAfterLadder) {
                             z.speed = z.normalSpeedAfterLadder;
                             z.baseSpeed = z.normalSpeedAfterLadder;
                         }
+                        // Start climb animation (leo lên rồi nhảy xuống)
+                        z._isClimbing = true;
+                        z._climbTimer = 0;
+                        z._climbTotalTime = Math.max(800, 1000 / z.speed);
+                        z._climbStartX = z.x;
+                        z._climbTargetX = lCol - 0.5;
+                        z._climbTowerCol = lCol;
+                        z._climbYOff = 0;
+                        z._climbXOff = 0;
+                        blocked = true;
                         this.spawnFloatText((lCol + 0.5) * this.CELL, (z.row + 0.5) * this.CELL - this.CELL * 0.8, 'Bắc thang!', '#f97316');
-                        // Vfx: place ladder
-                        for (let p = 0; p < 6; p++) {
-                            this.particles.push({x:(lCol+0.5)*this.CELL, y:(z.row+0.5)*this.CELL,
-                                vx:(Math.random()-0.5)*2, vy:-Math.random()*2-0.5,
-                                color:'#a16207', life:400, maxLife:400, isParticle:true, size:2.5, gravity:0.06});
-                        }
                     }
                 }
             }
@@ -19972,25 +19973,24 @@ class KanjiDefenseGame {
             }
             // Decrement ladder climb cooldown
             if (z._ladderClimbCooldown > 0) z._ladderClimbCooldown -= dt;
-            // === CLIMB ANIMATION UPDATE: leo lên thang rồi nhảy xuống ngay ô sau cây ===
+            // === CLIMB ANIMATION UPDATE: leo lên thang rồi nhảy xuống ô ngay sau cây ===
             if (z._isClimbing) {
                 z._climbTimer += dt;
                 const progress = Math.min(1, z._climbTimer / z._climbTotalTime);
                 const climbC = this.CELL;
-                const towerCenterPx = (z._climbTowerCol + 0.5) * climbC;
+                // Tính vị đích: ngay ô sau cây (tower.col - 0.5)
+                const towerMidX = (z._climbTowerCol + 0.5) * climbC;
                 const targetPx = z._climbTargetX * climbC;
-                const startPx = z._climbStartX * climbC;
                 if (progress < 0.5) {
-                    // Phase 1: leo LÊN thang (chỉ đi lên, x di chuyển nhẹ đến giữa ô cây)
+                    // Phase 1: leo LÊN (y lên, x tiệm đến giữa ô cây)
                     const p = progress / 0.5;
                     z._climbYOff = -p * climbC * 0.85;
-                    z._climbXOff = (towerCenterPx - startPx) * p * 0.5;
+                    z._climbXOff = (towerMidX - z._climbStartX * climbC) * p * 0.6;
                 } else {
-                    // Phase 2: nhảy XUỐNG (rơi xuống ngay ô sau cây, không xa hơn)
+                    // Phase 2: nhảy XUỐNG (y xuống, x từ giữa cây sang ô bên trái 1 ô)
                     const p = (progress - 0.5) / 0.5;
-                    z._climbYOff = -(1 - p * p) * climbC * 0.85;
-                    // X: từ giữa ô cây trượt sang ô bên trái (chỉ 1 ô)
-                    z._climbXOff = (towerCenterPx - startPx) * 0.5 + (targetPx - towerCenterPx) * p;
+                    z._climbYOff = -(1 - p) * (1 - p) * climbC * 0.85;
+                    z._climbXOff = (towerMidX - z._climbStartX * climbC) * 0.6 + (targetPx - towerMidX) * p;
                 }
                 if (progress >= 1) {
                     z._isClimbing = false;
