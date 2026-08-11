@@ -17689,6 +17689,10 @@ async function fetchUserVocabForGame(limit) {
     return words;
 }
 
+/* === KD RESIZE: debounce helper === */
+let _kdResizeTimer = null;
+function _kdResizeDebounce(fn, ms) { if (_kdResizeTimer) clearTimeout(_kdResizeTimer); _kdResizeTimer = setTimeout(fn, ms); }
+
 async function startKanjiDefense() {
     const wrapper = document.getElementById('kdGameWrapper');
     const overlay = document.getElementById('kdGameoverOverlay');
@@ -17718,6 +17722,8 @@ async function startKanjiDefense() {
         if (!words || words.length < 4) { alert('Ban can it nhat 4 tu vung de choi. Hay them tu vung truoc!'); exitKanjiDefense(); return; }
         const logicalW = cellSize * KD_COLS, logicalH = cellSize * KD_ROWS;
         kdGame = new KanjiDefenseGame(words, canvas, ctx, cellSize, logicalW, logicalH); window._kdGame = kdGame;
+        /* === KD RESIZE: bắt đầu theo dõi thay đổi kích thước === */
+        kdGame._startResizeWatch();
         kdGame.buildShop();
         kdGame.renderInventory();
         kdGame.newPrompt();
@@ -17819,7 +17825,52 @@ class KanjiDefenseGame {
         document.getElementById('kdGameWrapper').addEventListener('mousedown', this._onWrapperClick);
         document.getElementById('kdGameWrapper').addEventListener('touchstart', this._onWrapperClick, {passive:true});
     }
+    /* ======================================================================
+       KD RESIZE: tự động co giãn canvas khi thay đổi kích thước màn hình
+       - ResizeObserver theo dõi container canvas-wrap
+       - orientationchange cho xoay màn hình mobile
+       - Giữ nguyên DPR (sắc nét trên iPhone/Android)
+       ====================================================================== */
+    _startResizeWatch() {
+        const self = this;
+        const canvasWrap = document.getElementById('kdCanvasWrap');
+        if (!canvasWrap) return;
+        self._resizeObserver = new ResizeObserver(() => {
+            _kdResizeDebounce(() => self._applyResize(), 120);
+        });
+        self._resizeObserver.observe(canvasWrap);
+        self._onOrientationChange = () => {
+            _kdResizeDebounce(() => self._applyResize(), 200);
+        };
+        window.addEventListener('orientationchange', self._onOrientationChange);
+    }
+    _stopResizeWatch() {
+        if (this._resizeObserver) { this._resizeObserver.disconnect(); this._resizeObserver = null; }
+        if (this._onOrientationChange) { window.removeEventListener('orientationchange', this._onOrientationChange); this._onOrientationChange = null; }
+    }
+    _applyResize() {
+        const canvasWrap = document.getElementById('kdCanvasWrap');
+        if (!canvasWrap || !this.canvas || !this.ctx) return;
+        const rect = canvasWrap.getBoundingClientRect();
+        const newCellSize = Math.max(16, Math.floor(Math.min(
+            Math.floor(rect.width) / KD_COLS,
+            Math.floor(rect.height) / KD_ROWS
+        )));
+        const dpr = window.devicePixelRatio || 1;
+        const newW = newCellSize * KD_COLS;
+        const newH = newCellSize * KD_ROWS;
+        this.canvas.width = newW * dpr;
+        this.canvas.height = newH * dpr;
+        this.canvas.style.width = newW + 'px';
+        this.canvas.style.height = newH + 'px';
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.CELL = newCellSize;
+        this.W = newW;
+        this.H = newH;
+        if (this.state !== 'playing') this.render();
+    }
     destroy() {
+        this._stopResizeWatch();
         this.canvas.removeEventListener('touchstart', this._onClick);
         this.canvas.removeEventListener('mousedown', this._onClick);
         const w = document.getElementById('kdGameWrapper');
