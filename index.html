@@ -17669,6 +17669,15 @@ const KD_ROWS = 5, KD_COLS = 9, KD_MAX_WAVES = 44;
 
 let kdGame = null, kdAnimFrame = null;
 
+// Global functions for fixed inventory buttons
+function kdUpgradeTower() {
+    if (!kdGame || !kdGame.selectedTower) return;
+    kdGame.upgradeTower();
+}
+function kdDeleteTower() {
+    if (!kdGame || !kdGame.selectedTower) return;
+    kdGame.removeTower();
+}
 function openKanjiDefenseSetup() {
     const html = '<div id="kdSetupModal" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(15,23,42,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()"><div style="background:#1e293b;border-radius:20px;border:1px solid #334155;width:100%;max-width:400px;padding:28px 24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,0.5);"><div style="font-size:40px;margin-bottom:8px;">\u2694\uFE0F</div><h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#f1f5f9;">Kanji Defense</h2><p style="margin:0 0 6px;font-size:13px;color:#94a3b8;">Plants vs Zombies</p><p id="kdVocabCount" style="margin:0 0 20px;font-size:12px;color:#64748b;">Dang tai...</p><button class="kh-btn kh-btn-primary" style="width:100%;" onclick="document.getElementById(\'kdSetupModal\').remove();startKanjiDefense();"><span class="material-symbols-outlined">play_arrow</span> Bat dau</button><button style="margin-top:8px;background:none;border:none;color:#64748b;font-size:13px;cursor:pointer;padding:8px 16px;" onclick="document.getElementById(\'kdSetupModal\').remove()">Huy</button></div></div>';
     document.body.insertAdjacentHTML('beforeend', html);
@@ -18617,30 +18626,18 @@ class KanjiDefenseGame {
             } else { card.style.pointerEvents = 'none'; }
             cont.appendChild(card);
         }
-        // Upgrade card
-        const upgCost = hasTower ? this.getUpgradeCost(this.selectedTower) : null;
-        const maxLv = hasTower && this.selectedTower ? (KD_TOWERS[this.selectedTower.type].maxLevels || 3) : 3;
-        const isMax = hasTower && this.selectedTower && this.selectedTower.level >= maxLv;
-        const canUpg = hasTower && !isMax && typeof upgCost === 'number' && this.points >= upgCost;
-        const upgCard = document.createElement('button');
-        upgCard.className = 'kd-inv-card' + (canUpg ? ' bright' : '');
-        upgCard.innerHTML = '<span class="kd-shop-emoji">⬆</span>'
-            +'<span class="kd-shop-card-info"><span class="kd-shop-card-name">Nang cap</span>'
-            +'<span class="kd-shop-card-feat">'+(isMax ? 'MAX' : 'Lv'+(this.selectedTower?this.selectedTower.level+1:0))+'</span>'
-            +(upgCost && !isMax ? '<span class="kd-shop-card-feat" style="color:#fbbf24">$'+upgCost+'</span>' : '') +'</span>';
-        if (canUpg) { upgCard.onclick = () => this.upgradeTower(); }
-        else { upgCard.style.pointerEvents = 'none'; }
-        cont.appendChild(upgCard);
-        // Remove card
-        const rmCard = document.createElement('button');
-        rmCard.className = 'kd-inv-card' + (hasTower ? ' bright' : '');
-        rmCard.innerHTML = '<span class="kd-shop-emoji">✖</span>'
-            +'<span class="kd-shop-card-info"><span class="kd-shop-card-name">Xoa</span>'
-            +'<span class="kd-shop-card-feat">Bo thap</span></span>';
-        if (hasTower) { rmCard.onclick = () => this.removeTower(); }
-        else { rmCard.style.pointerEvents = 'none'; }
-        cont.appendChild(rmCard);
-    }
+        // Update fixed action buttons state
+        const ub = document.getElementById('kdUpgradeBtn');
+        const db = document.getElementById('kdDeleteBtn');
+        if (ub && db) {
+            const uc = hasTower ? this.getUpgradeCost(this.selectedTower) : null;
+            const ml = hasTower && this.selectedTower ? (KD_TOWERS[this.selectedTower.type].maxLevels || 3) : 3;
+            const mx = hasTower && this.selectedTower && this.selectedTower.level >= ml;
+            const cu = hasTower && !mx && typeof uc === 'number' && this.points >= uc;
+            ub.classList.toggle('disabled', !cu);
+            db.classList.toggle('disabled', !hasTower);
+        }
+                }
     selectTower(row, col) {
         const tower = this.grid[row] && this.grid[row][col];
         if (!tower) { this.deselectTower(); return; }
@@ -37860,7 +37857,9 @@ function startMiniAssessment(card) {
     </div>
     <div class="kd-inv-bar" id="kdInventory">
         <div class="kd-inv-items" id="kdInvItems"></div>
-        <div class="kd-zombie-codex-btn" id="kdZombieCodexBtn" onclick="openZombieCodex()"><span>💀</span></div>
+<div class="kd-inv-action-btn" id="kdUpgradeBtn" onclick="kdUpgradeTower()" title="Nang cap"><span style="display:flex;flex-direction:column;align-items:center"><span>⬆</span><span class="kd-action-label">UP</span></span></div>
+<div class="kd-inv-action-btn" id="kdDeleteBtn" onclick="kdDeleteTower()" title="Xoa thap"><span style="display:flex;flex-direction:column;align-items:center"><span>✖</span><span class="kd-action-label">XOA</span></span></div>
+<div class="kd-zombie-codex-btn" id="kdZombieCodexBtn" onclick="openZombieCodex()"><span>💀</span></div>
     </div>
     <div class="kd-canvas-wrap" id="kdCanvasWrap"><canvas id="kdGameCanvas"></canvas></div>
     <div class="kd-shop" id="kdShop"></div>
