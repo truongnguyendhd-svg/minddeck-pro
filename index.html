@@ -17595,6 +17595,9 @@ const KD_TOWERS = {
         /* --- Garlic (chuyền hàng zombie) --- */
     garlic:   { name:'Garlic', emoji:'🧄', cost:50, dmg:0, range:0, rate:999999, color:'#fbbf24', projColor:'#fde047', hp:400, noAttack:true, isGarlic:true,
         levels:[{lv:1,cost:50,label:'400 HP'},{lv:2,cost:100,label:'600 HP'},{lv:3,cost:175,label:'800 HP'}] },
+    /* --- Umbrella Leaf (Lá Ô - chống không) --- */
+    umbrella: { name:'Lá Ô', emoji:'☂️', cost:100, dmg:0, range:1.5, rate:999999, color:'#22c55e', projColor:'#86efac', hp:300, noAttack:true, isUmbrella:true,
+        levels:[{lv:1,cost:100,label:'300 HP'},{lv:2,cost:200,label:'450 HP'},{lv:3,cost:300,label:'600 HP'}] },
     /* --- Damage Buff Aura --- */
     clover:   { name:'Ba lá',   emoji:'🍀', cost:140, dmg:0,  range:3, rate:999999,color:'#22c55e', projColor:'#4ade80', hp:300, buffDmg:0.2, noAttack:true,
         levels:[{lv:1,cost:140,label:'Buff +20%'},{lv:2,cost:250,label:'Buff +30%'},{lv:3,cost:400,label:'Buff +40%'}] },
@@ -17989,7 +17992,8 @@ class KanjiDefenseGame {
                 bonsai: 'Tăng 25% tốc độ bắn cho tất cả tháp phòng thủ trong vùng 3 ô xung quanh.',
                 crystal: 'Giật điện toàn màn hình, gây 5000 sát thương lên 1 Zombie ngẫu nhiên. Mỗi 12 giây 1 lần.',
                 iceshroom: 'Đóng băng toàn bộ Zombie trên màn hình 4.15 giây. Sau khi hết đóng băng, chậm 50% tốc độ trong thêm 15 giây. Gây 20 sat thương nhẹ. Dùng 1 lần rồi biến mất.',
-                garlic: 'Tối zombie cắn phải buộc chuyển sang hàng kề tiếp. Zombie dùng miệng cắn sẽ bị đổi hàng ngay lập tức. Zamboni, Gargantuar, Pogo, Balloon, Digger, Catapult và Jack-in-the-Box bỏ qua Garlic.',            };
+                garlic: 'Tối zombie cắn phải buộc chuyển sang hàng kề tiếp. Zombie dùng miệng cắn sẽ bị đổi hàng ngay lập tức. Zamboni, Gargantuar, Pogo, Balloon, Digger, Catapult và Jack-in-the-Box bỏ qua Garlic.',
+                umbrella: 'Bảo vệ vùng 3x3 khỏi các hiểm họa từ trên trời: bật văng Bungee Zombie và đỡ bóng rổ Catapult Zombie. Hoạt động vô hạn. Zombie đi bộ cắn ăn bình thường.',            };
             return D[key] || '-';
         }
         function getStatLine(t, lv) {
@@ -19265,9 +19269,18 @@ class KanjiDefenseGame {
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 const sp = p.speed * this.CELL * ds;
                 if (dist < sp * 1.5 || p.traveled > p.lobTotalDist) {
-                    // Bóng rổ chạm đất → gây damage lên cây tại targetCol
+                    // Bóng rổ chạm đất → kiểm tra Umbrella Leaf trước
                     const tc = p.targetCol, tr = p.targetRow;
-                    if (this.grid[tr] && this.grid[tr][tc]) {
+                    let _ubDeflected = false;
+                    for (let _ur2 = Math.max(0, tr-1); _ur2 <= Math.min(KD_ROWS-1, tr+1) && !_ubDeflected; _ur2++) {
+                        for (let _uc2 = Math.max(0, tc-1); _uc2 <= Math.min(KD_COLS-1, tc+1) && !_ubDeflected; _uc2++) {
+                            if (this.grid[_ur2] && this.grid[_ur2][_uc2] && this.grid[_ur2][_uc2].type === 'umbrella') {
+                                _ubDeflected = true;
+                                this.spawnFloatText((_uc2+0.5)*this.CELL, (_ur2+0.5)*this.CELL - this.CELL*0.8, '☂️ Đỡ bóng!', '#22c55e');
+                            }
+                        }
+                    }
+                    if (!_ubDeflected && this.grid[tr] && this.grid[tr][tc]) {
                         const tw = this.grid[tr][tc];
                         tw.hp -= p.dmg;
                         tw._hitFlash = 150;
@@ -19550,9 +19563,26 @@ class KanjiDefenseGame {
                     // Giai đoạn thả dây xuống (500ms)
                     z.bungeeTimer -= dt;
                     if (z.bungeeTimer <= 0) {
+                        // === UMBRELLA LEAF CHECK ===
+                        let _ubBounced = false;
+                        const _ubTR = z.bungeeTargetRow, _ubTC = z.bungeeTargetCol;
+                        for (let _ur = Math.max(0, _ubTR-1); _ur <= Math.min(KD_ROWS-1, _ubTR+1) && !_ubBounced; _ur++) {
+                            for (let _uc = Math.max(0, _ubTC-1); _uc <= Math.min(KD_COLS-1, _ubTC+1) && !_ubBounced; _uc++) {
+                                if (this.grid[_ur] && this.grid[_ur][_uc] && this.grid[_ur][_uc].type === 'umbrella') {
+                                    _ubBounced = true;
+                                    this.spawnFloatText((_uc+0.5)*this.CELL, (_ur+0.5)*this.CELL - this.CELL*0.8, '☂️ Bật văng!', '#22c55e');
+                                }
+                            }
+                        }
+                        if (_ubBounced) {
+                            z.bungeePhase = 'bounced';
+                            z.bungeeTimer = 400;
+                            if (z.bungeeStolenTower) { z.bungeeStolenTower = null; }
+                        } else {
                         z.bungeePhase = 'hanging';
                         z.bungeeHangTimer = zt.bungeeHangTime || 3000;
                         this.spawnFloatText(z.x * this.CELL, (z.row + 0.5) * this.CELL - this.CELL * 0.8, 'Bungee!', '#8b5cf6');
+                        }
                     }
                 } else if (z.bungeePhase === 'hanging') {
                     // Treo lơ lửng, đếm ngược
@@ -19572,6 +19602,10 @@ class KanjiDefenseGame {
                         }
                         z.bungeeStolenTower = null;
                     }
+                } else if (z.bungeePhase === 'bounced') {
+                    // Bị Lá Ô bật văng - bay ra ngoài
+                    z.bungeeTimer -= dt;
+                    if (z.bungeeTimer <= 0) { z.dead = true; }
                 } else if (z.bungeePhase === 'ascending') {
                     // Kéo cây lên trời — animation bay lên
                     z.bungeeTimer -= dt;
