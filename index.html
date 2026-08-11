@@ -17598,6 +17598,9 @@ const KD_TOWERS = {
     /* --- Umbrella Leaf (Lá Ô - chống không) --- */
     umbrella: { name:'Lá Ô', emoji:'☂️', cost:100, dmg:0, range:1.5, rate:999999, color:'#22c55e', projColor:'#86efac', hp:300, noAttack:true, isUmbrella:true,
         levels:[{lv:1,cost:100,label:'300 HP'},{lv:2,cost:200,label:'450 HP'},{lv:3,cost:300,label:'600 HP'}] },
+    /* --- Magnet (Hút kim loại) --- */
+    magnet: { name:'Magnet', emoji:'🪴', cost:100, dmg:0, range:2.5, rate:15000, color:'#6b7280', projColor:'#d1d5db', hp:300, noAttack:true, isMagnet:true,
+        levels:[{lv:1,cost:100,label:'15s cooldown'},{lv:2,cost:200,label:'12s cooldown'},{lv:3,cost:300,label:'10s cooldown'}] },
     /* --- Damage Buff Aura --- */
     clover:   { name:'Ba lá',   emoji:'🍀', cost:140, dmg:0,  range:3, rate:999999,color:'#22c55e', projColor:'#4ade80', hp:300, buffDmg:0.2, noAttack:true,
         levels:[{lv:1,cost:140,label:'Buff +20%'},{lv:2,cost:250,label:'Buff +30%'},{lv:3,cost:400,label:'Buff +40%'}] },
@@ -17993,7 +17996,8 @@ class KanjiDefenseGame {
                 crystal: 'Giật điện toàn màn hình, gây 5000 sát thương lên 1 Zombie ngẫu nhiên. Mỗi 12 giây 1 lần.',
                 iceshroom: 'Đóng băng toàn bộ Zombie trên màn hình 4.15 giây. Sau khi hết đóng băng, chậm 50% tốc độ trong thêm 15 giây. Gây 20 sat thương nhẹ. Dùng 1 lần rồi biến mất.',
                 garlic: 'Tối zombie cắn phải buộc chuyển sang hàng kề tiếp. Zombie dùng miệng cắn sẽ bị đổi hàng ngay lập tức. Zamboni, Gargantuar, Pogo, Balloon, Digger, Catapult và Jack-in-the-Box bỏ qua Garlic.',
-                umbrella: 'Bảo vệ vùng 3x3 khỏi các hiểm họa từ trên trời: bật văng Bungee Zombie và đỡ bóng rổ Catapult Zombie. Hoạt động vô hạn. Zombie đi bộ cắn ăn bình thường.',            };
+                umbrella: 'Bảo vệ vùng 3x3 khỏi các hiểm họa từ trên trời: bật văng Bungee Zombie và đỡ bóng rổ Catapult Zombie. Hoạt động vô hạn. Zombie đi bộ cắn ăn bình thường.',
+                magnet: 'Hút đồ kim loại của Zombie trong phạm vị 5x5: mũ Bucket, cửa Screen, hộp nhạc Jack, cục Digger, thang Ladder. Mỗi lần hút cần 15s xử lý.',            };
             return D[key] || '-';
         }
         function getStatLine(t, lv) {
@@ -18195,7 +18199,7 @@ class KanjiDefenseGame {
             color:t.color, emoji:t.emoji, projColor:t.projColor,
             slow:baseSlow, slowDur:baseSlowDur,
             aoe: t.aoe ? t.aoe + (lvl-1)*0.3 : 0, fireTimer:0, hp:Math.floor(t.hp*hpMult), maxHp:Math.floor(t.hp*hpMult), _hitFlash:0,
-            noAttack:!!t.noAttack, isBloomerang:!!t.isBloomerang, bloomMax:t.bloomMax||3, isMine:!!t.isMine, mineTriggerRange:t.mineTriggerRange||0, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null, isHypno:!!t.isHypno, isGarlic:!!t.isGarlic, isUmbrella:!!t.isUmbrella, _umbrellaActive:0, isScreenLightning:!!t.isScreenLightning, chainLightning:t.chainLightning||0, chainRange:t.chainRange||3,
+            noAttack:!!t.noAttack, isBloomerang:!!t.isBloomerang, bloomMax:t.bloomMax||3, isMine:!!t.isMine, mineTriggerRange:t.mineTriggerRange||0, isLob:!!t.isLob, lobEmoji:t.lobEmoji||null, isHypno:!!t.isHypno, isGarlic:!!t.isGarlic, isUmbrella:!!t.isUmbrella, _umbrellaActive:0, isMagnet:!!t.isMagnet, _magnetCooldown:0, isScreenLightning:!!t.isScreenLightning, chainLightning:t.chainLightning||0, chainRange:t.chainRange||3,
             isTall:!!t.isTall,
             armTime: t.armTime || 0,
             armTimer: t.armTime ? t.armTime - (lvl-1)*1000 : 0, armed: !t.armTime,
@@ -18506,7 +18510,8 @@ class KanjiDefenseGame {
             pogoBouncePhase: 0, // bounce animation phase
             summonTimer: zt.summonsBackup ? (zt.summonInterval || 8000) + Math.random() * 3000 : 0, // dancing zombie summon timer
             summonCastTimer: 0, summoning: false, // dancing zombie casting state
-            parentId: 0 // backup dancer parent link
+            parentId: 0, // backup dancer parent link
+            hat: zt.hat || '', hatPos: zt.hatPos || null
         };
         // Catapult: init ammo and fire timer
         if (zt.isCatapult) {
@@ -18934,6 +18939,50 @@ class KanjiDefenseGame {
             this.spawnAoEExplosion(trigR > 0 ? tx : cx, trigR > 0 ? ty : cy, mt.range * this.CELL, mt.color);
             this.grid[mt.row][mt.col] = null;
             this.towers.splice(mi, 1);
+        }
+        // === MAGNET: hút đồ kim loại tự zombie trong phạm vị 5x5 ===
+        for (const mt of this.towers) {
+            if (!mt.isMagnet) continue;
+            if (mt._magnetCooldown > 0) { mt._magnetCooldown -= dt; continue; }
+            const magR = 2.5;
+            let pulled = false;
+            for (const z of this.zombies) {
+                if (z.dead || z.hypno || pulled) continue;
+                const md = Math.sqrt((z.x - (mt.col+0.5))**2 + ((z.row+0.5) - (mt.row+0.5))**2);
+                if (md > magR) continue;
+                const zt = KD_ZOMBIE_TYPES[z.type];
+                let metalItem = null;
+                if (z.type === 'buckethead' && z.hat !== '' && z.hat !== undefined) { metalItem = z.hat; z.hat = ''; z.maxHp = 200; if (z.hp > z.maxHp) z.hp = z.maxHp; this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL-this.CELL*0.6, 'Mụt mủ!', '#f97316'); }
+                else if (z.hasScreen) { metalItem = '⛲'; z.hasScreen = false; z.screenHp = 0; this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL-this.CELL*0.6, 'Mất cửa!', '#f97316'); }
+                else if (z.type === 'jackbox' && z.hat !== '' && z.hat !== undefined) { metalItem = z.hat; z.hat = ''; z.jackExplodeTimer = 0; this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL-this.CELL*0.6, 'Hủp nhạc!', '#a78bfa'); }
+                else if (z.type === 'digger' && z.digging) { metalItem = '⛏️'; z.hat = ''; z.digging = false; z.diggerSurfaced = true; z.speed = (zt.digSlowSpeed||0.21); z.baseSpeed = z.speed; z.stunTimer = 1500; this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL-this.CELL*0.6, 'Bị hút lên!', '#854d0e'); }
+                else if (zt && zt.isLadder && z.hasLadder) { metalItem = '🧩'; z.hasLadder = false; z.speed = zt.normalSpeed || 0.21; z.baseSpeed = z.speed; this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL-this.CELL*0.6, 'Mất thang!', '#f97316'); }
+                if (metalItem) {
+                    pulled = true;
+                    mt._magnetCooldown = 15000 - (mt.level - 1) * 1500;
+                    const sx = z.x * this.CELL, sy = (z.row+0.5) * this.CELL;
+                    const ex = (mt.col+0.5)*this.CELL, ey = (mt.row+0.5)*this.CELL;
+                    this.particles.push({
+                        x: sx, y: sy, tx: ex, ty: ey,
+                        text: metalItem, color: '#ffffff',
+                        life: 400, maxLife: 400,
+                        isMetalPull: true, fontSize: this.CELL * 0.4
+                    });
+                    for (let gi = 0; gi < 6; gi++) {
+                        const ga = Math.random()*Math.PI*2;
+                        this.particles.push({x:sx, y:sy, vx:Math.cos(ga)*1.5, vy:Math.sin(ga)*1.5-1, color:'#ffffff', life:300, maxLife:300, isParticle:true, size:3, gravity:0.05});
+                    }
+                }
+            }
+            if (pulled && this.ladderedCells) {
+                for (const lk in this.ladderedCells) {
+                    const [lr, lc] = lk.split(',').map(Number);
+                    if (this.grid[lr] && this.grid[lr][lc] && this.grid[lr][lc]._hasLadderOn) {
+                        this.grid[lr][lc]._hasLadderOn = false;
+                    }
+                }
+                this.ladderedCells = {};
+            }
         }
         for (const tower of this.towers) {
             if (tower.noAttack) continue;
@@ -20101,7 +20150,7 @@ class KanjiDefenseGame {
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const p = this.particles[i]; p.life -= dt;
             if (p.life <= 0) { this.particles.splice(i, 1); continue; }
-            if (p.isParticle) { p.x += (p.vx||0)*dt/16; p.y += (p.vy||0)*dt/16; if (p.gravity) p.vy += p.gravity * dt/16; }
+            if (p.isParticle) { p.x += (p.vx||0)*dt/16; p.y += (p.vy||0)*dt/16; if (p.gravity) p.vy += p.gravity * dt/16; }            if (p.isMetalPull) { const mp = 1 - p.life/p.maxLife; p.x = p.x + (p.tx - p.x)*0.15; p.y = p.y + (p.ty - p.y)*0.15; }
         }
     }
     render() {
@@ -20182,8 +20231,22 @@ class KanjiDefenseGame {
                 ctx.restore();
                 t._umbrellaActive -= 16;
             }
+            // Magnet cooldown: xam khi dang xu ly
+            if (t.isMagnet && t._magnetCooldown > 0) {
+                ctx.save();
+                ctx.globalAlpha = 0.4;
+                ctx.filter = 'grayscale(1) brightness(0.7)';
+                ctx.font = Math.floor(C*0.65) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(t.emoji, tx+C/2, ty+C/2);
+                ctx.restore();
+            }
             ctx.font = Math.floor(C*0.65) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText(t.emoji, tx+C/2, ty+C/2);
+            // Magnet: ve nam cham tren dau
+            if (t.isMagnet) {
+                ctx.font = Math.floor(C*0.3) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('🧲', tx+C/2, ty+C*0.15);
+            }
             // Ladder on plant — drawn with canvas (diagonal from middle-top to bottom-right of cell)
             if (t._hasLadderOn) {
                 const lw = C * 0.18, lh = C * 0.65;
@@ -20860,6 +20923,18 @@ class KanjiDefenseGame {
             }
             else { ctx.fillStyle = p.color; ctx.font = 'bold 14px Noto Sans JP'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText(p.text, p.x, p.y - (1-a)*20); }
+            // Metal pull: glow + emoji flying to magnet
+            if (p.isMetalPull) {
+                const mp2 = 1 - p.life/p.maxLife;
+                const mfs = (p.fontSize || this.CELL*0.4) * (1 + 0.3*Math.sin(mp2*Math.PI));
+                ctx.save();
+                ctx.shadowColor = '#ffffff';
+                ctx.shadowBlur = 15;
+                ctx.globalAlpha = 1 - mp2*mp2;
+                ctx.font = Math.floor(mfs) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(p.text, p.x, p.y);
+                ctx.restore();
+            }
             ctx.globalAlpha = 1;
         }
         // Wave announce
