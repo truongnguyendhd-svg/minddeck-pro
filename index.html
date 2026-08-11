@@ -17643,7 +17643,9 @@ const KD_ZOMBIE_TYPES = {
     /* --- Tier 6: Air Special --- */
     bungee:     { hp:450,  speed:0,    size:0.7,  color:'#8b5cf6', emoji:'\ud83d\udd77', dps:0, atkRate:0, waveMin:10, isBungee:true, bungeeHangTime:3000 },
     /* --- Tier 6: Siege --- */
-    catapult:   { hp:850,  speed:0.15, size:1.1,  color:'#92400e', emoji:'\ud83d\ude97', hat:'\ud83c\udfc0', hatPos:'catapultTop', dps:100, atkRate:800, waveMin:8, isCatapult:true, catapultAmmo:20, catapultFireRate:2900, catapultBallDmg:75, catapultStopCol:7 }
+    catapult:   { hp:850,  speed:0.15, size:1.1,  color:'#92400e', emoji:'\ud83d\ude97', hat:'\ud83c\udfc0', hatPos:'catapultTop', dps:100, atkRate:800, waveMin:8, isCatapult:true, catapultAmmo:20, catapultFireRate:2900, catapultBallDmg:75, catapultStopCol:7 },
+    /* --- Tier 6: Ladder --- */
+    ladder:     { hp:1000, speed:0.21, size:1.0,  color:'#f97316', emoji:'\ud83d\udc7b', hat:'\ud83e\udea9', hatPos:'ladderFront', dps:100, atkRate:800, waveMin:8, isLadder:true, ladderHp:500, ladderSpeedMult:2.0, normalSpeed:0.21 }
 };
 const KD_LOOT_TABLE = [
     { type:'heart',   weight:35, pts:0,   color:'#ef4444', label:'\u2764' },
@@ -18394,6 +18396,12 @@ class KanjiDefenseGame {
             for (let i = 0; i < n; i++) this.waveQueue.push('catapult');
         }
 
+        // ===== LADDER (wave 1+) — places ladder on defensive plants, climbs over =====
+        if (w >= 1) {
+            const n = 1;
+            for (let i = 0; i < n; i++) this.waveQueue.push('ladder');
+        }
+
         // ===== GARGANTUAR (wave 12+) — boss, throws imp, instant-kill smash =====
         if (w >= 12) {
             // Every 4 waves starting wave 12; doubles at wave 30+
@@ -18476,6 +18484,18 @@ class KanjiDefenseGame {
             z.catapultFireTimer = 1500; // 1.5s delay before first shot
             z.catapultPhase = 'driving'; // driving → stopped (throwing) → driving (ramming)
             z.catapultStopCol = zt.catapultStopCol || 7;
+        }
+        // Ladder: init ladder armor HP and fast speed
+        if (zt.isLadder) {
+            z.ladderHp = zt.ladderHp || 500;
+            z.ladderMaxHp = z.ladderHp;
+            z.hasLadder = true; // still carrying the ladder
+            // Speed is 2x normal when carrying ladder
+            const normalSpd = zt.normalSpeed || 0.21;
+            const spdMult = zt.ladderSpeedMult || 2.0;
+            z.speed = normalSpd * spdMult * sm;
+            z.baseSpeed = z.speed;
+            z.normalSpeedAfterLadder = normalSpd * sm; // speed after placing ladder
         }
         // Digger: start digging immediately from the right edge
         if (zt.digs) {
@@ -19416,6 +19436,28 @@ class KanjiDefenseGame {
         if (z.hasPogo && z._pogoAirborne && !z.dead) {
             if (proj && !proj.isLob) return; // ground projectile misses airborne pogo
         }
+        // Ladder Zombie: ladder absorbs damage first (armor layer)
+        if (z.hasLadder && z.ladderHp > 0) {
+            z.ladderHp -= dmg;
+            z._hitFlash = 120;
+            if (z.ladderHp <= 0) {
+                z.ladderHp = 0;
+                z.hasLadder = false;
+                // Ladder destroyed → drop speed to normal
+                if (z.normalSpeedAfterLadder) {
+                    z.speed = z.normalSpeedAfterLadder;
+                    z.baseSpeed = z.normalSpeedAfterLadder;
+                }
+                this.spawnFloatText(z.x*this.CELL, (z.row+0.5)*this.CELL - this.CELL*0.6, 'Thang gãy!', '#ef4444');
+                // Vfx ladder breaking
+                for (let p = 0; p < 8; p++) {
+                    this.particles.push({x:z.x*this.CELL, y:(z.row+0.5)*this.CELL,
+                        vx:(Math.random()-0.5)*3, vy:-Math.random()*3-1,
+                        color:'#a16207', life:500, maxLife:500, isParticle:true, size:3, gravity:0.08});
+                }
+            }
+            return; // damage fully absorbed by ladder
+        }
         z.hp -= dmg; z._hitFlash = 120;
         if (proj) {
             if (proj.slow > 0) { z.speed = z.baseSpeed * (1 - proj.slow); z.slowTimer = proj.slowDur || 2000; }
@@ -19453,7 +19495,7 @@ class KanjiDefenseGame {
                 z.bungeeStolenTower = null;
             }
             // Loot drop for armored/boss types
-            if (['tank','buckethead','screen','football','gargantuar','zamboni','bungee','catapult'].includes(z.type)) this.spawnLoot(z.x, z.row + 0.5);
+            if (['tank','buckethead','screen','football','gargantuar','zamboni','bungee','catapult','ladder'].includes(z.type)) this.spawnLoot(z.x, z.row + 0.5);
             this.spawnExplosion(z.x * this.CELL, (z.row + 0.5) * this.CELL, z.color);
             // Jack-in-Box: explode on death
             const zt = KD_ZOMBIE_TYPES[z.type];
@@ -19583,6 +19625,37 @@ class KanjiDefenseGame {
                 }
             }
             if (zt && zt.isCatapult) continue; // catapult handled separately, skip normal move
+            // === LADDER ZOMBIE: bắc thang lên cây phòng thủ, leo qua ===
+            if (zt && zt.isLadder && z.hasLadder) {
+                // Check if ladder zombie encounters a defensive plant
+                const lCol = Math.floor(z.x);
+                if (lCol >= 0 && lCol < KD_COLS && this.grid[z.row] && this.grid[z.row][lCol]) {
+                    const ltw = this.grid[z.row][lCol];
+                    // Place ladder on any blocking plant (noAttack = defensive like Wall-nut, Tallwall, Rock, etc.)
+                    if (ltw.noAttack || ltw.isMine) {
+                        // Place ladder on this plant
+                        ltw._hasLadderOn = true; // mark the plant as laddered
+                        // Record ladder position in a global tracker for other zombies
+                        if (!this.ladderedCells) this.ladderedCells = {};
+                        this.ladderedCells[z.row + ',' + lCol] = true;
+                        // Ladder zombie climbs over instantly
+                        z.hasLadder = false;
+                        z.x = lCol - 0.5; // teleport past the plant
+                        // Drop to normal speed after placing ladder
+                        if (z.normalSpeedAfterLadder) {
+                            z.speed = z.normalSpeedAfterLadder;
+                            z.baseSpeed = z.normalSpeedAfterLadder;
+                        }
+                        this.spawnFloatText((lCol + 0.5) * this.CELL, (z.row + 0.5) * this.CELL - this.CELL * 0.8, 'Bắc thang!', '#f97316');
+                        // Vfx: place ladder
+                        for (let p = 0; p < 6; p++) {
+                            this.particles.push({x:(lCol+0.5)*this.CELL, y:(z.row+0.5)*this.CELL,
+                                vx:(Math.random()-0.5)*2, vy:-Math.random()*2-0.5,
+                                color:'#a16207', life:400, maxLife:400, isParticle:true, size:2.5, gravity:0.06});
+                        }
+                    }
+                }
+            }
             // === HYPNOTIZED ZOMBIE ===
             if (z.hypno) {
                 z.x += z.speed * ds;
@@ -19741,8 +19814,22 @@ class KanjiDefenseGame {
             if (!canFly && zCol >= 0 && zCol < KD_COLS) {
                 const tower = this.grid[z.row] && this.grid[z.row][zCol];
                 if (tower) {
+                    // === CLIMB LADDER: TẤT CẢ zombie leo qua cây có thang ===
+                    if (tower._hasLadderOn && !z.hypno) {
+                        z.x = tower.col - 0.5; // climb over to the other side
+                        blocked = false; // don't stop
+                        // Vfx nhỏ khi leo thang
+                        if (!z._ladderClimbCooldown || z._ladderClimbCooldown <= 0) {
+                            z._ladderClimbCooldown = 500; // prevent spam
+                            for (let p = 0; p < 3; p++) {
+                                this.particles.push({x:(tower.col+0.5)*this.CELL, y:(z.row+0.5)*this.CELL,
+                                    vx:(Math.random()-0.5)*1.5, vy:-Math.random()*1.5,
+                                    color:'#a16207', life:250, maxLife:250, isParticle:true, size:2, gravity:0.04});
+                            }
+                        }
+                    }
                     // === POLE VAULT: nhảy qua cây đầu tiên, mất sào, biến thành normal (KHÔNG nhảy qua Tallwall) ===
-                    if (z.hasPole && !z.hypno && !tower.isTall) {
+                    else if (z.hasPole && !z.hypno && !tower.isTall) {
                         z.hasPole = false;
                         z.hat = '';
                         z.speed = 0.21;
@@ -19883,6 +19970,8 @@ class KanjiDefenseGame {
                 this._bobsledDismount(z);
                 continue;
             }
+            // Decrement ladder climb cooldown
+            if (z._ladderClimbCooldown > 0) z._ladderClimbCooldown -= dt;
             if (!blocked) {
                 if (z.eatingBack) {
                     z.x += z.speed * ds; // move RIGHT when eating backwards
@@ -19975,6 +20064,15 @@ class KanjiDefenseGame {
             }
             ctx.font = Math.floor(C*0.65) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText(t.emoji, tx+C/2, ty+C/2);
+            // Ladder on plant indicator 🪜
+            if (t._hasLadderOn) {
+                const ladderIndicatorSize = Math.floor(C * 0.35);
+                ctx.font = ladderIndicatorSize + 'px serif';
+                ctx.fillText('\ud83e\udea9', tx + C - ladderIndicatorSize * 0.3, ty + ladderIndicatorSize * 0.3);
+                // Orange border around laddered cell
+                ctx.strokeStyle = '#f97316'; ctx.lineWidth = 2;
+                ctx.strokeRect(tx+1, ty+1, C-2, C-2);
+            }
             for (let i = 0; i < t.level; i++) { ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.arc(tx+C/2-(t.level-1)*5+i*10, ty+C-6, 2.5, 0, Math.PI*2); ctx.fill(); }
             // Tower HP: chi hien thanh cho Potato Mine chua kich hoat
             if (t.isMine && t.armTime && !t.armed) {
@@ -20026,7 +20124,7 @@ class KanjiDefenseGame {
         for (const z of this.zombies) {
             if (z.dead) continue;
             // Bobsled + Pogo + Bungee have custom render below — skip normal zombie render
-            if (z.type === 'bobsled' || z.type === 'pogo' || z.type === 'bungee' || z.type === 'catapult') continue;
+            if (z.type === 'bobsled' || z.type === 'pogo' || z.type === 'bungee' || z.type === 'catapult' || z.type === 'ladder') continue;
             const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
             const s = this.CELL * z.size * 0.45;
             // Slow: an vong xanh, doi mau emoji thay the (xu ly o ctx.filter phia duoi)
@@ -20309,6 +20407,63 @@ class KanjiDefenseGame {
                 ctx.fillStyle = '#1e293b'; ctx.fillRect(hpX, hpY, hpW, hpH);
                 ctx.fillStyle = hpR > 0.5 ? '#34d399' : hpR > 0.25 ? '#fbbf24' : '#ef4444';
                 ctx.fillRect(hpX, hpY, hpW * hpR, hpH);
+            }
+        }
+        // Ladder Zombie custom render (👻 + 🪜)
+        for (const z of this.zombies) {
+            if (z.dead || z.type !== 'ladder') continue;
+            const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
+            const C = this.CELL;
+            // Ghost body 👻
+            const ghostSize = C * 0.85;
+            ctx.font = ghostSize + 'px serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('\ud83d\udc7b', cx, cy);
+            // Ladder 🪜 in front of zombie (if still carrying)
+            if (z.hasLadder) {
+                const ladderSize = C * 0.7;
+                ctx.font = ladderSize + 'px serif';
+                ctx.fillText('\ud83e\udea9', cx + C * 0.3, cy + C * 0.1);
+            }
+            // Ladder armor HP bar (yellow/orange bar above zombie when ladder HP < max)
+            if (z.hasLadder && z.ladderHp < z.ladderMaxHp) {
+                const lhpW = C * 0.7, lhpH = 3;
+                const lhpX = cx - lhpW/2, lhpY = cy - C * 0.5;
+                const lhpR = Math.max(0, z.ladderHp / z.ladderMaxHp);
+                ctx.fillStyle = '#1e293b'; ctx.fillRect(lhpX, lhpY, lhpW, lhpH);
+                ctx.fillStyle = '#f97316'; ctx.fillRect(lhpX, lhpY, lhpW * lhpR, lhpH);
+                // Label "THANG"
+                ctx.font = Math.floor(C * 0.18) + 'px sans-serif';
+                ctx.fillStyle = '#f97316';
+                ctx.fillText('THANG', cx, lhpY - 3);
+            } else if (z.hasLadder) {
+                // Full ladder HP indicator
+                ctx.font = Math.floor(C * 0.18) + 'px sans-serif';
+                ctx.fillStyle = '#fbbf24';
+                ctx.fillText('THANG', cx, cy - C * 0.5);
+            }
+            // Body HP bar (only show when body is damaged, i.e., ladder destroyed)
+            if (z.hp < z.maxHp) {
+                const hpW = C * 0.7, hpH = 4;
+                const hpX = cx - hpW/2, hpY = cy + C * 0.42;
+                const hpR = Math.max(0, z.hp / z.maxHp);
+                ctx.fillStyle = '#1e293b'; ctx.fillRect(hpX, hpY, hpW, hpH);
+                ctx.fillStyle = hpR > 0.5 ? '#34d399' : hpR > 0.25 ? '#fbbf24' : '#ef4444';
+                ctx.fillRect(hpX, hpY, hpW * hpR, hpH);
+            }
+            // Speed lines when carrying ladder (fast movement effect)
+            if (z.hasLadder) {
+                ctx.globalAlpha = 0.3;
+                ctx.strokeStyle = '#f97316';
+                ctx.lineWidth = 1.5;
+                for (let sl = 0; sl < 3; sl++) {
+                    const slY = cy - C * 0.15 + sl * C * 0.15;
+                    ctx.beginPath();
+                    ctx.moveTo(cx + C * 0.35, slY);
+                    ctx.lineTo(cx + C * 0.55 + sl * 3, slY);
+                    ctx.stroke();
+                }
+                ctx.globalAlpha = 1;
             }
         }
         // Projectiles
