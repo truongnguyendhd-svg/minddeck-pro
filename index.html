@@ -17662,11 +17662,15 @@ const KD_ZOMBIE_TYPES = {
     ladder:     { hp:1000, speed:0.21, size:1.0,  color:'#f97316', emoji:'\ud83d\udc7b', hat:'\ud83e\udea9', hatPos:'ladderFront', dps:100, atkRate:800, waveMin:8, isLadder:true, ladderHp:500, ladderSpeedMult:2.0, normalSpeed:0.21 }
 };
 const KD_LOOT_TABLE = [
-    { type:'heart',   weight:20, color:'#ef4444', label:'\u2764' },
-    { type:'energy',  weight:25, color:'#38bdf8', label:'\u26A1' },
-    { type:'hpup',    weight:20, color:'#22c55e', label:'HP' },
-    { type:'x2',      weight:20, color:'#eab308', label:'x2' },
-    { type:'x3',      weight:15, color:'#dc2626', label:'x3' }
+    { type:'heart',   weight:15, color:'#ef4444', label:'\u2764' },
+    { type:'energy',  weight:18, color:'#38bdf8', label:'\u26A1' },
+    { type:'hpup',    weight:14, color:'#22c55e', label:'HP' },
+    { type:'x2',      weight:14, color:'#eab308', label:'x2' },
+    { type:'x3',      weight:10, color:'#dc2626', label:'x3' },
+    { type:'ice',     weight:10, color:'#60a5fa', label:'\ud83e\uddca', isEmoji:true },
+    { type:'fire',    weight:7,  color:'#f97316', label:'\ud83d\udd25', isEmoji:true },
+    { type:'poison',  weight:7,  color:'#a3e635', label:'\ud83e\uddea', isEmoji:true },
+    { type:'stun',    weight:5,  color:'#c084fc', label:'\ud83c\udf00', isEmoji:true }
 ];
 const KD_ROWS = 5, KD_COLS = 9, KD_MAX_WAVES = 44;
 
@@ -18673,6 +18677,56 @@ class KanjiDefenseGame {
                 this.spawnFloatText(t.col * this.CELL + this.CELL / 2, t.row * this.CELL, 'x3 DMG!!', '#dc2626');
             }
             this.spawnFloatText(lx, ly, 'x3 Damage!', loot.color);
+        }
+        else if (type === 'ice') {
+            // 🧊 Làm chậm TẤT CẢ zombie 50% trong 5 giây
+            let cnt = 0;
+            for (const z of this.zombies) {
+                if (z.dead || z.hypno || z.stunTimer > 0) continue;
+                z.speed = z.baseSpeed * 0.5;
+                z.slowTimer = 5000;
+                cnt++;
+            }
+            this.spawnFloatText(lx, ly, '🧊 FROZEN! x' + cnt, '#60a5fa');
+            this.particles.push({ x: this.W / 2, y: this.ROW_OFF + this.GRID_H / 2, color: '#60a5fa', life: 600, maxLife: 600, isAoE: true, aoeRadius: Math.max(this.W, this.GRID_H) });
+        }
+        else if (type === 'fire') {
+            // 🔥 Phá băng + sát thương lan 200 cho TẤT CẢ zombie
+            let cnt = 0;
+            for (const z of this.zombies) {
+                if (z.dead) continue;
+                // Phá băng
+                z.slowTimer = 0; z.speed = z.baseSpeed;
+                if (z._iceShroomSlowTimer > 0) { z._iceShroomSlowTimer = 0; z._iceShroomSlowAmt = 0; }
+                if (z.stunTimer > 0 && z._iceShroomSlowTimer === 0) { /* chỉ phá băng, không phá choáng khác */ }
+                // Sát thương lan
+                z.hp -= 200; z._hitFlash = 120; cnt++;
+                if (z.hp <= 0 && !z.dead) { z.dead = true; this.onZombieDeath(z); }
+            }
+            this.spawnFloatText(lx, ly, '🔥 BURN! -200 x' + cnt, '#f97316');
+            this.particles.push({ x: this.W / 2, y: this.ROW_OFF + this.GRID_H / 2, color: '#f97316', life: 600, maxLife: 600, isAoE: true, aoeRadius: Math.max(this.W, this.GRID_H) });
+        }
+        else if (type === 'poison') {
+            // 🧪 Độc: TẤT CẢ zombie nhận 50 dmg/s trong 6 giây
+            let cnt = 0;
+            for (const z of this.zombies) {
+                if (z.dead || z.hypno) continue;
+                z._poisonTimer = 6000; z._poisonDps = 50; z._poisonTick = 0;
+                cnt++;
+            }
+            this.spawnFloatText(lx, ly, '🧪 POISON! x' + cnt, '#a3e635');
+            this.particles.push({ x: this.W / 2, y: this.ROW_OFF + this.GRID_H / 2, color: '#a3e635', life: 600, maxLife: 600, isAoE: true, aoeRadius: Math.max(this.W, this.GRID_H) });
+        }
+        else if (type === 'stun') {
+            // 🌀 Choáng TẤT CẢ zombie 3 giây
+            let cnt = 0;
+            for (const z of this.zombies) {
+                if (z.dead || z.hypno) continue;
+                z.stunTimer = 3000;
+                cnt++;
+            }
+            this.spawnFloatText(lx, ly, '🌀 STUN! x' + cnt, '#c084fc');
+            this.particles.push({ x: this.W / 2, y: this.ROW_OFF + this.GRID_H / 2, color: '#c084fc', life: 600, maxLife: 600, isAoE: true, aoeRadius: Math.max(this.W, this.GRID_H) });
         }
     }
     updateBuffs(dt) {
@@ -19703,6 +19757,20 @@ class KanjiDefenseGame {
         for (let i = this.zombies.length - 1; i >= 0; i--) {
             const z = this.zombies[i];
             if (z.dead) { this.zombies.splice(i, 1); continue; }
+            // Poison DOT tick (50 dmg/s)
+            if (z._poisonTimer > 0) {
+                z._poisonTimer -= dt;
+                z._poisonTick = (z._poisonTick || 0) + dt;
+                while (z._poisonTick >= 1000) {
+                    z._poisonTick -= 1000;
+                    const pdmg = z._poisonDps || 50;
+                    z.hp -= pdmg;
+                    z._hitFlash = 80;
+                    if (Math.random() < 0.25) this.spawnFloatText(z.x * this.CELL, (z.row + 0.5) * this.CELL - this.CELL * 0.4, '-' + pdmg, '#a3e635');
+                    if (z.hp <= 0 && !z.dead) { z.dead = true; this.onZombieDeath(z); }
+                }
+                if (z._poisonTimer <= 0) { z._poisonTimer = 0; z._poisonTick = 0; }
+            }
             if (z.slowTimer > 0) { z.slowTimer -= dt; if (z.slowTimer <= 0) z.speed = z.baseSpeed; }
             if (z.stunTimer > 0) { z.stunTimer -= dt; if (z.stunTimer <= 0) { if (z._iceShroomSlowTimer > 0) { z.speed = z.baseSpeed * (1 - z._iceShroomSlowAmt); z.slowTimer = z._iceShroomSlowTimer; z._iceShroomSlowTimer = 0; z._iceShroomSlowAmt = 0; } if (z.diggerSurfaced) { z.eatingBack = true; z.speed = (KD_ZOMBIE_TYPES[z.type]||{}).digSlowSpeed || 0.21; z.baseSpeed = z.speed; } } continue; }
             const zt = KD_ZOMBIE_TYPES[z.type];
@@ -20443,7 +20511,7 @@ class KanjiDefenseGame {
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             // Digger: semi-transparent when underground
             if (z.digging) { ctx.globalAlpha = 0.3; }
-            if (z.stunTimer > 0 && z._iceShroomSlowTimer > 0) { ctx.filter = "hue-rotate(180deg) saturate(2) brightness(1.2)"; } else if (z.slowTimer > 0) { ctx.filter = "sepia(0.8) hue-rotate(180deg) saturate(1.8)"; } else if (z._hitFlash > 0) { ctx.filter = "brightness(2) hue-rotate(-30deg)"; z._hitFlash -= 16; }
+            if (z.stunTimer > 0 && z._iceShroomSlowTimer > 0) { ctx.filter = "hue-rotate(180deg) saturate(2) brightness(1.2)"; } else if (z._poisonTimer > 0) { ctx.filter = "hue-rotate(80deg) saturate(2.5) brightness(0.85)"; } else if (z.slowTimer > 0) { ctx.filter = "sepia(0.8) hue-rotate(180deg) saturate(1.8)"; } else if (z._hitFlash > 0) { ctx.filter = "brightness(2) hue-rotate(-30deg)"; z._hitFlash -= 16; }
             _renderEmoji(zt.emoji, cx, cy, baseFontSize);
             ctx.filter = "none";
             ctx.globalAlpha = 1;
@@ -20937,17 +21005,27 @@ class KanjiDefenseGame {
             const alpha = l.timer < 800 ? l.timer/800 : 1;
             const lx = l.x*C, ly = l.y*C+fo;
             ctx.globalAlpha = alpha;
-            // Outer glow ring
-            ctx.strokeStyle = l.color + '55'; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.arc(lx, ly, 14, 0, Math.PI*2); ctx.stroke();
-            // Fill circle
-            ctx.fillStyle = l.color + '33'; ctx.beginPath(); ctx.arc(lx, ly, 12, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = l.color; ctx.beginPath(); ctx.arc(lx, ly, 8, 0, Math.PI*2); ctx.fill();
-            // Label
-            ctx.fillStyle = l.type === 'x3' ? '#ffffff' : '#0f172a';
-            ctx.font = 'bold ' + (l.label.length > 2 ? '8' : '10') + 'px sans-serif';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(l.label, lx, ly);
+            if (l.isEmoji) {
+                // Emoji loot: vẽ emoji lớn thay vì vòng tròn
+                ctx.font = (C * 0.5) + 'px serif';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(l.label, lx, ly);
+                // Vòng sáng xung quanh
+                ctx.strokeStyle = l.color + '66'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(lx, ly, C * 0.3, 0, Math.PI*2); ctx.stroke();
+            } else {
+                // Outer glow ring
+                ctx.strokeStyle = l.color + '55'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(lx, ly, 14, 0, Math.PI*2); ctx.stroke();
+                // Fill circle
+                ctx.fillStyle = l.color + '33'; ctx.beginPath(); ctx.arc(lx, ly, 12, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = l.color; ctx.beginPath(); ctx.arc(lx, ly, 8, 0, Math.PI*2); ctx.fill();
+                // Label
+                ctx.fillStyle = l.type === 'x3' ? '#ffffff' : '#0f172a';
+                ctx.font = 'bold ' + (l.label.length > 2 ? '8' : '10') + 'px sans-serif';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(l.label, lx, ly);
+            }
             ctx.globalAlpha = 1;
         }
         // Particles
