@@ -17952,7 +17952,7 @@ class KanjiDefenseGame {
         const old = document.getElementById('kdPickerOverlay');
         if (old) old.remove();
         const self = this;
-        let pickerLevel = 1;
+        let pickerLevel = 1; this._pickerLevel = 1;
         const overlay = document.createElement('div');
         overlay.id = 'kdPickerOverlay'; overlay.className = 'kd-picker-overlay';
         overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
@@ -17972,7 +17972,7 @@ class KanjiDefenseGame {
             tab.className = 'kd-picker-tab' + (idx === 0 ? ' active' : '');
             tab.textContent = lbl;
             tab.onclick = () => {
-                pickerLevel = idx + 1;
+                pickerLevel = idx + 1; self._pickerLevel = pickerLevel;
                 tabRow.querySelectorAll('.kd-picker-tab').forEach((t,i) => t.classList.toggle('active', i === idx));
                 renderGrid();
             };
@@ -18040,8 +18040,13 @@ class KanjiDefenseGame {
                 tile.onclick = () => {
                     const isActive = tile.classList.toggle('active');
                     if (isActive) {
-                        if (self.activeTowers.length >= 10) { tile.classList.remove('active'); return; }
-                        self.activeTowers.push(key);
+                        // Chỉ đếm tower có ở level tab hiện tại
+                        const visibleCount = self.activeTowers.filter(k => {
+                            const t = KD_TOWERS[k];
+                            return t && t.levels && t.levels[pickerLevel - 1];
+                        }).length;
+                        if (visibleCount >= 10) { tile.classList.remove('active'); return; }
+                        if (!self.activeTowers.includes(key)) self.activeTowers.push(key);
                     } else {
                         self.activeTowers = self.activeTowers.filter(k => k !== key);
                     }
@@ -18143,7 +18148,12 @@ class KanjiDefenseGame {
     }    _updatePickerInfo() {
         const info = document.getElementById('kdPickerInfo');
         const cnt = document.getElementById('kdPickerFooterCount');
-        const text = 'Đã chọn: ' + this.activeTowers.length + ' / 10';
+        const lv = this._pickerLevel || 1;
+        const visibleCount = this.activeTowers.filter(k => {
+            const t = KD_TOWERS[k];
+            return t && t.levels && t.levels[lv - 1];
+        }).length;
+        const text = 'Đã chọn: ' + visibleCount + ' / 10';
         if (info) info.textContent = text;
         if (cnt) cnt.textContent = text;
     }
