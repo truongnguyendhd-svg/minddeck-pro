@@ -17660,9 +17660,11 @@ const KD_ZOMBIE_TYPES = {
     ladder:     { hp:1000, speed:0.21, size:1.0,  color:'#f97316', emoji:'\ud83d\udc7b', hat:'\ud83e\udea9', hatPos:'ladderFront', dps:100, atkRate:800, waveMin:8, isLadder:true, ladderHp:500, ladderSpeedMult:2.0, normalSpeed:0.21 }
 };
 const KD_LOOT_TABLE = [
-    { type:'heart',   weight:35, pts:0,   color:'#ef4444', label:'\u2764' },
-    { type:'energy',  weight:35, pts:0,   color:'#38bdf8', label:'\u26A1' },
-    { type:'upgrade', weight:30, pts:0,   color:'#a78bfa', label:'\u2B06' }
+    { type:'heart',   weight:20, color:'#ef4444', label:'\u2764' },
+    { type:'energy',  weight:25, color:'#38bdf8', label:'\u26A1' },
+    { type:'hpup',    weight:20, color:'#22c55e', label:'HP' },
+    { type:'x2',      weight:20, color:'#eab308', label:'x2' },
+    { type:'x3',      weight:15, color:'#dc2626', label:'x3' }
 ];
 const KD_ROWS = 5, KD_COLS = 9, KD_MAX_WAVES = 44;
 
@@ -17809,7 +17811,7 @@ class KanjiDefenseGame {
         this.waveQueue = []; this.spawnTimer = 0; this.spawnInterval = 2000;
         this.wavePause = 0; this.waveAnnounce = ''; this.waveAnnounceTimer = 0;
         this.totalKills = 0; this.totalCorrect = 0;
-        this.inventory = { heart: 0, energy: 0, upgrade: 0 };
+        this.inventory = {}; // 不再手动收集，物品自动apply
         this.selectedTower = null; this.selectedItem = null;
         this._fetching = false; this._screenFlash = 0; this._iceFlash = 0;
         this.iceTiles = {}; // 'row,col' → true, set by Zamboni
@@ -18578,17 +18580,78 @@ class KanjiDefenseGame {
     spawnLoot(x, y) {
         let roll = Math.random() * 100, cumul = 0, chosen = KD_LOOT_TABLE[0];
         for (const l of KD_LOOT_TABLE) { cumul += l.weight; if (roll < cumul) { chosen = l; break; } }
-        this.loots.push({ x, y, type: chosen.type, pts: chosen.pts, color: chosen.color,
+        this.loots.push({ x, y, type: chosen.type, color: chosen.color,
             label: chosen.label, timer: 3000, collected: false });
     }
     collectLoot(loot) {
         if (loot.collected) return; loot.collected = true;
-        if (loot.type === 'heart' || loot.type === 'energy' || loot.type === 'upgrade') {
-            this.inventory[loot.type] = (this.inventory[loot.type] || 0) + 1;
-            this.spawnFloatText(loot.x * this.CELL, loot.y * this.CELL - 10, '+1 ' + loot.label, loot.color);
-            this.renderInventory();
+        const lx = loot.x * this.CELL, ly = loot.y * this.CELL - 10;
+        const type = loot.type;
+
+        if (type === 'heart') {
+            // \u2764 Hồi 50% maxHP — ưu tiên tháp bị mất máu nhiều nhất
+            const candidates = this.towers.filter(t => t.hp < t.maxHp - 1);
+            if (candidates.length > 0) {
+                candidates.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp)); // %HP thấp nhất trước
+                const t = candidates[0];
+                const heal = Math.floor(t.maxHp * 0.5);
+                t.hp = Math.min(t.maxHp, t.hp + heal);
+                this.spawnFloatText(t.col * this.CELL + this.CELL / 2, t.row * this.CELL, '+' + heal + ' HP', '#ef4444');
+            } else {
+                // Tất cả tháp đầy máu → buff tháp ngẫu nhiên tăng maxHP tạm thời
+                const t = this.towers[Math.floor(Math.random() * this.towers.length)];
+                if (t) {
+                    const heal = Math.floor(t.maxHp * 0.5);
+                    t.hp = Math.min(t.maxHp, t.hp + heal);
+                    this.spawnFloatText(t.col * this.CELL + this.CELL / 2, t.row * this.CELL, '+' + heal + ' HP', '#ef4444');
+                }
+            }
+            this.spawnFloatText(lx, ly, '\u2764 Heart!', loot.color);
         }
-        this.updateHUD(); this.updateShopState();
+        else if (type === 'energy') {
+            // \u26A1 Giảm 25% thời gian bắn — áp dụng cho tháp tấn công ngẫu nhiên
+            const attackers = this.towers.filter(t => !t.noAttack && !t.isMine && !t.isUmbrella && !t.isMagnet && !t.isGarlic);
+            if (attackers.length > 0) {
+                const t = attackers[Math.floor(Math.random() * attackers.length)];
+                t.rate = Math.max(200, Math.floor(t.rate * 0.75));
+                t.fireTimer = 0; // bắn ngay
+                this.spawnFloatText(t.col * this.CELL + this.CELL / 2, t.row * this.CELL, '\u26A1 SPEED!', '#38bdf8');
+            }
+            this.spawnFloatText(lx, ly, '\u26A1 Energy!', loot.color);
+        }
+        else if (type === 'hpup') {
+            // HP UP: +30% maxHP + hồi đầy — tháp ngẫu nhiên
+            const t = this.towers[Math.floor(Math.random() * this.towers.length)];
+            if (t) {
+                const oldMax = t.maxHp;
+                const newMax = Math.floor(oldMax * 1.3);
+                t.maxHp = newMax;
+                t.hp = newMax; // hồi đầy
+                t._hpUpBuff = true;
+                this.spawnFloatText(t.col * this.CELL + this.CELL / 2, t.row * this.CELL, '+30% MAX HP!', '#22c55e');
+            }
+            this.spawnFloatText(lx, ly, 'HP UP!', loot.color);
+        }
+        else if (type === 'x2') {
+            // x2: Nhân đôi sát thương — tháp tấn công ngẫu nhiên
+            const attackers = this.towers.filter(t => !t.noAttack && !t.isMine && !t.isUmbrella && !t.isMagnet && !t.isGarlic);
+            if (attackers.length > 0) {
+                const t = attackers[Math.floor(Math.random() * attackers.length)];
+                t._dmgMult = (t._dmgMult || 1) * 2;
+                this.spawnFloatText(t.col * this.CELL + this.CELL / 2, t.row * this.CELL, 'x2 DMG!', '#eab308');
+            }
+            this.spawnFloatText(lx, ly, 'x2 Damage!', loot.color);
+        }
+        else if (type === 'x3') {
+            // x3: Nhân ba sát thương — tháp tấn công ngẫu nhiên
+            const attackers = this.towers.filter(t => !t.noAttack && !t.isMine && !t.isUmbrella && !t.isMagnet && !t.isGarlic);
+            if (attackers.length > 0) {
+                const t = attackers[Math.floor(Math.random() * attackers.length)];
+                t._dmgMult = (t._dmgMult || 1) * 3;
+                this.spawnFloatText(t.col * this.CELL + this.CELL / 2, t.row * this.CELL, 'x3 DMG!!', '#dc2626');
+            }
+            this.spawnFloatText(lx, ly, 'x3 Damage!', loot.color);
+        }
     }
     renderInventory() {
         const hasTower = !!this.selectedTower;
@@ -18895,7 +18958,7 @@ class KanjiDefenseGame {
                 const zd = Math.sqrt((z2.x-(mt.col+0.5))**2+((z2.row+0.5)-(mt.row+0.5))**2);
                 if (zd <= mt.range) {
                     const falloff = trigR > 0 ? 1 : (1 - zd/mt.range*0.3);
-                    this.damageZombie(z2, mt.dmg * falloff, null);
+                    this.damageZombie(z2, mt.dmg * falloff * (mt._dmgMult || 1), null);
                 }
             }
             this.spawnAoEExplosion(trigR > 0 ? tx : cx, trigR > 0 ? ty : cy, mt.range * this.CELL, mt.color);
@@ -18977,7 +19040,7 @@ class KanjiDefenseGame {
                     if (bt.buffRate) rateBuff *= (1 - bt.buffRate);
                 }
             }
-            const effectiveDmg = Math.floor(tower.dmg * dmgBuff);
+            const effectiveDmg = Math.floor(tower.dmg * dmgBuff * (tower._dmgMult || 1));
             const effectiveRate = Math.max(200, Math.floor(tower.rate * rateBuff));
             tower.fireTimer = effectiveRate;
             // Skip non-attacking towers
@@ -20188,6 +20251,20 @@ class KanjiDefenseGame {
                 ctx.globalAlpha = 1;
             }
             ctx.font = Math.floor(C*0.65) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            // HP UP label
+            if (t._hpUpBuff) {
+                ctx.font = 'bold ' + Math.floor(C * 0.2) + 'px sans-serif';
+                ctx.fillStyle = '#4ade80';
+                ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+                ctx.fillText('HP+', tx + 2, ty + C - 2);
+            }
+            // Dmg mult label above tower (no glow)
+            if (t._dmgMult && t._dmgMult > 1) {
+                ctx.font = 'bold ' + Math.floor(C * 0.22) + 'px sans-serif';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+                ctx.fillStyle = t._dmgMult >= 3 ? '#fca5a5' : '#fde68a';
+                ctx.fillText('x' + t._dmgMult, tx + C/2, ty - 2);
+            }
             // Umbrella Leaf active effect: to + glow + rung
             if (t._umbrellaActive > 0) {
                 const _uaProg = t._umbrellaActive / 600;
@@ -20785,11 +20862,19 @@ class KanjiDefenseGame {
             if (l.collected) continue;
             const fo = Math.sin(Date.now()/300)*3;
             const alpha = l.timer < 800 ? l.timer/800 : 1;
+            const lx = l.x*C, ly = l.y*C+fo;
             ctx.globalAlpha = alpha;
-            ctx.fillStyle = l.color + '33'; ctx.beginPath(); ctx.arc(l.x*C, l.y*C+fo, 12, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = l.color; ctx.beginPath(); ctx.arc(l.x*C, l.y*C+fo, 8, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = '#0f172a'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(l.label, l.x*C, l.y*C+fo);
+            // Outer glow ring
+            ctx.strokeStyle = l.color + '55'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(lx, ly, 14, 0, Math.PI*2); ctx.stroke();
+            // Fill circle
+            ctx.fillStyle = l.color + '33'; ctx.beginPath(); ctx.arc(lx, ly, 12, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = l.color; ctx.beginPath(); ctx.arc(lx, ly, 8, 0, Math.PI*2); ctx.fill();
+            // Label
+            ctx.fillStyle = l.type === 'x3' ? '#ffffff' : '#0f172a';
+            ctx.font = 'bold ' + (l.label.length > 2 ? '8' : '10') + 'px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(l.label, lx, ly);
             ctx.globalAlpha = 1;
         }
         // Particles
