@@ -18609,48 +18609,92 @@ class KanjiDefenseGame {
             this.spawnFloatText(lx, ly, '\u2764 Heart!', loot.color);
         }
         else if (type === 'energy') {
-            // \u26A1 Giảm 25% thời gian bắn — áp dụng cho tháp tấn công ngẫu nhiên
+            // \u26A1 Giảm 25% thời gian bắn — có thời hạn 15s, không cộng dồn
             const attackers = this.towers.filter(t => !t.noAttack && !t.isMine && !t.isUmbrella && !t.isMagnet && !t.isGarlic);
             if (attackers.length > 0) {
                 const t = attackers[Math.floor(Math.random() * attackers.length)];
-                t.rate = Math.max(200, Math.floor(t.rate * 0.75));
-                t.fireTimer = 0; // bắn ngay
+                if (!t._speedBuffTimer || t._speedBuffTimer <= 0) {
+                    t._speedBuffOrigRate = t.rate;
+                    t.rate = Math.max(200, Math.floor(t.rate * 0.75));
+                }
+                t._speedBuffTimer = 15000;
+                t.fireTimer = 0;
                 this.spawnFloatText(t.col * this.CELL + this.CELL / 2, t.row * this.CELL, '\u26A1 SPEED!', '#38bdf8');
             }
             this.spawnFloatText(lx, ly, '\u26A1 Energy!', loot.color);
         }
         else if (type === 'hpup') {
-            // HP UP: +30% maxHP + hồi đầy — tháp ngẫu nhiên
+            // HP UP: +30% maxHP + hồi đầy — có thời hạn 20s, không cộng dồn
             const t = this.towers[Math.floor(Math.random() * this.towers.length)];
             if (t) {
-                const oldMax = t.maxHp;
-                const newMax = Math.floor(oldMax * 1.3);
-                t.maxHp = newMax;
-                t.hp = newMax; // hồi đầy
+                if (!t._hpUpBuffTimer || t._hpUpBuffTimer <= 0) {
+                    t._hpUpOrigMax = t.maxHp;
+                    t.maxHp = Math.floor(t.maxHp * 1.3);
+                }
+                t.hp = t.maxHp;
                 t._hpUpBuff = true;
+                t._hpUpBuffTimer = 20000;
                 this.spawnFloatText(t.col * this.CELL + this.CELL / 2, t.row * this.CELL, '+30% MAX HP!', '#22c55e');
             }
             this.spawnFloatText(lx, ly, 'HP UP!', loot.color);
         }
         else if (type === 'x2') {
-            // x2: Nhân đôi sát thương — tháp tấn công ngẫu nhiên
+            // x2: Nhân đôi sát thương — có thời hạn 15s, không cộng dồn với x3
             const attackers = this.towers.filter(t => !t.noAttack && !t.isMine && !t.isUmbrella && !t.isMagnet && !t.isGarlic);
             if (attackers.length > 0) {
                 const t = attackers[Math.floor(Math.random() * attackers.length)];
-                t._dmgMult = (t._dmgMult || 1) * 2;
+                const cm = t._dmgMult || 1;
+                if (cm <= 2) { // chỉ áp dụng nếu chưa có x3
+                    t._dmgMult = 2;
+                    t._dmgBuffTimer = 15000;
+                }
                 this.spawnFloatText(t.col * this.CELL + this.CELL / 2, t.row * this.CELL, 'x2 DMG!', '#eab308');
             }
             this.spawnFloatText(lx, ly, 'x2 Damage!', loot.color);
         }
         else if (type === 'x3') {
-            // x3: Nhân ba sát thương — tháp tấn công ngẫu nhiên
+            // x3: Nhân ba sát thương — có thời hạn 12s, luôn thay thế x2
             const attackers = this.towers.filter(t => !t.noAttack && !t.isMine && !t.isUmbrella && !t.isMagnet && !t.isGarlic);
             if (attackers.length > 0) {
                 const t = attackers[Math.floor(Math.random() * attackers.length)];
-                t._dmgMult = (t._dmgMult || 1) * 3;
+                t._dmgMult = 3;
+                t._dmgBuffTimer = 12000;
                 this.spawnFloatText(t.col * this.CELL + this.CELL / 2, t.row * this.CELL, 'x3 DMG!!', '#dc2626');
             }
             this.spawnFloatText(lx, ly, 'x3 Damage!', loot.color);
+        }
+    }
+    updateBuffs(dt) {
+        for (const t of this.towers) {
+            // Speed buff (Energy) — hết hạn thì phục hồi rate gốc
+            if (t._speedBuffTimer > 0) {
+                t._speedBuffTimer -= dt;
+                if (t._speedBuffTimer <= 0) {
+                    t._speedBuffTimer = 0;
+                    if (t._speedBuffOrigRate != null) { t.rate = t._speedBuffOrigRate; delete t._speedBuffOrigRate; }
+                }
+            }
+            // HP UP buff — hết hạn thì phục hồi maxHP gốc
+            if (t._hpUpBuffTimer > 0) {
+                t._hpUpBuffTimer -= dt;
+                if (t._hpUpBuffTimer <= 0) {
+                    t._hpUpBuffTimer = 0;
+                    t._hpUpBuff = false;
+                    if (t._hpUpOrigMax != null) {
+                        t.maxHp = t._hpUpOrigMax;
+                        if (t.hp > t.maxHp) t.hp = t.maxHp;
+                        delete t._hpUpOrigMax;
+                    }
+                }
+            }
+            // Damage buff (x2/x3) — hết hạn thì xóa multiplier
+            if (t._dmgBuffTimer > 0) {
+                t._dmgBuffTimer -= dt;
+                if (t._dmgBuffTimer <= 0) {
+                    t._dmgBuffTimer = 0;
+                    delete t._dmgMult;
+                }
+            }
         }
     }
     renderInventory() {
@@ -18842,10 +18886,10 @@ class KanjiDefenseGame {
         if (this.wavePause > 0) {
             this.wavePause -= dt;
             if (this.wavePause <= 0) this.startWave();
-            this.updateTowers(dt); this.updateProjectiles(dt); this.updateLoot(dt); this.updateParticles(dt); return;
+            this.updateBuffs(dt); this.updateTowers(dt); this.updateProjectiles(dt); this.updateLoot(dt); this.updateParticles(dt); return;
         }
         if (this.waveQueue.length > 0) { this.spawnTimer -= dt; if (this.spawnTimer <= 0) { this.spawnNextZombie(); this.spawnTimer = this.spawnInterval; } }
-        this.updateTowers(dt); this.updateProjectiles(dt); this.updateZombies(dt); this.updateLoot(dt); this.updateParticles(dt);
+        this.updateBuffs(dt); this.updateTowers(dt); this.updateProjectiles(dt); this.updateZombies(dt); this.updateLoot(dt); this.updateParticles(dt);
         // === BOBSLED TEAM: spawn on ice trail ===
         this.bobsledSpawnTimer = Math.max(0, (this.bobsledSpawnTimer || 0) - dt);
         if (this.bobsledSpawnTimer <= 0 && this.wave >= 1) {
@@ -20251,20 +20295,6 @@ class KanjiDefenseGame {
                 ctx.globalAlpha = 1;
             }
             ctx.font = Math.floor(C*0.65) + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            // HP UP label
-            if (t._hpUpBuff) {
-                ctx.font = 'bold ' + Math.floor(C * 0.2) + 'px sans-serif';
-                ctx.fillStyle = '#4ade80';
-                ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-                ctx.fillText('HP+', tx + 2, ty + C - 2);
-            }
-            // Dmg mult label above tower (no glow)
-            if (t._dmgMult && t._dmgMult > 1) {
-                ctx.font = 'bold ' + Math.floor(C * 0.22) + 'px sans-serif';
-                ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-                ctx.fillStyle = t._dmgMult >= 3 ? '#fca5a5' : '#fde68a';
-                ctx.fillText('x' + t._dmgMult, tx + C/2, ty - 2);
-            }
             // Umbrella Leaf active effect: to + glow + rung
             if (t._umbrellaActive > 0) {
                 const _uaProg = t._umbrellaActive / 600;
