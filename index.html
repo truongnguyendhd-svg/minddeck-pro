@@ -20530,32 +20530,60 @@ class KanjiDefenseGame {
             }
             // HP bar: an
         }
-        // Pogo custom render (kangaroo 🦘 + zombie 👻 bouncing)
+        // Pogo custom render (zombie 👻 + pogo stick lò xo kim loại)
         for (const z of this.zombies) {
             if (z.dead || z.type !== 'pogo') continue;
             const cx = z.x * this.CELL, cy = (z.row + 0.5) * this.CELL;
-            const bounceY = Math.abs(Math.sin(z.pogoBouncePhase || 0)) * this.CELL * 0.2;
-            // Khi đang nhảy qua chướng ngại, nhảy cao hơn gấp đôi
-            const jumpBoost = (z._pogoJumping > 0) ? this.CELL * 0.35 : 0;
+            const C = this.CELL;
+            const bounceY = Math.abs(Math.sin(z.pogoBouncePhase || 0)) * C * 0.2;
+            const jumpBoost = (z._pogoJumping > 0) ? C * 0.35 : 0;
             const jumpCy = cy - bounceY - jumpBoost;
-            // Shadow dưới đất (lớn hơn khi nhảy cao)
-            const shadowAlpha = Math.min(0.25, 0.08 + jumpBoost / (this.CELL * 2));
+            // Shadow dưới đất
+            const shadowAlpha = Math.min(0.25, 0.08 + jumpBoost / (C * 2));
             ctx.fillStyle = 'rgba(0,0,0,' + shadowAlpha + ')';
             ctx.beginPath();
-            ctx.ellipse(cx, cy + this.CELL * 0.35, this.CELL * 0.3 + jumpBoost * 0.3, this.CELL * 0.06, 0, 0, Math.PI * 2);
+            ctx.ellipse(cx, cy + C * 0.35, C * 0.2 + jumpBoost * 0.25, C * 0.05, 0, 0, Math.PI * 2);
             ctx.fill();
-            // Kangaroo to bên dưới
-            const kangSize = this.CELL * 0.85;
-            _renderEmoji('\ud83e\udd98', cx, jumpCy + this.CELL * 0.12, kangSize);
-            // Zombie nhỏ ngồi trên kangaroo
-            const zomSize = this.CELL * 0.35;
-            _renderEmoji('\ud83d\udc7b', cx, jumpCy - this.CELL * 0.32, zomSize);
-            // ⬆ indicator khi airborne
-            if (z._pogoAirborne) {
-                ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#f97316';
-                ctx.fillText('\u2b06', cx + this.CELL * 0.4, jumpCy - this.CELL * 0.55);
+            // === Pogo stick lò xo kim loại ===
+            const footY = cy + C * 0.33;
+            const ghostBotY = jumpCy + C * 0.25;
+            const springH = footY - ghostBotY;
+            if (springH > C * 0.05) {
+                const railColor = '#a8a29e';
+                const coilColor = '#78716c';
+                ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                // Trục trung tâm (shaft)
+                ctx.strokeStyle = '#6b7280'; ctx.lineWidth = Math.max(2, C * 0.035);
+                ctx.beginPath(); ctx.moveTo(cx, ghostBotY); ctx.lineTo(cx, footY); ctx.stroke();
+                // Lò xo zigzag quanh trục
+                const coils = 6;
+                const baseCoilW = C * 0.11;
+                // Rộng hơn khi nén, hẹp hơn khi kéo dài
+                const naturalH = C * 0.4;
+                const ratio = Math.max(0.3, springH / naturalH);
+                const coilW = baseCoilW * Math.min(1.6, 1 / Math.sqrt(ratio));
+                const sTopY = ghostBotY + springH * 0.12;
+                const sBotY = footY - C * 0.03;
+                const sH = sBotY - sTopY;
+                const segH = sH / (coils * 2);
+                ctx.strokeStyle = coilColor; ctx.lineWidth = Math.max(1.5, C * 0.03);
+                ctx.beginPath(); ctx.moveTo(cx, sTopY);
+                for (let i = 0; i < coils * 2; i++) {
+                    const yy = sTopY + segH * (i + 1);
+                    const xx = (i % 2 === 0) ? cx + coilW : cx - coilW;
+                    ctx.lineTo(xx, yy);
+                }
+                ctx.lineTo(cx, sBotY); ctx.stroke();
+                // Đế kim loại (foot plate)
+                const pw = C * 0.18, ph = Math.max(2, C * 0.04);
+                ctx.fillStyle = '#6b7280';
+                ctx.beginPath(); ctx.roundRect(cx - pw, footY - ph / 2, pw * 2, ph, ph / 2); ctx.fill();
             }
-
+            // Zombie 👻 đứng trên lò xo
+            const ghostSize = C * 0.58;
+            ctx.font = ghostSize + 'px serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('\ud83d\udc7b', cx, jumpCy);
         }
         // Bobsled custom render (2 sleds + 4 zombies)
         for (const z of this.zombies) {
