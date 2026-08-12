@@ -17734,22 +17734,22 @@ async function startKanjiDefense() {
     const canvas = document.getElementById('kdGameCanvas');
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     const rect = canvasWrap.getBoundingClientRect();
-    const cellSize = Math.floor(Math.min(Math.floor(rect.width) / KD_COLS, Math.floor(rect.height) / KD_ROWS));
+    const cellSize = Math.floor(Math.min(Math.floor(rect.width) / KD_COLS, Math.floor(rect.height) / (KD_ROWS + 1)));
     const dpr = window.devicePixelRatio || 1;
-    const logicalW = cellSize * KD_COLS, logicalH = cellSize * KD_ROWS;
+    const logicalW = cellSize * KD_COLS, logicalH = cellSize * (KD_ROWS + 1);
     canvas.width = logicalW * dpr;
     canvas.height = logicalH * dpr;
     canvas.style.width = logicalW + 'px';
     canvas.style.height = logicalH + 'px';
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, cellSize * KD_COLS, cellSize * KD_ROWS);
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, cellSize * KD_COLS, cellSize * (KD_ROWS + 1));
     ctx.fillStyle = '#94a3b8'; ctx.font = '16px Noto Sans JP'; ctx.textAlign = 'center';
-    ctx.fillText('Dang tai tu vung...', cellSize * KD_COLS / 2, cellSize * KD_ROWS / 2);
+    ctx.fillText('Dang tai tu vung...', cellSize * KD_COLS / 2, cellSize * (KD_ROWS + 1) / 2);
     try {
         const words = await fetchUserVocabForGame();
         if (!words || words.length < 4) { alert('Ban can it nhat 4 tu vung de choi. Hay them tu vung truoc!'); exitKanjiDefense(); return; }
-        const logicalW = cellSize * KD_COLS, logicalH = cellSize * KD_ROWS;
+        const logicalW = cellSize * KD_COLS, logicalH = cellSize * (KD_ROWS + 1);
         kdGame = new KanjiDefenseGame(words, canvas, ctx, cellSize, logicalW, logicalH); window._kdGame = kdGame;
         /* === KD RESIZE: bắt đầu theo dõi thay đổi kích thước === */
         kdGame._startResizeWatch();
@@ -17798,6 +17798,7 @@ class KanjiDefenseGame {
     constructor(words, canvas, ctx, cellSize, cw, ch, level) {
         this.words = words; this.canvas = canvas; this.ctx = ctx;
         this.CELL = cellSize; this.W = cw; this.H = ch;
+        this.ROW_OFF = cellSize; this.GRID_H = cellSize * KD_ROWS;
         this.level = level || 'N5';
         this.grid = Array.from({length:KD_ROWS}, () => Array(KD_COLS).fill(null));
         this.towers = []; this.zombies = []; this.projectiles = [];
@@ -17831,7 +17832,7 @@ class KanjiDefenseGame {
             if (e.touches) { cx = e.touches[0].clientX; cy = e.touches[0].clientY; }
             else { cx = e.clientX; cy = e.clientY; }
             const col = Math.floor((cx - r.left) * sx / this.CELL);
-            const row = Math.floor((cy - r.top) * sy / this.CELL);
+            const row = Math.floor((cy - r.top) * sy / this.CELL) - 1;
             if (row < 0 || row >= KD_ROWS || col < 0 || col >= KD_COLS) { this.deselectTower(); return; }
             if (this.grid[row][col]) {
                 this.selectTower(row, col);
@@ -17883,11 +17884,11 @@ class KanjiDefenseGame {
         const rect = canvasWrap.getBoundingClientRect();
         const newCellSize = Math.max(16, Math.floor(Math.min(
             Math.floor(rect.width) / KD_COLS,
-            Math.floor(rect.height) / KD_ROWS
+            Math.floor(rect.height) / (KD_ROWS + 1)
         )));
         const dpr = window.devicePixelRatio || 1;
         const newW = newCellSize * KD_COLS;
-        const newH = newCellSize * KD_ROWS;
+        const newH = newCellSize * (KD_ROWS + 1);
         this.canvas.width = newW * dpr;
         this.canvas.height = newH * dpr;
         this.canvas.style.width = newW + 'px';
@@ -17896,6 +17897,8 @@ class KanjiDefenseGame {
         this.CELL = newCellSize;
         this.W = newW;
         this.H = newH;
+        this.ROW_OFF = newCellSize;
+        this.GRID_H = newCellSize * KD_ROWS;
         if (this.state !== 'playing') this.render();
     }
     destroy() {
@@ -20249,13 +20252,16 @@ class KanjiDefenseGame {
         }
         ctx.clearRect(0, 0, this.W, this.H);
         ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, this.W, this.H);
+        // === Translate game grid xuống 1 hàng (hàng ẩn phía trên) ===
+        ctx.save();
+        ctx.translate(0, this.ROW_OFF);
         for (let r = 0; r < KD_ROWS; r++) for (let c = 0; c < KD_COLS; c++) {
             ctx.fillStyle = (r + c) % 2 === 0 ? '#141e33' : '#1a2744';
             ctx.fillRect(c * C, r * C, C, C);
         }
         ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
         for (let r = 0; r <= KD_ROWS; r++) { ctx.beginPath(); ctx.moveTo(0, r*C); ctx.lineTo(this.W, r*C); ctx.stroke(); }
-        for (let c = 0; c <= KD_COLS; c++) { ctx.beginPath(); ctx.moveTo(c*C, 0); ctx.lineTo(c*C, this.H); ctx.stroke(); }
+        for (let c = 0; c <= KD_COLS; c++) { ctx.beginPath(); ctx.moveTo(c*C, 0); ctx.lineTo(c*C, this.GRID_H); ctx.stroke(); }
         // Ice trail from Zamboni — render on empty cells only, add subtle ice indicator on tower cells
         ctx.save();
         for (const key in this.iceTiles) {
@@ -21031,18 +21037,19 @@ class KanjiDefenseGame {
             }
             ctx.globalAlpha = 1;
         }
+        ctx.restore(); // === Kết thúc translate game grid ===
         // Wave announce
         if (this.waveAnnounceTimer > 0) {
             ctx.globalAlpha = Math.min(1, this.waveAnnounceTimer/500);
-            ctx.fillStyle = 'rgba(15,23,42,0.7)'; ctx.fillRect(0, this.H/2-25, this.W, 50);
+            ctx.fillStyle = 'rgba(15,23,42,0.7)'; ctx.fillRect(0, this.ROW_OFF + this.GRID_H/2-25, this.W, 50);
             ctx.fillStyle = '#f1f5f9'; ctx.font = 'bold 20px Noto Sans JP'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(this.waveAnnounce, this.W/2, this.H/2);
+            ctx.fillText(this.waveAnnounce, this.W/2, this.ROW_OFF + this.GRID_H/2);
             ctx.globalAlpha = 1;
         }
         // Left edge danger
         const grad = ctx.createLinearGradient(0, 0, C*0.5, 0);
         grad.addColorStop(0, 'rgba(239,68,68,0.1)'); grad.addColorStop(1, 'rgba(239,68,68,0)');
-        ctx.fillStyle = grad; ctx.fillRect(0, 0, C*0.5, this.H);
+        ctx.fillStyle = grad; ctx.fillRect(0, this.ROW_OFF, C*0.5, this.GRID_H);
         // Screen flash (Electric Crystal)
         if (this._screenFlash > 0) {
             ctx.globalAlpha = (this._screenFlash / 150) * 0.35;
