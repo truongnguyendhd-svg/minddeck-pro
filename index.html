@@ -7491,12 +7491,6 @@ body.modal-open-lock #scrollToTopBtn {
     visibility: hidden !important;
     pointer-events: none !important;
 }
-.kd-game-wrapper.kd-active ~ #scrollToTopBtn,
-body:has(.kd-game-wrapper.kd-active) #scrollToTopBtn {
-    opacity: 0 !important;
-    visibility: hidden !important;
-    pointer-events: none !important;
-}
 
 /* ================= HIỆU ỨNG PHÁT SÁNG NHẤP NHÁY KHI THẺ ĐẾN HẠN ================= */
 .due-pulse-red {
@@ -8173,6 +8167,7 @@ body:has(.kd-game-wrapper.kd-active) #scrollToTopBtn {
         grid-template-columns: 1fr 1fr;
         gap: 10px;
         padding: 0 !important;
+        flex: 1;
         min-height: 0;
     }
     .kd-game-wrapper.kd-active > .kd-prompt-answers .kd-ans-btn {
@@ -17660,9 +17655,11 @@ const KD_ZOMBIE_TYPES = {
     ladder:     { hp:1000, speed:0.21, size:1.0,  color:'#f97316', emoji:'\ud83d\udc7b', hat:'\ud83e\udea9', hatPos:'ladderFront', dps:100, atkRate:800, waveMin:8, isLadder:true, ladderHp:500, ladderSpeedMult:2.0, normalSpeed:0.21 }
 };
 const KD_LOOT_TABLE = [
-    { type:'heart',   weight:35, pts:0,   color:'#ef4444', label:'\u2764' },
-    { type:'energy',  weight:35, pts:0,   color:'#38bdf8', label:'\u26A1' },
-    { type:'upgrade', weight:30, pts:0,   color:'#a78bfa', label:'\u2B06' }
+    { type:'heart',  weight:20, color:'#ef4444', label:'❤' },
+    { type:'energy', weight:25, color:'#38bdf8', label:'⚡' },
+    { type:'hpup',   weight:20, color:'#22c55e', label:'HP' },
+    { type:'x2',     weight:20, color:'#f59e0b', label:'x2' },
+    { type:'x3',     weight:15, color:'#ef4444', label:'x3' }
 ];
 const KD_ROWS = 5, KD_COLS = 9, KD_MAX_WAVES = 44;
 
@@ -18583,12 +18580,37 @@ class KanjiDefenseGame {
     }
     collectLoot(loot) {
         if (loot.collected) return; loot.collected = true;
-        if (loot.type === 'heart' || loot.type === 'energy' || loot.type === 'upgrade') {
-            this.inventory[loot.type] = (this.inventory[loot.type] || 0) + 1;
-            this.spawnFloatText(loot.x * this.CELL, loot.y * this.CELL - 10, '+1 ' + loot.label, loot.color);
-            this.renderInventory();
+        // Filter valid targets: alive towers only (skip instant/noAttack towers)
+        const targets = this.towers.filter(t => t.hp > 0 && !t.noAttack);
+        if (!targets.length) { this.updateHUD(); return; }
+        let tower;
+        if (loot.type === 'heart') {
+            // Uu tien cay bi mat mau nhat (hp/maxHp thap nhat)
+            targets.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+            tower = targets[0];
+            const heal = Math.floor(tower.maxHp * 0.5);
+            tower.hp = Math.min(tower.maxHp, tower.hp + heal);
+            this.spawnFloatText(tower.col * this.CELL + this.CELL/2, tower.row * this.CELL, '+' + heal + ' HP', loot.color);
+        } else {
+            // Chon thap ngau nhien (uu tien thap co tan cong)
+            const atkTowers = targets.filter(t => !t.noAttack && !t.isMine && !t.isGarlic && !t.isUmbrella && !t.isMagnet);
+            tower = (atkTowers.length ? atkTowers : targets)[Math.floor(Math.random() * (atkTowers.length || targets.length))];
+            if (loot.type === 'energy') {
+                tower.rate = Math.max(200, Math.floor(tower.rate * 0.75));
+                this.spawnFloatText(tower.col * this.CELL + this.CELL/2, tower.row * this.CELL, 'SPEED UP!', loot.color);
+            } else if (loot.type === 'hpup') {
+                const bonus = Math.floor(tower.maxHp * 0.3);
+                tower.maxHp += bonus; tower.hp += bonus;
+                this.spawnFloatText(tower.col * this.CELL + this.CELL/2, tower.row * this.CELL, '+HP UP!', loot.color);
+            } else if (loot.type === 'x2') {
+                tower.dmg *= 2;
+                this.spawnFloatText(tower.col * this.CELL + this.CELL/2, tower.row * this.CELL, 'x2 DMG!', loot.color);
+            } else if (loot.type === 'x3') {
+                tower.dmg *= 3;
+                this.spawnFloatText(tower.col * this.CELL + this.CELL/2, tower.row * this.CELL, 'x3 DMG!', loot.color);
+            }
         }
-        this.updateHUD(); this.updateShopState();
+        this.updateHUD();
     }
     renderInventory() {
         const hasTower = !!this.selectedTower;
@@ -18673,22 +18695,7 @@ class KanjiDefenseGame {
         this.spawnFloatText(t.col * this.CELL + this.CELL/2, t.row * this.CELL, 'UP!', '#a78bfa');
         this.selectTower(t.row, t.col); this.updateHUD(); this.updateShopState();
     }
-    applyItemToTower(itemKey) {
-        const t = this.selectedTower; if (!t) return;
-        if (!itemKey || this.inventory[itemKey] <= 0) return;
-        this.inventory[itemKey]--;
-        if (itemKey === 'heart') {
-            t.hp = Math.min(t.maxHp, t.hp + Math.floor(t.maxHp * 0.5));
-            this.spawnFloatText(t.col * this.CELL + this.CELL/2, t.row * this.CELL, '+HP', '#ef4444');
-        } else if (itemKey === 'energy') {
-            t.fireTimer = 0;
-            this.spawnFloatText(t.col * this.CELL + this.CELL/2, t.row * this.CELL, 'SPEED!', '#38bdf8');
-        } else if (itemKey === 'upgrade') {
-            t.dmg = Math.floor(t.dmg * 1.15); t.range += 0.1;
-            this.spawnFloatText(t.col * this.CELL + this.CELL/2, t.row * this.CELL, 'BOOST!', '#a78bfa');
-        }
-        this.renderInventory(); this.selectTower(t.row, t.col);
-    }
+
     spawnFloatText(x, y, text, color) { this.particles.push({ x, y, text, color, life: 1000, maxLife: 1000 }); }
     _bobsledDismount(bobsledZ) {
         // Spawn 4 walking zombies when bobsled is destroyed or reaches end of ice
@@ -20788,7 +20795,9 @@ class KanjiDefenseGame {
             ctx.globalAlpha = alpha;
             ctx.fillStyle = l.color + '33'; ctx.beginPath(); ctx.arc(l.x*C, l.y*C+fo, 12, 0, Math.PI*2); ctx.fill();
             ctx.fillStyle = l.color; ctx.beginPath(); ctx.arc(l.x*C, l.y*C+fo, 8, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = '#0f172a'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            const isTxt = l.label.length > 1;
+            ctx.font = isTxt ? 'bold 8px sans-serif' : 'bold 10px sans-serif';
             ctx.fillText(l.label, l.x*C, l.y*C+fo);
             ctx.globalAlpha = 1;
         }
@@ -37197,9 +37206,8 @@ window.addEventListener('scroll', () => {
     // Ẩn nút ở chế độ học hoặc chế độ đọc PDF để tránh che khuất giao diện
     const isStudyMode = document.body.classList.contains('study-mode');
     const isPdfMode = document.body.classList.contains('pdf-mode');
-    const isGameActive = document.querySelector('.kd-game-wrapper.kd-active');
 
-    if (window.scrollY > 300 && !isStudyMode && !isPdfMode && !isGameActive) {
+    if (window.scrollY > 300 && !isStudyMode && !isPdfMode) {
         btn.style.opacity = '1';
         btn.style.visibility = 'visible';
     } else {
