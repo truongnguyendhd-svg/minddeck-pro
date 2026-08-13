@@ -3921,6 +3921,37 @@ body.pdf-mode #pdfReadState {
 .fill-n2 { background: linear-gradient(90deg, #93c5fd, #3b82f6); } /* Xanh dương */
 .fill-n1 { background: linear-gradient(90deg, #fca5a5, #ef4444); } /* Đỏ */
 
+/* ================= CSS COIN SYSTEM ================= */
+.coin-balance-display {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 1.5px solid #f59e0b; border-radius: 50px;
+    padding: 6px 14px 6px 10px; font-weight: 800; font-size: 14px;
+    color: #92400e; box-shadow: 0 2px 8px rgba(245,158,11,0.2);
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: default; user-select: none;
+}
+.coin-balance-display:hover { transform: scale(1.05); box-shadow: 0 4px 12px rgba(245,158,11,0.3); }
+.coin-balance-display .coin-icon { font-size: 18px; }
+.coin-balance-display .coin-amount { min-width: 20px; text-align: right; }
+.coin-earn-float {
+    position: fixed; z-index: 99999; pointer-events: none;
+    font-weight: 900; font-size: 20px; color: #059669;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    animation: coinFloatUp 1.2s ease-out forwards;
+}
+@keyframes coinFloatUp {
+    0% { opacity: 1; transform: translateY(0) scale(1); }
+    100% { opacity: 0; transform: translateY(-60px) scale(0.8); }
+}
+.kd-coin-info {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(254,243,199,0.15); border: 1px solid rgba(245,158,11,0.3);
+    border-radius: 10px; padding: 8px 14px; margin-bottom: 16px;
+    font-size: 13px; color: #fbbf24; font-weight: 700;
+}
+.kd-coin-info .coin-big { font-size: 22px; font-weight: 900; color: #fde68a; }
+
 /* ================= CSS CHO GAMIFIED SRS ================= */
 /* Khung hiển thị điểm vi phạm (Penalty) */
 .penalty-tracker {
@@ -9416,7 +9447,7 @@ body:has(.kd-game-wrapper.kd-active) #scrollToTopBtn {
             </div>
 
             <!-- GAME 2: KANJI DEFENSE -->
-            <div class="pg-game-card" onclick="">
+            <div class="pg-game-card" onclick="" style="position:relative;">
                 <div class="pg-game-card-banner defense-banner">
                     <span class="defense-bg-char">防</span>
                     <span class="defense-bg-char">衛</span>
@@ -9446,10 +9477,13 @@ body:has(.kd-game-wrapper.kd-active) #scrollToTopBtn {
                             <span class="material-symbols-outlined" style="font-size:14px;">psychology</span> SRS tích hợp
                         </span>
                     </div>
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;">
                     <button class="pg-game-play-btn" onclick="event.stopPropagation(); openKanjiDefenseSetup();">
                         <span class="material-symbols-outlined" style="font-size:20px;">play_arrow</span>
                         Chơi ngay
                     </button>
+                    <div class="coin-balance-display" id="kdCoinDisplay"><span class="coin-icon">💰</span><span class="coin-amount">0</span></div>
+                    </div>
                 </div>
             </div>
             </div>
@@ -11922,7 +11956,8 @@ async function loadDashboardData() {
         
         await Promise.all([
             renderJLPTProgress(),
-            renderRoadmapWidget()
+            renderRoadmapWidget(),
+            CoinSystem.load()
         ]);
     } catch (err) {
         console.error("Lỗi Siêu đồng bộ Dashboard:", err);
@@ -13279,6 +13314,246 @@ function renderStudy() {
 
 // Khay nhớ đệm toàn cục của Kanji
 window.kanjiDetailCache = window.kanjiDetailCache || {};
+
+// =========================================================================
+// 💰 COIN SYSTEM — Học → Tích lũy → Dùng trong Kanji Defense
+// =========================================================================
+window.CoinSystem = (() => {
+    const DAILY_CAP = 500;
+    const STREAK_BONUS = 30;
+    const PENDING_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 giờ
+
+    let _balance = 0;
+    let _dailyEarned = 0;
+    let _loaded = false;
+    let _pendingGame = null; // { balance, timestamp }
+
+    // --- Local Storage Helpers ---
+    const LS_BALANCE = (uid) => `coin_balance_${uid}`;
+    const LS_DAILY = (uid) => `coin_daily_${uid}`;
+    const LS_PENDING = (uid) => `coin_pending_game_${uid}`;
+    const LS_STREAK = (uid) => `coin_streak_${uid}`;
+
+    function _todayStr() { return new Date().toISOString().slice(0, 10); }
+    function _uid() { return currentUser ? currentUser.id : null; }
+
+    // --- Internal: Record a transaction to Supabase (fire-and-forget) ---
+    function _recordTransaction(amount, source, referenceId, description) {
+        const uid = _uid(); if (!uid) return;
+        sb.from('coin_transactions').insert({
+            user_id: uid, amount, source,
+            reference_id: referenceId || null,
+            description: description || source
+        }).then(() => {}).catch(e => console.warn('Coin tx log failed:', e));
+    }
+
+    // --- Internal: Sync balance to Supabase ---
+    function _syncToServer() {
+        const uid = _uid(); if (!uid) return;
+        sb.from('user_coin_balance').upsert({
+            user_id: uid, balance: _balance
+        }, { onConflict: 'user_id' }).then(() => {}).catch(e => console.warn('Coin balance sync failed:', e));
+    }
+
+    // --- Internal: Update daily earnings in Supabase ---
+    function _syncDailyEarned() {
+        const uid = _uid(); if (!uid) return;
+        const today = _todayStr();
+        sb.from('daily_earnings').upsert({
+            user_id: uid, date: today, earned: _dailyEarned
+        }, { onConflict: 'user_id,date' }).then(() => {}).catch(e => console.warn('Daily earnings sync failed:', e));
+    }
+
+    // --- Load balance from Supabase + localStorage fallback ---
+    async function load() {
+        const uid = _uid(); if (!uid) return;
+        try {
+            const { data } = await sb.from('user_coin_balance').select('balance').eq('user_id', uid).single();
+            if (data && typeof data.balance === 'number') {
+                _balance = data.balance;
+            } else {
+                // Fallback to localStorage
+                const ls = localStorage.getItem(LS_BALANCE(uid));
+                _balance = ls ? parseInt(ls, 10) || 0 : 0;
+                _syncToServer(); // push to server
+            }
+        } catch (e) {
+            const ls = localStorage.getItem(LS_BALANCE(uid));
+            _balance = ls ? parseInt(ls, 10) || 0 : 0;
+        }
+        localStorage.setItem(LS_BALANCE(uid), _balance);
+
+        // Load daily earned
+        const today = _todayStr();
+        const lsDaily = localStorage.getItem(LS_DAILY(uid));
+        if (lsDaily) {
+            const parsed = JSON.parse(lsDaily);
+            if (parsed.date === today) {
+                _dailyEarned = parsed.earned || 0;
+            } else {
+                _dailyEarned = 0;
+                localStorage.setItem(LS_DAILY(uid), JSON.stringify({ date: today, earned: 0 }));
+            }
+        }
+
+        // Load pending game snapshot
+        const lsPending = localStorage.getItem(LS_PENDING(uid));
+        if (lsPending) {
+            try {
+                _pendingGame = JSON.parse(lsPending);
+                // Check timeout
+                if (Date.now() - _pendingGame.timestamp > PENDING_TIMEOUT_MS) {
+                    _pendingGame = null;
+                    localStorage.removeItem(LS_PENDING(uid));
+                }
+            } catch (e) {
+                _pendingGame = null;
+            }
+        }
+
+        _loaded = true;
+        _renderUI();
+        console.log(`[Coin] Loaded: balance=${_balance}, dailyEarned=${_dailyEarned}, pending=${_pendingGame ? _pendingGame.balance : 'none'}`);
+    }
+
+    // --- Core: Add coins (with daily cap check) ---
+    function addCoins(amount, source, referenceId, description, bypassCap) {
+        if (!currentUser) return 0;
+        if (!_loaded) return 0;
+        if (amount <= 0) return 0;
+
+        let actual = amount;
+        if (!bypassCap) {
+            const remaining = DAILY_CAP - _dailyEarned;
+            if (remaining <= 0) return 0; // Cap reached
+            actual = Math.min(amount, remaining);
+        }
+
+        _balance += actual;
+        _dailyEarned += actual;
+
+        // Persist
+        localStorage.setItem(LS_BALANCE(_uid()), _balance);
+        localStorage.setItem(LS_DAILY(_uid()), JSON.stringify({ date: _todayStr(), earned: _dailyEarned }));
+
+        // Background sync
+        _syncToServer();
+        _syncDailyEarned();
+        _recordTransaction(actual, source, referenceId, description);
+
+        _renderUI();
+        return actual;
+    }
+
+    // --- Get current balance ---
+    function getBalance() { return _balance; }
+    function getDailyEarned() { return _dailyEarned; }
+    function getDailyCap() { return DAILY_CAP; }
+    function isLoaded() { return _loaded; }
+
+    // --- Game: Snapshot balance before entering Kanji Defense ---
+    function snapshotForGame() {
+        if (!currentUser) return 0;
+        const bal = _balance;
+        _pendingGame = { balance: bal, timestamp: Date.now() };
+        localStorage.setItem(LS_PENDING(_uid()), JSON.stringify(_pendingGame));
+        console.log(`[Coin] Game snapshot: ${bal}`);
+        return bal;
+    }
+
+    // --- Game: Resolve after game over ---
+    function resolveAfterGame(remainingPoints) {
+        if (!currentUser) return;
+        const uid = _uid();
+
+        let spent = 0;
+        if (_pendingGame) {
+            spent = _pendingGame.balance - remainingPoints;
+            if (spent < 0) spent = 0; // earned more in-game (shouldn't happen much)
+        }
+
+        // Update balance to remaining
+        _balance = Math.max(0, remainingPoints);
+        localStorage.setItem(LS_BALANCE(uid), _balance);
+
+        // Clear pending
+        _pendingGame = null;
+        localStorage.removeItem(LS_PENDING(uid));
+
+        // Sync
+        _syncToServer();
+        _recordTransaction(-spent, 'kanji_defense', null, `Kanji Defense: đã dùng ${spent} 💰`);
+
+        _renderUI();
+        console.log(`[Coin] Game over: spent=${spent}, remaining=${_balance}`);
+        return { spent, remaining: _balance };
+    }
+
+    // --- Recover pending game (crash recovery) ---
+    function getPendingGame() { return _pendingGame; }
+    function clearPendingGame() {
+        _pendingGame = null;
+        if (_uid()) localStorage.removeItem(LS_PENDING(_uid()));
+    }
+
+    // --- Streak bonus ---
+    function checkAndAwardStreak() {
+        if (!currentUser) return 0;
+        const uid = _uid();
+        const today = _todayStr();
+        const lsStreak = localStorage.getItem(LS_STREAK(uid));
+        let streakData = lsStreak ? JSON.parse(lsStreak) : { lastDate: null, streak: 0 };
+
+        const last = streakData.lastDate;
+        const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+        let awarded = 0;
+        if (last === today) {
+            // Already awarded today
+        } else if (last === yesterdayStr) {
+            // Consecutive day!
+            streakData.streak = (streakData.streak || 0) + 1;
+            awarded = STREAK_BONUS;
+            addCoins(awarded, 'daily_streak', null, `Streak ${streakData.streak} ngày +${awarded} 💰`, true);
+            streakData.lastDate = today;
+        } else {
+            // Streak broken or first time
+            streakData.streak = 1;
+            streakData.lastDate = today;
+            // First day of streak: no bonus yet, bonus comes on 2nd consecutive day
+        }
+
+        localStorage.setItem(LS_STREAK(uid), JSON.stringify(streakData));
+        return awarded;
+    }
+
+    // --- UI Rendering ---
+    function _renderUI() {
+        // Update all coin displays on the page
+        document.querySelectorAll('.coin-amount').forEach(el => {
+            el.textContent = _balance;
+        });
+    }
+
+    // --- Float animation ---
+    function showEarnFloat(amount, x, y) {
+        const el = document.createElement('div');
+        el.className = 'coin-earn-float';
+        el.textContent = `+${amount} 💰`;
+        el.style.left = (x || window.innerWidth / 2) + 'px';
+        el.style.top = (y || window.innerHeight / 2) + 'px';
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 1300);
+    }
+
+    return {
+        load, addCoins, getBalance, getDailyEarned, getDailyCap, isLoaded,
+        snapshotForGame, resolveAfterGame, getPendingGame, clearPendingGame,
+        checkAndAwardStreak, showEarnFloat, DAILY_CAP, STREAK_BONUS
+    };
+})();
+
 
 /**
  * 1. Hàm nạp từ điển Kanji gốc và gộp mảng khử trùng lặp tĩnh
@@ -15523,6 +15798,13 @@ async function answerCurrent(q) {
     
     // Nhét thẻ vừa quẹt vào mảng chờ
     srsPendingQueue.push(payload);
+    // 💰 COIN: SRS review
+    if (window.CoinSystem && window.CoinSystem.isLoaded()) {
+        const isCorrect = q >= 3;
+        const coinAmt = isCorrect ? 2 : 0.5;
+        const earned = CoinSystem.addCoins(coinAmt, 'srs_review', c.front, `SRS ${isCorrect ? 'đúng' : 'sai'}: ${c.front}`);
+        if (earned > 0) CoinSystem.showEarnFloat(earned);
+    }
     // 🟢 LOCAL TRACKING: ghi nhận thẻ này đã được ôn
     if (currentDeckName && c.front) markCardStudied(currentDeckName, c.front);
     // Chỉ tự động gửi lên Cloud khi mảng chờ tích lũy đủ 15 thẻ
@@ -16255,6 +16537,11 @@ async function saveNewDeckFromModal() {
         }
 
         closeModal('createDeckModal');
+        // 💰 COIN: Tạo bộ bài mới
+        if (!isExisting && window.CoinSystem && window.CoinSystem.isLoaded()) {
+            const earned = CoinSystem.addCoins(3, 'new_deck', deckId, `Bộ bài mới: ${uniqueName}`);
+            if (earned > 0) CoinSystem.showEarnFloat(earned);
+        }
         showToast(isExisting ? `✏️ Đang bổ sung thẻ vào bộ bài: ${uniqueName}` : "🎉 Đã tạo học phần mới thành công!");
         
         // Huỷ mốc thời gian đồng bộ cũ
@@ -17205,6 +17492,11 @@ async function saveQuickEdit() {
         }
 
         closeModal('quickEditModal');
+        // 💰 COIN: Thêm thẻ mới
+        if (isQuickAddMode && window.CoinSystem && window.CoinSystem.isLoaded()) {
+            const earned = CoinSystem.addCoins(5, 'new_word', newFront, `Từ mới: ${newFront}`);
+            if (earned > 0) CoinSystem.showEarnFloat(earned);
+        }
         showToast("Đã đồng bộ thẻ thành công! ✨");
         
         // Nếu đang ở trang học thì cập nhật hiển thị thẻ hiện tại
@@ -17511,7 +17803,11 @@ function kdDeleteTower() {
     kdGame.removeTower();
 }
 function openKanjiDefenseSetup() {
-    const html = '<div id="kdSetupModal" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(15,23,42,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()"><div style="background:#1e293b;border-radius:20px;border:1px solid #334155;width:100%;max-width:400px;padding:28px 24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,0.5);"><div style="font-size:40px;margin-bottom:8px;">\u2694\uFE0F</div><h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#f1f5f9;">Kanji Defense</h2><p style="margin:0 0 6px;font-size:13px;color:#94a3b8;">Plants vs Zombies</p><p id="kdVocabCount" style="margin:0 0 20px;font-size:12px;color:#64748b;">Dang tai...</p><button class="kh-btn kh-btn-primary" style="width:100%;" onclick="document.getElementById(\'kdSetupModal\').remove();startKanjiDefense();"><span class="material-symbols-outlined">play_arrow</span> Bat dau</button><button style="margin-top:8px;background:none;border:none;color:#64748b;font-size:13px;cursor:pointer;padding:8px 16px;" onclick="document.getElementById(\'kdSetupModal\').remove()">Huy</button></div></div>';
+    const coinBal = window.CoinSystem ? CoinSystem.getBalance() : 0;
+    const pendingInfo = (window.CoinSystem && CoinSystem.getPendingGame()) 
+        ? `<p style="margin:0 0 4px;font-size:11px;color:#fbbf24;">⚠️ Đang có trận chưa kết thúc (khôi phục ${CoinSystem.getPendingGame().balance} 💰)</p>` 
+        : '';
+    const html = '<div id="kdSetupModal" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(15,23,42,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()"><div style="background:#1e293b;border-radius:20px;border:1px solid #334155;width:100%;max-width:400px;padding:28px 24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,0.5);"><div style="font-size:40px;margin-bottom:8px;">\u2694\uFE0F</div><h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#f1f5f9;">Kanji Defense</h2><p style="margin:0 0 6px;font-size:13px;color:#94a3b8;">Plants vs Zombies</p><div class="kd-coin-info"><span>💰 Số dư:</span><span class="coin-big">' + coinBal + '</span><span>💰</span></div>' + pendingInfo + '<p id="kdVocabCount" style="margin:0 0 20px;font-size:12px;color:#64748b;">Dang tai...</p><button class="kh-btn kh-btn-primary" style="width:100%;" onclick="document.getElementById(\'kdSetupModal\').remove();startKanjiDefense();"><span class="material-symbols-outlined">play_arrow</span> Bat dau</button><button style="margin-top:8px;background:none;border:none;color:#64748b;font-size:13px;cursor:pointer;padding:8px 16px;" onclick="document.getElementById(\'kdSetupModal\').remove()">Huy</button></div></div>';
     document.body.insertAdjacentHTML('beforeend', html);
     (async () => {
         try {
@@ -17582,6 +17878,10 @@ async function startKanjiDefense() {
         if (!words || words.length < 4) { alert('Ban can it nhat 4 tu vung de choi. Hay them tu vung truoc!'); exitKanjiDefense(); return; }
         const logicalW = cellSize * KD_COLS, logicalH = cellSize * (KD_ROWS + 1);
         kdGame = new KanjiDefenseGame(words, canvas, ctx, cellSize, logicalW, logicalH); window._kdGame = kdGame;
+        // 💰 COIN: Set starting points = accumulated coin balance
+        const startCoins = (window.CoinSystem && CoinSystem.isLoaded()) ? CoinSystem.snapshotForGame() : 0;
+        kdGame.points = startCoins;
+        kdGame.updateHUD();
         /* === KD RESIZE: bắt đầu theo dõi thay đổi kích thước === */
         kdGame._startResizeWatch();
         kdGame.buildShop();
@@ -17614,6 +17914,10 @@ function openZombieCodex() {
 }
 function kdQuitToGameOver() {
     if (!kdGame) return;
+    // 💰 COIN: Resolve balance on quit
+    if (window.CoinSystem && CoinSystem.isLoaded()) {
+        CoinSystem.resolveAfterGame(kdGame.points);
+    }
     if (kdAnimFrame) { cancelAnimationFrame(kdAnimFrame); kdAnimFrame = null; }
     kdGame.state = 'over';
     const correctWords = kdGame.accumulatedWords.filter(w => w.correct);
@@ -21030,6 +21334,8 @@ class KanjiDefenseGame {
 }
 
 function showKanjiDefenseGameOver(score, wave, maxCombo, kills, correctWords, wrongWords, victory) {
+    // 💰 COIN: Resolve balance after game
+    const coinResult = (window.CoinSystem && kdGame) ? CoinSystem.resolveAfterGame(kdGame.points) : { spent: 0, remaining: 0 };
     const overlay = document.getElementById('kdGameoverOverlay');
     const uc = correctWords.filter((w,i,a) => a.findIndex(x=>x.word===w.word)===i);
     const uw = wrongWords.filter((w,i,a) => a.findIndex(x=>x.word===w.word)===i);
@@ -21047,8 +21353,9 @@ function showKanjiDefenseGameOver(score, wave, maxCombo, kills, correctWords, wr
         });
     }
     if (!wordsHtml) wordsHtml = '<div style="text-align:center;padding:20px;color:#64748b;">Chua co tu nao.</div>';
+    const coinInfoHtml = (coinResult.spent > 0 || coinResult.remaining > 0) ? '<div class="kd-coin-info" style="margin:0 auto 16px;max-width:280px;">💰 Đã dùng:<span style="color:#fca5a5;font-weight:900;">'+coinResult.spent+'</span><span style="margin-left:12px;">Còn lại:</span><span class="coin-big">'+coinResult.remaining+'</span></div>' : '';
     const hasSrs = uc.length > 0;
-    overlay.innerHTML = '<div class="kh-gameover-card"><div class="kh-gameover-header"><h2 class="kd-gameover-title">'+(victory?'🏆 Chien thang!':'Game Over!')+'</h2><p class="kh-gameover-subtitle">Kanji Defense - Ket qua</p></div><div class="kh-gameover-stats"><div class="kh-stat-box"><div class="kd-stat-value pts-val">'+score+'</div><div class="kd-stat-label">Diem</div></div><div class="kd-stat-box"><div class="kd-stat-value wave-val">'+wave+'</div><div class="kd-stat-label">Wave</div></div><div class="kd-stat-box"><div class="kd-stat-value combo-val">x'+maxCombo+'</div><div class="kd-stat-label">Combo</div></div></div><div class="kh-gameover-words">'+wordsHtml+'</div><div class="kh-gameover-actions"><button class="kh-btn kh-btn-secondary" onclick="exitKanjiDefense()">Thoat</button>'+(hasSrs?'<button class="kh-btn kh-btn-primary" id="kdSrsBtn" onclick="kdSubmitSRS()" disabled>Cap nhat SRS (0)</button>':'')+'<button class="kh-btn kh-btn-primary" onclick="exitKanjiDefense();openKanjiDefenseSetup();">Choi lai</button></div></div>';
+    overlay.innerHTML = '<div class="kh-gameover-card"><div class="kh-gameover-header"><h2 class="kd-gameover-title">'+(victory?'🏆 Chien thang!':'Game Over!')+'</h2><p class="kh-gameover-subtitle">Kanji Defense - Ket qua</p></div><div class="kh-gameover-stats"><div class="kh-stat-box"><div class="kd-stat-value pts-val">'+score+'</div><div class="kd-stat-label">Diem</div></div><div class="kd-stat-box"><div class="kd-stat-value wave-val">'+wave+'</div><div class="kd-stat-label">Wave</div></div><div class="kd-stat-box"><div class="kd-stat-value combo-val">x'+maxCombo+'</div><div class="kd-stat-label">Combo</div></div>'+coinInfoHtml+'<div class="kh-gameover-words">'+wordsHtml+'</div><div class="kh-gameover-actions"><button class="kh-btn kh-btn-secondary" onclick="exitKanjiDefense()">Thoat</button>'+(hasSrs?'<button class="kh-btn kh-btn-primary" id="kdSrsBtn" onclick="kdSubmitSRS()" disabled>Cap nhat SRS (0)</button>':'')+'<button class="kh-btn kh-btn-primary" onclick="exitKanjiDefense();openKanjiDefenseSetup();">Choi lai</button></div></div>';
     overlay.style.display = 'flex';
 }
 
@@ -28611,6 +28918,17 @@ async function renderJLPTProgress() {
 
 // MÀN HÌNH TỔNG KẾT PHASE 2
 function endAssessmentSession() {
+    // 💰 COIN: Sát hạch hoàn thành
+    if (window.CoinSystem && window.CoinSystem.isLoaded() && boostState) {
+        const passed = boostState.passedCards ? boostState.passedCards.length : 0;
+        const total = sessionCards ? sessionCards.length : 0;
+        if (total > 0) {
+            const ratio = passed / total;
+            const coinAmt = Math.round(10 + ratio * 40); // 10~50 based on pass rate
+            const earned = CoinSystem.addCoins(coinAmt, 'assessment', null, `Sát hạch: ${passed}/${total} đúng → +${coinAmt} 💰`);
+            if (earned > 0) CoinSystem.showEarnFloat(earned);
+        }
+    }
     const boostArea = document.getElementById('boostArea');
     boostArea.classList.add('hidden');
     boostArea.style.display = '';
