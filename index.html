@@ -13364,22 +13364,25 @@ window.CoinSystem = (() => {
         }, { onConflict: 'user_id,date' }).then(() => {}).catch(e => console.warn('Daily earnings sync failed:', e));
     }
 
-    // --- Load balance from Supabase + localStorage fallback ---
+    // --- Load balance: localStorage first (same-device source of truth), then reconcile with server ---
     async function load() {
         const uid = _uid(); if (!uid) return;
+
+        // 1. Always read localStorage first — this is the most recent value for this device
+        const ls = localStorage.getItem(LS_BALANCE(uid));
+        _balance = ls ? parseInt(ls, 10) || 0 : 0;
+
+        // 2. Try server, but only adopt its value if it's HIGHER (earned on another device/tab)
         try {
             const { data } = await sb.from('user_coin_balance').select('balance').eq('user_id', uid).single();
-            if (data && typeof data.balance === 'number') {
+            if (data && typeof data.balance === 'number' && data.balance > _balance) {
                 _balance = data.balance;
-            } else {
-                // Fallback to localStorage
-                const ls = localStorage.getItem(LS_BALANCE(uid));
-                _balance = ls ? parseInt(ls, 10) || 0 : 0;
-                _syncToServer(); // push to server
             }
+            // If local is higher than server, push it up (handles stale server after resolveAfterGame)
+            if (_balance > 0) _syncToServer();
         } catch (e) {
-            const ls = localStorage.getItem(LS_BALANCE(uid));
-            _balance = ls ? parseInt(ls, 10) || 0 : 0;
+            // Server unavailable — keep local value, try to push later
+            if (_balance > 0) _syncToServer();
         }
         localStorage.setItem(LS_BALANCE(uid), _balance);
 
@@ -13463,14 +13466,18 @@ window.CoinSystem = (() => {
 
     // --- Game: Resolve after game over ---
     function resolveAfterGame(remainingPoints) {
-        if (!currentUser) return;
+        if (!currentUser) return { spent: 0, remaining: _balance };
         const uid = _uid();
 
-        let spent = 0;
-        if (_pendingGame) {
-            spent = _pendingGame.balance - remainingPoints;
-            if (spent < 0) spent = 0; // earned more in-game (shouldn't happen much)
+        // Guard: if no pending game, this was already resolved (double-call) — don't overwrite
+        if (!_pendingGame) {
+            console.warn('[Coin] resolveAfterGame called with no pending game, skipping.');
+            return { spent: 0, remaining: _balance };
         }
+
+        const startBalance = _pendingGame.balance;
+        let spent = startBalance - remainingPoints;
+        if (spent < 0) spent = 0;
 
         // Update balance to remaining
         _balance = Math.max(0, remainingPoints);
@@ -17914,10 +17921,7 @@ function openZombieCodex() {
 }
 function kdQuitToGameOver() {
     if (!kdGame) return;
-    // 💰 COIN: Resolve balance on quit
-    if (window.CoinSystem && CoinSystem.isLoaded()) {
-        CoinSystem.resolveAfterGame(kdGame.points);
-    }
+    // Coin resolution handled inside showKanjiDefenseGameOver (single call, correct spent value)
     if (kdAnimFrame) { cancelAnimationFrame(kdAnimFrame); kdAnimFrame = null; }
     kdGame.state = 'over';
     const correctWords = kdGame.accumulatedWords.filter(w => w.correct);
