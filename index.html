@@ -13498,8 +13498,8 @@ window.CoinSystem = (() => {
         return bal;
     }
 
-    // --- Game: Resolve after game over ---
-    function resolveAfterGame(remainingPoints) {
+    // --- Game: Resolve after game over (spentAmount = real coins spent buying towers) ---
+    function resolveAfterGame(spentAmount) {
         if (!currentUser) return { spent: 0, remaining: _balance };
         const uid = _uid();
 
@@ -13510,11 +13510,12 @@ window.CoinSystem = (() => {
         }
 
         const startBalance = _pendingGame.balance;
-        let spent = startBalance - remainingPoints;
-        if (spent < 0) spent = 0;
+        // spent = real coins used; cannot exceed starting balance
+        let spent = Math.min(spentAmount || 0, startBalance);
+        let remaining = startBalance - spent;
 
-        // Update balance to remaining
-        _balance = Math.max(0, remainingPoints);
+        // Update balance
+        _balance = remaining;
         localStorage.setItem(LS_BALANCE(uid), _balance);
 
         // Clear pending
@@ -17985,6 +17986,7 @@ class KanjiDefenseGame {
         this.waveQueue = []; this.spawnTimer = 0; this.spawnInterval = 2000;
         this.wavePause = 0; this.waveAnnounce = ''; this.waveAnnounceTimer = 0;
         this.totalKills = 0; this.totalCorrect = 0;
+        this.totalSpent = 0; // 💰 track real coin spending
         this.inventory = {}; // 不再手动收集，物品自动apply
         this.selectedTower = null; this.selectedItem = null;
         this._fetching = false; this._screenFlash = 0; this._iceFlash = 0;
@@ -18413,7 +18415,7 @@ class KanjiDefenseGame {
         };
         this.grid[row][col] = tower; tower.hp = tower.maxHp; this.towers.push(tower);
         const cost = t.levels[lvl-1].cost;
-        this.points -= cost; this.updateHUD(); this.updateShopState();
+        this.points -= cost; this.totalSpent += cost; this.updateHUD(); this.updateShopState();
         // Instant-use towers
         if (t.instantAoE) {
             const aoeR = t.instantAoE + (lvl-1)*0.5;
@@ -18974,7 +18976,7 @@ class KanjiDefenseGame {
         if (t.level >= maxLv) return;
         const cost = this.getUpgradeCost(t);
         if (typeof cost === 'string' || this.points < cost) return;
-        this.points -= cost; t.level++;
+        this.points -= cost; this.totalSpent += cost; t.level++;
         const td = KD_TOWERS[t.type];
         const lvl = t.level;
         // Wall-nut Lv2 → Palm transform
@@ -21372,8 +21374,8 @@ class KanjiDefenseGame {
 }
 
 function showKanjiDefenseGameOver(score, wave, maxCombo, kills, correctWords, wrongWords, victory) {
-    // 💰 COIN: Resolve balance after game
-    const coinResult = (window.CoinSystem && kdGame) ? CoinSystem.resolveAfterGame(kdGame.points) : { spent: 0, remaining: 0 };
+    // 💰 COIN: Resolve balance — pass totalSpent (real coins used), NOT kdGame.points (includes in-game earnings)
+    const coinResult = (window.CoinSystem && kdGame) ? CoinSystem.resolveAfterGame(kdGame.totalSpent) : { spent: 0, remaining: 0 };
     const overlay = document.getElementById('kdGameoverOverlay');
     const uc = correctWords.filter((w,i,a) => a.findIndex(x=>x.word===w.word)===i);
     const uw = wrongWords.filter((w,i,a) => a.findIndex(x=>x.word===w.word)===i);
