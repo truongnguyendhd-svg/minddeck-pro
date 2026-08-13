@@ -8763,6 +8763,7 @@ body:has(.kd-game-wrapper.kd-active) #scrollToTopBtn {
 
         <!-- BÊN PHẢI: Thanh Tìm kiếm -->
         <div class="header-right" id="headerRightZone" style="display: flex; align-items: center; gap: 10px;">
+            <div class="coin-badge" id="coinBadge" onclick="openCoinModal()" title="Coin hoc tap"><span class="coin-icon">🪙</span><span class="coin-amount" id="coinBadgeAmount">0</span></div>
             <!-- 1. Tìm kiếm TOÀN CỤC (Từ điển) -->
             <div id="headerSearch" class="search-container-header hidden">
                 <input type="text" id="globalSearchInput" class="search-input-header" placeholder="Tra từ điển..." 
@@ -11409,6 +11410,126 @@ let boostTimer = null;
 let boostState = { maxRounds: 10, currentRound: 1, correct: 0, wrong: 0, mode: '10', history: [] };
 let currentBoostGame = 0; // 1 to 5
 let currentUser = null, sessionCards = [], currentIndex = 0, showBack = false;
+
+// ================= COIN SYSTEM STATE =================
+let coinBalance = 0;
+let coinDailyEarned = 0;
+let coinDailyDate = '';
+let coinPendingGame = 0;
+let coinPendingGameTime = null;
+const COIN_DAILY_CAP = 500;
+const COIN_REWARDS = { srs_correct: 2, srs_wrong: 0, new_word: 5, exam_bonus: 20, add_deck: 3, boost_correct: 1, test_correct: 2 };
+
+
+// ================= COIN SYSTEM CORE =================
+async function coinInit() {
+    if (!currentUser) return;
+    try {
+        const { data: balRow, error: balErr } = await sb.from('user_coin_balance').select('balance, pending_game_balance, pending_game_started_at').eq('user_id', currentUser.id).single();
+        if (balErr && balErr.code === 'PGRST116') {
+            await sb.from('user_coin_balance').insert({ user_id: currentUser.id, balance: 0 });
+            coinBalance = 0;
+        } else if (!balErr && balRow) {
+            coinBalance = balRow.balance || 0;
+            if (balRow.pending_game_started_at) {
+                const elapsed = Date.now() - new Date(balRow.pending_game_started_at).getTime();
+                if (elapsed > 2 * 60 * 60 * 1000) {
+                    console.log('[Coin] Crash recovery, refund:', balRow.pending_game_balance);
+                    coinBalance += (balRow.pending_game_balance || 0);
+                    await sb.from('user_coin_balance').update({ balance: coinBalance, pending_game_balance: 0, pending_game_started_at: null, updated_at: new Date().toISOString() }).eq('user_id', currentUser.id);
+                } else {
+                    coinPendingGame = balRow.pending_game_balance || 0;
+                    coinPendingGameTime = balRow.pending_game_started_at;
+                }
+            }
+        }
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const { data: dailyRow } = await sb.from('daily_earnings').select('earned').eq('user_id', currentUser.id).eq('date', todayStr).single();
+        coinDailyEarned = dailyRow ? (dailyRow.earned || 0) : 0;
+        coinDailyDate = todayStr;
+        coinUpdateUI();
+    } catch(e) { console.error('[Coin] Init error:', e); }
+}
+function coinUpdateUI() { const el = document.getElementById('coinBadgeAmount'); if (el) el.textContent = coinBalance; }
+function coinShowPlus(amount) {
+    const badge = document.getElementById('coinBadge');
+    if (!badge || amount <= 0) return;
+    const pop = document.createElement('span'); pop.className = 'coin-plus'; pop.textContent = '+' + amount;
+    badge.appendChild(pop); setTimeout(() => pop.remove(), 700);
+}
+async function coinAddCoins(amount, source, description, refId) {
+    if (!currentUser || amount <= 0) return;
+    if (source !== 'game_refund' && source !== 'streak_bonus') {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        if (coinDailyDate !== todayStr) { coinDailyEarned = 0; coinDailyDate = todayStr; }
+        if (coinDailyEarned >= COIN_DAILY_CAP) return;
+        const actual = Math.min(amount, COIN_DAILY_CAP - coinDailyEarned);
+        if (actual <= 0) return;
+        coinDailyEarned += actual;
+        amount = actual;
+        try {
+            const { data: ex } = await sb.from('daily_earnings').select('earned').eq('user_id', currentUser.id).eq('date', todayStr).single();
+            if (ex) await sb.from('daily_earnings').update({ earned: coinDailyEarned }).eq('user_id', currentUser.id).eq('date', todayStr);
+            else await sb.from('daily_earnings').insert({ user_id: currentUser.id, date: todayStr, earned: coinDailyEarned });
+        } catch(de) {}
+    }
+    coinBalance += amount;
+    coinUpdateUI();
+    coinShowPlus(amount);
+    (async () => {
+        try {
+            await sb.from('user_coin_balance').update({ balance: coinBalance, updated_at: new Date().toISOString() }).eq('user_id', currentUser.id);
+            await sb.from('coin_transactions').insert({ user_id: currentUser.id, amount: amount, balance_after: coinBalance, source: source, reference_id: refId || null, description: description || source });
+        } catch(e) { console.error('[Coin] Server sync error:', e); }
+    })();
+}
+async function coinStartGame() {
+    if (!currentUser) return 0;
+    coinPendingGame = coinBalance;
+    coinPendingGameTime = new Date().toISOString();
+    coinBalance = 0;
+    coinUpdateUI();
+    try {
+        await sb.from('user_coin_balance').update({ balance: 0, pending_game_balance: coinPendingGame, pending_game_started_at: coinPendingGameTime, updated_at: new Date().toISOString() }).eq('user_id', currentUser.id);
+    } catch(e) { console.error('[Coin] Start game error:', e); }
+    return coinPendingGame;
+}
+async function coinEndGame(remainingPoints) {
+    if (!currentUser) return;
+    const spent = coinPendingGame - remainingPoints;
+    coinBalance = Math.max(0, remainingPoints);
+    coinUpdateUI();
+    try {
+        await sb.from('user_coin_balance').update({ balance: coinBalance, pending_game_balance: 0, pending_game_started_at: null, updated_at: new Date().toISOString() }).eq('user_id', currentUser.id);
+        if (spent > 0) await sb.from('coin_transactions').insert({ user_id: currentUser.id, amount: -spent, balance_after: coinBalance, source: 'game_spend', description: 'Kanji Defense - Da chi' });
+    } catch(e) { console.error('[Coin] End game error:', e); }
+    coinPendingGame = 0; coinPendingGameTime = null;
+    return { spent, remaining: coinBalance };
+}
+function openCoinModal() {
+    const old = document.getElementById('coinModal');
+    if (old) { old.remove(); return; }
+    const m = document.createElement('div'); m.id = 'coinModal'; m.className = 'coin-modal';
+    m.onclick = (e) => { if (e.target === m) m.remove(); };
+    m.innerHTML = '<div class="coin-modal-content"><div class="coin-modal-header"><h3>🪙 Coin Hoc Tap</h3><button class="close-modal" onclick="document.getElementById(\'coinModal\').remove()">✕</button></div><div class="coin-modal-body"><div class="coin-balance-display"><div class="coin-big">🪙 '+coinBalance+'</div><div class="coin-label">So du hien tai</div></div><div style="margin-bottom:8px;font-size:12px;color:#94a3b8">Hom nay: <b style="color:#b45309">'+coinDailyEarned+' / '+COIN_DAILY_CAP+'</b></div><table class="coin-reward-table"><tr><th>Hoat dong</th><th>Thuong</th></tr><tr><td>SRS Review dung</td><td>+'+COIN_REWARDS.srs_correct+' 🪙/tu</td></tr><tr><td>Hoc tu moi (Boost)</td><td>+'+COIN_REWARDS.new_word+' 🪙/tu</td></tr><tr><td>Sat hach / Boost ket thuc</td><td>+'+COIN_REWARDS.exam_bonus+' + '+COIN_REWARDS.boost_correct+' 🪙/tu dung</td></tr><tr><td>Them bo bai moi</td><td>+'+COIN_REWARDS.add_deck+' 🪙</td></tr></table><div style="margin-top:16px;font-size:13px;font-weight:700;color:#475569">Lich su gan day</div><div id="coinTxList" class="coin-tx-list">Dang tai...</div></div></div>';
+    document.body.appendChild(m);
+    (async () => {
+        try {
+            const { data: txs } = await sb.from('coin_transactions').select('amount,source,description,created_at').eq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(20);
+            const el = document.getElementById('coinTxList');
+            if (!txs || !txs.length) { el.innerHTML = '<div style="text-align:center;padding:16px;color:#cbd5e0">Chua co giao dich.</div>'; return; }
+            el.innerHTML = '';
+            txs.forEach(tx => {
+                const pos = tx.amount > 0;
+                const t = new Date(tx.created_at).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+                const d = document.createElement('div'); d.className = 'coin-tx-item';
+                d.innerHTML = '<div><div class="coin-tx-source">'+(tx.description||tx.source)+'</div><div class="coin-tx-time">'+t+'</div></div><div class="'+(pos?'coin-tx-amount-pos':'coin-tx-amount-neg')+'">'+(pos?'+':'')+tx.amount+' 🪙</div>';
+                el.appendChild(d);
+            });
+        } catch(e) { document.getElementById('coinTxList').innerHTML = '<div style="color:#f87171">Loi tai.</div>'; }
+    })();
+}
+
 let mode = 'review', currentDeckName = "", editingDeckId = null, activeDeckId = null, cardsToDelete = [];
 let rowCount = 0;
 let isAppInitialized = false;
@@ -11836,6 +11957,7 @@ function showDashboard(skipHash = false) {
 
 // THAY THÀNH: (Áp dụng SWR Cache)
 async function loadDashboardData() {
+    coinInit();
     if (!currentUser) return;
     showLoading("Đang tối ưu và đồng bộ dữ liệu...");
 
@@ -15591,6 +15713,12 @@ function endBoostSession() {
         listEl.appendChild(li);
     });
 
+    // COIN: Thưởng kết thúc Boost/Assessment
+    if (boostState.correct > 0) {
+        const _bc = COIN_REWARDS.exam_bonus + (boostState.correct * COIN_REWARDS.boost_correct);
+        coinAddCoins(_bc, mode === 'assessment' ? 'exam' : 'boost', (mode === 'assessment' ? 'Sat hach' : 'Boost') + ': ' + boostState.correct + ' tu dung');
+    }
+
     // 4. Bắn pháo hoa chúc mừng
     confetti({ 
         particleCount: 150, 
@@ -15694,6 +15822,10 @@ async function answerCurrent(q) {
     
     // Nhét thẻ vừa quẹt vào mảng chờ
     srsPendingQueue.push(payload);
+    // COIN: Thưởng ôn tập SRS
+    const _coinR = q >= 4 ? COIN_REWARDS.srs_correct : COIN_REWARDS.srs_wrong;
+    if (_coinR > 0) coinAddCoins(_coinR, 'srs_review', (q >= 4 ? 'SRS dung' : 'SRS sai') + ': ' + c.front, c.front);
+
     // 🟢 LOCAL TRACKING: ghi nhận thẻ này đã được ôn
     if (currentDeckName && c.front) markCardStudied(currentDeckName, c.front);
     // Chỉ tự động gửi lên Cloud khi mảng chờ tích lũy đủ 15 thẻ
@@ -16427,6 +16559,7 @@ async function saveNewDeckFromModal() {
 
         closeModal('createDeckModal');
         showToast(isExisting ? `✏️ Đang bổ sung thẻ vào bộ bài: ${uniqueName}` : "🎉 Đã tạo học phần mới thành công!");
+        if (!isExisting) coinAddCoins(COIN_REWARDS.add_deck, 'add_deck', 'Tạo bộ bài: ' + uniqueName);
         
         // Huỷ mốc thời gian đồng bộ cũ
         window.invalidateDeckListCache();
@@ -17682,12 +17815,15 @@ function kdDeleteTower() {
     kdGame.removeTower();
 }
 function openKanjiDefenseSetup() {
-    const html = '<div id="kdSetupModal" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(15,23,42,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()"><div style="background:#1e293b;border-radius:20px;border:1px solid #334155;width:100%;max-width:400px;padding:28px 24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,0.5);"><div style="font-size:40px;margin-bottom:8px;">\u2694\uFE0F</div><h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#f1f5f9;">Kanji Defense</h2><p style="margin:0 0 6px;font-size:13px;color:#94a3b8;">Plants vs Zombies</p><p id="kdVocabCount" style="margin:0 0 20px;font-size:12px;color:#64748b;">Dang tai...</p><button class="kh-btn kh-btn-primary" style="width:100%;" onclick="document.getElementById(\'kdSetupModal\').remove();startKanjiDefense();"><span class="material-symbols-outlined">play_arrow</span> Bat dau</button><button style="margin-top:8px;background:none;border:none;color:#64748b;font-size:13px;cursor:pointer;padding:8px 16px;" onclick="document.getElementById(\'kdSetupModal\').remove()">Huy</button></div></div>';
+    const html = '<div id="kdSetupModal" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(15,23,42,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()"><div style="background:#1e293b;border-radius:20px;border:1px solid #334155;width:100%;max-width:400px;padding:28px 24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,0.5);"><div style="font-size:40px;margin-bottom:8px;">\u2694\uFE0F</div><h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#f1f5f9;">Kanji Defense</h2><p style="margin:0 0 6px;font-size:13px;color:#94a3b8;">Plants vs Zombies</p><p id="kdVocabCount" style="margin:0 0 20px;font-size:12px;color:#64748b;">Dang tai...</p><div class="coin-setup-balance" id="kdSetupCoinBalance"><span style="font-size:20px;">🪙</span><span>Ban co <b class="coin-val" id="kdSetupCoinVal">0</b> coin de chien dau</span></div><button class="kh-btn kh-btn-primary" style="width:100%;" onclick="document.getElementById(\'kdSetupModal\').remove();startKanjiDefense();"><span class="material-symbols-outlined">play_arrow</span> Bat dau</button><button style="margin-top:8px;background:none;border:none;color:#64748b;font-size:13px;cursor:pointer;padding:8px 16px;" onclick="document.getElementById(\'kdSetupModal\').remove()">Huy</button></div></div>';
     document.body.insertAdjacentHTML('beforeend', html);
     (async () => {
         try {
             const { count } = await sb.from('user_vocabulary_mastery').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id);
             const el = document.getElementById('kdVocabCount');
+            const _coinEl = document.getElementById('kdSetupCoinVal');
+            if (_coinEl) _coinEl.textContent = coinBalance;
+
             if (el) el.textContent = 'Ban co ' + (count || 0) + ' tu vung';
         } catch(e) {}
     })();
@@ -17752,6 +17888,13 @@ async function startKanjiDefense() {
         const words = await fetchUserVocabForGame();
         if (!words || words.length < 4) { alert('Ban can it nhat 4 tu vung de choi. Hay them tu vung truoc!'); exitKanjiDefense(); return; }
         const logicalW = cellSize * KD_COLS, logicalH = cellSize * (KD_ROWS + 1);
+        // COIN: Snapshot balance → dùng làm điểm khởi đầu
+        const gameCoins = await coinStartGame();
+
+        // COIN: Set initial points from accumulated coins
+        kdGame.points = gameCoins;
+        kdGame._coinInitialBalance = gameCoins;
+
         kdGame = new KanjiDefenseGame(words, canvas, ctx, cellSize, logicalW, logicalH); window._kdGame = kdGame;
         /* === KD RESIZE: bắt đầu theo dõi thay đổi kích thước === */
         kdGame._startResizeWatch();
@@ -21219,7 +21362,10 @@ function showKanjiDefenseGameOver(score, wave, maxCombo, kills, correctWords, wr
     }
     if (!wordsHtml) wordsHtml = '<div style="text-align:center;padding:20px;color:#64748b;">Chua co tu nao.</div>';
     const hasSrs = uc.length > 0;
-    overlay.innerHTML = '<div class="kh-gameover-card"><div class="kh-gameover-header"><h2 class="kd-gameover-title">'+(victory?'🏆 Chien thang!':'Game Over!')+'</h2><p class="kh-gameover-subtitle">Kanji Defense - Ket qua</p></div><div class="kh-gameover-stats"><div class="kh-stat-box"><div class="kd-stat-value pts-val">'+score+'</div><div class="kd-stat-label">Diem</div></div><div class="kd-stat-box"><div class="kd-stat-value wave-val">'+wave+'</div><div class="kd-stat-label">Wave</div></div><div class="kd-stat-box"><div class="kd-stat-value combo-val">x'+maxCombo+'</div><div class="kd-stat-label">Combo</div></div></div><div class="kh-gameover-words">'+wordsHtml+'</div><div class="kh-gameover-actions"><button class="kh-btn kh-btn-secondary" onclick="exitKanjiDefense()">Thoat</button>'+(hasSrs?'<button class="kh-btn kh-btn-primary" id="kdSrsBtn" onclick="kdSubmitSRS()" disabled>Cap nhat SRS (0)</button>':'')+'<button class="kh-btn kh-btn-primary" onclick="exitKanjiDefense();openKanjiDefenseSetup();">Choi lai</button></div></div>';
+    const _coinInit = (window._kdGame && window._kdGame._coinInitialBalance) || 0;
+    const _coinSpent = _coinInit - (kdGame ? kdGame.points : 0);
+    const _coinRemain = kdGame ? kdGame.points : 0;
+    overlay.innerHTML = '<div class="kh-gameover-card"><div class="kh-gameover-header"><h2 class="kd-gameover-title">'+(victory?'🏆 Chien thang!':'Game Over!')+'</h2><p class="kh-gameover-subtitle">Kanji Defense - Ket qua</p></div>' + (_coinInit > 0 ? '<div style="padding:0 20px 8px"><div class="coin-go-spend"><span class="label">Coin da su dung</span><span class="value">-' + _coinSpent + ' 🪙</span></div><div class="coin-go-remain"><span class="label">Coin con lai</span><span class="value">' + _coinRemain + ' 🪙</span></div></div>' : '') + '<div class="kh-gameover-stats"><div class="kh-stat-box"><div class="kd-stat-value pts-val">'+score+'</div><div class="kd-stat-label">Diem</div></div><div class="kd-stat-box"><div class="kd-stat-value wave-val">'+wave+'</div><div class="kd-stat-label">Wave</div></div><div class="kd-stat-box"><div class="kd-stat-value combo-val">x'+maxCombo+'</div><div class="kd-stat-label">Combo</div></div></div><div class="kh-gameover-words">'+wordsHtml+'</div><div class="kh-gameover-actions"><button class="kh-btn kh-btn-secondary" onclick="exitKanjiDefense()">Thoat</button>'+(hasSrs?'<button class="kh-btn kh-btn-primary" id="kdSrsBtn" onclick="kdSubmitSRS()" disabled>Cap nhat SRS (0)</button>':'')+'<button class="kh-btn kh-btn-primary" onclick="exitKanjiDefense();openKanjiDefenseSetup();">Choi lai</button></div></div>';
     overlay.style.display = 'flex';
 }
 
@@ -21371,6 +21517,12 @@ function khQuitToGameOver() {
 
 // --- Exit game ---
 function exitKanjiDefense() {
+    // COIN: Tính và cập nhật số dư sau trận
+    if (kdGame && kdGame._coinInitialBalance !== undefined) {
+        const _rem = kdGame.points || 0;
+        coinEndGame(_rem);
+    }
+
     if (kdAnimFrame) cancelAnimationFrame(kdAnimFrame);
     kdAnimFrame = null;
     if (kdGame) { kdGame.destroy(); kdGame = null; }
@@ -22449,6 +22601,41 @@ async function executeHybridSearch(input, resDiv) {
                     transform: scale(1.1);
                     border-color: rgba(0, 0, 0, 0.1);
                 }
+
+/* ================= COIN SYSTEM ================= */
+.coin-badge{display:flex;align-items:center;gap:5px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #f59e0b;border-radius:20px;padding:4px 12px 4px 8px;font-size:13px;font-weight:800;color:#92400e;cursor:pointer;transition:.2s;white-space:nowrap;position:relative}
+.coin-badge:hover{transform:scale(1.05);box-shadow:0 2px 8px rgba(245,158,11,.3)}
+.coin-badge .coin-icon{font-size:16px;line-height:1}
+.coin-badge .coin-amount{min-width:20px;text-align:right}
+.coin-badge .coin-plus{animation:coinPopUp .6s ease-out forwards;position:absolute;top:-8px;right:-5px;color:#16a34a;font-size:12px;font-weight:900;pointer-events:none}
+@keyframes coinPopUp{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-20px)}}
+.coin-modal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.coin-modal-content{background:#fff;border-radius:16px;width:92%;max-width:420px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;border:2px solid #e2e8f0}
+.coin-modal-header{padding:16px 20px;background:#fffbeb;border-bottom:1px solid #fde68a;display:flex;justify-content:space-between;align-items:center}
+.coin-modal-header h3{margin:0;font-size:16px;font-weight:800;color:#92400e;display:flex;align-items:center;gap:8px}
+.coin-modal-body{padding:16px 20px;overflow-y:auto;flex:1}
+.coin-balance-display{text-align:center;padding:20px;background:linear-gradient(135deg,#fffbeb,#fef3c7);border-radius:12px;margin-bottom:16px}
+.coin-balance-display .coin-big{font-size:36px;font-weight:900;color:#b45309}
+.coin-balance-display .coin-label{font-size:12px;color:#92400e;margin-top:4px}
+.coin-reward-table{width:100%;border-collapse:collapse;font-size:13px}
+.coin-reward-table th{text-align:left;padding:8px;background:#f8fafc;color:#64748b;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.coin-reward-table td{padding:8px;border-bottom:1px solid #f1f5f9;color:#334155}
+.coin-reward-table td:last-child{text-align:right;font-weight:800;color:#16a34a}
+.coin-tx-list{max-height:300px;overflow-y:auto}
+.coin-tx-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:13px}
+.coin-tx-item:last-child{border-bottom:none}
+.coin-tx-source{color:#475569}
+.coin-tx-amount-pos{color:#16a34a;font-weight:800}
+.coin-tx-amount-neg{color:#dc2626;font-weight:800}
+.coin-tx-time{color:#94a3b8;font-size:11px}
+.coin-setup-balance{background:rgba(251,191,36,.15);border:1px solid #f59e0b;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px}
+.coin-setup-balance .coin-val{font-size:18px;font-weight:900;color:#b45309}
+.coin-go-spend{background:rgba(239,68,68,.1);border:1px solid #fca5a5;border-radius:10px;padding:10px 16px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.coin-go-spend .label{font-size:12px;color:#64748b}
+.coin-go-spend .value{font-size:16px;font-weight:800;color:#dc2626}
+.coin-go-remain{background:rgba(34,197,94,.1);border:1px solid #86efac;border-radius:10px;padding:10px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.coin-go-remain .label{font-size:12px;color:#64748b}
+.coin-go-remain .value{font-size:16px;font-weight:800;color:#16a34a}
             </style>
         `;
 
@@ -28356,6 +28543,9 @@ function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = fal
     // =====================================
     if (isCorrect) {
         boostState.correct++;
+                const _bwReward = mode === 'assessment' ? COIN_REWARDS.boost_correct : COIN_REWARDS.new_word;
+                coinAddCoins(_bwReward, mode === 'assessment' ? 'test_correct' : 'new_word', (mode === 'assessment' ? 'Test dung' : 'Tu moi') + ': ' + parsed.front, parsed.front);
+
         if (element && !element.id.includes('Zone')) {
             element.style.background = '#c6f6d5';
             element.style.borderColor = '#38a169';
@@ -38046,7 +38236,7 @@ function startMiniAssessment(card) {
             <button class="kh-hud-icon-btn" id="kdPauseBtn" onclick="kdTogglePause()"><span class="material-symbols-outlined" id="kdPauseIcon" style="font-size:18px;">pause</span></button>
             <div class="kd-hud-lives" id="kdLives"></div>
         </div>
-        <div class="kd-hud-item kd-hud-points">$<span id="kdPoints">100</span></div>
+        <div class="kd-hud-item kd-hud-points">🪙<span id="kdPoints">100</span></div>
         <div class="kd-hud-item kd-hud-combo">x<span id="kdCombo">0</span></div>
         <div class="kd-hud-item kd-hud-wave"><span id="kdWave">0/20</span></div>
         <div class="kd-hud-group">
