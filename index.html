@@ -3921,18 +3921,6 @@ body.pdf-mode #pdfReadState {
 .fill-n2 { background: linear-gradient(90deg, #93c5fd, #3b82f6); } /* Xanh dương */
 .fill-n1 { background: linear-gradient(90deg, #fca5a5, #ef4444); } /* Đỏ */
 
-/* Góc Khám Phá (Daily Discovery) */
-.discovery-content {
-    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-    text-align: center; padding: 20px 0;
-    transition: transform 0.4s ease, opacity 0.4s ease;
-}
-.discovery-content.flip {
-    transform: rotateX(90deg); opacity: 0;
-}
-.discovery-badge {
-    font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 50px; text-transform: uppercase; margin-bottom: 15px;
-}
 /* ================= CSS CHO GAMIFIED SRS ================= */
 /* Khung hiển thị điểm vi phạm (Penalty) */
 .penalty-tracker {
@@ -8763,7 +8751,6 @@ body:has(.kd-game-wrapper.kd-active) #scrollToTopBtn {
 
         <!-- BÊN PHẢI: Thanh Tìm kiếm -->
         <div class="header-right" id="headerRightZone" style="display: flex; align-items: center; gap: 10px;">
-            <div class="coin-badge" id="coinBadge" onclick="openCoinModal()" title="Coin hoc tap"><span class="coin-icon">🪙</span><span class="coin-amount" id="coinBadgeAmount">0</span></div>
             <!-- 1. Tìm kiếm TOÀN CỤC (Từ điển) -->
             <div id="headerSearch" class="search-container-header hidden">
                 <input type="text" id="globalSearchInput" class="search-input-header" placeholder="Tra từ điển..." 
@@ -8918,7 +8905,7 @@ body:has(.kd-game-wrapper.kd-active) #scrollToTopBtn {
         <!-- Render bằng JS -->
     </div>
     
-<!-- 4. KHỐI WIDGET MỚI (JLPT & KHÁM PHÁ) -->
+<!-- 4. KHỐI WIDGET MỚI (JLPT) -->
     <div class="dash-bottom-grid">
         
         <!-- WIDGET 1: TIẾN ĐỘ JLPT (ĐO BẰNG LƯỢNG KANJI ĐÃ THUỘC) -->
@@ -8931,23 +8918,6 @@ body:has(.kd-game-wrapper.kd-active) #scrollToTopBtn {
             </div>
             <div id="jlptProgressContainer">
                 <div style="text-align:center; padding: 20px; color:#a0aec0;"><div class="spinner" style="margin:0 auto 10px auto; width: 24px; height: 24px;"></div>Đang tính toán...</div>
-            </div>
-        </div>
-
-        <!-- WIDGET 2: GÓC KHÁM PHÁ -->
-        <div class="dash-widget-box" style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #9e5b00; display: flex; align-items: center; gap: 8px;">
-                    <span class="material-symbols-outlined">explore</span> Góc Khám Phá
-                </h3>
-                <button onclick="refreshDiscovery()" style="background: white; border: 1px solid #cbd5e0; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #4a5568; transition: 0.2s;" onmouseover="this.style.transform='rotate(180deg)'" onmouseout="this.style.transform='rotate(0deg)'">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">refresh</span>
-                </button>
-            </div>
-            
-            <!-- Khu vực thẻ sẽ lật -->
-            <div id="discoveryCard" class="discovery-content">
-                <div style="color: #a0aec0;">Đang bốc thăm...</div>
             </div>
         </div>
 
@@ -11410,126 +11380,6 @@ let boostTimer = null;
 let boostState = { maxRounds: 10, currentRound: 1, correct: 0, wrong: 0, mode: '10', history: [] };
 let currentBoostGame = 0; // 1 to 5
 let currentUser = null, sessionCards = [], currentIndex = 0, showBack = false;
-
-// ================= COIN SYSTEM STATE =================
-let coinBalance = 0;
-let coinDailyEarned = 0;
-let coinDailyDate = '';
-let coinPendingGame = 0;
-let coinPendingGameTime = null;
-const COIN_DAILY_CAP = 500;
-const COIN_REWARDS = { srs_correct: 2, srs_wrong: 0, new_word: 5, exam_bonus: 20, add_deck: 3, boost_correct: 1, test_correct: 2 };
-
-
-// ================= COIN SYSTEM CORE =================
-async function coinInit() {
-    if (!currentUser) return;
-    try {
-        const { data: balRow, error: balErr } = await sb.from('user_coin_balance').select('balance, pending_game_balance, pending_game_started_at').eq('user_id', currentUser.id).single();
-        if (balErr && balErr.code === 'PGRST116') {
-            await sb.from('user_coin_balance').insert({ user_id: currentUser.id, balance: 0 });
-            coinBalance = 0;
-        } else if (!balErr && balRow) {
-            coinBalance = balRow.balance || 0;
-            if (balRow.pending_game_started_at) {
-                const elapsed = Date.now() - new Date(balRow.pending_game_started_at).getTime();
-                if (elapsed > 2 * 60 * 60 * 1000) {
-                    console.log('[Coin] Crash recovery, refund:', balRow.pending_game_balance);
-                    coinBalance += (balRow.pending_game_balance || 0);
-                    await sb.from('user_coin_balance').update({ balance: coinBalance, pending_game_balance: 0, pending_game_started_at: null, updated_at: new Date().toISOString() }).eq('user_id', currentUser.id);
-                } else {
-                    coinPendingGame = balRow.pending_game_balance || 0;
-                    coinPendingGameTime = balRow.pending_game_started_at;
-                }
-            }
-        }
-        const todayStr = new Date().toISOString().slice(0, 10);
-        const { data: dailyRow } = await sb.from('daily_earnings').select('earned').eq('user_id', currentUser.id).eq('date', todayStr).single();
-        coinDailyEarned = dailyRow ? (dailyRow.earned || 0) : 0;
-        coinDailyDate = todayStr;
-        coinUpdateUI();
-    } catch(e) { console.error('[Coin] Init error:', e); }
-}
-function coinUpdateUI() { const el = document.getElementById('coinBadgeAmount'); if (el) el.textContent = coinBalance; }
-function coinShowPlus(amount) {
-    const badge = document.getElementById('coinBadge');
-    if (!badge || amount <= 0) return;
-    const pop = document.createElement('span'); pop.className = 'coin-plus'; pop.textContent = '+' + amount;
-    badge.appendChild(pop); setTimeout(() => pop.remove(), 700);
-}
-async function coinAddCoins(amount, source, description, refId) {
-    if (!currentUser || amount <= 0) return;
-    if (source !== 'game_refund' && source !== 'streak_bonus') {
-        const todayStr = new Date().toISOString().slice(0, 10);
-        if (coinDailyDate !== todayStr) { coinDailyEarned = 0; coinDailyDate = todayStr; }
-        if (coinDailyEarned >= COIN_DAILY_CAP) return;
-        const actual = Math.min(amount, COIN_DAILY_CAP - coinDailyEarned);
-        if (actual <= 0) return;
-        coinDailyEarned += actual;
-        amount = actual;
-        try {
-            const { data: ex } = await sb.from('daily_earnings').select('earned').eq('user_id', currentUser.id).eq('date', todayStr).single();
-            if (ex) await sb.from('daily_earnings').update({ earned: coinDailyEarned }).eq('user_id', currentUser.id).eq('date', todayStr);
-            else await sb.from('daily_earnings').insert({ user_id: currentUser.id, date: todayStr, earned: coinDailyEarned });
-        } catch(de) {}
-    }
-    coinBalance += amount;
-    coinUpdateUI();
-    coinShowPlus(amount);
-    (async () => {
-        try {
-            await sb.from('user_coin_balance').update({ balance: coinBalance, updated_at: new Date().toISOString() }).eq('user_id', currentUser.id);
-            await sb.from('coin_transactions').insert({ user_id: currentUser.id, amount: amount, balance_after: coinBalance, source: source, reference_id: refId || null, description: description || source });
-        } catch(e) { console.error('[Coin] Server sync error:', e); }
-    })();
-}
-async function coinStartGame() {
-    if (!currentUser) return 0;
-    coinPendingGame = coinBalance;
-    coinPendingGameTime = new Date().toISOString();
-    coinBalance = 0;
-    coinUpdateUI();
-    try {
-        await sb.from('user_coin_balance').update({ balance: 0, pending_game_balance: coinPendingGame, pending_game_started_at: coinPendingGameTime, updated_at: new Date().toISOString() }).eq('user_id', currentUser.id);
-    } catch(e) { console.error('[Coin] Start game error:', e); }
-    return coinPendingGame;
-}
-async function coinEndGame(remainingPoints) {
-    if (!currentUser) return;
-    const spent = coinPendingGame - remainingPoints;
-    coinBalance = Math.max(0, remainingPoints);
-    coinUpdateUI();
-    try {
-        await sb.from('user_coin_balance').update({ balance: coinBalance, pending_game_balance: 0, pending_game_started_at: null, updated_at: new Date().toISOString() }).eq('user_id', currentUser.id);
-        if (spent > 0) await sb.from('coin_transactions').insert({ user_id: currentUser.id, amount: -spent, balance_after: coinBalance, source: 'game_spend', description: 'Kanji Defense - Da chi' });
-    } catch(e) { console.error('[Coin] End game error:', e); }
-    coinPendingGame = 0; coinPendingGameTime = null;
-    return { spent, remaining: coinBalance };
-}
-function openCoinModal() {
-    const old = document.getElementById('coinModal');
-    if (old) { old.remove(); return; }
-    const m = document.createElement('div'); m.id = 'coinModal'; m.className = 'coin-modal';
-    m.onclick = (e) => { if (e.target === m) m.remove(); };
-    m.innerHTML = '<div class="coin-modal-content"><div class="coin-modal-header"><h3>🪙 Coin Hoc Tap</h3><button class="close-modal" onclick="document.getElementById(\'coinModal\').remove()">✕</button></div><div class="coin-modal-body"><div class="coin-balance-display"><div class="coin-big">🪙 '+coinBalance+'</div><div class="coin-label">So du hien tai</div></div><div style="margin-bottom:8px;font-size:12px;color:#94a3b8">Hom nay: <b style="color:#b45309">'+coinDailyEarned+' / '+COIN_DAILY_CAP+'</b></div><table class="coin-reward-table"><tr><th>Hoat dong</th><th>Thuong</th></tr><tr><td>SRS Review dung</td><td>+'+COIN_REWARDS.srs_correct+' 🪙/tu</td></tr><tr><td>Hoc tu moi (Boost)</td><td>+'+COIN_REWARDS.new_word+' 🪙/tu</td></tr><tr><td>Sat hach / Boost ket thuc</td><td>+'+COIN_REWARDS.exam_bonus+' + '+COIN_REWARDS.boost_correct+' 🪙/tu dung</td></tr><tr><td>Them bo bai moi</td><td>+'+COIN_REWARDS.add_deck+' 🪙</td></tr></table><div style="margin-top:16px;font-size:13px;font-weight:700;color:#475569">Lich su gan day</div><div id="coinTxList" class="coin-tx-list">Dang tai...</div></div></div>';
-    document.body.appendChild(m);
-    (async () => {
-        try {
-            const { data: txs } = await sb.from('coin_transactions').select('amount,source,description,created_at').eq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(20);
-            const el = document.getElementById('coinTxList');
-            if (!txs || !txs.length) { el.innerHTML = '<div style="text-align:center;padding:16px;color:#cbd5e0">Chua co giao dich.</div>'; return; }
-            el.innerHTML = '';
-            txs.forEach(tx => {
-                const pos = tx.amount > 0;
-                const t = new Date(tx.created_at).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
-                const d = document.createElement('div'); d.className = 'coin-tx-item';
-                d.innerHTML = '<div><div class="coin-tx-source">'+(tx.description||tx.source)+'</div><div class="coin-tx-time">'+t+'</div></div><div class="'+(pos?'coin-tx-amount-pos':'coin-tx-amount-neg')+'">'+(pos?'+':'')+tx.amount+' 🪙</div>';
-                el.appendChild(d);
-            });
-        } catch(e) { document.getElementById('coinTxList').innerHTML = '<div style="color:#f87171">Loi tai.</div>'; }
-    })();
-}
-
 let mode = 'review', currentDeckName = "", editingDeckId = null, activeDeckId = null, cardsToDelete = [];
 let rowCount = 0;
 let isAppInitialized = false;
@@ -11957,7 +11807,6 @@ function showDashboard(skipHash = false) {
 
 // THAY THÀNH: (Áp dụng SWR Cache)
 async function loadDashboardData() {
-    coinInit();
     if (!currentUser) return;
     showLoading("Đang tối ưu và đồng bộ dữ liệu...");
 
@@ -12075,9 +11924,6 @@ async function loadDashboardData() {
             renderJLPTProgress(),
             renderRoadmapWidget()
         ]);
-        
-        refreshDiscovery();
-
     } catch (err) {
         console.error("Lỗi Siêu đồng bộ Dashboard:", err);
     } finally {
@@ -13433,145 +13279,6 @@ function renderStudy() {
 
 // Khay nhớ đệm toàn cục của Kanji
 window.kanjiDetailCache = window.kanjiDetailCache || {};
-
-// Khay nhớ đệm riêng cho Kanji Brief (Dashboard-only) — tách khỏi
-// kanjiDetailCache để tránh trộn cấu trúc dữ liệu nặng vs nhẹ.
-window.kanjiBriefCache = window.kanjiBriefCache || {};
-
-/**
- * Lấy dữ liệu kanji siêu nhẹ cho Góc Khám Phá trên Dashboard.
- *
- * Khác biệt so với fetchMaziiKanjiDetail():
- *   - Gọi /api/kanji-brief thay vì /api/kanji-detail
- *   - KHÔNG tải compounds (30 từ ghép)
- *   - KHÔNG tải examples/tags/stroke_count/mnemonics/components
- *   - Payload ~300 bytes thay vì ~15-20KB (giảm ~97%)
- *   - Cache IndexedDB dùng key riêng để không trộn lẫn
- *
- * @param {string} kanjiChar - 1 ký tự kanji
- * @returns {Promise<{kanji, hv, meaning, onyomi, kunyomi}|null>}
- */
-async function fetchKanjiBrief(kanjiChar) {
-    if (!kanjiChar) return null;
-
-    const cacheKey = `kanji_brief_${window.GLOBAL_AI_CACHE_VERSION || 'v1'}_${kanjiChar}`;
-
-    // 1. Cache RAM
-    if (window.kanjiBriefCache[cacheKey]) {
-        return window.kanjiBriefCache[cacheKey];
-    }
-
-    // 2. Cache IndexedDB (optional, không crash nếu lỗi)
-    try {
-        const localRecord = await dbOps.get(STORE_AI_CACHE, cacheKey);
-        if (localRecord && localRecord.data) {
-            window.kanjiBriefCache[cacheKey] = localRecord.data;
-            return localRecord.data;
-        }
-    } catch (e) {
-        // STORE_AI_CACHE có thể không tồn tại trong một số context, bỏ qua
-    }
-
-    // 3. Gọi API mới
-    try {
-        const response = await fetch(
-            `${DICT_API_URL}/api/kanji-brief?kanji=${encodeURIComponent(kanjiChar)}`
-        );
-        if (!response.ok) {
-            // 404 nghĩa là kanji không có trong kanji_dictionary — trả null để
-            // refreshDiscovery() fallback sang Ngữ pháp
-            if (response.status === 404) return null;
-            throw new Error(`API kanji-brief lỗi: ${response.status}`);
-        }
-        const data = await response.json();
-
-        if (!data || !data.kanji) return null;
-
-        // Lấy duy nhất chữ Hán Việt đầu tiên (giữ nguyên logic của hàm cũ)
-        let hv = (data.hv || 'CHƯA CÓ').trim().toUpperCase();
-        if (hv) hv = hv.split(/\s+/)[0];
-
-        // Server đã cắt ngắn meaning rồi, nhưng fallback thêm nếu thiếu
-        let meaning = (data.meaning || '').trim();
-        meaning = meaning.replace(/\[.*?\]\s*/g, '').trim();
-
-        const result = {
-            kanji: data.kanji,
-            hv: hv,
-            meaning: meaning,
-            onyomi: data.onyomi || '',
-            kunyomi: data.kunyomi || ''
-            // KHÔNG có mergedVocabList, compoundWord, stroke_count, tips, ...
-            // → Dashboard không dùng các field đó
-        };
-
-        // Lưu cache
-        window.kanjiBriefCache[cacheKey] = result;
-        try {
-            dbOps.put(STORE_AI_CACHE, { id: cacheKey, data: result }).catch(() => {});
-        } catch (e) { /* ignore */ }
-
-        return result;
-    } catch (e) {
-        console.error("Lỗi gọi API kanji-brief:", e);
-        return null;
-    }
-}
-
-// ============================================================================
-// 📰 NEWS CARD — Lấy 1 bản tin NHK ngẫu nhiên cho Góc Khám Phá (Layer 1, không AI)
-// ============================================================================
-window.newsCardCache = null; // Cache RAM cả session (1 bài/random mỗi session)
-window.newsCardLastFetch = 0;
-
-/**
- * Lấy 1 bản tin NHK ngẫu nhiên + thumbnail cho Góc Khám Phá.
- * - KHÔNG gọi AI → nhanh (200-500ms)
- * - Worker cache RSS 10 phút, cache og:image 1 giờ
- * - Frontend cache RAM 30 giây để tránh spam refresh
- *
- * @returns {Promise<{title, desc, link, image_url, pub_date}|null>}
- */
-async function fetchNewsCard() {
-    // Cache RAM 30s
-    const now = Date.now();
-    if (window.newsCardCache && (now - window.newsCardLastFetch) < 30000) {
-        return window.newsCardCache;
-    }
-
-    try {
-        const response = await fetch(`${DICT_API_URL}/api/news-card`);
-        if (!response.ok) {
-            throw new Error(`API news-card lỗi: ${response.status}`);
-        }
-        const data = await response.json();
-        if (!data || !data.link) return null;
-
-        window.newsCardCache = data;
-        window.newsCardLastFetch = now;
-        return data;
-    } catch (e) {
-        console.error("Lỗi gọi API news-card:", e);
-        return null;
-    }
-}
-
-/**
- * Mở modal Dokkai (generateDailyStoryWithAI) cho 1 link NHK cụ thể.
- * Đặt biến toàn cục window.pendingNewsLink rồi gọi generateDailyStoryWithAI(),
- * hàm đó đã được sửa để đọc biến này và truyền ?link= cho API.
- *
- * @param {string} newsLink - URL bài báo NHK
- */
-async function openDokkaiFromDiscovery(newsLink) {
-    if (!newsLink) return;
-    // Đánh dấu link user vừa chọn → generateDailyStoryWithAI sẽ dùng
-    window.pendingNewsLink = newsLink;
-    // Tái sử dụng hàm generateDailyStoryWithAI đã có (đã được patch bên dưới
-    // để hỗ trợ window.pendingNewsLink). Sau khi dùng xong thì xoá.
-    await generateDailyStoryWithAI();
-    window.pendingNewsLink = null;
-}
 
 /**
  * 1. Hàm nạp từ điển Kanji gốc và gộp mảng khử trùng lặp tĩnh
@@ -15713,12 +15420,6 @@ function endBoostSession() {
         listEl.appendChild(li);
     });
 
-    // COIN: Thưởng kết thúc Boost/Assessment
-    if (boostState.correct > 0) {
-        const _bc = COIN_REWARDS.exam_bonus + (boostState.correct * COIN_REWARDS.boost_correct);
-        coinAddCoins(_bc, mode === 'assessment' ? 'exam' : 'boost', (mode === 'assessment' ? 'Sat hach' : 'Boost') + ': ' + boostState.correct + ' tu dung');
-    }
-
     // 4. Bắn pháo hoa chúc mừng
     confetti({ 
         particleCount: 150, 
@@ -15822,10 +15523,6 @@ async function answerCurrent(q) {
     
     // Nhét thẻ vừa quẹt vào mảng chờ
     srsPendingQueue.push(payload);
-    // COIN: Thưởng ôn tập SRS
-    const _coinR = q >= 4 ? COIN_REWARDS.srs_correct : COIN_REWARDS.srs_wrong;
-    if (_coinR > 0) coinAddCoins(_coinR, 'srs_review', (q >= 4 ? 'SRS dung' : 'SRS sai') + ': ' + c.front, c.front);
-
     // 🟢 LOCAL TRACKING: ghi nhận thẻ này đã được ôn
     if (currentDeckName && c.front) markCardStudied(currentDeckName, c.front);
     // Chỉ tự động gửi lên Cloud khi mảng chờ tích lũy đủ 15 thẻ
@@ -16559,7 +16256,6 @@ async function saveNewDeckFromModal() {
 
         closeModal('createDeckModal');
         showToast(isExisting ? `✏️ Đang bổ sung thẻ vào bộ bài: ${uniqueName}` : "🎉 Đã tạo học phần mới thành công!");
-        if (!isExisting) coinAddCoins(COIN_REWARDS.add_deck, 'add_deck', 'Tạo bộ bài: ' + uniqueName);
         
         // Huỷ mốc thời gian đồng bộ cũ
         window.invalidateDeckListCache();
@@ -17815,15 +17511,12 @@ function kdDeleteTower() {
     kdGame.removeTower();
 }
 function openKanjiDefenseSetup() {
-    const html = '<div id="kdSetupModal" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(15,23,42,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()"><div style="background:#1e293b;border-radius:20px;border:1px solid #334155;width:100%;max-width:400px;padding:28px 24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,0.5);"><div style="font-size:40px;margin-bottom:8px;">\u2694\uFE0F</div><h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#f1f5f9;">Kanji Defense</h2><p style="margin:0 0 6px;font-size:13px;color:#94a3b8;">Plants vs Zombies</p><p id="kdVocabCount" style="margin:0 0 20px;font-size:12px;color:#64748b;">Dang tai...</p><div class="coin-setup-balance" id="kdSetupCoinBalance"><span style="font-size:20px;">🪙</span><span>Ban co <b class="coin-val" id="kdSetupCoinVal">0</b> coin de chien dau</span></div><button class="kh-btn kh-btn-primary" style="width:100%;" onclick="document.getElementById(\'kdSetupModal\').remove();startKanjiDefense();"><span class="material-symbols-outlined">play_arrow</span> Bat dau</button><button style="margin-top:8px;background:none;border:none;color:#64748b;font-size:13px;cursor:pointer;padding:8px 16px;" onclick="document.getElementById(\'kdSetupModal\').remove()">Huy</button></div></div>';
+    const html = '<div id="kdSetupModal" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(15,23,42,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()"><div style="background:#1e293b;border-radius:20px;border:1px solid #334155;width:100%;max-width:400px;padding:28px 24px 20px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,0.5);"><div style="font-size:40px;margin-bottom:8px;">\u2694\uFE0F</div><h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#f1f5f9;">Kanji Defense</h2><p style="margin:0 0 6px;font-size:13px;color:#94a3b8;">Plants vs Zombies</p><p id="kdVocabCount" style="margin:0 0 20px;font-size:12px;color:#64748b;">Dang tai...</p><button class="kh-btn kh-btn-primary" style="width:100%;" onclick="document.getElementById(\'kdSetupModal\').remove();startKanjiDefense();"><span class="material-symbols-outlined">play_arrow</span> Bat dau</button><button style="margin-top:8px;background:none;border:none;color:#64748b;font-size:13px;cursor:pointer;padding:8px 16px;" onclick="document.getElementById(\'kdSetupModal\').remove()">Huy</button></div></div>';
     document.body.insertAdjacentHTML('beforeend', html);
     (async () => {
         try {
             const { count } = await sb.from('user_vocabulary_mastery').select('id', { count: 'exact', head: true }).eq('user_id', currentUser.id);
             const el = document.getElementById('kdVocabCount');
-            const _coinEl = document.getElementById('kdSetupCoinVal');
-            if (_coinEl) _coinEl.textContent = coinBalance;
-
             if (el) el.textContent = 'Ban co ' + (count || 0) + ' tu vung';
         } catch(e) {}
     })();
@@ -17888,13 +17581,6 @@ async function startKanjiDefense() {
         const words = await fetchUserVocabForGame();
         if (!words || words.length < 4) { alert('Ban can it nhat 4 tu vung de choi. Hay them tu vung truoc!'); exitKanjiDefense(); return; }
         const logicalW = cellSize * KD_COLS, logicalH = cellSize * (KD_ROWS + 1);
-        // COIN: Snapshot balance → dùng làm điểm khởi đầu
-        const gameCoins = await coinStartGame();
-
-        // COIN: Set initial points from accumulated coins
-        kdGame.points = gameCoins;
-        kdGame._coinInitialBalance = gameCoins;
-
         kdGame = new KanjiDefenseGame(words, canvas, ctx, cellSize, logicalW, logicalH); window._kdGame = kdGame;
         /* === KD RESIZE: bắt đầu theo dõi thay đổi kích thước === */
         kdGame._startResizeWatch();
@@ -21362,10 +21048,7 @@ function showKanjiDefenseGameOver(score, wave, maxCombo, kills, correctWords, wr
     }
     if (!wordsHtml) wordsHtml = '<div style="text-align:center;padding:20px;color:#64748b;">Chua co tu nao.</div>';
     const hasSrs = uc.length > 0;
-    const _coinInit = (window._kdGame && window._kdGame._coinInitialBalance) || 0;
-    const _coinSpent = _coinInit - (kdGame ? kdGame.points : 0);
-    const _coinRemain = kdGame ? kdGame.points : 0;
-    overlay.innerHTML = '<div class="kh-gameover-card"><div class="kh-gameover-header"><h2 class="kd-gameover-title">'+(victory?'🏆 Chien thang!':'Game Over!')+'</h2><p class="kh-gameover-subtitle">Kanji Defense - Ket qua</p></div>' + (_coinInit > 0 ? '<div style="padding:0 20px 8px"><div class="coin-go-spend"><span class="label">Coin da su dung</span><span class="value">-' + _coinSpent + ' 🪙</span></div><div class="coin-go-remain"><span class="label">Coin con lai</span><span class="value">' + _coinRemain + ' 🪙</span></div></div>' : '') + '<div class="kh-gameover-stats"><div class="kh-stat-box"><div class="kd-stat-value pts-val">'+score+'</div><div class="kd-stat-label">Diem</div></div><div class="kd-stat-box"><div class="kd-stat-value wave-val">'+wave+'</div><div class="kd-stat-label">Wave</div></div><div class="kd-stat-box"><div class="kd-stat-value combo-val">x'+maxCombo+'</div><div class="kd-stat-label">Combo</div></div></div><div class="kh-gameover-words">'+wordsHtml+'</div><div class="kh-gameover-actions"><button class="kh-btn kh-btn-secondary" onclick="exitKanjiDefense()">Thoat</button>'+(hasSrs?'<button class="kh-btn kh-btn-primary" id="kdSrsBtn" onclick="kdSubmitSRS()" disabled>Cap nhat SRS (0)</button>':'')+'<button class="kh-btn kh-btn-primary" onclick="exitKanjiDefense();openKanjiDefenseSetup();">Choi lai</button></div></div>';
+    overlay.innerHTML = '<div class="kh-gameover-card"><div class="kh-gameover-header"><h2 class="kd-gameover-title">'+(victory?'🏆 Chien thang!':'Game Over!')+'</h2><p class="kh-gameover-subtitle">Kanji Defense - Ket qua</p></div><div class="kh-gameover-stats"><div class="kh-stat-box"><div class="kd-stat-value pts-val">'+score+'</div><div class="kd-stat-label">Diem</div></div><div class="kd-stat-box"><div class="kd-stat-value wave-val">'+wave+'</div><div class="kd-stat-label">Wave</div></div><div class="kd-stat-box"><div class="kd-stat-value combo-val">x'+maxCombo+'</div><div class="kd-stat-label">Combo</div></div></div><div class="kh-gameover-words">'+wordsHtml+'</div><div class="kh-gameover-actions"><button class="kh-btn kh-btn-secondary" onclick="exitKanjiDefense()">Thoat</button>'+(hasSrs?'<button class="kh-btn kh-btn-primary" id="kdSrsBtn" onclick="kdSubmitSRS()" disabled>Cap nhat SRS (0)</button>':'')+'<button class="kh-btn kh-btn-primary" onclick="exitKanjiDefense();openKanjiDefenseSetup();">Choi lai</button></div></div>';
     overlay.style.display = 'flex';
 }
 
@@ -21517,12 +21200,6 @@ function khQuitToGameOver() {
 
 // --- Exit game ---
 function exitKanjiDefense() {
-    // COIN: Tính và cập nhật số dư sau trận
-    if (kdGame && kdGame._coinInitialBalance !== undefined) {
-        const _rem = kdGame.points || 0;
-        coinEndGame(_rem);
-    }
-
     if (kdAnimFrame) cancelAnimationFrame(kdAnimFrame);
     kdAnimFrame = null;
     if (kdGame) { kdGame.destroy(); kdGame = null; }
@@ -22601,41 +22278,6 @@ async function executeHybridSearch(input, resDiv) {
                     transform: scale(1.1);
                     border-color: rgba(0, 0, 0, 0.1);
                 }
-
-/* ================= COIN SYSTEM ================= */
-.coin-badge{display:flex;align-items:center;gap:5px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #f59e0b;border-radius:20px;padding:4px 12px 4px 8px;font-size:13px;font-weight:800;color:#92400e;cursor:pointer;transition:.2s;white-space:nowrap;position:relative}
-.coin-badge:hover{transform:scale(1.05);box-shadow:0 2px 8px rgba(245,158,11,.3)}
-.coin-badge .coin-icon{font-size:16px;line-height:1}
-.coin-badge .coin-amount{min-width:20px;text-align:right}
-.coin-badge .coin-plus{animation:coinPopUp .6s ease-out forwards;position:absolute;top:-8px;right:-5px;color:#16a34a;font-size:12px;font-weight:900;pointer-events:none}
-@keyframes coinPopUp{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-20px)}}
-.coin-modal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
-.coin-modal-content{background:#fff;border-radius:16px;width:92%;max-width:420px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;border:2px solid #e2e8f0}
-.coin-modal-header{padding:16px 20px;background:#fffbeb;border-bottom:1px solid #fde68a;display:flex;justify-content:space-between;align-items:center}
-.coin-modal-header h3{margin:0;font-size:16px;font-weight:800;color:#92400e;display:flex;align-items:center;gap:8px}
-.coin-modal-body{padding:16px 20px;overflow-y:auto;flex:1}
-.coin-balance-display{text-align:center;padding:20px;background:linear-gradient(135deg,#fffbeb,#fef3c7);border-radius:12px;margin-bottom:16px}
-.coin-balance-display .coin-big{font-size:36px;font-weight:900;color:#b45309}
-.coin-balance-display .coin-label{font-size:12px;color:#92400e;margin-top:4px}
-.coin-reward-table{width:100%;border-collapse:collapse;font-size:13px}
-.coin-reward-table th{text-align:left;padding:8px;background:#f8fafc;color:#64748b;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
-.coin-reward-table td{padding:8px;border-bottom:1px solid #f1f5f9;color:#334155}
-.coin-reward-table td:last-child{text-align:right;font-weight:800;color:#16a34a}
-.coin-tx-list{max-height:300px;overflow-y:auto}
-.coin-tx-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:13px}
-.coin-tx-item:last-child{border-bottom:none}
-.coin-tx-source{color:#475569}
-.coin-tx-amount-pos{color:#16a34a;font-weight:800}
-.coin-tx-amount-neg{color:#dc2626;font-weight:800}
-.coin-tx-time{color:#94a3b8;font-size:11px}
-.coin-setup-balance{background:rgba(251,191,36,.15);border:1px solid #f59e0b;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px}
-.coin-setup-balance .coin-val{font-size:18px;font-weight:900;color:#b45309}
-.coin-go-spend{background:rgba(239,68,68,.1);border:1px solid #fca5a5;border-radius:10px;padding:10px 16px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
-.coin-go-spend .label{font-size:12px;color:#64748b}
-.coin-go-spend .value{font-size:16px;font-weight:800;color:#dc2626}
-.coin-go-remain{background:rgba(34,197,94,.1);border:1px solid #86efac;border-radius:10px;padding:10px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
-.coin-go-remain .label{font-size:12px;color:#64748b}
-.coin-go-remain .value{font-size:16px;font-weight:800;color:#16a34a}
             </style>
         `;
 
@@ -28543,9 +28185,6 @@ function handleBoostAnswer(element, isCorrect, isTimeout = false, isGiveUp = fal
     // =====================================
     if (isCorrect) {
         boostState.correct++;
-                const _bwReward = mode === 'assessment' ? COIN_REWARDS.boost_correct : COIN_REWARDS.new_word;
-                coinAddCoins(_bwReward, mode === 'assessment' ? 'test_correct' : 'new_word', (mode === 'assessment' ? 'Test dung' : 'Tu moi') + ': ' + parsed.front, parsed.front);
-
         if (element && !element.id.includes('Zone')) {
             element.style.background = '#c6f6d5';
             element.style.borderColor = '#38a169';
@@ -28969,173 +28608,6 @@ async function renderJLPTProgress() {
         container.innerHTML = '<div style="color:#e53e3e; text-align:center;">Lỗi tính toán tiến độ.</div>';
     }
 }
-
-// ================= HÀM XỬ LÝ GÓC KHÁM PHÁ (BỐC THĂM NGẪU NHIÊN) =================
-let lastDiscoveryData = null;
-let isDiscoverySpinning = false; // Khóa chống click spam
-window.kanjiDetailCache = window.kanjiDetailCache || {};
-
-function refreshDiscovery() {
-    if (isDiscoverySpinning) return Promise.resolve();
-    isDiscoverySpinning = true;
-
-    const card = document.getElementById('discoveryCard');
-    if (!card) {
-        isDiscoverySpinning = false;
-        return Promise.resolve();
-    }
-    
-    card.classList.add('flip');
-
-    return new Promise((resolve) => {
-        setTimeout(async () => {
-            try {
-                let html = '';
-                // 🟢 MỚI: Random 3 mode — 40% Kanji / 30% News / 30% Grammar
-                const roll = Math.random();
-                let mode = 'kanji'; // mặc định
-                if (roll < 0.40) {
-                    mode = 'kanji';
-                } else if (roll < 0.70) {
-                    mode = 'news';
-                } else {
-                    mode = 'grammar';
-                }
-                let isKanji = (mode === 'kanji');
-                
-                // 1. 🟢 FIX LỖI: ĐẢM BẢO NGỮ PHÁP ĐÃ ĐƯỢC NẠP TỪ INDEXED DB
-                if (globalGrammarData.length === 0) {
-                    try {
-                        const localGrammars = await dbOps.getAll(STORE_GRAMMAR);
-                        if (localGrammars && localGrammars.length > 0) {
-                            globalGrammarData = deduplicateGrammarList(localGrammars);
-                        }
-                    } catch (e) {
-                        console.warn("Chưa tải được Ngữ pháp từ DB cục bộ:", e);
-                    }
-                }
-
-                // 2. 🟢 CHỐT CHẶN CỨU HỘ:
-                // Nếu quay trúng Ngữ pháp mà chưa có Ngữ pháp -> Ép sang News (nếu không được thì ép Kanji)
-                if (mode === 'grammar' && globalGrammarData.length === 0) {
-                    mode = (allKanjiData && allKanjiData.length > 0) ? 'kanji' : 'news';
-                    isKanji = (mode === 'kanji');
-                }
-                // Nếu quay trúng Kanji mà không có Kanji -> Ép sang News
-                if (mode === 'kanji' && (!allKanjiData || allKanjiData.length === 0)) {
-                    mode = 'news';
-                    isKanji = false;
-                }
-                // Nếu quay trúng News (sẽ thử fetch, nếu fail sẽ fallback trong nhánh dưới)
-
-                // 3. XỬ LÝ BỐC THĂM KANJI
-                if (isKanji) {
-                    const randomSeed = allKanjiData[Math.floor(Math.random() * allKanjiData.length)];
-                    // 🟢 ĐỔI: Dùng fetchKanjiBrief (payload ~300 bytes) thay vì
-                    //         fetchMaziiKanjiDetail (~15-20KB) — Dashboard không cần compounds.
-                    const data = await fetchKanjiBrief(randomSeed.kanji);
-
-                    if (data) {
-                        const rawReadings = `Onyomi: ${data.onyomi || '---'}\nKunyomi: ${data.kunyomi || '---'}`;
-
-                        const showMeaningHTML = (data.meaning && data.meaning.toUpperCase() !== data.hv)
-                            ? `<div style="font-size: 15px; color: #4a5568; font-weight: 500; margin-bottom: 15px; padding: 0 10px; text-align: center;">${escapeHTML(data.meaning)}</div>`
-                            : '<div style="margin-bottom: 10px;"></div>';
-
-                        // 🟢 BỎ: đoạn compoundHTML dựa vào data.compoundWord — field này không
-                        //        tồn tại trong fetchKanjiBrief (cũ cũng không có, luôn rỗng).
-                        //        Dashboard không cần "TỪ GHÉP MINH HỌA" — muốn xem chi tiết
-                        //        user bấm "Xem cách nhớ" để mở X-Ray.
-
-                        html = `
-                            <div class="discovery-badge" style="background: #fffaf0; color: #dd6b20; border: 1px solid #fbd38d;">Kanji trong ngày [${randomSeed.level}]</div>
-                            <div style="font-size: 60px; font-weight: 900; color: #1d1d1f; line-height: 1.2; cursor: help;" title="${rawReadings}">${data.kanji}</div>
-                            <div style="font-size: 16px; font-weight: 700; color: #c50f1f; letter-spacing: 1px; margin: 5px 0;">[ ${data.hv} ]</div>
-
-                            ${showMeaningHTML}
-
-                            <button onclick="showKanjiXRay(event, '${data.kanji}')" style="background: #1d1d1f; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); margin: 0 auto;">
-                                <span class="material-symbols-outlined" style="font-size: 16px;">troubleshoot</span> Xem cách nhớ
-                            </button>
-                        `;
-                    } else {
-                        // 🟢 FALLBACK: Nếu API brief lỗi/404 -> Trả cờ về false để hiện Ngữ Pháp
-                        isKanji = false;
-                    }
-                }
-
-                // 3.5 🟢 XỬ LÝ BỐC THĂM NEWS (NHK)
-                if (mode === 'news') {
-                    try {
-                        const news = await fetchNewsCard();
-                        if (news && news.link) {
-                            // Fallback image nếu không có og:image
-                            const imgUrl = news.image_url || '';
-                            const imgHTML = imgUrl
-                                ? `<div style="width: 100%; height: 120px; border-radius: 10px; overflow: hidden; margin-bottom: 12px; background: #f1f5f9;">
-                                     <img src="${escapeHTML(imgUrl)}" style="width:100%; height:100%; object-fit: cover;" onerror="this.parentElement.style.display='none';" alt="news thumbnail"/>
-                                   </div>`
-                                : `<div style="width: 100%; height: 60px; border-radius: 10px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); margin-bottom: 12px; display: flex; align-items: center; justify-content: center;">
-                                     <span class="material-symbols-outlined" style="font-size: 32px; color: #92400e;">newspaper</span>
-                                   </div>`;
-
-                            // Cắt desc tối đa 90 ký tự
-                            const shortDesc = (news.desc || '').length > 90
-                                ? (news.desc || '').slice(0, 87) + '...'
-                                : (news.desc || '');
-
-                            html = `
-                                <div class="discovery-badge" style="background: #fef3c7; color: #92400e; border: 1px solid #fde68a;">📰 Bản tin NHK hôm nay</div>
-                                ${imgHTML}
-                                <div style="font-size: 16px; font-weight: 800; color: #1d1d1f; line-height: 1.4; margin: 8px 0; padding: 0 4px; font-family: 'Noto Sans JP', sans-serif;">${escapeHTML(news.title || '')}</div>
-                                <div style="font-size: 12px; color: #6b7280; line-height: 1.5; margin-bottom: 16px; padding: 0 4px;">${escapeHTML(shortDesc)}</div>
-                                <button onclick="openDokkaiFromDiscovery('${escapeHTML(news.link)}')" style="background: #c50f1f; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(197,15,31,0.25); margin: 0 auto;">
-                                    <span class="material-symbols-outlined" style="font-size: 16px;">menu_book</span> Đọc & Làm quiz
-                                </button>
-                            `;
-                        } else {
-                            // News fail → fallback sang grammar
-                            mode = 'grammar';
-                        }
-                    } catch (e) {
-                        console.error('Lỗi fetchNewsCard:', e);
-                        mode = 'grammar';
-                    }
-                }
-
-                // 4. XỬ LÝ BỐC THĂM NGỮ PHÁP
-                if (mode === 'grammar' && globalGrammarData.length > 0) {
-                    const randomGrammar = globalGrammarData[Math.floor(Math.random() * globalGrammarData.length)];
-                    
-                    html = `
-                        <div class="discovery-badge" style="background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;">Ngữ pháp trong ngày [${randomGrammar.level || 'N?'}]</div>
-                        <div style="font-size: 24px; font-weight: 900; color: #1d1d1f; line-height: 1.4; margin: 15px 0; font-family: 'Noto Sans JP', sans-serif;">${randomGrammar.grammar_point}</div>
-                        <div style="font-size: 14px; color: #4a5568; font-weight: 500; margin-bottom: 20px; max-width: 90%; text-align: center; margin-left: auto; margin-right: auto;">${randomGrammar.meaning}</div>
-                        <button onclick="openGrammarDetail('${randomGrammar.id}')" style="background: #1d1d1f; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); margin: 0 auto;">
-                            <span class="material-symbols-outlined" style="font-size: 16px;">menu_book</span> Xem chi tiết
-                        </button>
-                    `;
-                }
-                
-                // Nếu đen đủi lỗi cả 2
-                if (!html) {
-                    html = '<div style="color: #718096; padding: 20px; text-align: center;">Chưa tải xong dữ liệu, hãy bấm làm mới nhé.</div>';
-                }
-                
-                card.innerHTML = html;
-                card.classList.remove('flip');
-                
-            } catch (e) {
-                console.error("Lỗi xử lý bốc thăm ngẫu nhiên:", e);
-                card.classList.remove('flip');
-            } finally {
-                isDiscoverySpinning = false;
-                resolve();
-            }
-        }, 400); // 400ms tương ứng với thời gian CSS xoay thẻ
-    });
-}
-
 
 // MÀN HÌNH TỔNG KẾT PHASE 2
 function endAssessmentSession() {
@@ -30523,8 +29995,7 @@ async function generateDailyStoryWithAI() {
 
     try {
         // Gọi đến API daily-news của Worker để bốc bản tin thời sự thực tế
-        // 🟢 MỚI: Nếu có pendingNewsLink (từ Góc Khám Phá) → truyền ?link= cho API
-        // để Worker dùng cache D1 thay vì random + gọi AI lại
+        // Nếu có pendingNewsLink → truyền ?link= cho API để Worker dùng cache D1
         const newsLinkParam = window.pendingNewsLink
             ? `?link=${encodeURIComponent(window.pendingNewsLink)}`
             : '';
@@ -34102,7 +33573,7 @@ function openPillPreviewModal({ mainChar, subTitle, badge, stats, actionText, ac
                 <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
             </button>
 
-            ${badge ? `<div class="discovery-badge" style="background: rgba(0, 0, 0, 0.04); color: #1d1d1f; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 15px; display: inline-block; font-size: 11px; font-weight: 800;">${badge}</div>` : ''}
+            ${badge ? `<div class="pill-preview-badge" style="background: rgba(0, 0, 0, 0.04); color: #1d1d1f; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 15px; display: inline-block; font-size: 11px; font-weight: 800;">${badge}</div>` : ''}
             
             <!-- Chữ lớn trung tâm -->
             <div id="previewMainChar" class="${mainCharClass}" style="font-size: ${mainChar.length > 3 ? '28px' : '58px'}; font-weight: 900; color: #1d1d1f; line-height: 1.2; margin-bottom: 12px; font-family: 'Noto Sans JP', sans-serif;">${mainChar}</div>
@@ -38236,7 +37707,7 @@ function startMiniAssessment(card) {
             <button class="kh-hud-icon-btn" id="kdPauseBtn" onclick="kdTogglePause()"><span class="material-symbols-outlined" id="kdPauseIcon" style="font-size:18px;">pause</span></button>
             <div class="kd-hud-lives" id="kdLives"></div>
         </div>
-        <div class="kd-hud-item kd-hud-points">🪙<span id="kdPoints">100</span></div>
+        <div class="kd-hud-item kd-hud-points">$<span id="kdPoints">100</span></div>
         <div class="kd-hud-item kd-hud-combo">x<span id="kdCombo">0</span></div>
         <div class="kd-hud-item kd-hud-wave"><span id="kdWave">0/20</span></div>
         <div class="kd-hud-group">
