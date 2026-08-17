@@ -25441,68 +25441,69 @@ async function callHybridAIStream(promptText, imagesArray = [], onChunk, onCompl
         return callGeminiAIStream(promptText, imagesArray, onChunk, onComplete);
     }
 
-    // CHỐT CHẶN 2: Với văn bản thuần, tiến hành gọi Qwen 3.6 27B qua Groq
+    // CHỐT CHẶN 2: Với văn bản thuần, ưu tiên Gemini Flash (Primary)
     try {
-        console.log(`MindDeck: Gọi Qwen 3.6 27B qua Groq (Primary)...`);
-        const response = await fetch(`${DICT_API_URL}/api/groq`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: promptText, model: preferModel })
-        });
+        console.log("MindDeck: Gọi Gemini Flash (Primary)...");
+        await callGeminiAIStream(promptText, imagesArray, onChunk, onComplete);
+    } catch (geminiError) {
+        // CHỐT CHẶN DỰ PHÒNG (FALLBACK): Tự kích hoạt khi Gemini quá tải hoặc lỗi mạng
+        console.warn("⚠️ Gemini API gặp sự cố. Tự động kích hoạt chốt chặn dự phòng Groq Qwen 3.6 27B...", geminiError.message);
+        showToast("⚠️ Máy chủ chính bận. Đang tự động chuyển hướng sang Gia sư dự phòng...");
 
-        if (!response.ok) {
-            throw new Error(`Groq Gateway Error (HTTP ${response.status})`);
-        }
+        try {
+            console.log(`MindDeck: Gọi Qwen 3.6 27B qua Groq (Fallback)...`);
+            const response = await fetch(`${DICT_API_URL}/api/groq`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: promptText, model: preferModel })
+            });
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-        let buffer = '';
-        let fullText = '';
+            if (!response.ok) {
+                throw new Error(`Groq Gateway Error (HTTP ${response.status})`);
+            }
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+            let fullText = '';
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-            for (const line of lines) {
-                const cleanLine = line.trim();
-                if (!cleanLine.startsWith('data: ')) continue;
-                
-                const dataStr = cleanLine.replace(/^data:\s*/, '');
-                if (dataStr === '[DONE]') continue; // Bỏ qua nhãn kết thúc sse của Groq
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
 
-                try {
-                    const parsed = JSON.parse(dataStr);
-                    const chunkText = parsed.choices?.[0]?.delta?.content;
+                for (const line of lines) {
+                    const cleanLine = line.trim();
+                    if (!cleanLine.startsWith('data: ')) continue;
                     
-                    if (chunkText) {
-                        fullText += chunkText;
-                        // Vì Backend đã ẩn sạch <think> bằng "reasoning_format: hidden", 
-                        // ta chỉ việc đẩy trực tiếp chữ sạch ra màn hình học viên mà không cần lọc
-                        onChunk(cleanModelOutputText(chunkText));
+                    const dataStr = cleanLine.replace(/^data:\s*/, '');
+                    if (dataStr === '[DONE]') continue;
+
+                    try {
+                        const parsed = JSON.parse(dataStr);
+                        const chunkText = parsed.choices?.[0]?.delta?.content;
+                        
+                        if (chunkText) {
+                            fullText += chunkText;
+                            onChunk(cleanModelOutputText(chunkText));
+                        }
+                    } catch (e) {
+                        // Bỏ qua dòng JSON chưa trọn vẹn
                     }
-                } catch (e) {
-                    // Bỏ qua dòng JSON chưa trọn vẹn
                 }
             }
+
+            let finalCleanText = fullText.replace(/🧠[\s\S]*?<\/think>/g, "").trim();
+            finalCleanText = cleanModelOutputText(finalCleanText);
+            
+            if (onComplete) onComplete(finalCleanText);
+        } catch (groqError) {
+            console.error("❌ Cả Gemini và Groq đều thất bại.", groqError.message);
+            if (onComplete) onComplete("");
         }
-
-        // Dọn sạch hoàn toàn các thẻ <think> còn sót lại trước khi trả về kết quả cuối
-        let finalCleanText = fullText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-        finalCleanText = cleanModelOutputText(finalCleanText);
-        
-        if (onComplete) onComplete(finalCleanText);
-
-    } catch (groqError) {
-        // CHỐT CHẶN DỰ PHÒNG (FALLBACK): Tự kích hoạt khi Groq quá tải hoặc lỗi mạng
-        console.warn("⚠️ Groq API gặp sự cố. Tự động kích hoạt chốt chặn dự phòng Gemini Flash...", groqError.message);
-        showToast("⚠️ Máy chủ chính bận. Đang tự động chuyển hướng sang Gia sư dự phòng...");
-        
-        // Gọi ngược lại Gemini Stream truyền thống
-        return callGeminiAIStream(promptText, imagesArray, onChunk, onComplete);
     }
 }
 
