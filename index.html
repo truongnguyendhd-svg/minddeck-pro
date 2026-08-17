@@ -449,8 +449,7 @@ body.study-mode #reviewPage {
     opacity: 0.8;
 }
 .modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); align-items: center; justify-content: center; }
-/* iOS Safari fix: backdrop-filter on position:fixed hides entire modal on iOS.
-   Use ::before pseudo-element as separate backdrop-blur layer. */
+/* iOS Safari fix: backdrop-filter on position:fixed hides entire modal. Use ::before instead. */
 .modal::before {
     content: '';
     position: absolute;
@@ -5292,7 +5291,6 @@ body.pdf-mode #pdfReadState {
 /* ================= 3. CLASS KHÓA CUỘN TRANG NỀN (SCROLL BLEED FIX) ================= */
 body.modal-open-lock {
     overflow: hidden !important;
-    /* iOS Safari: overflow:hidden không hoạt động, phải position:fixed */
     position: fixed !important;
     width: 100% !important;
     height: 100dvh !important;
@@ -6982,11 +6980,8 @@ body.shadowing-mode #shadowingPage {
 /* Hết================= FIX LỖI GIẬT MENU AI PDF ================= */
 /* ================= VÁ LỖI LỆCH TÂM MODAL (TRIỆT ĐỂ 100%) ================= */
 .modal {
-    padding: 0 !important;
+    padding: 0 !important; /* Triệt tiêu padding inline gây phình to Modal */
     box-sizing: border-box !important; 
-    /* iOS Safari: isolate stacking context */
-    -webkit-overflow-scrolling: touch;
-    isolation: isolate;
 }
 
 .ai-modal-box, 
@@ -23861,10 +23856,10 @@ function parseAIMarkdown(text) {
     return html;
 }
 // --- HÀM ĐIỀU KHIỂN MODAL AI (WINDOWS 11 STYLE - ĐÃ TÍCH HỢP PARSER) ---
-function showAIModal(content, title = "Gia sư AI") {
+function showAIModal(content, title = "Gia su AI") {
     document.getElementById('aiModalTitle').innerText = title;
     
-    // Bơm content qua máy giặt Markdown Parser
+    // Bom content qua may giat Markdown Parser
     document.getElementById('aiModalContent').innerHTML = parseAIMarkdown(content);
 
     const modal = document.getElementById('aiResponseModal');
@@ -23872,15 +23867,26 @@ function showAIModal(content, title = "Gia sư AI") {
     document.body.classList.add('modal-open-lock');
     modal.style.display = 'flex';
     
-    // iOS Safari fix: force reflow để browser paint xong display:flex
+    // iOS Safari fix: force reflow
     void modal.offsetHeight;
-    // Double-rAF: đảm bảo frame paint hoàn tất trước khi animate
     requestAnimationFrame(() => {
         requestAnimationFrame(() => {
             modalBox.style.transform = 'scale(1)';
             modalBox.style.opacity = '1';
         });
     });
+
+    // iOS Safari fallback: neu sau 500ms modal van opacity 0, ep hien bang timeout
+    setTimeout(() => {
+        if (modal.style.display === 'flex') {
+            const currentOpacity = parseFloat(modalBox.style.opacity || '0');
+            if (currentOpacity < 0.5) {
+                modalBox.style.transform = 'scale(1)';
+                modalBox.style.opacity = '1';
+                modalBox.style.transition = 'none';
+            }
+        }
+    }, 500);
 }
 
 
@@ -23909,9 +23915,14 @@ let globalSelectedText = "";
 // 1. Quản lý sự kiện thả chuột / buông tay (để lấy tọa độ & hiển thị Popover)
 function handleSelectionEnd(e) {
     // Timeout nhỏ để hệ điều hành hoàn tất việc bôi đen
+        // Timeout nho de he dieu hanh hoan tat viec boi den
     setTimeout(() => {
         const selection = window.getSelection();
         const popover = document.getElementById('selectionPopover');
+
+        // iOS Safari fix: bo qua neu dang cho AI phan hoi
+        if (window._popoverAIActionRunning) return;
+
 
         // Bỏ qua nếu không bôi đen hoặc click trúng Popover
         if (selection.isCollapsed || (e.target && e.target.closest('#selectionPopover'))) {
@@ -24002,24 +24013,35 @@ async function popoverActionSearch(e) {
 async function popoverActionAI(e) {
     e.preventDefault(); e.stopPropagation();
     document.getElementById('selectionPopover').classList.remove('show');
-    
-    showLoading("AI đang phân tích...");
-    const prompt = `Đóng vai trò là giáo viên tiếng Nhật JLPT. Phân tích cụm/câu sau: "${globalSelectedText}".
-    Trả về văn bản cơ bản (dùng <b>, <br>) gồm 3 phần: 
-    1. Bản dịch tiếng Việt.
-    2. Phân tích cấu trúc ngữ pháp (nếu có).
-    3. Từ vựng quan trọng (Kèm Hiragana và Hán Việt).`;
+
+    // iOS Safari fix: dat co chan handleSelectionEnd re-fire
+    window._popoverAIActionRunning = true;
+
+    // Luu text ngay lap tuc (iOS co the clear selection khi loading hien len)
+    const savedText = globalSelectedText;
+
+    showLoading("AI dang phan tich...");
+    const prompt = `Dong vai tro lai giao vien tieng Nhat JLPT. Phan tich cum/cau sau: "${savedText}".
+    Tra ve van ban co ban (dung <b>, <br>) gom 3 phan: 
+    1. Ban dich tieng Viet.
+    2. Phan tich cau truc ngu phap (neu co).
+    3. Tu vung quan trong (Kem Hiragana va Han Viet).`;
 
     try {
-        const aiResponse = await callGeminiAI(prompt); // Hàm có sẵn
+        const aiResponse = await callGeminiAI(prompt);
         hideLoading();
-        // iOS Safari fix: force reflow đảm bảo loading overlay đã ẩn hoàn toàn
-        void document.body.offsetHeight;
+        // iOS Safari fix: cho 2 frame de browser paint xong viec an loading
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        // iOS Safari fix: xoa text selection de modal khong bi che boi selection UI
+        window.getSelection().removeAllRanges();
         const processedAIResponse = wrapKanjiWithLink(aiResponse);
-        showAIModal(processedAIResponse, "Phân tích chuyên sâu");
+        showAIModal(processedAIResponse, "Phan tich chuyen sau");
     } catch (err) {
         hideLoading();
-        (`<b style="color: #e53e3e;">LỖI AI:</b><br>${err.message}`, "❌");
+        showAIModal(`<b style="color: #e53e3e;">LOI AI:</b><br>${err.message}`, "\u274c Loi");
+        console.warn("popoverActionAI error:", err);
+    } finally {
+        window._popoverAIActionRunning = false;
     }
 }
 
