@@ -27795,13 +27795,19 @@ document.addEventListener('DOMContentLoaded', () => {
                         
                         if (targetInput && targetBtn && targetBtn.classList.contains('kana-toggle-btn')) {
                             if (isGlobalKanaMode) {
-                                wanakana.bind(targetInput);
+                                // FIX: Chỉ bind nếu CHƯA bind (tránh double-bind crash)
+                                if (!targetInput.hasAttribute('data-wanakana-id')) {
+                                    wanakana.bind(targetInput);
+                                }
                                 targetBtn.innerText = 'あ';
-                                targetBtn.style.color = '#64748b'; // 🟢 Xám đậm khi BẬT
+                                targetBtn.style.color = '#64748b';
                             } else {
-                                wanakana.unbind(targetInput);
+                                // FIX: Chỉ unbind nếu ĐÃ bind (tránh unbind crash)
+                                if (targetInput.hasAttribute('data-wanakana-id')) {
+                                    wanakana.unbind(targetInput);
+                                }
                                 targetBtn.innerText = 'A';
-                                targetBtn.style.color = '#a0aec0'; // 🟢 Xám nhạt khi TẮT
+                                targetBtn.style.color = '#a0aec0';
                             }
                         }
                     });
@@ -34884,16 +34890,8 @@ window.renderActiveTypingRound = function() {
     const inputEl = document.getElementById('gGameTypingInput');
     const toggleBtn = document.getElementById('gGameKanaToggleBtn');
     
-    // (state kanaMode giờ nằm trong attachJpIme instance)
-    wanakana.bind(inputEl);
-
-    // 🟢 LOẠI BỎ toggleBtn.onclick thủ công — attachJpIme() đã tự lo
-    // (xử lý WanaKana bind/unbind + ẩn candidates bar khi toggle off)
-
-    // 🟢 ĐỔI: Dùng module IME chung attachJpIme() thay vì setup thủ công
-    // Bao gồm: WanaKana bind/unbind + Google IME candidates + phím tắt
-    // (Backspace co mốc ghim, Space chọn candidate #1, Enter chọn cand hoặc checkTypingAnswer)
-    if (typeof wanakana !== 'undefined') wanakana.bind(inputEl);
+    // FIX: attachJpIme() tự lo WanaKana bind/unbind bên trong.
+    // KHÔNG bind thủ công ở đây để tránh double-bind (2 event listeners → race condition → crash).
     window.__grammarImeInstance = attachJpIme(inputEl, document.getElementById('gGameCandidatesBar'), {
         toggleBtn: toggleBtn,
         onEnter: () => checkTypingAnswer()
@@ -34963,7 +34961,8 @@ window.selectImeCandidate = function(cand) {
     const isKanaActive = toggleBtn && toggleBtn.innerText === 'あ';
     
     if (isKanaActive) {
-        wanakana.unbind(input);
+        // FIX: Guard trước unbind/bind để tránh crash
+        if (input.hasAttribute('data-wanakana-id')) wanakana.unbind(input);
         input.value = newValue;
         wanakana.bind(input);
     } else {
@@ -34984,7 +34983,14 @@ window.selectImeCandidate = function(cand) {
 };
 
 // 🟢 3. HÀM HIỂN THỊ GỢI Ý (FIX LỖI MOBILE VÀ PC)
+// 🧢 DEPRECATED: Hàm cũ bị thay thế bởi renderCandidates bên trong attachJpIme().
+// Giữ lại wrapper an toàn để không crash nếu có code cũ vẫn gọi.
 window.renderCandidates = function(candidates) {
+    // Ưu tiên dùng IME instance mới nếu có
+    if (window.__grammarImeInstance && typeof window.__grammarImeInstance.selectCandidate === 'function') {
+        // attachJpIme đã tự render, không cần làm gì thêm
+        return;
+    }
     const bar = document.getElementById('gGameCandidatesBar');
     if (!bar) return;
 
@@ -35337,15 +35343,24 @@ window.attachJpIme = function(inputEl, barEl, options) {
       e.preventDefault();
       e.stopPropagation();
       state.kanaMode = !state.kanaMode;
+      // FIX: Reset isComposing khi toggle để tránh kẹt state
+      state.isComposing = false;
       if (state.kanaMode) {
-        if (typeof wanakana !== 'undefined') wanakana.bind(inputEl);
+        // FIX: Chỉ bind nếu chưa bind
+        if (typeof wanakana !== 'undefined' && !inputEl.hasAttribute('data-wanakana-id')) {
+          wanakana.bind(inputEl);
+        }
         state.toggleBtn.innerText = 'あ';
         state.toggleBtn.style.color = '#64748b';
       } else {
-        if (typeof wanakana !== 'undefined') wanakana.unbind(inputEl);
+        // FIX: Chỉ unbind nếu đã bind
+        if (typeof wanakana !== 'undefined' && inputEl.hasAttribute('data-wanakana-id')) {
+          wanakana.unbind(inputEl);
+        }
         state.toggleBtn.innerText = 'A';
         state.toggleBtn.style.color = '#a0aec0';
         barEl.style.display = 'none';
+        state.candidates = [];
       }
       inputEl.focus();
     });
