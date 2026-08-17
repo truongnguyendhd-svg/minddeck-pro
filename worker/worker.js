@@ -715,7 +715,7 @@ var worker_default = {
             const currentKey = apiKeys[currentIndex];
 
             try {
-              const modelName = "gemini-3-flash-preview";
+              const modelName = "gemini-3.7-flash";
               const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${currentKey}`;
 
               const response = await fetch(geminiUrl, {
