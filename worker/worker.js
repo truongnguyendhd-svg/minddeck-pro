@@ -1334,67 +1334,149 @@ var worker_default = {
             if (splitMatch) { try { playerResponse = JSON.parse(splitMatch[1]); } catch(e) {} }
           }
 
-          if (!playerResponse || !playerResponse.captions) {
-            return new Response(JSON.stringify({ error: "NO_CAPTIONS", message: "Video này không có phụ đề (caption)." }), { status: 404, headers: corsHeaders });
+          if (!playerResponse) {
+            return new Response(JSON.stringify({ error: "NO_CAPTIONS", message: "Không đọc được dữ liệu video." }), { status: 404, headers: corsHeaders });
           }
 
-          const tracks = playerResponse.captions.playerCaptionsTracklistRenderer.captionTracks || [];
-          let selectedTrack = tracks.find(t => t.languageCode === 'ja');
-          if (!selectedTrack) selectedTrack = tracks.find(t => t.languageCode && t.languageCode.startsWith('ja'));
-          if (!selectedTrack) selectedTrack = tracks.find(t => t.kind === 'asr');
-          if (!selectedTrack && tracks.length > 0) selectedTrack = tracks[0];
-
-          if (!selectedTrack) {
-            return new Response(JSON.stringify({ error: "NO_CAPTIONS", message: "Không tìm thấy caption track nào." }), { status: 404, headers: corsHeaders });
-          }
-
-          const captionUrl = selectedTrack.baseUrl;
           let segments = [];
+          let selectedTrack = null;
+          const tracks = playerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
 
-          // Try JSON3 format first
-          const jsonUrl = captionUrl + (captionUrl.includes('?') ? '&' : '?') + 'fmt=json3';
-          try {
-            const jsonResp = await fetch(jsonUrl, { headers: YT_HEADERS });
-            if (jsonResp.ok) {
-              const jsonData = await jsonResp.json();
-              const events = jsonData.events || [];
-              for (const ev of events) {
-                if (ev.segs) {
-                  const text = ev.segs.map(s => s.utf8 || '').join('')
-                    .replace(/<[^>]*>/g, '').replace(/\n/g, ' ').trim();
-                  if (text) {
-                    const startMs = ev.tStartMs || 0;
-                    const durMs = ev.dDurationMs || 2000;
-                    segments.push({ start: startMs / 1000, duration: durMs / 1000, end: (startMs + durMs) / 1000, text });
+          if (tracks.length > 0) {
+            selectedTrack = tracks.find(t => t.languageCode === 'ja');
+            if (!selectedTrack) selectedTrack = tracks.find(t => t.languageCode?.startsWith('ja'));
+            if (!selectedTrack) selectedTrack = tracks.find(t => t.kind === 'asr');
+            if (!selectedTrack) selectedTrack = tracks[0];
+
+            if (selectedTrack) {
+              const captionUrl = selectedTrack.baseUrl;
+
+              // Try JSON3 format first
+              const jsonUrl = captionUrl + (captionUrl.includes('?') ? '&' : '?') + 'fmt=json3';
+              try {
+                const jsonResp = await fetch(jsonUrl, { headers: YT_HEADERS });
+                if (jsonResp.ok) {
+                  const jsonData = await jsonResp.json();
+                  const events = jsonData.events || [];
+                  for (const ev of events) {
+                    if (ev.segs) {
+                      const text = ev.segs.map(s => s.utf8 || '').join('')
+                        .replace(/<[^>]*>/g, '').replace(/\n/g, ' ').trim();
+                      if (text) {
+                        const startMs = ev.tStartMs || 0;
+                        const durMs = ev.dDurationMs || 2000;
+                        segments.push({ start: startMs / 1000, duration: durMs / 1000, end: (startMs + durMs) / 1000, text });
+                      }
+                    }
+                  }
+                }
+              } catch(e) {
+                console.log('JSON3 format failed:', e.message);
+              }
+
+              // Fallback: XML with flexible regex
+              if (segments.length === 0) {
+                const xmlResp = await fetch(captionUrl, { headers: YT_HEADERS });
+                if (xmlResp.ok) {
+                  const xml = await xmlResp.text();
+                  const textRegex = /<text\s+start=["']([^"']+)["'](?:\s+dur=["']([^"']+)["'])?[^>]*>([\s\S]*?)<\/text>/g;
+                  let m;
+                  while ((m = textRegex.exec(xml)) !== null) {
+                    const text = m[3].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+                      .replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/<[^>]*>/g, '').replace(/\n/g, ' ').trim();
+                    if (text) {
+                      const start = parseFloat(m[1]);
+                      const dur = m[2] ? parseFloat(m[2]) : 2;
+                      segments.push({ start, duration: dur, end: start + dur, text });
+                    }
                   }
                 }
               }
             }
-          } catch(e) {
-            console.log('JSON3 format failed:', e.message);
           }
 
-          // Fallback: XML with flexible regex
-          if (segments.length === 0) {
-            const xmlResp = await fetch(captionUrl, { headers: YT_HEADERS });
-            if (xmlResp.ok) {
-              const xml = await xmlResp.text();
-              const textRegex = /<text\s+start=["']([^"']+)["'](?:\s+dur=["']([^"']+)["'])?[^>]*>([\s\S]*?)<\/text>/g;
-              let m;
-              while ((m = textRegex.exec(xml)) !== null) {
-                const text = m[3].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-                  .replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/<[^>]*>/g, '').replace(/\n/g, ' ').trim();
-                if (text) {
-                  const start = parseFloat(m[1]);
-                  const dur = m[2] ? parseFloat(m[2]) : 2;
-                  segments.push({ start, duration: dur, end: start + dur, text });
+          // ========== METHOD 3: Groq Whisper fallback (video < 10 min) ==========
+          if (segments.length === 0 && env.GROQ_API_KEYS) {
+            try {
+              const streamingData = playerResponse?.streamingData;
+              const adaptiveFormats = streamingData?.adaptiveFormats || [];
+              const audioItags = [251, 140, 250, 249];
+              let audioUrl = null;
+              let audioMime = 'audio/mp4';
+              for (const itag of audioItags) {
+                const fmt = adaptiveFormats.find(f => f.itag === itag);
+                if (fmt?.url) { audioUrl = fmt.url; audioMime = fmt.mimeType?.split(';')[0] || 'audio/mp4'; break; }
+              }
+              if (!audioUrl) {
+                const anyAudio = adaptiveFormats.find(f => f.mimeType?.startsWith('audio/'));
+                if (anyAudio?.url) { audioUrl = anyAudio.url; audioMime = anyAudio.mimeType?.split(';')[0] || 'audio/mp4'; }
+              }
+
+              if (audioUrl) {
+                const durationSec = playerResponse?.videoDetails?.lengthSeconds || 0;
+                if (durationSec > 600) {
+                  return new Response(JSON.stringify({ 
+                    error: "VIDEO_TOO_LONG", 
+                    message: `Video ${Math.round(durationSec/60)} phút quá dài cho Whisper (tối đa 10 phút). Dùng nút tải SRT thủ công.` 
+                  }), { status: 400, headers: corsHeaders, "Content-Type": "application/json" });
+                }
+
+                const groqKey = getRandomKey(env.GROQ_API_KEYS);
+                if (groqKey) {
+                  const audioResp = await fetch(audioUrl);
+                  if (audioResp.ok) {
+                    const audioBuf = await audioResp.arrayBuffer();
+                    if (audioBuf.byteLength > 25 * 1024 * 1024) {
+                      return new Response(JSON.stringify({ 
+                        error: "AUDIO_TOO_LARGE", 
+                        message: "File audio quá lớn (>25MB). Thử video khác hoặc tải SRT thủ công." 
+                      }), { status: 400, headers: corsHeaders, "Content-Type": "application/json" });
+                    }
+
+                    const ext = audioMime.includes('opus') ? 'ogg' : audioMime.includes('webm') ? 'webm' : 'mp4';
+                    const formData = new FormData();
+                    formData.append('file', new Blob([audioBuf], { type: audioMime }), `audio.${ext}`);
+                    formData.append('model', 'whisper-large-v3');
+                    formData.append('language', 'ja');
+                    formData.append('response_format', 'verbose_json');
+                    formData.append('timestamp_granularities[]', 'segment');
+
+                    const whisperResp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+                      method: 'POST',
+                      headers: { 'Authorization': `Bearer ${groqKey}` },
+                      body: formData
+                    });
+
+                    if (whisperResp.ok) {
+                      const whisperData = await whisperResp.json();
+                      segments = (whisperData.segments || []).map(s => ({
+                        start: s.start || 0,
+                        duration: (s.end || 0) - (s.start || 0),
+                        end: s.end || 0,
+                        text: (s.text || '').trim()
+                      })).filter(s => s.text);
+
+                      if (segments.length > 0) {
+                        return new Response(JSON.stringify({
+                          videoId,
+                          title: playerResponse?.videoDetails?.title || '',
+                          language: 'ja',
+                          isAutoGenerated: true,
+                          method: 'whisper',
+                          segments
+                        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+                      }
+                    }
+                  }
                 }
               }
+            } catch(e) {
+              console.log('Whisper fallback failed:', e.message);
             }
           }
 
           if (segments.length === 0) {
-            return new Response(JSON.stringify({ error: "EMPTY_CAPTIONS", message: "Caption rỗng. Thử video khác có bật phụ đề." }), { status: 404, headers: corsHeaders });
+            return new Response(JSON.stringify({ error: "NO_CAPTIONS", message: "Không lấy được phụ đề. Thử video khác hoặc dùng SRT thủ công." }), { status: 404, headers: corsHeaders });
           }
 
           return new Response(JSON.stringify({
