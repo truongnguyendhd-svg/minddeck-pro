@@ -1196,6 +1196,84 @@ var worker_default = {
       // =========================================================================
       // 🟢 ENDPOINT: YOUTUBE AUTO-FETCH CAPTIONS (Innertube API)
       // =========================================================================
+
+      // Helper: Innertube get_transcript API
+      async function fetchInnertubeTranscript(videoId, headers) {
+        // Step 1: Get params from player response
+        const pageResp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, { headers });
+        if (!pageResp.ok) throw new Error('Page fetch failed');
+        const html = await pageResp.text();
+
+        let playerResponse = null;
+        for (const pat of [
+          /var ytInitialPlayerResponse\s*=\s*({.+?});\s*<\/script>/s,
+          /ytInitialPlayerResponse\s*=\s*({.+?});\s*var /s
+        ]) {
+          const m = html.match(pat);
+          if (m) { try { playerResponse = JSON.parse(m[1]); break; } catch(e) {} }
+        }
+        if (!playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks?.length) {
+          return null;
+        }
+
+        const tracks = playerResponse.captions.playerCaptionsTracklistRenderer.captionTracks;
+        const jaTrack = tracks.find(t => t.languageCode === 'ja') ||
+                        tracks.find(t => t.languageCode?.startsWith('ja')) ||
+                        tracks.find(t => t.kind === 'asr') ||
+                        tracks[0];
+        if (!jaTrack) return null;
+
+        // Step 2: Call Innertube get_transcript
+        const innertubeBody = {
+          context: {
+            client: {
+              clientName: "WEB",
+              clientVersion: "2.20250101.00.00",
+              hl: "ja"
+            }
+          },
+          params: jaTrack.baseUrl.split('params=')[1]?.split('&')[0]
+        };
+
+        if (!innertubeBody.params) {
+          // Extract from URL
+          const urlObj = new URL(jaTrack.baseUrl);
+          innertubeBody.params = urlObj.searchParams.get('params');
+        }
+        if (!innertubeBody.params) return null;
+
+        const transcriptResp = await fetch("https://www.youtube.com/youtubei/v1/get_transcript", {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(innertubeBody)
+        });
+        if (!transcriptResp.ok) throw new Error(`Transcript API: ${transcriptResp.status}`);
+
+        const data = await transcriptResp.json();
+        const body = data.transcript?.transcriptContentRenderer?.body?.transcriptBodyRenderer?.cueGroups;
+        if (!body) return null;
+
+        const segments = [];
+        for (const group of body) {
+          const cues = group.transcriptCueGroupRenderer?.cues || [];
+          for (const cue of cues) {
+            const c = cue.transcriptCueRenderer;
+            if (c?.cue?.simpleText) {
+              const startMs = parseInt(c.startOffsetMs) || 0;
+              const durMs = parseInt(c.durationMs) || 2000;
+              segments.push({
+                start: startMs / 1000,
+                duration: durMs / 1000,
+                end: (startMs + durMs) / 1000,
+                text: c.cue.simpleText.trim(),
+                lang: jaTrack.languageCode
+              });
+            }
+          }
+        }
+        return segments;
+      }
+
       if (path === "/api/yt-caption" && request.method === "POST") {
         try {
           const { url } = await request.json();
@@ -1204,95 +1282,119 @@ var worker_default = {
           }
 
           // Extract video ID
-          const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|shorts\/|live\/)([^#\&\?]*).*/;
+          const regExp = /^(.*(?:youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|shorts\/|live\/))([^#\&\?]*).*/;
           const match = url.match(regExp);
           const videoId = (match && match[2].length === 11) ? match[2] : null;
           if (!videoId) {
             return new Response(JSON.stringify({ error: "Invalid YouTube URL" }), { status: 400, headers: corsHeaders });
           }
 
-          // 1. Fetch YouTube page to get ytInitialPlayerResponse
-          const pageResponse = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-              "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
-              "Cookie": "CONSENT=YES+1; SOCS=CAISNQgDEitibHAgEqARACGAAgACRNbA=="
-            }
-          });
+          const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+          const YT_HEADERS = {
+            "User-Agent": UA,
+            "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Cookie": "CONSENT=YES+1; SOCS=CAISNQgDEitibHAgEqARACGAAgACRNbA=="
+          };
 
+          // ========== METHOD 1: Innertube get_transcript API ==========
+          try {
+            const innertubeSegments = await fetchInnertubeTranscript(videoId, YT_HEADERS);
+            if (innertubeSegments && innertubeSegments.length > 0) {
+              return new Response(JSON.stringify({
+                videoId,
+                language: 'ja',
+                isAutoGenerated: true,
+                method: 'innertube',
+                segments: innertubeSegments
+              }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            }
+          } catch(e) {
+            console.log('Innertube method failed:', e.message);
+          }
+
+          // ========== METHOD 2: Page scrape + caption fetch ==========
+          const pageResponse = await fetch(`https://www.youtube.com/watch?v=${videoId}`, { headers: YT_HEADERS });
           if (!pageResponse.ok) {
             throw new Error(`YouTube page fetch failed: ${pageResponse.status}`);
           }
-
           const pageHtml = await pageResponse.text();
 
-          // 2. Extract player response JSON
           let playerResponse = null;
           const patterns = [
             /var ytInitialPlayerResponse\s*=\s*({.+?});\s*<\/script>/s,
             /ytInitialPlayerResponse\s*=\s*({.+?});\s*var /s,
             /ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*<\/script>/s
           ];
-
           for (const pattern of patterns) {
             const m = pageHtml.match(pattern);
-            if (m) {
-              try { playerResponse = JSON.parse(m[1]); break; } catch(e) { continue; }
-            }
+            if (m) { try { playerResponse = JSON.parse(m[1]); break; } catch(e) { continue; } }
           }
-
-          // Fallback: search in split data
           if (!playerResponse) {
             const splitMatch = pageHtml.match(/var ytInitialPlayerResponse\s*=\s*({.+?});/s);
-            if (splitMatch) {
-              try { playerResponse = JSON.parse(splitMatch[1]); } catch(e) {}
-            }
+            if (splitMatch) { try { playerResponse = JSON.parse(splitMatch[1]); } catch(e) {} }
           }
 
           if (!playerResponse || !playerResponse.captions) {
             return new Response(JSON.stringify({ error: "NO_CAPTIONS", message: "Video này không có phụ đề (caption)." }), { status: 404, headers: corsHeaders });
           }
 
-          // 3. Find caption tracks — prefer Japanese, then auto-generated
           const tracks = playerResponse.captions.playerCaptionsTracklistRenderer.captionTracks || [];
           let selectedTrack = tracks.find(t => t.languageCode === 'ja');
           if (!selectedTrack) selectedTrack = tracks.find(t => t.languageCode && t.languageCode.startsWith('ja'));
-          if (!selectedTrack) selectedTrack = tracks.find(t => t.kind === 'asr'); // auto-generated
-          if (!selectedTrack && tracks.length > 0) selectedTrack = tracks[0]; // any available
+          if (!selectedTrack) selectedTrack = tracks.find(t => t.kind === 'asr');
+          if (!selectedTrack && tracks.length > 0) selectedTrack = tracks[0];
 
           if (!selectedTrack) {
             return new Response(JSON.stringify({ error: "NO_CAPTIONS", message: "Không tìm thấy caption track nào." }), { status: 404, headers: corsHeaders });
           }
 
-          // 4. Fetch caption XML
           const captionUrl = selectedTrack.baseUrl;
-          const captionResponse = await fetch(captionUrl);
-          if (!captionResponse.ok) {
-            throw new Error(`Caption fetch failed: ${captionResponse.status}`);
-          }
-          const captionXml = await captionResponse.text();
+          let segments = [];
 
-          // 5. Parse XML into subtitle segments
-          const segments = [];
-          const textRegex = /<text start="([^"]+)" dur="([^"]+)"[^>]*>([\s\S]*?)<\/text>/g;
-          let textMatch;
-          while ((textMatch = textRegex.exec(captionXml)) !== null) {
-            const text = textMatch[3]
-              .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-              .replace(/&#39;/g, "'").replace(/&quot;/g, '"')
-              .replace(/<[^>]*>/g, '').replace(/\n/g, ' ').trim();
-            if (text) {
-              segments.push({
-                start: parseFloat(textMatch[1]),
-                duration: parseFloat(textMatch[2]),
-                end: parseFloat(textMatch[1]) + parseFloat(textMatch[2]),
-                text: text
-              });
+          // Try JSON3 format first
+          const jsonUrl = captionUrl + (captionUrl.includes('?') ? '&' : '?') + 'fmt=json3';
+          try {
+            const jsonResp = await fetch(jsonUrl, { headers: YT_HEADERS });
+            if (jsonResp.ok) {
+              const jsonData = await jsonResp.json();
+              const events = jsonData.events || [];
+              for (const ev of events) {
+                if (ev.segs) {
+                  const text = ev.segs.map(s => s.utf8 || '').join('')
+                    .replace(/<[^>]*>/g, '').replace(/\n/g, ' ').trim();
+                  if (text) {
+                    const startMs = ev.tStartMs || 0;
+                    const durMs = ev.dDurationMs || 2000;
+                    segments.push({ start: startMs / 1000, duration: durMs / 1000, end: (startMs + durMs) / 1000, text });
+                  }
+                }
+              }
+            }
+          } catch(e) {
+            console.log('JSON3 format failed:', e.message);
+          }
+
+          // Fallback: XML with flexible regex
+          if (segments.length === 0) {
+            const xmlResp = await fetch(captionUrl, { headers: YT_HEADERS });
+            if (xmlResp.ok) {
+              const xml = await xmlResp.text();
+              const textRegex = /<text\s+start=["']([^"']+)["'](?:\s+dur=["']([^"']+)["'])?[^>]*>([\s\S]*?)<\/text>/g;
+              let m;
+              while ((m = textRegex.exec(xml)) !== null) {
+                const text = m[3].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+                  .replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/<[^>]*>/g, '').replace(/\n/g, ' ').trim();
+                if (text) {
+                  const start = parseFloat(m[1]);
+                  const dur = m[2] ? parseFloat(m[2]) : 2;
+                  segments.push({ start, duration: dur, end: start + dur, text });
+                }
+              }
             }
           }
 
           if (segments.length === 0) {
-            return new Response(JSON.stringify({ error: "EMPTY_CAPTIONS", message: "Caption rỗng." }), { status: 404, headers: corsHeaders });
+            return new Response(JSON.stringify({ error: "EMPTY_CAPTIONS", message: "Caption rỗng. Thử video khác có bật phụ đề." }), { status: 404, headers: corsHeaders });
           }
 
           return new Response(JSON.stringify({
@@ -1300,10 +1402,9 @@ var worker_default = {
             title: playerResponse.videoDetails?.title || '',
             language: selectedTrack.languageCode,
             isAutoGenerated: selectedTrack.kind === 'asr',
+            method: 'scrape',
             segments
-          }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-          });
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
         } catch (err) {
           return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders, "Content-Type": "application/json" });
