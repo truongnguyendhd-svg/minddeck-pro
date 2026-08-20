@@ -14546,13 +14546,109 @@ function renderBoostCard() {
             function checkSentenceAnswer() {
                 const currentStr = Array.from(sDrop.querySelectorAll('.scramble-piece')).map(el => el.innerText).join('');
                 if (currentStr.length === targetSentence.length) {
-                    zone.style.pointerEvents = 'none';
                     const isCorrect = currentStr === targetSentence;
-                    if (!isCorrect) {
+                    if (isCorrect) {
+                        zone.style.pointerEvents = 'none';
+                        showSentenceCompleteResult();
+                    } else {
+                        zone.style.pointerEvents = 'none';
                         setTimeout(() => { zone.style.pointerEvents = 'auto'; }, 400);
+                        handleBoostAnswer(sDrop, false);
                     }
-                    handleBoostAnswer(sDrop, isCorrect);
                 }
+            }
+
+            function showSentenceCompleteResult() {
+                // Bắn pháo hoa
+                if (typeof confetti === 'function') {
+                    confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, zIndex: 10000 });
+                }
+
+                // Xóa các piece đã xếp khỏi drop zone, giữ nguyên giao diện drop zone
+                sDrop.innerHTML = '';
+                sDrop.style.position = 'relative';
+                sDrop.style.display = 'flex';
+                sDrop.style.flexDirection = 'column';
+                sDrop.style.alignItems = 'center';
+                sDrop.style.justifyContent = 'center';
+
+                // Câu hoàn chỉnh bên trong drop zone
+                const sentenceDiv = document.createElement('div');
+                sentenceDiv.style.cssText = 'font-size:20px; font-weight:700; color:#1a1a1a; line-height:1.8; letter-spacing:0.5px; text-align:center; padding:4px 0;';
+                sentenceDiv.textContent = targetSentence;
+                sDrop.appendChild(sentenceDiv);
+
+                // Nút romaji gạch chân góc phải drop zone (giống modal câu ví dụ)
+                const romajiBtn = document.createElement('button');
+                romajiBtn.className = 'btn-toggle-romaji';
+                romajiBtn.id = 'btnSentenceRomaji';
+                romajiBtn.style.cssText = 'position:absolute; bottom:6px; right:10px; background:rgba(0,0,0,0.04); border:none; padding:3px 10px; border-radius:50px; font-size:12px; font-weight:700; color:#4b5563; cursor:pointer; display:flex; align-items:center; gap:4px; transition:0.2s;';
+                romajiBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:15px;">visibility_off</span><span class="btn-text-lbl" style="font-size:12px; font-weight:700;">Hiện Romaji</span>';
+                romajiBtn.onclick = async function(e) {
+                    e.stopPropagation();
+                    const romajiEl = document.getElementById('sentenceRomajiText');
+                    if (!romajiEl) return;
+                    const isHidden = romajiEl.style.display === 'none';
+                    const btnIcon = this.querySelector('.material-symbols-outlined');
+                    const btnTextLbl = this.querySelector('.btn-text-lbl');
+                    if (isHidden) {
+                        if (romajiEl.innerText.trim() === '') {
+                            // LAZY HYDRATION: fetch từ Google
+                            btnTextLbl.innerText = '...';
+                            btnIcon.innerText = 'sync';
+                            btnIcon.style.animation = 'spin 1s linear infinite';
+                            this.disabled = true;
+                            const result = await fetchRomajiFromGoogle(c.exampleJP || targetSentence);
+                            this.disabled = false;
+                            btnIcon.style.animation = 'none';
+                            if (!result) {
+                                btnTextLbl.innerText = 'Hiện Romaji';
+                                btnIcon.innerText = 'visibility_off';
+                                showToast('Lỗi kết nối Google. Hãy thử lại!');
+                                return;
+                            }
+                            romajiEl.innerText = result;
+                        }
+                        romajiEl.style.display = 'block';
+                        btnTextLbl.innerText = 'Ẩn Romaji';
+                        btnIcon.innerText = 'visibility';
+                        this.style.opacity = '1';
+                    } else {
+                        romajiEl.style.display = 'none';
+                        btnTextLbl.innerText = 'Hiện Romaji';
+                        btnIcon.innerText = 'visibility_off';
+                    }
+                };
+                sDrop.appendChild(romajiBtn);
+
+                // Khung romaji text (ẩn mặc định, nằm trong drop zone)
+                const romajiDiv = document.createElement('div');
+                romajiDiv.id = 'sentenceRomajiText';
+                romajiDiv.className = 'romaji-sentence';
+                // Ưu tiên romaji1 từ thẻ, nếu có thì không cần fetch
+                const preloadedRomaji = c.romaji1 || '';
+                romajiDiv.style.cssText = 'display:' + (preloadedRomaji ? 'block' : 'none') + '; width:100%; text-align:center; font-size:14px; color:#64748b; font-weight:600; margin-top:4px; padding-bottom:2px; line-height:1.6;';
+                romajiDiv.innerText = preloadedRomaji;
+                // Nếu đã có romaji sẵn, cập nhật nút theo trạng thái hiển
+                if (preloadedRomaji) {
+                    romajiBtn.querySelector('.btn-text-lbl').innerText = 'Ẩn Romaji';
+                    romajiBtn.querySelector('.material-symbols-outlined').innerText = 'visibility';
+                    romajiBtn.style.opacity = '1';
+                }
+                sDrop.appendChild(romajiDiv);
+
+                // Ẩn pool
+                sPool.style.opacity = '0.3';
+                sPool.style.pointerEvents = 'none';
+
+                // Chuyển nút CHỊU THUA thành TIẾP THEO
+                const giveUpZone = document.getElementById('boostGiveUpZone');
+                giveUpZone.style.display = 'block';
+                giveUpZone.innerHTML = `
+                    <button onclick="sentenceBuilderNext()" style="width:100%; justify-content:center; color:#fff; border:none; border-top:1px solid #e2e8f0; background:linear-gradient(135deg,#22c55e,#16a34a); padding:15px; font-size:16px; font-weight:800; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; border-radius:0; letter-spacing:1px;">
+                        TIẾP THEO <span class="material-symbols-outlined" style="font-size:22px;">arrow_forward</span>
+                    </button>
+                `;
             }
 
             function sentenceReturnToPool(piece) {
@@ -15473,6 +15569,25 @@ function nextBoostCard() {
 
     showCard();
 }
+
+// ===== HÀM HỖ TRỢ GAME 6 (SENTENCE BUILDER) =====
+function sentenceBuilderNext() {
+    clearTimeout(boostTimer);
+    const c = sessionCards[currentIndex];
+    if (mode === 'assessment') {
+        boostState.activeQueue.shift();
+        nextAssessmentCard();
+    } else {
+        boostState.correct++;
+        if (c) {
+            const parsed = c.parsedCardDataCache || parseCardData(c);
+            boostState.history.push({ front: c.front, back: c.back, status: 'correct' });
+        }
+        nextBoostCard();
+    }
+}
+
+
 async function confirmBoostGiveUp() {
     if (typeof unlockIOSAudio === 'function') unlockIOSAudio();
 
