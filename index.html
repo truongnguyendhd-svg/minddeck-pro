@@ -1051,8 +1051,10 @@ body {
 /* Game ghép chữ (Scramble) */
 .scramble-zone { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-bottom: 20px; min-height: 50px; max-width: 800px; margin-left: auto; margin-right: auto; padding: 15px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; }
 .scramble-pool { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-.scramble-piece { padding: 10px 15px; background: #fff; border: 2px solid #cbd5e0; border-radius: 8px; font-weight: 800; font-size: 18px; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-.scramble-piece:hover { transform: translateY(-3px); border-color: #3498db; }
+.scramble-piece { padding: 10px 15px; background: #fff; border: 1px solid #cbd5e0; border-radius: 8px; font-weight: 800; font-size: 18px; cursor: grab; transition: transform 0.2s, opacity 0.2s, border-color 0.2s; user-select: none; -webkit-user-select: none; }
+.scramble-piece:hover { border-color: #3498db; }
+.scramble-piece.dragging { opacity: 0.4; transform: scale(0.95); }
+.scramble-zone.drag-over { background: #eef4ff; border-color: #93b8f8; }
 
 /* Game True / False */
 .tf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 100%; margin-top: 20px; }
@@ -14520,8 +14522,8 @@ function renderBoostCard() {
             });
             break;
 
-        case 6: // 🎮 SENTENCE BUILDER (Sắp xếp câu ví dụ - Đã Fix UX chống dồn chữ)
-            prompt.innerText = "🧩 Xếp thành câu hoàn chỉnh";
+        case 6: //☁ SENTENCE BUILDER (Xếp câu - Drag         case 6: // เกม SENTENCE BUILDER (Xếp câu - Drag & Drop + Collapse) Drop + Collapse)
+            prompt.innerText = "* Xếp thành câu hoàn chỉnh *";
             question.innerText = c.exampleVN; 
             question.style.fontSize = "22px"; 
             
@@ -14533,55 +14535,121 @@ function renderBoostCard() {
             zone.innerHTML = `
                 <div style="display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%;">
                     <div style="margin: auto 0; width: 100%;">
-                        <div id="sentenceDropZone" class="scramble-zone" style="justify-content:center;"></div>
-                        <div id="sentencePool" class="scramble-pool"></div>
+                        <div id="sentenceDropZone" class="scramble-zone" style="justify-content:center; min-height: 60px;"></div>
+                        <div id="sentencePool" class="scramble-pool" style="min-height: 45px;"></div>
                     </div>
                 </div>
-            `;            
+            `;
             const sPool = document.getElementById('sentencePool');
             const sDrop = document.getElementById('sentenceDropZone');
-            
+
+            function checkSentenceAnswer() {
+                const currentStr = Array.from(sDrop.querySelectorAll('.scramble-piece')).map(el => el.innerText).join('');
+                if (currentStr.length === targetSentence.length) {
+                    zone.style.pointerEvents = 'none';
+                    const isCorrect = currentStr === targetSentence;
+                    if (!isCorrect) {
+                        setTimeout(() => { zone.style.pointerEvents = 'auto'; }, 400);
+                    }
+                    handleBoostAnswer(sDrop, isCorrect);
+                }
+            }
+
+            function sentenceReturnToPool(piece) {
+                const chunk = piece.innerText;
+                piece.remove();
+                let btn = document.createElement('div');
+                btn.className = 'scramble-piece';
+                btn.innerText = chunk;
+                btn.draggable = true;
+                sentenceSetupPieceEvents(btn);
+                sPool.appendChild(btn);
+            }
+
+            function sentenceSetupPieceEvents(piece) {
+                piece.addEventListener('dragstart', function(e) {
+                    e.dataTransfer.setData('text/plain', '');
+                    e.dataTransfer.effectAllowed = 'move';
+                    setTimeout(() => this.classList.add('dragging'), 0);
+                });
+                piece.addEventListener('dragend', function(e) {
+                    this.classList.remove('dragging');
+                    sDrop.classList.remove('drag-over');
+                });
+                piece.addEventListener('click', function(e) {
+                    if (this.parentElement === sPool) {
+                        this.remove();
+                        sDrop.appendChild(this);
+                        checkSentenceAnswer();
+                    } else if (this.parentElement === sDrop) {
+                        sentenceReturnToPool(this);
+                    }
+                });
+            }
+
+            sDrop.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                this.classList.add('drag-over');
+            });
+            sDrop.addEventListener('dragleave', function(e) {
+                if (!this.contains(e.relatedTarget)) {
+                    this.classList.remove('drag-over');
+                }
+            });
+            sDrop.addEventListener('drop', function(e) {
+                e.preventDefault();
+                this.classList.remove('drag-over');
+                const dragged = document.querySelector('.scramble-piece.dragging');
+                if (!dragged) return;
+                dragged.classList.remove('dragging');
+                const afterElement = getDragAfterElement(sDrop, e.clientX, e.clientY);
+                if (afterElement) {
+                    sDrop.insertBefore(dragged, afterElement);
+                } else {
+                    sDrop.appendChild(dragged);
+                }
+                checkSentenceAnswer();
+            });
+
+            sPool.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+            });
+            sPool.addEventListener('drop', function(e) {
+                e.preventDefault();
+                const dragged = document.querySelector('.scramble-piece.dragging');
+                if (!dragged) return;
+                dragged.classList.remove('dragging');
+                if (dragged.parentElement === sDrop) {
+                    sentenceReturnToPool(dragged);
+                }
+            });
+
+            function getDragAfterElement(container, x, y) {
+                const pieces = [...container.querySelectorAll('.scramble-piece:not(.dragging)')];
+                let closest = null;
+                let closestOffset = Number.NEGATIVE_INFINITY;
+                pieces.forEach(child => {
+                    const box = child.getBoundingClientRect();
+                    const offsetX = x - (box.left + box.width / 2);
+                    const offsetY = Math.abs(y - (box.top + box.height / 2));
+                    if (offsetY < box.height * 0.8) {
+                        if (offsetX < 0 && offsetX > closestOffset) {
+                            closestOffset = offsetX;
+                            closest = child;
+                        }
+                    }
+                });
+                return closest;
+            }
+
             sentenceChunks.forEach((chunk, idx) => {
                 let btn = document.createElement('div');
                 btn.className = 'scramble-piece';
                 btn.innerText = chunk;
-                btn.id = `sentence-pool-${idx}`; // Cấp ID duy nhất
-
-                btn.onclick = function() {
-                    // Nếu đang hiển thị ở Rổ (Pool) -> Ẩn đi và tạo bản sao ném lên trên
-                    if (this.style.visibility !== 'hidden') {
-                        this.style.visibility = 'hidden'; // Ẩn nhưng giữ nguyên vị trí
-
-                        let cloneBtn = document.createElement('div');
-                        cloneBtn.className = 'scramble-piece';
-                        cloneBtn.innerText = chunk;
-                        cloneBtn.dataset.originId = this.id;
-
-                        // Click vào bản sao ở trên -> Xóa bản sao, hiện lại bản gốc ở dưới
-                        cloneBtn.onclick = function() {
-                            const originBtn = document.getElementById(this.dataset.originId);
-                            if (originBtn) originBtn.style.visibility = 'visible';
-                            this.remove();
-                        };
-
-                        sDrop.appendChild(cloneBtn);
-
-                        // KIỂM TRA ĐÁP ÁN (Dựa trên số lượng ký tự đã xếp)
-                        const currentStr = Array.from(sDrop.children).map(el => el.innerText).join('');
-                        if (currentStr.length === targetSentence.length) {
-                            zone.style.pointerEvents = 'none'; // Khóa tương tác tạm thời
-                            
-                            const isCorrect = currentStr === targetSentence;
-                            
-                            // Mở khóa nếu sai để người chơi có thể rút chữ xuống sửa
-                            if (!isCorrect) {
-                                setTimeout(() => { zone.style.pointerEvents = 'auto'; }, 400);
-                            }
-                            
-                            handleBoostAnswer(sDrop, isCorrect);
-                        }
-                    }
-                };
+                btn.draggable = true;
+                sentenceSetupPieceEvents(btn);
                 sPool.appendChild(btn);
             });
             break;
