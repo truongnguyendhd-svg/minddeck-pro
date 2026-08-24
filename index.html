@@ -12781,7 +12781,7 @@ function kwProcessSvg(svgText) {
         const guideSvg = kwCreateGuideSvg(svgText, i);
         const guideImg = new Image();
         const idx = i;
-        s.guideImgs.push({ img: guideImg, loaded: false });
+        s.guideImgs.push({ img: guideImg, loaded: false, svgStr: guideSvg });
         kwLoadSvgImage(guideSvg, guideImg, () => { s.guideImgs[idx].loaded = true; kwRedraw(); });
     }
     s.ghostImg = new Image();
@@ -13071,13 +13071,17 @@ function kwToggleFree() {
             const img = document.createElement('img');
             img.dataset.idx = i;
             guideEl.appendChild(img);
-            if (s.guideImgs[i].loaded) { img.src = s.guideImgs[i].img.src; }
-            else {
-                const idx = i;
-                const gi = s.guideImgs[idx];
-                const waitLoad = setInterval(() => {
-                    if (gi.loaded) { img.src = gi.img.src; clearInterval(waitLoad); }
-                }, 50);
+            const gi = s.guideImgs[i];
+            if (gi.svgStr) {
+                const blob = new Blob([gi.svgStr], { type: 'image/svg+xml;charset=utf-8' });
+                img.src = URL.createObjectURL(blob);
+            } else if (gi.loaded) {
+                // Fallback: draw from cached image to canvas
+                const c = document.createElement('canvas');
+                c.width = gi.img.naturalWidth || 1024;
+                c.height = gi.img.naturalHeight || 1024;
+                c.getContext('2d').drawImage(gi.img, 0, 0);
+                img.src = c.toDataURL();
             }
         }
     } else {
