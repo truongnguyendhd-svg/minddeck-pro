@@ -12668,6 +12668,7 @@ const kwState = {
     userStrokes: [], isDrawing: false, currentPoints: [],
     freeMode: false, canvas: null, ctx: null,
     ghostImg: null, guideImgs: [], startPoints: [],
+    strokePaths: [], comparisonData: [],
     canvasSize: 300, scale: 300 / 1024
 };
 
@@ -12683,6 +12684,7 @@ function openKanaWriteModal(kana, romaji) {
     s.currentStroke = 0; s.userStrokes = [];
     s.currentPoints = []; s.isDrawing = false;
     s.freeMode = false; s.startPoints = [];
+    s.strokePaths = []; s.comparisonData = [];
     s.totalStrokes = 0; s.ghostImg = null; s.guideImgs = [];
     document.getElementById('kwChar').textContent = kana;
     document.getElementById('kwRomaji').textContent = romaji || '';
@@ -12749,7 +12751,7 @@ function kwProcessSvg(svgText) {
         if (el.tagName === 'path') paths.push(el.getAttribute('d'));
         else if (el.tagName === 'g') el.querySelectorAll('path').forEach(p => paths.push(p.getAttribute('d')));
         const m = paths[0]?.match(/^[Mm]\s*([\d.e+-]+)[,\s]+([\d.e+-]+)/);
-        s.startPoints.push(m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : null);
+        s.startPoints.push(m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : null);        s.strokePaths.push(paths);
         const guideSvg = kwCreateGuideSvg(svgText, i);
         const guideImg = new Image();
         const idx = i;
@@ -12843,22 +12845,26 @@ function kwGetPos(e) {
 function kwMouseDown(e) { kwState.isDrawing = true; kwState.currentPoints = [kwGetPos(e)]; }
 function kwMouseMove(e) { if (!kwState.isDrawing) return; kwState.currentPoints.push(kwGetPos(e)); kwRedraw(); }
 
-function kwEnsureGuidePixels(idx) {
+function kwBuildComparisonData(idx) {
     const s = kwState;
-    const gi = s.guideImgs[idx];
-    if (!gi || !gi.loaded || gi.pixelData) return gi && gi.pixelData;
+    if (s.comparisonData[idx]) return s.comparisonData[idx];
     const sz = s.canvasSize;
-    if (sz <= 0) return null;
+    if (sz <= 0 || !s.strokePaths[idx]) return null;
     const off = document.createElement('canvas');
     off.width = sz; off.height = sz;
     const octx = off.getContext('2d');
-    octx.drawImage(gi.img, 0, 0, sz, sz);
-    gi.pixelData = octx.getImageData(0, 0, sz, sz).data;
-    // Also cache guide pixel count for reverse coverage
+    const compWidth = Math.max(18, Math.round(sz * 0.07));
+    octx.strokeStyle = '#000'; octx.lineWidth = compWidth;
+    octx.lineCap = 'round'; octx.lineJoin = 'round';
+    for (const d of s.strokePaths[idx]) {
+        try { octx.stroke(new Path2D(d)); } catch(e) {}
+    }
+    const pixelData = octx.getImageData(0, 0, sz, sz).data;
     let guideCount = 0;
-    for (let i = 3; i < gi.pixelData.length; i += 4) { if (gi.pixelData[i] > 20) guideCount++; }
-    gi.guidePixelCount = guideCount;
-    return gi.pixelData;
+    for (let i = 3; i < pixelData.length; i += 4) { if (pixelData[i] > 20) guideCount++; }
+    const data = { pixelData, guidePixelCount: guideCount };
+    s.comparisonData[idx] = data;
+    return data;
 }
 
 function kwValidateStroke(pts) {
@@ -12867,22 +12873,24 @@ function kwValidateStroke(pts) {
     if (s.freeMode) return true;
     if (pts.length < 5) return 'too_short';
     const sz = s.canvasSize;
-    // 1. Start point check (13% canvas)
+    // 1. Start point check (15% canvas)
     const sp = s.startPoints[s.currentStroke];
     if (sp) {
         const d = Math.hypot(pts[0].x - sp.x * s.scale, pts[0].y - sp.y * s.scale);
-        if (d > sz * 0.13) return 'wrong_start';
+        if (d > sz * 0.15) return 'wrong_start';
     }
     // 2. Stroke length check
     let len = 0;
     for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-    if (len < sz * 0.12) return 'too_short';
-    // 3. Pixel coverage: user points on guide (forward)
-    const pixels = kwEnsureGuidePixels(s.currentStroke);
-    if (!pixels) return true;
-    const step = Math.max(1, Math.floor(pts.length / 60));
+    if (len < sz * 0.10) return 'too_short';
+    // 3. Build comparison data from Path2D (center-line based)
+    const comp = kwBuildComparisonData(s.currentStroke);
+    if (!comp) return true;
+    const pixels = comp.pixelData;
+    // 4. Forward coverage: user points on center-line guide
+    const step = Math.max(1, Math.floor(pts.length / 50));
     let onPath = 0, sampled = 0;
-    const tol = Math.max(2, Math.round(sz * 0.01));
+    const tol = Math.max(2, Math.round(sz * 0.012));
     for (let i = 0; i < pts.length; i += step) {
         const px = Math.round(pts[i].x), py = Math.round(pts[i].y);
         let hit = false;
@@ -12898,21 +12906,20 @@ function kwValidateStroke(pts) {
         sampled++;
     }
     if (sampled < 3) return 'wrong_path';
-    const fwdCoverage = onPath / sampled;
-    if (fwdCoverage < 0.6) return 'wrong_path';
-    // 4. Reverse coverage: guide pixels covered by user stroke
-    const gi = s.guideImgs[s.currentStroke];
-    if (gi && gi.guidePixelCount > 0) {
+    if (onPath / sampled < 0.55) return 'wrong_path';
+    // 5. Reverse coverage: center-line guide covered by user stroke
+    if (comp.guidePixelCount > 0) {
         const off2 = document.createElement('canvas');
         off2.width = sz; off2.height = sz;
         const ctx2 = off2.getContext('2d');
-        ctx2.strokeStyle = '#000'; ctx2.lineWidth = Math.max(12, sz * 0.05);
+        const userWidth = Math.max(14, Math.round(sz * 0.05));
+        ctx2.strokeStyle = '#000'; ctx2.lineWidth = userWidth;
         ctx2.lineCap = 'round'; ctx2.lineJoin = 'round';
         ctx2.beginPath(); ctx2.moveTo(pts[0].x, pts[0].y);
         for (let i = 1; i < pts.length; i++) ctx2.lineTo(pts[i].x, pts[i].y);
         ctx2.stroke();
         const userPx = ctx2.getImageData(0, 0, sz, sz).data;
-        const sampleStep = Math.max(1, Math.floor(gi.guidePixelCount / 200));
+        const sampleStep = Math.max(1, Math.floor(comp.guidePixelCount / 150));
         let covered = 0, checked = 0;
         for (let i = 3; i < pixels.length; i += 4) {
             if (pixels[i] > 20) {
@@ -12923,7 +12930,7 @@ function kwValidateStroke(pts) {
             }
         }
         const totalSampled = Math.ceil(checked / sampleStep);
-        if (totalSampled > 0 && covered / totalSampled < 0.25) return 'wrong_path';
+        if (totalSampled > 0 && covered / totalSampled < 0.20) return 'wrong_path';
     }
     return true;
 }
