@@ -1936,6 +1936,93 @@ body.game-fullscreen-mode #boostCardDisplay {
 }
 .alpha-info-bar p { margin: 0; font-size: 14px; color: #475569; font-weight: 500; }
 .alpha-info-bar span { color: #3b82f6; font-weight: 700; }
+/* ================= KANA STROKE MODAL ================= */
+.kana-stroke-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 9998;
+    opacity: 0; transition: opacity 0.25s;
+}
+.kana-stroke-overlay.show { opacity: 1; }
+.kana-stroke-modal {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%) scale(0.9);
+    z-index: 9999; width: 340px; max-width: 90vw; background: #fff;
+    border-radius: 24px; box-shadow: 0 25px 60px rgba(0,0,0,0.2);
+    padding: 28px 24px 24px; text-align: center;
+    opacity: 0; transition: opacity 0.25s, transform 0.25s;
+    pointer-events: none;
+}
+.kana-stroke-modal.show { opacity: 1; transform: translate(-50%,-50%) scale(1); pointer-events: auto; }
+.kana-stroke-close {
+    position: absolute; top: 12px; right: 16px; background: none; border: none;
+    font-size: 28px; color: #a0aec0; cursor: pointer; line-height: 1; padding: 4px 8px;
+    border-radius: 8px; transition: 0.2s;
+}
+.kana-stroke-close:hover { color: #4a5568; background: #f7fafc; }
+.kana-stroke-header {
+    display: flex; align-items: baseline; justify-content: center; gap: 12px; margin-bottom: 8px;
+}
+.kana-stroke-char {
+    font-size: 48px; font-weight: 800; color: #1a202c; line-height: 1;
+    font-family: "Noto Sans JP", sans-serif;
+}
+.kana-stroke-romaji {
+    font-size: 20px; font-weight: 700; color: #3b82f6;
+    font-family: "Inter", "SF Pro Display", system-ui, sans-serif;
+}
+.kana-stroke-hint {
+    font-size: 12px; color: #a0aec0; margin-bottom: 16px;
+}
+.kana-stroke-svg-wrap {
+    width: 200px; height: 200px; margin: 0 auto 20px;
+    border-radius: 16px; background: #f7fafc; border: 2px solid #edf2f7;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; overflow: hidden;
+}
+.kana-stroke-svg-wrap svg {
+    width: 180px; height: 180px;
+}
+.kana-stroke-svg-wrap .kana-fallback-char {
+    font-size: 100px; font-weight: 700; color: #cbd5e0;
+    font-family: "Noto Sans JP", sans-serif; line-height: 1;
+}
+.kana-stroke-loading {
+    width: 36px; height: 36px; border: 3px solid #edf2f7; border-top-color: #3b82f6;
+    border-radius: 50%; animation: kanaSpin 0.7s linear infinite;
+}
+@keyframes kanaSpin { to { transform: rotate(360deg); } }
+.kana-stroke-actions { display: flex; gap: 10px; justify-content: center; }
+.kana-stroke-btn {
+    padding: 10px 24px; border-radius: 12px; border: none;
+    font-size: 14px; font-weight: 700; cursor: pointer; transition: 0.2s;
+}
+.kana-stroke-btn.primary { background: #3b82f6; color: #fff; }
+.kana-stroke-btn.primary:hover { background: #2563eb; transform: translateY(-1px); }
+.kana-stroke-btn.secondary { background: #f1f5f9; color: #475569; }
+.kana-stroke-btn.secondary:hover { background: #e2e8f0; }
+/* SVG Stroke Animation (from strokesvg) */
+.kana-stroke-svg-wrap svg[data-strokesvg] > g[data-strokesvg="strokes"] > * {
+    --stroke-time: 0.6s;
+    --stroke-gap: 0.5s;
+    --stroke-delay: 0.2s;
+    animation: kanaDrawStroke var(--stroke-time) linear forwards
+        calc(var(--i, 0) * var(--stroke-gap) + var(--stroke-delay));
+    stroke-dasharray: 3333;
+    stroke-dashoffset: 3333;
+}
+@keyframes kanaDrawStroke { to { stroke-dashoffset: 0; } }
+.kana-stroke-svg-wrap svg[data-strokesvg] > g[data-strokesvg="shadows"] > * {
+    opacity: 0.15;
+}
+.kana-stroke-svg-wrap svg[data-strokesvg] > g[data-strokesvg="strokes"] {
+    stroke: #1a202c !important;
+    stroke-width: 128;
+    stroke-linecap: round;
+    fill: none;
+}
+/* Ensure modal container itself doesn't block */
+#kanaStrokeModal { position: fixed; inset: 0; z-index: 9998; pointer-events: none; }
+#kanaStrokeModal:not(.hidden) { pointer-events: auto; }
+#kanaStrokeModal:not(.hidden) .kana-stroke-overlay { pointer-events: auto; }
+/* ================= END KANA STROKE MODAL ================= */
 /* ================= END BẢNG CHỮ CÁI ================= */
 /* ================= NÚT BACK NỔI GÓC DƯỚI TRÁI ================= */
 .floating-back-btn {
@@ -9065,6 +9152,28 @@ body:has(.kd-game-wrapper.kd-active) #scrollToTopBtn {
     </div>
 
 
+<!-- ================= KANA STROKE MODAL ================= -->
+<div id="kanaStrokeModal">
+    <div class="kana-stroke-overlay" id="kanaStrokeOverlay" onclick="closeKanaStrokeModal()"></div>
+    <div class="kana-stroke-modal" id="kanaStrokeBox">
+        <button class="kana-stroke-close" onclick="closeKanaStrokeModal()">×</button>
+        <div class="kana-stroke-header">
+            <span class="kana-stroke-char" id="kanaStrokeChar">あ</span>
+            <span class="kana-stroke-romaji" id="kanaStrokeRomaji">a</span>
+        </div>
+        <div class="kana-stroke-hint" id="kanaStrokeHint">2 nét</div>
+        <div class="kana-stroke-svg-wrap" id="kanaStrokeSvgWrap">
+            <div class="kana-stroke-loading"></div>
+        </div>
+        <div class="kana-stroke-actions">
+            <button class="kana-stroke-btn secondary" onclick="replayKanaStroke()">
+                <span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle;margin-right:4px;">replay</span>Lạy</button>
+            <button class="kana-stroke-btn primary" onclick="replayKanaStroke(true)">
+                <span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle;margin-right:4px;">volume_up</span>Nghe lại</button>
+        </div>
+    </div>
+</div>
+<!-- ================= END KANA STROKE MODAL ================= -->
 <!-- ================= TRANG BẢNG CHỮ CÁI ================= -->
 <div id="alphabetPage" class="hidden" style="max-width: 1000px; margin: 0 auto; padding-top: 10px;">
     <div id="alphabetContent"></div>
@@ -12149,30 +12258,147 @@ function switchAlphaTab(tab) {
 }
 
 function playKana(kana, romaji) {
-    // Visual feedback
+    // Visual feedback on card
     const card = document.getElementById('ac-' + kana);
-    if (!card) return;
-    card.classList.add('playing');
-    setTimeout(() => card.classList.remove('playing'), 600);
+    if (card) { card.classList.add('playing'); setTimeout(() => card.classList.remove('playing'), 600); }
+    // Open stroke modal
+    openKanaStrokeModal(kana, romaji);
+}
 
-    // Stop previous audio
-    if (alphabetCurrentAudio) {
-        alphabetCurrentAudio.pause();
-        alphabetCurrentAudio = null;
+// --- Stroke SVG Cache & Base-char mapping ---
+const KANA_SVG_CACHE = {};
+const KANA_BASE_MAP = {
+    'が':'か','ぎ':'き','ぐ':'く','げ':'け','ご':'こ',
+    'ざ':'さ','じ':'し','ず':'す','ぜ':'せ','ぞ':'そ',
+    'だ':'た','ぢ':'ち','づ':'つ','で':'て','ど':'と',
+    'ば':'は','び':'ひ','ぶ':'ふ','べ':'へ','ぼ':'ほ',
+    'ぱ':'は','ぴ':'ひ','ぷ':'ふ','ぺ':'へ','ぽ':'ほ',
+    'ガ':'カ','ギ':'キ','グ':'ク','ゲ':'ケ','ゴ':'コ',
+    'ザ':'サ','ジ':'シ','ズ':'ス','ゼ':'セ','ゾ':'ソ',
+    'ダ':'タ','ヂ':'チ','ヅ':'ツ','デ':'テ','ド':'ト',
+    'バ':'ハ','ビ':'ヒ','ブ':'フ','ベ':'ヘ','ボ':'ホ',
+    'パ':'ハ','ピ':'ヒ','プ':'フ','ペ':'ヘ','ポ':'ホ',
+    'きゃ':'き','きゅ':'き','きょ':'き',
+    'しゃ':'し','しゅ':'し','しょ':'し',
+    'ちゃ':'ち','ちゅ':'ち','ちょ':'ち',
+    'にゃ':'に','にゅ':'に','にょ':'に',
+    'ひゃ':'ひ','ひゅ':'ひ','ひょ':'ひ',
+    'みゃ':'み','みゅ':'み','みょ':'み',
+    'りゃ':'り','りゅ':'り','りょ':'り',
+    'ぎゃ':'ぎ','ぎゅ':'ぎ','ぎょ':'ぎ',
+    'じゃ':'じ','じゅ':'じ','じょ':'じ',
+    'びゃ':'び','びゅ':'び','びょ':'び',
+    'ぴゃ':'ぴ','ぴゅ':'ぴ','ぴょ':'ぴ',
+    'キャ':'キ','キュ':'キ','キョ':'キ',
+    'シャ':'シ','シュ':'シ','ショ':'シ',
+    'チャ':'チ','チュ':'チ','チョ':'チ',
+    'ニャ':'ニ','ニュ':'ニ','ニョ':'ニ',
+    'ヒャ':'ヒ','ヒュ':'ヒ','ヒョ':'ヒ',
+    'ミャ':'ミ','ミュ':'ミ','ミョ':'ミ',
+    'リャ':'リ','リュ':'リ','リョ':'リ',
+    'ギャ':'ギ','ギュ':'ギ','ギョ':'ギ',
+    'ジャ':'ジ','ジュ':'ジ','ジョ':'ジ',
+    'ビャ':'ビ','ビュ':'ビ','ビョ':'ビ',
+    'ピャ':'ピ','ピュ':'ピ','ピョ':'ピ'
+};
+
+function isHiragana(ch) { return ch >= '぀' && ch <= 'ゟ'; }
+function getStrokeSvgUrl(kana) {
+    const base = KANA_BASE_MAP[kana] || kana;
+    const syllabary = isHiragana(base) ? 'hiragana' : 'katakana';
+    return 'https://zhengkyl.github.io/strokesvg/dist/' + syllabary + '/' + encodeURIComponent(base) + '.svg';
+}
+
+function openKanaStrokeModal(kana, romaji) {
+    const modal = document.getElementById('kanaStrokeModal');
+    const overlay = document.getElementById('kanaStrokeOverlay');
+    const box = document.getElementById('kanaStrokeBox');
+    const charEl = document.getElementById('kanaStrokeChar');
+    const romajiEl = document.getElementById('kanaStrokeRomaji');
+    const hintEl = document.getElementById('kanaStrokeHint');
+    const wrap = document.getElementById('kanaStrokeSvgWrap');
+
+    charEl.textContent = kana;
+    romajiEl.textContent = romaji;
+    hintEl.textContent = 'Đang tải nét viết...';
+    wrap.innerHTML = '<div class="kana-stroke-loading"></div>';
+    modal.classList.remove('hidden');
+    requestAnimationFrame(() => {
+        overlay.classList.add('show');
+        box.classList.add('show');
+    });
+    document.body.style.overflow = 'hidden';
+
+    const url = getStrokeSvgUrl(kana);
+    const cacheKey = kana;
+
+    if (KANA_SVG_CACHE[cacheKey]) {
+        renderKanaSvg(KANA_SVG_CACHE[cacheKey], kana);
+    } else {
+        fetch(url)
+            .then(r => { if (!r.ok) throw new Error('404'); return r.text(); })
+            .then(svgText => {
+                KANA_SVG_CACHE[cacheKey] = svgText;
+                renderKanaSvg(svgText, kana);
+            })
+            .catch(() => {
+                wrap.innerHTML = '<div class="kana-fallback-char">' + kana + '</div>';
+                hintEl.textContent = 'Chưa có dữ liệu nét viết';
+            });
     }
+    playKanaAudio(kana);
+}
 
-    // Use Web Speech API (Japanese voice)
+function renderKanaSvg(svgText, kana) {
+    const wrap = document.getElementById('kanaStrokeSvgWrap');
+    const hintEl = document.getElementById('kanaStrokeHint');
+    // Parse and count strokes
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    const strokesGroup = doc.querySelector('g[data-strokesvg="strokes"]');
+    const strokeCount = strokesGroup ? strokesGroup.children.length : 0;
+    hintEl.textContent = strokeCount > 0 ? strokeCount + ' nét' : '1 nét';
+    // Make unique IDs to avoid conflicts
+    const uid = 'ks' + Date.now();
+    let safeSvg = svgText.replace(/id="([^"]+)"/g, 'id="' + uid + '_$1"')
+        .replace(/href="#([^"")]+)"/g, 'href="#' + uid + '_$1"');
+    wrap.innerHTML = safeSvg;
+}
+
+function closeKanaStrokeModal() {
+    const modal = document.getElementById('kanaStrokeModal');
+    const overlay = document.getElementById('kanaStrokeOverlay');
+    const box = document.getElementById('kanaStrokeBox');
+    overlay.classList.remove('show');
+    box.classList.remove('show');
+    setTimeout(() => {
+        modal.classList.add('hidden');
+        document.body.style.overflow = '';
+    }, 260);
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+}
+
+function replayKanaStroke(audioOnly) {
+    const kana = document.getElementById('kanaStrokeChar').textContent;
+    if (!audioOnly) {
+        // Re-render SVG to restart animation
+        const wrap = document.getElementById('kanaStrokeSvgWrap');
+        const current = wrap.innerHTML;
+        wrap.innerHTML = '';
+        requestAnimationFrame(() => { wrap.innerHTML = current; });
+    }
+    playKanaAudio(kana);
+}
+
+function playKanaAudio(kana) {
     if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(kana);
-        utterance.lang = 'ja-JP';
-        utterance.rate = 0.8;
-        utterance.pitch = 1.0;
-        // Try to find a Japanese voice
+        const u = new SpeechSynthesisUtterance(kana);
+        u.lang = 'ja-JP'; u.rate = 0.8; u.pitch = 1.0;
         const voices = window.speechSynthesis.getVoices();
         const jaVoice = voices.find(v => v.lang.startsWith('ja'));
-        if (jaVoice) utterance.voice = jaVoice;
-        window.speechSynthesis.speak(utterance);
+        if (jaVoice) u.voice = jaVoice;
+        window.speechSynthesis.speak(u);
     }
 }
 // ================= END BẢNG CHỮ CÁI =================
