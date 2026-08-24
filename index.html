@@ -12695,7 +12695,7 @@ const kwState = {
     freeMode: false, canvas: null, ctx: null,
     ghostImg: null, guideImgs: [], startPoints: [],
     strokePaths: [], comparisonData: [],
-    freeRevealedCount: 0,
+    freeRevealedIdx: -1,
     canvasSize: 300, scale: 300 / 1024
 };
 
@@ -12853,15 +12853,13 @@ function kwRedraw() {
         for (let j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
         ctx.stroke();
     }
-    // Free mode: draw revealed guide strokes on canvas (same coord system)
-    if (s.freeMode && s.freeRevealedCount > 0) {
-        for (let i = 0; i < s.freeRevealedCount && i < s.guideImgs.length; i++) {
-            const gi = s.guideImgs[i];
-            if (gi && gi.loaded && gi.img.complete && gi.img.naturalWidth > 0) {
-                ctx.save(); ctx.globalAlpha = 0.35;
-                ctx.drawImage(gi.img, 0, 0, sz, sz);
-                ctx.restore();
-            }
+    // Free mode: draw guide for last drawn stroke only
+    if (s.freeMode && s.freeRevealedIdx >= 0 && s.freeRevealedIdx < s.guideImgs.length) {
+        const gi = s.guideImgs[s.freeRevealedIdx];
+        if (gi && gi.loaded && gi.img.complete && gi.img.naturalWidth > 0) {
+            ctx.save(); ctx.globalAlpha = 0.35;
+            ctx.drawImage(gi.img, 0, 0, sz, sz);
+            ctx.restore();
         }
     }
     if (s.currentPoints.length >= 2) {
@@ -13039,17 +13037,16 @@ function kwRedo() {
     document.getElementById('kwProgress').classList.remove('done');
     document.getElementById('kwHint').textContent = '';
     document.getElementById('kwCheckOverlay').innerHTML = '';
-    kwState.freeRevealedCount = 0;
+    kwState.freeRevealedIdx = -1;
     kwUpdateProgress();
     kwRedraw();
 }
 
 function kwShowFreeGuide(strokeIdx) {
     const s = kwState;
-    if (strokeIdx + 1 > s.freeRevealedCount) {
-        s.freeRevealedCount = strokeIdx + 1;
-        kwRedraw();
-    }
+    const idx = strokeIdx % s.guideImgs.length;
+    s.freeRevealedIdx = idx;
+    kwRedraw();
 }
 
 function kwShowCheckmark() {
@@ -13075,7 +13072,7 @@ function kwToggleFree() {
         document.getElementById('kwProgress').textContent = 'T\u1ef1 vi\u1ebft';
         document.getElementById('kwProgress').classList.remove('done');
         document.getElementById('kwHint').textContent = 'Vi\u1ebft t\u1ef1 do.';
-        s.freeRevealedCount = 0;
+        s.freeRevealedIdx = -1;
     } else {
         btn.classList.remove('active'); icon.textContent = 'edit';
         if (label) label.textContent = 'T\u1ef1 vi\u1ebft';
