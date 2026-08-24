@@ -12843,13 +12843,59 @@ function kwGetPos(e) {
 function kwMouseDown(e) { kwState.isDrawing = true; kwState.currentPoints = [kwGetPos(e)]; }
 function kwMouseMove(e) { if (!kwState.isDrawing) return; kwState.currentPoints.push(kwGetPos(e)); kwRedraw(); }
 
+function kwEnsureGuidePixels(idx) {
+    const s = kwState;
+    const gi = s.guideImgs[idx];
+    if (!gi || !gi.loaded || gi.pixelData) return gi && gi.pixelData;
+    const sz = s.canvasSize;
+    if (sz <= 0) return null;
+    const off = document.createElement('canvas');
+    off.width = sz; off.height = sz;
+    const octx = off.getContext('2d');
+    octx.drawImage(gi.img, 0, 0, sz, sz);
+    gi.pixelData = octx.getImageData(0, 0, sz, sz).data;
+    return gi.pixelData;
+}
+
 function kwValidateStroke(pts) {
     const s = kwState;
-    if (s.currentStroke >= s.startPoints.length || !s.startPoints[s.currentStroke]) return true;
-    const exp = s.startPoints[s.currentStroke];
-    const dx = pts[0].x - exp.x * s.scale;
-    const dy = pts[0].y - exp.y * s.scale;
-    return Math.sqrt(dx * dx + dy * dy) < s.canvasSize * 0.28;
+    if (s.currentStroke >= s.totalStrokes) return true;
+    if (s.freeMode) return true;
+    if (pts.length < 5) return 'too_short';
+    const sz = s.canvasSize;
+    // 1. Start point check (13% canvas)
+    const sp = s.startPoints[s.currentStroke];
+    if (sp) {
+        const d = Math.hypot(pts[0].x - sp.x * s.scale, pts[0].y - sp.y * s.scale);
+        if (d > sz * 0.13) return 'wrong_start';
+    }
+    // 2. Stroke length check
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    if (len < sz * 0.12) return 'too_short';
+    // 3. Pixel coverage check against guide stroke
+    const pixels = kwEnsureGuidePixels(s.currentStroke);
+    if (!pixels) return true;
+    const step = Math.max(1, Math.floor(pts.length / 60));
+    let onPath = 0, sampled = 0;
+    const tol = Math.max(3, Math.round(sz * 0.025));
+    for (let i = 0; i < pts.length; i += step) {
+        const px = Math.round(pts[i].x), py = Math.round(pts[i].y);
+        let hit = false;
+        for (let dy = -tol; dy <= tol && !hit; dy += tol) {
+            for (let dx = -tol; dx <= tol && !hit; dx += tol) {
+                const cx = px + dx, cy = py + dy;
+                if (cx >= 0 && cx < sz && cy >= 0 && cy < sz) {
+                    if (pixels[(cy * sz + cx) * 4 + 3] > 20) hit = true;
+                }
+            }
+        }
+        if (hit) onPath++;
+        sampled++;
+    }
+    if (sampled < 3) return 'wrong_path';
+    if (onPath / sampled < 0.45) return 'wrong_path';
+    return true;
 }
 
 function kwFlashCanvas(color) {
@@ -12872,7 +12918,8 @@ function kwMouseUp() {
     if (kwState.currentPoints.length > 2) {
         kwState.userStrokes.push([...kwState.currentPoints]);
         if (!kwState.freeMode) {
-            if (kwValidateStroke(kwState.currentPoints)) {
+            const result = kwValidateStroke(kwState.currentPoints);
+            if (result === true) {
                 kwFlashCanvas('green');
                 if (kwState.currentStroke < kwState.totalStrokes - 1) {
                     setTimeout(() => { kwState.currentStroke++; kwUpdateProgress(); kwRedraw(); }, 400);
@@ -12886,8 +12933,11 @@ function kwMouseUp() {
                 }
             } else {
                 kwFlashCanvas('red'); kwShakeCanvas();
-                document.getElementById('kwHint').textContent = 'B\u1eaft \u0111\u1ea7u t\u1eeb ch\u1ea5m xanh!';
-                setTimeout(() => { kwState.userStrokes.pop(); document.getElementById('kwHint').textContent = ''; kwRedraw(); }, 500);
+                const hint = document.getElementById('kwHint');
+                if (result === 'wrong_start') hint.textContent = 'B\u1eaft \u0111\u1ea7u t\u1eeb ch\u1ea5m xanh!';
+                else if (result === 'too_short') hint.textContent = 'N\u00e9t qu\u00e1 ng\u1eafn!';
+                else hint.textContent = 'N\u00e9t ch\u01b0a \u0111\u00fang, th\u1eed l\u1ea1i!';
+                setTimeout(() => { kwState.userStrokes.pop(); hint.textContent = ''; kwRedraw(); }, 600);
             }
         }
     }
