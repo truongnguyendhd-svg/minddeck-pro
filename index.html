@@ -12773,7 +12773,7 @@ function kwRedraw() {
     if (!ctx) return;
     ctx.clearRect(0, 0, sz, sz);
     kwDrawGrid(ctx, sz);
-    if (s.ghostPaths.length > 0) {
+    if (!s.freeMode && s.ghostPaths.length > 0) {
         ctx.save(); ctx.scale(s.scale, s.scale);
         ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 120;
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -12831,7 +12831,25 @@ function kwMouseMove(e) { if (!kwState.isDrawing) return; kwState.currentPoints.
 function kwMouseUp() {
     if (!kwState.isDrawing) return;
     kwState.isDrawing = false;
-    if (kwState.currentPoints.length > 1) kwState.userStrokes.push([...kwState.currentPoints]);
+    if (kwState.currentPoints.length > 1) {
+        kwState.userStrokes.push([...kwState.currentPoints]);
+        // Auto-advance to next stroke in guided mode
+        if (!kwState.freeMode && kwState.currentStroke < kwState.totalStrokes - 1) {
+            setTimeout(() => {
+                kwState.currentStroke++;
+                kwUpdateProgress();
+                kwRedraw();
+            }, 350);
+        } else if (!kwState.freeMode && kwState.currentStroke === kwState.totalStrokes - 1) {
+            setTimeout(() => {
+                const prog = document.getElementById('kwProgress');
+                prog.textContent = 'Ho\u00e0n th\u00e0nh!';
+                prog.classList.add('done');
+                document.getElementById('kwHint').textContent = 'Tuy\u1ec7t v\u1edbi! B\u1ea1n \u0111\u00e3 vi\u1ebft \u0111\u00fang h\u1ebft c\u00e1c n\u00e9t.';
+                playKanaAudio(kwState.kana);
+            }, 350);
+        }
+    }
     kwState.currentPoints = []; kwRedraw();
 }
 function kwTouchStart(e) { e.preventDefault(); kwMouseDown(e.touches[0]); }
@@ -12862,15 +12880,18 @@ function kwNextStroke() {
 function kwToggleFree() {
     const s = kwState; s.freeMode = !s.freeMode;
     const btn = document.getElementById('kwFreeBtn');
+    const label = btn.querySelector('.material-symbols-outlined').nextSibling;
     if (s.freeMode) {
         btn.classList.add('active');
         btn.querySelector('.material-symbols-outlined').textContent = 'brush';
+        label.textContent = 'Vi\u1ebft theo m\u1eabu';
         document.getElementById('kwProgress').textContent = 'T\u1ef1 vi\u1ebft';
         document.getElementById('kwProgress').classList.remove('done');
         document.getElementById('kwHint').textContent = 'Vi\u1ebft t\u1ef1 do, kh\u00f4ng h\u1ea1n ch\u1ebf n\u00e9t.';
     } else {
         btn.classList.remove('active');
         btn.querySelector('.material-symbols-outlined').textContent = 'edit';
+        label.textContent = 'T\u1ef1 vi\u1ebft';
         document.getElementById('kwHint').textContent = '';
         kwUpdateProgress();
     }
