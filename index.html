@@ -12854,6 +12854,10 @@ function kwEnsureGuidePixels(idx) {
     const octx = off.getContext('2d');
     octx.drawImage(gi.img, 0, 0, sz, sz);
     gi.pixelData = octx.getImageData(0, 0, sz, sz).data;
+    // Also cache guide pixel count for reverse coverage
+    let guideCount = 0;
+    for (let i = 3; i < gi.pixelData.length; i += 4) { if (gi.pixelData[i] > 20) guideCount++; }
+    gi.guidePixelCount = guideCount;
     return gi.pixelData;
 }
 
@@ -12873,12 +12877,12 @@ function kwValidateStroke(pts) {
     let len = 0;
     for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
     if (len < sz * 0.12) return 'too_short';
-    // 3. Pixel coverage check against guide stroke
+    // 3. Pixel coverage: user points on guide (forward)
     const pixels = kwEnsureGuidePixels(s.currentStroke);
     if (!pixels) return true;
     const step = Math.max(1, Math.floor(pts.length / 60));
     let onPath = 0, sampled = 0;
-    const tol = Math.max(3, Math.round(sz * 0.025));
+    const tol = Math.max(2, Math.round(sz * 0.01));
     for (let i = 0; i < pts.length; i += step) {
         const px = Math.round(pts[i].x), py = Math.round(pts[i].y);
         let hit = false;
@@ -12894,7 +12898,33 @@ function kwValidateStroke(pts) {
         sampled++;
     }
     if (sampled < 3) return 'wrong_path';
-    if (onPath / sampled < 0.45) return 'wrong_path';
+    const fwdCoverage = onPath / sampled;
+    if (fwdCoverage < 0.6) return 'wrong_path';
+    // 4. Reverse coverage: guide pixels covered by user stroke
+    const gi = s.guideImgs[s.currentStroke];
+    if (gi && gi.guidePixelCount > 0) {
+        const off2 = document.createElement('canvas');
+        off2.width = sz; off2.height = sz;
+        const ctx2 = off2.getContext('2d');
+        ctx2.strokeStyle = '#000'; ctx2.lineWidth = Math.max(12, sz * 0.05);
+        ctx2.lineCap = 'round'; ctx2.lineJoin = 'round';
+        ctx2.beginPath(); ctx2.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx2.lineTo(pts[i].x, pts[i].y);
+        ctx2.stroke();
+        const userPx = ctx2.getImageData(0, 0, sz, sz).data;
+        const sampleStep = Math.max(1, Math.floor(gi.guidePixelCount / 200));
+        let covered = 0, checked = 0;
+        for (let i = 3; i < pixels.length; i += 4) {
+            if (pixels[i] > 20) {
+                checked++;
+                if (checked % sampleStep === 0) {
+                    if (userPx[i] > 20) covered++;
+                }
+            }
+        }
+        const totalSampled = Math.ceil(checked / sampleStep);
+        if (totalSampled > 0 && covered / totalSampled < 0.25) return 'wrong_path';
+    }
     return true;
 }
 
