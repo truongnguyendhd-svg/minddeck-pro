@@ -12744,17 +12744,32 @@ function kwCreateGuideSvg(svgText, strokeIndex) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svgText, 'image/svg+xml');
     const g = doc.querySelector('g[data-strokesvg="strokes"]');
+    const gShadow = doc.querySelector('g[data-strokesvg="shadows"]');
     if (!g) return svgText;
-    const els = g.children;
-    for (let i = 0; i < els.length; i++) {
-        const st = els[i].getAttribute('style') || '';
-        const m = st.match(/--i:(\d+)/);
-        const idx = m ? parseInt(m[1]) : i;
-        if (idx !== strokeIndex) {
-            els[i].setAttribute('style', st + ';display:none');
+    function hideOthers(parent, keepIdx) {
+        if (!parent) return;
+        const toRemove = [];
+        for (let i = 0; i < parent.children.length; i++) {
+            const el = parent.children[i];
+            const st = el.getAttribute('style') || '';
+            const m = st.match(/--i:(\d+)/);
+            const idx = m ? parseInt(m[1]) : i;
+            if (idx !== keepIdx) toRemove.push(el);
         }
+        toRemove.forEach(el => parent.removeChild(el));
     }
-    g.style.stroke = '#93c5fd';
+    hideOthers(g, strokeIndex);
+    hideOthers(gShadow, strokeIndex);
+    if (g.children.length > 0) {
+        const vis = g.children[0];
+        const st = vis.getAttribute('style') || '';
+        vis.setAttribute('style', st + ';stroke:#93c5fd');
+    }
+    if (gShadow && gShadow.children.length > 0) {
+        const vis = gShadow.children[0];
+        const st = vis.getAttribute('style') || '';
+        vis.setAttribute('style', 'fill:#93c5fd;opacity:0.25');
+    }
     return new XMLSerializer().serializeToString(doc);
 }
 
