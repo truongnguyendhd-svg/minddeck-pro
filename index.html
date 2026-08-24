@@ -2000,6 +2000,72 @@ body.game-fullscreen-mode #boostCardDisplay {
 .kana-stroke-btn.secondary { background: #f1f5f9; color: #475569; }
 .kana-stroke-btn.secondary:hover { background: #e2e8f0; }
 /* SVG Stroke Animation (from strokesvg) */
+/* ================= KANA WRITING PRACTICE ================= */
+#kanaWriteModal { position: fixed; inset: 0; z-index: 9998; pointer-events: none; }
+#kanaWriteModal:not(.hidden) { pointer-events: auto; }
+#kanaWriteModal:not(.hidden) .kw-overlay { pointer-events: auto; }
+.kw-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998;
+    opacity: 0; transition: opacity 0.25s;
+}
+.kw-overlay.show { opacity: 1; }
+.kw-box {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%) scale(0.92);
+    z-index: 9999; width: 380px; max-width: 94vw; background: #fff;
+    border-radius: 24px; box-shadow: 0 25px 60px rgba(0,0,0,0.2);
+    padding: 24px 20px 20px; text-align: center;
+    opacity: 0; transition: opacity 0.25s, transform 0.25s;
+    pointer-events: none;
+}
+.kw-box.show { opacity: 1; transform: translate(-50%,-50%) scale(1); pointer-events: auto; }
+.kw-close {
+    position: absolute; top: 10px; right: 14px; background: none; border: none;
+    font-size: 26px; color: #a0aec0; cursor: pointer; line-height: 1; padding: 4px 8px;
+    border-radius: 8px; transition: 0.2s; z-index: 2;
+}
+.kw-close:hover { color: #4a5568; background: #f7fafc; }
+.kw-header {
+    display: flex; align-items: baseline; justify-content: center; gap: 10px; margin-bottom: 4px;
+}
+.kw-char { font-size: 44px; font-weight: 800; color: #1a202c; line-height: 1; }
+.kw-romaji { font-size: 18px; font-weight: 700; color: #3b82f6; }
+.kw-progress {
+    font-size: 12px; color: #64748b; font-weight: 600; margin-left: auto;
+    background: #f1f5f9; padding: 3px 10px; border-radius: 20px;
+}
+.kw-progress.done { background: #dcfce7; color: #16a34a; }
+.kw-canvas-wrap {
+    position: relative; width: 100%; max-width: 320px; aspect-ratio: 1;
+    margin: 10px auto; border-radius: 20px; background: #fff;
+    border: 2px solid #e5e7eb; overflow: hidden;
+}
+.kw-canvas-wrap canvas {
+    display: block; width: 100%; height: 100%;
+    touch-action: none; cursor: crosshair;
+}
+.kw-loading {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; background: #f9fafb; z-index: 1;
+}
+.kw-actions {
+    display: flex; gap: 8px; justify-content: center; margin-top: 14px;
+}
+.kw-btn {
+    padding: 10px 16px; border-radius: 12px; border: none;
+    font-size: 13px; font-weight: 700; cursor: pointer; transition: 0.2s;
+    display: flex; align-items: center; gap: 4px;
+}
+.kw-btn.primary { background: #3b82f6; color: #fff; }
+.kw-btn.primary:hover { background: #2563eb; transform: translateY(-1px); }
+.kw-btn.secondary { background: #f1f5f9; color: #475569; }
+.kw-btn.secondary:hover { background: #e2e8f0; }
+.kw-btn.secondary.active { background: #dbeafe; color: #2563eb; }
+.kw-btn .material-symbols-outlined { font-size: 18px; }
+.kw-hint {
+    font-size: 11px; color: #94a3b8; margin-top: 8px;
+    min-height: 16px;
+}
+/* ================= END KANA WRITING PRACTICE ================= */
 /* YOON DUAL STROKE LAYOUT */
 .kana-yoon-container {
     display: flex;
@@ -9229,12 +9295,42 @@ body:has(.kd-game-wrapper.kd-active) #scrollToTopBtn {
         <div class="kana-stroke-actions">
             <button class="kana-stroke-btn secondary" onclick="replayKanaStroke()">
                 <span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle;margin-right:4px;">replay</span>Lại</button>
+            <button class="kana-stroke-btn secondary" onclick="openKanaWriteModal()">
+                <span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle;margin-right:4px;">edit</span>Tập viết</button>
             <button class="kana-stroke-btn primary" onclick="replayKanaStroke(true)">
                 <span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle;margin-right:4px;">volume_up</span>Nghe lại</button>
         </div>
     </div>
 </div>
 <!-- ================= END KANA STROKE MODAL ================= -->
+<!-- ================= KANA WRITING PRACTICE MODAL ================= -->
+<div id="kanaWriteModal" class="hidden">
+    <div class="kw-overlay" id="kwOverlay" onclick="closeKanaWriteModal()"></div>
+    <div class="kw-box" id="kwBox">
+        <button class="kw-close" onclick="closeKanaWriteModal()">×</button>
+        <div class="kw-header">
+            <span class="kw-char" id="kwChar"></span>
+            <span class="kw-romaji" id="kwRomaji"></span>
+            <span class="kw-progress" id="kwProgress">Nét 1/3</span>
+        </div>
+        <div class="kw-canvas-wrap" id="kwCanvasWrap">
+            <canvas id="kwCanvas"></canvas>
+            <div class="kw-loading" id="kwLoading">
+                <div class="kana-stroke-loading"></div>
+            </div>
+        </div>
+        <div class="kw-actions">
+            <button class="kw-btn secondary" onclick="kwRedo()">
+                <span class="material-symbols-outlined">refresh</span>Viết lại</button>
+            <button class="kw-btn secondary" id="kwFreeBtn" onclick="kwToggleFree()">
+                <span class="material-symbols-outlined">edit</span>Tự viết</button>
+            <button class="kw-btn primary" onclick="kwNextStroke()">
+                <span class="material-symbols-outlined">arrow_forward</span>Nét tiếp theo</button>
+        </div>
+        <div class="kw-hint" id="kwHint"></div>
+    </div>
+</div>
+<!-- ================= END KANA WRITING PRACTICE MODAL ================= -->
 <!-- ================= TRANG BẢNG CHỮ CÁI ================= -->
 <div id="alphabetPage" class="hidden" style="max-width: 1000px; margin: 0 auto; padding-top: 10px;">
     <div id="alphabetContent"></div>
@@ -12557,6 +12653,256 @@ function playKanaAudio(kana) {
         window.speechSynthesis.speak(u);
     }
 }
+// ================= KANA WRITING PRACTICE =================
+const kwState = {
+    kana: '', romaji: '', svgText: '',
+    strokes: [], totalStrokes: 0, currentStroke: 0,
+    userStrokes: [], isDrawing: false, currentPoints: [],
+    freeMode: false, canvas: null, ctx: null,
+    ghostPaths: [], startPoints: [],
+    canvasSize: 300, scale: 300 / 1024
+};
+
+function openKanaWriteModal(kana, romaji) {
+    if (!kana) {
+        kana = document.getElementById('kanaStrokeChar').textContent;
+        romaji = document.getElementById('kanaStrokeRomaji').textContent;
+    }
+    if (KANA_YOON_DECOMPOSE[kana]) return;
+    closeKanaStrokeModal();
+    const s = kwState;
+    s.kana = kana; s.romaji = romaji || '';
+    s.currentStroke = 0; s.userStrokes = [];
+    s.currentPoints = []; s.isDrawing = false;
+    s.freeMode = false; s.ghostPaths = []; s.startPoints = [];
+    s.strokes = []; s.totalStrokes = 0;
+    document.getElementById('kwChar').textContent = kana;
+    document.getElementById('kwRomaji').textContent = romaji || '';
+    const freeBtn = document.getElementById('kwFreeBtn');
+    freeBtn.classList.remove('active');
+    freeBtn.querySelector('.material-symbols-outlined').textContent = 'edit';
+    document.getElementById('kwHint').textContent = '';
+    const modal = document.getElementById('kanaWriteModal');
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    requestAnimationFrame(() => {
+        document.getElementById('kwOverlay').classList.add('show');
+        document.getElementById('kwBox').classList.add('show');
+    });
+    setTimeout(() => kwSetupCanvas(), 30);
+    const url = getStrokeSvgUrl(kana);
+    if (KANA_SVG_CACHE[kana]) {
+        kwProcessSvg(KANA_SVG_CACHE[kana]);
+    } else {
+        document.getElementById('kwLoading').style.display = 'flex';
+        fetch(url).then(r => { if (!r.ok) throw new Error('404'); return r.text(); })
+            .then(t => { KANA_SVG_CACHE[kana] = t; kwProcessSvg(t); })
+            .catch(() => { document.getElementById('kwLoading').style.display = 'none'; kwDrawFallback(); });
+    }
+}
+
+function kwProcessSvg(svgText) {
+    const s = kwState; s.svgText = svgText;
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    const g = doc.querySelector('g[data-strokesvg="strokes"]');
+    if (!g) { kwDrawFallback(); return; }
+    s.strokes = []; s.ghostPaths = []; s.startPoints = [];
+    const els = g.children;
+    for (let i = 0; i < els.length; i++) {
+        const el = els[i];
+        const idxMatch = (el.getAttribute('style') || '').match(/--i:(\d+)/);
+        const idx = idxMatch ? parseInt(idxMatch[1]) : i;
+        const paths = [];
+        if (el.tagName === 'path') {
+            paths.push(el.getAttribute('d'));
+        } else if (el.tagName === 'g') {
+            el.querySelectorAll('path').forEach(p => paths.push(p.getAttribute('d')));
+        }
+        s.strokes.push({ index: idx, paths: paths });
+        s.ghostPaths.push(paths.map(d => new Path2D(d)));
+        const m = paths[0].match(/^[Mm]\s*([\d.e+-]+)[,\s]+([\d.e+-]+)/);
+        if (m) s.startPoints.push({ x: parseFloat(m[1]), y: parseFloat(m[2]) });
+        else s.startPoints.push(null);
+    }
+    s.totalStrokes = s.strokes.length;
+    document.getElementById('kwLoading').style.display = 'none';
+    kwUpdateProgress(); kwRedraw();
+}
+
+function kwSetupCanvas() {
+    const s = kwState;
+    const wrap = document.getElementById('kwCanvasWrap');
+    const canvas = document.getElementById('kwCanvas');
+    const size = Math.min(wrap.clientWidth, 320);
+    s.canvasSize = size; s.scale = size / 1024;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = size * dpr; canvas.height = size * dpr;
+    canvas.style.width = size + 'px'; canvas.style.height = size + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    s.canvas = canvas; s.ctx = ctx;
+    canvas.onmousedown = kwMouseDown;
+    canvas.onmousemove = kwMouseMove;
+    canvas.onmouseup = kwMouseUp;
+    canvas.onmouseleave = kwMouseUp;
+    canvas.ontouchstart = kwTouchStart;
+    canvas.ontouchmove = kwTouchMove;
+    canvas.ontouchend = kwTouchEnd;
+}
+
+function kwDrawGrid(ctx, sz) {
+    ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(0.5, 0.5, sz - 1, sz - 1);
+    ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(sz / 2, 0); ctx.lineTo(sz / 2, sz);
+    ctx.moveTo(0, sz / 2); ctx.lineTo(sz, sz / 2);
+    ctx.stroke();
+    ctx.strokeStyle = '#f3f4f6';
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(sz, sz);
+    ctx.moveTo(sz, 0); ctx.lineTo(0, sz);
+    ctx.stroke();
+    ctx.setLineDash([]);
+}
+
+function kwRedraw() {
+    const s = kwState; const ctx = s.ctx; const sz = s.canvasSize;
+    if (!ctx) return;
+    ctx.clearRect(0, 0, sz, sz);
+    kwDrawGrid(ctx, sz);
+    if (s.ghostPaths.length > 0) {
+        ctx.save(); ctx.scale(s.scale, s.scale);
+        ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 120;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.globalAlpha = 0.35;
+        s.ghostPaths.forEach(pp => pp.forEach(p => ctx.stroke(p)));
+        ctx.restore();
+    }
+    if (!s.freeMode && s.ghostPaths.length > 0 && s.currentStroke < s.totalStrokes) {
+        ctx.save(); ctx.scale(s.scale, s.scale);
+        ctx.strokeStyle = '#93c5fd'; ctx.lineWidth = 120;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.globalAlpha = 0.55;
+        const gp = s.ghostPaths[s.currentStroke];
+        gp.forEach(p => ctx.stroke(p));
+        const sp = s.startPoints[s.currentStroke];
+        if (sp) {
+            ctx.globalAlpha = 0.9;
+            ctx.fillStyle = '#3b82f6';
+            ctx.beginPath();
+            ctx.arc(sp.x, sp.y, 40, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 5;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.globalAlpha = 0.85;
+    const comp = s.freeMode ? s.userStrokes.length : Math.min(s.userStrokes.length, s.currentStroke);
+    for (let i = 0; i < comp; i++) {
+        const pts = s.userStrokes[i];
+        if (pts.length < 2) continue;
+        ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+        for (let j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
+        ctx.stroke();
+    }
+    if (s.currentPoints.length >= 2) {
+        ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 5;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.globalAlpha = 1;
+        ctx.beginPath(); ctx.moveTo(s.currentPoints[0].x, s.currentPoints[0].y);
+        for (let i = 1; i < s.currentPoints.length; i++) ctx.lineTo(s.currentPoints[i].x, s.currentPoints[i].y);
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+}
+
+function kwGetPos(e) {
+    const rect = kwState.canvas.getBoundingClientRect();
+    const sx = kwState.canvasSize / rect.width;
+    const sy = kwState.canvasSize / rect.height;
+    return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
+}
+function kwMouseDown(e) { kwState.isDrawing = true; kwState.currentPoints = [kwGetPos(e)]; }
+function kwMouseMove(e) { if (!kwState.isDrawing) return; kwState.currentPoints.push(kwGetPos(e)); kwRedraw(); }
+function kwMouseUp() {
+    if (!kwState.isDrawing) return;
+    kwState.isDrawing = false;
+    if (kwState.currentPoints.length > 1) kwState.userStrokes.push([...kwState.currentPoints]);
+    kwState.currentPoints = []; kwRedraw();
+}
+function kwTouchStart(e) { e.preventDefault(); kwMouseDown(e.touches[0]); }
+function kwTouchMove(e) { e.preventDefault(); kwMouseMove(e.touches[0]); }
+function kwTouchEnd() { kwMouseUp(); }
+
+function kwRedo() {
+    const s = kwState;
+    if (s.freeMode) { s.userStrokes = []; s.currentPoints = []; }
+    else { s.userStrokes.length = Math.min(s.userStrokes.length, s.currentStroke); s.currentPoints = []; }
+    kwRedraw();
+}
+
+function kwNextStroke() {
+    const s = kwState;
+    if (s.freeMode) return;
+    if (s.currentStroke < s.totalStrokes - 1) {
+        s.currentStroke++; kwUpdateProgress(); kwRedraw();
+    } else {
+        const prog = document.getElementById('kwProgress');
+        prog.textContent = 'Ho\u00e0n th\u00e0nh!';
+        prog.classList.add('done');
+        document.getElementById('kwHint').textContent = 'Tuy\u1ec7t v\u1eddi! B\u1ea1n \u0111\u00e3 vi\u1ebft \u0111\u00fang h\u1ebft c\u00e1c n\u00e9t.';
+        playKanaAudio(s.kana);
+    }
+}
+
+function kwToggleFree() {
+    const s = kwState; s.freeMode = !s.freeMode;
+    const btn = document.getElementById('kwFreeBtn');
+    if (s.freeMode) {
+        btn.classList.add('active');
+        btn.querySelector('.material-symbols-outlined').textContent = 'brush';
+        document.getElementById('kwProgress').textContent = 'T\u1ef1 vi\u1ebft';
+        document.getElementById('kwProgress').classList.remove('done');
+        document.getElementById('kwHint').textContent = 'Vi\u1ebft t\u1ef1 do, kh\u00f4ng h\u1ea1n ch\u1ebf n\u00e9t.';
+    } else {
+        btn.classList.remove('active');
+        btn.querySelector('.material-symbols-outlined').textContent = 'edit';
+        document.getElementById('kwHint').textContent = '';
+        kwUpdateProgress();
+    }
+    kwRedraw();
+}
+
+function kwUpdateProgress() {
+    const s = kwState; const prog = document.getElementById('kwProgress');
+    prog.classList.remove('done');
+    prog.textContent = s.totalStrokes > 0 ? 'N\u00e9t ' + (s.currentStroke + 1) + '/' + s.totalStrokes : '';
+}
+
+function kwDrawFallback() {
+    const s = kwState; const ctx = s.ctx; const sz = s.canvasSize;
+    ctx.clearRect(0, 0, sz, sz); kwDrawGrid(ctx, sz);
+    ctx.font = 'bold ' + (sz * 0.65) + 'px "Noto Sans JP", sans-serif';
+    ctx.fillStyle = '#d1d5db'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(s.kana, sz / 2, sz / 2);
+    s.totalStrokes = 0;
+    document.getElementById('kwProgress').textContent = 'Ch\u01b0a c\u00f3 n\u00e9t vi\u1ebft';
+}
+
+function closeKanaWriteModal() {
+    document.getElementById('kwOverlay').classList.remove('show');
+    document.getElementById('kwBox').classList.remove('show');
+    kwState.isDrawing = false;
+    setTimeout(() => {
+        document.getElementById('kanaWriteModal').classList.add('hidden');
+        document.body.style.overflow = '';
+    }, 260);
+}
+// ================= END KANA WRITING PRACTICE =================
 // ================= END BẢNG CHỮ CÁI =================
 
 function showDashboard(skipHash = false) { 
