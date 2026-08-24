@@ -1947,9 +1947,10 @@ body.game-fullscreen-mode #boostCardDisplay {
     z-index: 9999; width: 340px; max-width: 90vw; background: #fff;
     border-radius: 24px; box-shadow: 0 25px 60px rgba(0,0,0,0.2);
     padding: 28px 24px 24px; text-align: center;
-    opacity: 0; transition: opacity 0.25s, transform 0.25s;
+    opacity: 0; transition: opacity 0.25s, transform 0.25s, width 0.25s;
     pointer-events: none;
 }
+.kana-stroke-modal.yoon-mode { width: 520px; max-width: 94vw; }
 .kana-stroke-modal.show { opacity: 1; transform: translate(-50%,-50%) scale(1); pointer-events: auto; }
 .kana-stroke-close {
     position: absolute; top: 12px; right: 16px; background: none; border: none;
@@ -1999,6 +2000,65 @@ body.game-fullscreen-mode #boostCardDisplay {
 .kana-stroke-btn.secondary { background: #f1f5f9; color: #475569; }
 .kana-stroke-btn.secondary:hover { background: #e2e8f0; }
 /* SVG Stroke Animation (from strokesvg) */
+/* YOON DUAL STROKE LAYOUT */
+.kana-yoon-container {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin: 0 auto 20px;
+}
+.kana-yoon-unit {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+.kana-yoon-unit .y-unit-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 10px;
+}
+.kana-yoon-unit .y-unit-char {
+    font-size: 36px;
+    font-weight: 800;
+    color: #1a202c;
+    font-family: "Noto Sans JP", sans-serif;
+    line-height: 1;
+}
+.kana-yoon-unit .y-unit-romaji {
+    font-size: 16px;
+    font-weight: 700;
+    color: #3b82f6;
+    font-family: "Inter", "SF Pro Display", system-ui, sans-serif;
+}
+.kana-yoon-unit .y-unit-hint {
+    font-size: 11px;
+    color: #a0aec0;
+    margin-bottom: 2px;
+}
+.kana-yoon-unit .kana-stroke-svg-wrap {
+    width: 220px;
+    height: 220px;
+}
+.kana-yoon-unit .kana-stroke-svg-wrap svg {
+    width: 200px;
+    height: 200px;
+}
+.kana-yoon-plus {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 300;
+    color: #cbd5e0;
+    padding: 0 2px;
+    align-self: center;
+    margin-bottom: 30px;
+}
+.kana-stroke-modal.yoon-mode #kanaStrokeSvgWrap { display: none; }
+.kana-stroke-modal:not(.yoon-mode) .kana-yoon-container { display: none; }
+
 .kana-stroke-svg-wrap svg[data-strokesvg] > g[data-strokesvg="strokes"] > * {
     --stroke-time: 1.2s;
     --stroke-gap: 0.8s;
@@ -9162,6 +9222,7 @@ body:has(.kd-game-wrapper.kd-active) #scrollToTopBtn {
             <span class="kana-stroke-romaji" id="kanaStrokeRomaji">a</span>
         </div>
         <div class="kana-stroke-hint" id="kanaStrokeHint">2 nét</div>
+        <div class="kana-yoon-container" id="kanaYoonContainer"></div>
         <div class="kana-stroke-svg-wrap" id="kanaStrokeSvgWrap">
             <div class="kana-stroke-loading"></div>
         </div>
@@ -12299,6 +12360,31 @@ function getStrokeSvgUrl(kana) {
     return 'https://zhengkyl.github.io/strokesvg/dist/' + syllabary + '/' + encodeURIComponent(base) + '.svg';
 }
 
+const KANA_YOON_DECOMPOSE = {
+    'きゃ':['き','ゃ',"kya"], 'きゅ':['き','ゅ',"kyu"], 'きょ':['き','ょ',"kyo"],
+    'しゃ':['し','ゃ',"sha"], 'しゅ':['し','ゅ',"shu"], 'しょ':['し','ょ',"sho"],
+    'ちゃ':['ち','ゃ',"cha"], 'ちゅ':['ち','ゅ',"chu"], 'ちょ':['ち','ょ',"cho"],
+    'にゃ':['に','ゃ',"nya"], 'にゅ':['に','ゅ',"nyu"], 'にょ':['に','ょ',"nyo"],
+    'ひゃ':['ひ','ゃ',"hya"], 'ひゅ':['ひ','ゅ',"hyu"], 'ひょ':['ひ','ょ',"hyo"],
+    'みゃ':['み','ゃ',"mya"], 'みゅ':['み','ゅ',"myu"], 'みょ':['み','ょ',"myo"],
+    'りゃ':['り','ゃ',"rya"], 'りゅ':['り','ゅ',"ryu"], 'りょ':['り','ょ',"ryo"],
+    'ぎゃ':['ぎ','ゃ',"gya"], 'ぎゅ':['ぎ','ゅ',"gyu"], 'ぎょ':['ぎ','ょ',"gyo"],
+    'じゃ':['じ','ゃ',"ja"],  'じゅ':['じ','ゅ',"ju"],  'じょ':['じ','ょ',"jo"],
+    'びゃ':['び','ゃ',"bya"], 'びゅ':['び','ゅ',"byu"], 'びょ':['び','ょ',"byo"],
+    'ぴゃ':['ぴ','ゃ',"pya"], 'ぴゅ':['ぴ','ゅ',"pyu"], 'ぴょ':['ぴ','ょ',"pyo"],
+    "キャ":["キ","ャ","kya"], "キュ":["キ","ュ","kyu"], "キョ":["キ","ョ","kyo"],
+    "シャ":["シ","ャ","sha"], "シュ":["シ","ュ","shu"], "ショ":["シ","ョ","sho"],
+    "チャ":["チ","ャ","cha"], "チュ":["チ","ュ","chu"], "チョ":["チ","ョ","cho"],
+    "ニャ":["ニ","ャ","nya"], "ニュ":["ニ","ュ","nyu"], "ニョ":["ニ","ョ","nyo"],
+    "ヒャ":["ヒ","ャ","hya"], "ヒュ":["ヒ","ュ","hyu"], "ヒョ":["ヒ","ョ","hyo"],
+    "ミャ":["ミ","ャ","mya"], "ミュ":["ミ","ュ","myu"], "ミョ":["ミ","ョ","myo"],
+    "リャ":["リ","ャ","rya"], "リュ":["リ","ュ","ryu"], "リョ":["リ","ョ","ryo"],
+    "ギャ":["ギ","ャ","gya"], "ギュ":["ギ","ュ","gyu"], "ギョ":["ギ","ョ","gyo"],
+    "ジャ":["ジ","ャ","ja"],  "ジュ":["ジ","ュ","ju"],  "ジョ":["ジ","ョ","jo"],
+    "ビャ":["ビ","ャ","bya"], "ビュ":["ビ","ュ","byu"], "ビョ":["ビ","ョ","byo"],
+    "ピャ":["ピ","ャ","pya"], "ピュ":["ピ","ュ","pyu"], "ピョ":["ピ","ョ","pyo"]
+};
+
 function openKanaStrokeModal(kana, romaji) {
     const modal = document.getElementById('kanaStrokeModal');
     const overlay = document.getElementById('kanaStrokeOverlay');
@@ -12307,11 +12393,12 @@ function openKanaStrokeModal(kana, romaji) {
     const romajiEl = document.getElementById('kanaStrokeRomaji');
     const hintEl = document.getElementById('kanaStrokeHint');
     const wrap = document.getElementById('kanaStrokeSvgWrap');
+    const yoonContainer = document.getElementById('kanaYoonContainer');
 
     charEl.textContent = kana;
     romajiEl.textContent = romaji;
-    hintEl.textContent = 'Đang tải nét viết...';
     wrap.innerHTML = '<div class="kana-stroke-loading"></div>';
+    yoonContainer.innerHTML = '';
     modal.classList.remove('hidden');
     requestAnimationFrame(() => {
         overlay.classList.add('show');
@@ -12319,24 +12406,89 @@ function openKanaStrokeModal(kana, romaji) {
     });
     document.body.style.overflow = 'hidden';
 
-    const url = getStrokeSvgUrl(kana);
-    const cacheKey = kana;
+    // Kiem tra xem co phai am ghep (yoon) khong
+    const yoonData = KANA_YOON_DECOMPOSE[kana];
+    if (yoonData) {
+        // === YOON MODE: hien 2 chu cai thanh phan ===
+        box.classList.add('yoon-mode');
+        hintEl.textContent = 'Âm ghép';
+        const [c1, c2, rom] = yoonData;
+        const rom1Map = {'き':'ki','し':'shi','ち':'chi','に':'ni','ひ':'hi','み':'mi','り':'ri','ぎ':'gi','じ':'ji','び':'bi','ぴ':'pi',
+                         'キ':'ki','シ':'shi','チ':'chi','ニ':'ni','ヒ':'hi','ミ':'mi','リ':'ri','ギ':'gi','ジ':'ji','ビ':'bi','ピ':'pi'};
+        const rom2Map = {'ゃ':'ya','ゅ':'yu','ょ':'yo','ャ':'ya','ュ':'yu','ョ':'yo'};
+        const rom1 = rom1Map[c1] || '';
+        const rom2 = rom2Map[c2] || '';
 
-    if (KANA_SVG_CACHE[cacheKey]) {
-        renderKanaSvg(KANA_SVG_CACHE[cacheKey], kana);
+        yoonContainer.innerHTML =
+            '<div class="kana-yoon-unit" id="yoonUnit0">' +
+                '<div class="y-unit-header"><span class="y-unit-char">' + c1 + '</span><span class="y-unit-romaji">' + rom1 + '</span></div>' +
+                '<div class="y-unit-hint" id="yoonHint0">Đang tải...</div>' +
+                '<div class="kana-stroke-svg-wrap" id="yoonWrap0"><div class="kana-stroke-loading"></div></div>' +
+            '</div>' +
+            '<div class="kana-yoon-plus">+</div>' +
+            '<div class="kana-yoon-unit" id="yoonUnit1">' +
+                '<div class="y-unit-header"><span class="y-unit-char">' + c2 + '</span><span class="y-unit-romaji">' + rom2 + '</span></div>' +
+                '<div class="y-unit-hint" id="yoonHint1">Đang tải...</div>' +
+                '<div class="kana-stroke-svg-wrap" id="yoonWrap1"><div class="kana-stroke-loading"></div></div>' +
+            '</div>';
+
+        [c1, c2].forEach((ch, i) => {
+            const url = getStrokeSvgUrl(ch);
+            if (KANA_SVG_CACHE[ch]) {
+                renderYoonUnitSvg(i, KANA_SVG_CACHE[ch], ch);
+            } else {
+                fetch(url)
+                    .then(r => { if (!r.ok) throw new Error('404'); return r.text(); })
+                    .then(svgText => {
+                        KANA_SVG_CACHE[ch] = svgText;
+                        renderYoonUnitSvg(i, svgText, ch);
+                    })
+                    .catch(() => {
+                        const w = document.getElementById('yoonWrap' + i);
+                        const h = document.getElementById('yoonHint' + i);
+                        if (w) w.innerHTML = '<div class="kana-fallback-char">' + ch + '</div>';
+                        if (h) h.textContent = 'Chưa có nét viết';
+                    });
+            }
+        });
     } else {
-        fetch(url)
-            .then(r => { if (!r.ok) throw new Error('404'); return r.text(); })
-            .then(svgText => {
-                KANA_SVG_CACHE[cacheKey] = svgText;
-                renderKanaSvg(svgText, kana);
-            })
-            .catch(() => {
-                wrap.innerHTML = '<div class="kana-fallback-char">' + kana + '</div>';
-                hintEl.textContent = 'Chưa có dữ liệu nét viết';
-            });
+        // === NORMAL MODE ===
+        box.classList.remove('yoon-mode');
+        hintEl.textContent = 'Đang tải nét viết...';
+        const url = getStrokeSvgUrl(kana);
+        const cacheKey = kana;
+        if (KANA_SVG_CACHE[cacheKey]) {
+            renderKanaSvg(KANA_SVG_CACHE[cacheKey], kana);
+        } else {
+            fetch(url)
+                .then(r => { if (!r.ok) throw new Error('404'); return r.text(); })
+                .then(svgText => {
+                    KANA_SVG_CACHE[cacheKey] = svgText;
+                    renderKanaSvg(svgText, kana);
+                })
+                .catch(() => {
+                    wrap.innerHTML = '<div class="kana-fallback-char">' + kana + '</div>';
+                    hintEl.textContent = 'Chưa có dữ liệu nét viết';
+                });
+        }
     }
     playKanaAudio(kana);
+}
+
+function renderYoonUnitSvg(unitIndex, svgText, kana) {
+    const wrap = document.getElementById('yoonWrap' + unitIndex);
+    const hint = document.getElementById('yoonHint' + unitIndex);
+    if (!wrap) return;
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    const strokesGroup = doc.querySelector('g[data-strokesvg="strokes"]');
+    const strokeCount = strokesGroup ? strokesGroup.children.length : 0;
+    if (hint) hint.textContent = strokeCount > 0 ? strokeCount + ' nét' : '1 nét';
+    const uid = 'ks' + Date.now() + '_' + unitIndex;
+    let safeSvg = svgText.replace(/id="([^"]+)"/g, 'id="' + uid + '_$1"')
+        .replace(/href="#([^"]+)"/g, 'href="#' + uid + '_$1"')
+        .replace(/url\(#([^)]+)\)/g, 'url(#' + uid + '_$1)');
+    wrap.innerHTML = safeSvg;
 }
 
 function renderKanaSvg(svgText, kana) {
@@ -12363,6 +12515,7 @@ function closeKanaStrokeModal() {
     const box = document.getElementById('kanaStrokeBox');
     overlay.classList.remove('show');
     box.classList.remove('show');
+    box.classList.remove('yoon-mode');
     setTimeout(() => {
         modal.classList.add('hidden');
         document.body.style.overflow = '';
@@ -12370,10 +12523,21 @@ function closeKanaStrokeModal() {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 }
 
+
 function replayKanaStroke(audioOnly) {
     const kana = document.getElementById('kanaStrokeChar').textContent;
-    if (!audioOnly) {
-        // Re-render SVG to restart animation
+    const box = document.getElementById('kanaStrokeBox');
+    if (!audioOnly && box.classList.contains('yoon-mode')) {
+        // Replay ca 2 SVG yoon
+        [0, 1].forEach(i => {
+            const w = document.getElementById('yoonWrap' + i);
+            if (w) {
+                const cur = w.innerHTML;
+                w.innerHTML = '';
+                requestAnimationFrame(() => { w.innerHTML = cur; });
+            }
+        });
+    } else if (!audioOnly) {
         const wrap = document.getElementById('kanaStrokeSvgWrap');
         const current = wrap.innerHTML;
         wrap.innerHTML = '';
