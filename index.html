@@ -12695,6 +12695,7 @@ const kwState = {
     freeMode: false, canvas: null, ctx: null,
     ghostImg: null, guideImgs: [], startPoints: [],
     strokePaths: [], comparisonData: [],
+    freeRevealedCount: 0,
     canvasSize: 300, scale: 300 / 1024
 };
 
@@ -12851,6 +12852,17 @@ function kwRedraw() {
         ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
         for (let j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
         ctx.stroke();
+    }
+    // Free mode: draw revealed guide strokes on canvas (same coord system)
+    if (s.freeMode && s.freeRevealedCount > 0) {
+        for (let i = 0; i < s.freeRevealedCount && i < s.guideImgs.length; i++) {
+            const gi = s.guideImgs[i];
+            if (gi && gi.loaded && gi.img.complete && gi.img.naturalWidth > 0) {
+                ctx.save(); ctx.globalAlpha = 0.35;
+                ctx.drawImage(gi.img, 0, 0, sz, sz);
+                ctx.restore();
+            }
+        }
     }
     if (s.currentPoints.length >= 2) {
         ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 5;
@@ -13027,18 +13039,17 @@ function kwRedo() {
     document.getElementById('kwProgress').classList.remove('done');
     document.getElementById('kwHint').textContent = '';
     document.getElementById('kwCheckOverlay').innerHTML = '';
-    const guideEl = document.getElementById('kwFreeGuide');
-    guideEl.querySelectorAll('img').forEach(img => img.classList.remove('show'));
+    kwState.freeRevealedCount = 0;
     kwUpdateProgress();
     kwRedraw();
 }
 
 function kwShowFreeGuide(strokeIdx) {
-    const guideEl = document.getElementById('kwFreeGuide');
-    const imgs = guideEl.querySelectorAll('img');
-    imgs.forEach((img, i) => {
-        if (i <= strokeIdx && img.src) img.classList.add('show');
-    });
+    const s = kwState;
+    if (strokeIdx + 1 > s.freeRevealedCount) {
+        s.freeRevealedCount = strokeIdx + 1;
+        kwRedraw();
+    }
 }
 
 function kwShowCheckmark() {
@@ -13058,37 +13069,17 @@ function kwToggleFree() {
     const btn = document.getElementById('kwFreeBtn');
     const icon = btn.querySelector('.material-symbols-outlined');
     const label = icon.nextSibling;
-    const guideEl = document.getElementById('kwFreeGuide');
     if (s.freeMode) {
         btn.classList.add('active'); icon.textContent = 'brush';
         if (label) label.textContent = 'Vi\u1ebft theo m\u1eabu';
         document.getElementById('kwProgress').textContent = 'T\u1ef1 vi\u1ebft';
         document.getElementById('kwProgress').classList.remove('done');
         document.getElementById('kwHint').textContent = 'Vi\u1ebft t\u1ef1 do.';
-        // Build guide images for free mode overlay
-        guideEl.innerHTML = '';
-        for (let i = 0; i < s.guideImgs.length; i++) {
-            const img = document.createElement('img');
-            img.dataset.idx = i;
-            guideEl.appendChild(img);
-            const gi = s.guideImgs[i];
-            if (gi.svgStr) {
-                const blob = new Blob([gi.svgStr], { type: 'image/svg+xml;charset=utf-8' });
-                img.src = URL.createObjectURL(blob);
-            } else if (gi.loaded) {
-                // Fallback: draw from cached image to canvas
-                const c = document.createElement('canvas');
-                c.width = gi.img.naturalWidth || 1024;
-                c.height = gi.img.naturalHeight || 1024;
-                c.getContext('2d').drawImage(gi.img, 0, 0);
-                img.src = c.toDataURL();
-            }
-        }
+        s.freeRevealedCount = 0;
     } else {
         btn.classList.remove('active'); icon.textContent = 'edit';
         if (label) label.textContent = 'T\u1ef1 vi\u1ebft';
         document.getElementById('kwHint').textContent = '';
-        guideEl.innerHTML = '';
         kwUpdateProgress();
     }
     kwRedraw();
