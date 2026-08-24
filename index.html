@@ -2065,6 +2065,30 @@ body.game-fullscreen-mode #boostCardDisplay {
     font-size: 11px; color: #94a3b8; margin-top: 8px;
     min-height: 16px;
 }
+.kw-check-overlay {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    pointer-events: none; z-index: 10;
+}
+.kw-check-icon {
+    width: 72px; height: 72px; border-radius: 50%; background: #16a34a;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 24px rgba(22,163,74,0.4);
+    animation: kwCheckPop 0.5s cubic-bezier(0.175,0.885,0.32,1.275);
+}
+.kw-check-icon .material-symbols-outlined { font-size: 40px; color: #fff; }
+@keyframes kwCheckPop {
+    0% { transform: scale(0); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
+.kw-free-guide {
+    position: absolute; inset: 0; pointer-events: none; z-index: 5;
+    display: flex; align-items: center; justify-content: center;
+}
+.kw-free-guide img {
+    width: 100%; height: 100%; object-fit: contain; opacity: 0;
+    transition: opacity 0.4s ease;
+}
+.kw-free-guide img.show { opacity: 0.35; }
 @keyframes kwShake {
     0%, 100% { transform: translateX(0); }
     20% { transform: translateX(-8px); }
@@ -9326,14 +9350,16 @@ body:has(.kd-game-wrapper.kd-active) #scrollToTopBtn {
             <div class="kw-loading" id="kwLoading">
                 <div class="kana-stroke-loading"></div>
             </div>
+            <div class="kw-free-guide" id="kwFreeGuide"></div>
+            <div class="kw-check-overlay" id="kwCheckOverlay"></div>
         </div>
         <div class="kw-actions">
             <button class="kw-btn secondary" onclick="kwRedo()">
                 <span class="material-symbols-outlined">refresh</span>Viết lại</button>
             <button class="kw-btn secondary" id="kwFreeBtn" onclick="kwToggleFree()">
                 <span class="material-symbols-outlined">edit</span>Tự viết</button>
-            <button class="kw-btn primary" onclick="kwNextStroke()">
-                <span class="material-symbols-outlined">arrow_forward</span>Nét tiếp theo</button>
+            <button class="kw-btn primary" onclick="kwBackToStrokes()">
+                <span class="material-symbols-outlined">visibility</span>Xem nét</button>
         </div>
         <div class="kw-hint" id="kwHint"></div>
     </div>
@@ -12966,7 +12992,12 @@ function kwMouseUp() {
                         const p = document.getElementById('kwProgress');
                         p.textContent = 'Ho\u00e0n th\u00e0nh!'; p.classList.add('done');
                         document.getElementById('kwHint').textContent = 'Tuy\u1ec7t v\u1edbi!';
+                        kwShowCheckmark();
                         playKanaAudio(kwState.kana);
+                        if (typeof confetti === 'function') {
+                            confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
+                            setTimeout(() => confetti({ particleCount: 50, spread: 100, origin: { y: 0.5 } }), 300);
+                        }
                     }, 400);
                 }
             } else {
@@ -12977,6 +13008,9 @@ function kwMouseUp() {
                 else hint.textContent = 'N\u00e9t ch\u01b0a \u0111\u00fang, th\u1eed l\u1ea1i!';
                 setTimeout(() => { kwState.userStrokes.pop(); hint.textContent = ''; kwRedraw(); }, 600);
             }
+        } else {
+            // Free mode: show corresponding guide stroke after drawing
+            kwShowFreeGuide(kwState.userStrokes.length - 1);
         }
     }
     kwState.currentPoints = []; kwRedraw();
@@ -12992,19 +13026,31 @@ function kwRedo() {
     s.comparisonData = [];
     document.getElementById('kwProgress').classList.remove('done');
     document.getElementById('kwHint').textContent = '';
+    document.getElementById('kwCheckOverlay').innerHTML = '';
+    const guideEl = document.getElementById('kwFreeGuide');
+    guideEl.querySelectorAll('img').forEach(img => img.classList.remove('show'));
     kwUpdateProgress();
     kwRedraw();
 }
 
-function kwNextStroke() {
-    const s = kwState; if (s.freeMode) return;
-    if (s.currentStroke < s.totalStrokes - 1) { s.currentStroke++; kwUpdateProgress(); kwRedraw(); }
-    else {
-        const p = document.getElementById('kwProgress');
-        p.textContent = 'Ho\u00e0n th\u00e0nh!'; p.classList.add('done');
-        document.getElementById('kwHint').textContent = 'Tuy\u1ec7t v\u1edbi!';
-        playKanaAudio(s.kana);
-    }
+function kwShowFreeGuide(strokeIdx) {
+    const guideEl = document.getElementById('kwFreeGuide');
+    const imgs = guideEl.querySelectorAll('img');
+    imgs.forEach((img, i) => {
+        if (i <= strokeIdx && img.src) img.classList.add('show');
+    });
+}
+
+function kwShowCheckmark() {
+    const overlay = document.getElementById('kwCheckOverlay');
+    overlay.innerHTML = '<div class="kw-check-icon"><span class="material-symbols-outlined">check</span></div>';
+    setTimeout(() => { overlay.innerHTML = ''; }, 2500);
+}
+
+function kwBackToStrokes() {
+    const s = kwState;
+    closeKanaWriteModal();
+    setTimeout(() => openKanaStrokeModal(s.kana, s.romaji), 300);
 }
 
 function kwToggleFree() {
@@ -13012,16 +13058,33 @@ function kwToggleFree() {
     const btn = document.getElementById('kwFreeBtn');
     const icon = btn.querySelector('.material-symbols-outlined');
     const label = icon.nextSibling;
+    const guideEl = document.getElementById('kwFreeGuide');
     if (s.freeMode) {
         btn.classList.add('active'); icon.textContent = 'brush';
         if (label) label.textContent = 'Vi\u1ebft theo m\u1eabu';
         document.getElementById('kwProgress').textContent = 'T\u1ef1 vi\u1ebft';
         document.getElementById('kwProgress').classList.remove('done');
         document.getElementById('kwHint').textContent = 'Vi\u1ebft t\u1ef1 do.';
+        // Build guide images for free mode overlay
+        guideEl.innerHTML = '';
+        for (let i = 0; i < s.guideImgs.length; i++) {
+            const img = document.createElement('img');
+            img.dataset.idx = i;
+            guideEl.appendChild(img);
+            if (s.guideImgs[i].loaded) { img.src = s.guideImgs[i].img.src; }
+            else {
+                const idx = i;
+                const gi = s.guideImgs[idx];
+                const waitLoad = setInterval(() => {
+                    if (gi.loaded) { img.src = gi.img.src; clearInterval(waitLoad); }
+                }, 50);
+            }
+        }
     } else {
         btn.classList.remove('active'); icon.textContent = 'edit';
         if (label) label.textContent = 'T\u1ef1 vi\u1ebft';
         document.getElementById('kwHint').textContent = '';
+        guideEl.innerHTML = '';
         kwUpdateProgress();
     }
     kwRedraw();
