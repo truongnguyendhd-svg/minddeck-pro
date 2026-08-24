@@ -2065,6 +2065,14 @@ body.game-fullscreen-mode #boostCardDisplay {
     font-size: 11px; color: #94a3b8; margin-top: 8px;
     min-height: 16px;
 }
+@keyframes kwShake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-8px); }
+    40% { transform: translateX(8px); }
+    60% { transform: translateX(-5px); }
+    80% { transform: translateX(5px); }
+}
+.kw-canvas-wrap { transition: box-shadow 0.3s ease; }
 /* ================= END KANA WRITING PRACTICE ================= */
 /* YOON DUAL STROKE LAYOUT */
 .kana-yoon-container {
@@ -12656,10 +12664,10 @@ function playKanaAudio(kana) {
 // ================= KANA WRITING PRACTICE =================
 const kwState = {
     kana: '', romaji: '', svgText: '',
-    strokes: [], totalStrokes: 0, currentStroke: 0,
+    totalStrokes: 0, currentStroke: 0,
     userStrokes: [], isDrawing: false, currentPoints: [],
     freeMode: false, canvas: null, ctx: null,
-    ghostPaths: [], startPoints: [],
+    ghostImg: null, guideImgs: [], startPoints: [],
     canvasSize: 300, scale: 300 / 1024
 };
 
@@ -12674,13 +12682,16 @@ function openKanaWriteModal(kana, romaji) {
     s.kana = kana; s.romaji = romaji || '';
     s.currentStroke = 0; s.userStrokes = [];
     s.currentPoints = []; s.isDrawing = false;
-    s.freeMode = false; s.ghostPaths = []; s.startPoints = [];
-    s.strokes = []; s.totalStrokes = 0;
+    s.freeMode = false; s.startPoints = [];
+    s.totalStrokes = 0; s.ghostImg = null; s.guideImgs = [];
     document.getElementById('kwChar').textContent = kana;
     document.getElementById('kwRomaji').textContent = romaji || '';
     const freeBtn = document.getElementById('kwFreeBtn');
     freeBtn.classList.remove('active');
-    freeBtn.querySelector('.material-symbols-outlined').textContent = 'edit';
+    const icon = freeBtn.querySelector('.material-symbols-outlined');
+    const label = icon.nextSibling;
+    icon.textContent = 'edit';
+    if (label) label.textContent = 'Tự viết';
     document.getElementById('kwHint').textContent = '';
     const modal = document.getElementById('kanaWriteModal');
     modal.classList.remove('hidden');
@@ -12691,14 +12702,37 @@ function openKanaWriteModal(kana, romaji) {
     });
     setTimeout(() => kwSetupCanvas(), 30);
     const url = getStrokeSvgUrl(kana);
-    if (KANA_SVG_CACHE[kana]) {
-        kwProcessSvg(KANA_SVG_CACHE[kana]);
-    } else {
+    if (KANA_SVG_CACHE[kana]) { kwProcessSvg(KANA_SVG_CACHE[kana]); }
+    else {
         document.getElementById('kwLoading').style.display = 'flex';
         fetch(url).then(r => { if (!r.ok) throw new Error('404'); return r.text(); })
             .then(t => { KANA_SVG_CACHE[kana] = t; kwProcessSvg(t); })
             .catch(() => { document.getElementById('kwLoading').style.display = 'none'; kwDrawFallback(); });
     }
+}
+
+function kwCreateGuideSvg(svgText, strokeIndex) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    const g = doc.querySelector('g[data-strokesvg="strokes"]');
+    if (!g) return svgText;
+    const els = g.children;
+    for (let i = 0; i < els.length; i++) {
+        const st = els[i].getAttribute('style') || '';
+        const m = st.match(/--i:(\d+)/);
+        const idx = m ? parseInt(m[1]) : i;
+        if (idx !== strokeIndex) els[i].setAttribute('opacity', '0');
+    }
+    g.style.stroke = '#93c5fd';
+    return new XMLSerializer().serializeToString(doc);
+}
+
+function kwLoadSvgImage(svgStr, img, cb) {
+    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    img.onload = () => { URL.revokeObjectURL(url); if (cb) cb(); };
+    img.onerror = () => { URL.revokeObjectURL(url); };
+    img.src = url;
 }
 
 function kwProcessSvg(svgText) {
@@ -12707,25 +12741,23 @@ function kwProcessSvg(svgText) {
     const doc = parser.parseFromString(svgText, 'image/svg+xml');
     const g = doc.querySelector('g[data-strokesvg="strokes"]');
     if (!g) { kwDrawFallback(); return; }
-    s.strokes = []; s.ghostPaths = []; s.startPoints = [];
     const els = g.children;
+    s.totalStrokes = els.length;
+    s.startPoints = []; s.guideImgs = [];
     for (let i = 0; i < els.length; i++) {
-        const el = els[i];
-        const idxMatch = (el.getAttribute('style') || '').match(/--i:(\d+)/);
-        const idx = idxMatch ? parseInt(idxMatch[1]) : i;
-        const paths = [];
-        if (el.tagName === 'path') {
-            paths.push(el.getAttribute('d'));
-        } else if (el.tagName === 'g') {
-            el.querySelectorAll('path').forEach(p => paths.push(p.getAttribute('d')));
-        }
-        s.strokes.push({ index: idx, paths: paths });
-        s.ghostPaths.push(paths.map(d => new Path2D(d)));
-        const m = paths[0].match(/^[Mm]\s*([\d.e+-]+)[,\s]+([\d.e+-]+)/);
-        if (m) s.startPoints.push({ x: parseFloat(m[1]), y: parseFloat(m[2]) });
-        else s.startPoints.push(null);
+        const el = els[i]; const paths = [];
+        if (el.tagName === 'path') paths.push(el.getAttribute('d'));
+        else if (el.tagName === 'g') el.querySelectorAll('path').forEach(p => paths.push(p.getAttribute('d')));
+        const m = paths[0]?.match(/^[Mm]\s*([\d.e+-]+)[,\s]+([\d.e+-]+)/);
+        s.startPoints.push(m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : null);
+        const guideSvg = kwCreateGuideSvg(svgText, i);
+        const guideImg = new Image();
+        const idx = i;
+        s.guideImgs.push({ img: guideImg, loaded: false });
+        kwLoadSvgImage(guideSvg, guideImg, () => { s.guideImgs[idx].loaded = true; kwRedraw(); });
     }
-    s.totalStrokes = s.strokes.length;
+    s.ghostImg = new Image();
+    kwLoadSvgImage(svgText, s.ghostImg, () => kwRedraw());
     document.getElementById('kwLoading').style.display = 'none';
     kwUpdateProgress(); kwRedraw();
 }
@@ -12742,12 +12774,9 @@ function kwSetupCanvas() {
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     s.canvas = canvas; s.ctx = ctx;
-    canvas.onmousedown = kwMouseDown;
-    canvas.onmousemove = kwMouseMove;
-    canvas.onmouseup = kwMouseUp;
-    canvas.onmouseleave = kwMouseUp;
-    canvas.ontouchstart = kwTouchStart;
-    canvas.ontouchmove = kwTouchMove;
+    canvas.onmousedown = kwMouseDown; canvas.onmousemove = kwMouseMove;
+    canvas.onmouseup = kwMouseUp; canvas.onmouseleave = kwMouseUp;
+    canvas.ontouchstart = kwTouchStart; canvas.ontouchmove = kwTouchMove;
     canvas.ontouchend = kwTouchEnd;
 }
 
@@ -12756,16 +12785,11 @@ function kwDrawGrid(ctx, sz) {
     ctx.strokeRect(0.5, 0.5, sz - 1, sz - 1);
     ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1;
     ctx.setLineDash([6, 4]);
-    ctx.beginPath();
-    ctx.moveTo(sz / 2, 0); ctx.lineTo(sz / 2, sz);
-    ctx.moveTo(0, sz / 2); ctx.lineTo(sz, sz / 2);
-    ctx.stroke();
-    ctx.strokeStyle = '#f3f4f6';
-    ctx.beginPath();
-    ctx.moveTo(0, 0); ctx.lineTo(sz, sz);
-    ctx.moveTo(sz, 0); ctx.lineTo(0, sz);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(sz / 2, 0); ctx.lineTo(sz / 2, sz);
+    ctx.moveTo(0, sz / 2); ctx.lineTo(sz, sz / 2); ctx.stroke();
+    ctx.strokeStyle = '#f3f4f6'; ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(sz, sz); ctx.moveTo(sz, 0); ctx.lineTo(0, sz);
+    ctx.stroke(); ctx.setLineDash([]);
 }
 
 function kwRedraw() {
@@ -12773,46 +12797,36 @@ function kwRedraw() {
     if (!ctx) return;
     ctx.clearRect(0, 0, sz, sz);
     kwDrawGrid(ctx, sz);
-    if (!s.freeMode && s.ghostPaths.length > 0) {
-        ctx.save(); ctx.scale(s.scale, s.scale);
-        ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 120;
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.globalAlpha = 0.35;
-        s.ghostPaths.forEach(pp => pp.forEach(p => ctx.stroke(p)));
+    if (!s.freeMode && s.ghostImg && s.ghostImg.complete && s.ghostImg.naturalWidth > 0) {
+        ctx.save(); ctx.globalAlpha = 0.18;
+        ctx.drawImage(s.ghostImg, 0, 0, sz, sz);
         ctx.restore();
     }
-    if (!s.freeMode && s.ghostPaths.length > 0 && s.currentStroke < s.totalStrokes) {
-        ctx.save(); ctx.scale(s.scale, s.scale);
-        ctx.strokeStyle = '#93c5fd'; ctx.lineWidth = 120;
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.globalAlpha = 0.55;
-        const gp = s.ghostPaths[s.currentStroke];
-        gp.forEach(p => ctx.stroke(p));
-        const sp = s.startPoints[s.currentStroke];
-        if (sp) {
-            ctx.globalAlpha = 0.9;
-            ctx.fillStyle = '#3b82f6';
-            ctx.beginPath();
-            ctx.arc(sp.x, sp.y, 40, 0, Math.PI * 2);
-            ctx.fill();
+    if (!s.freeMode && s.currentStroke < s.guideImgs.length) {
+        const gi = s.guideImgs[s.currentStroke];
+        if (gi && gi.loaded && gi.img.complete && gi.img.naturalWidth > 0) {
+            ctx.save(); ctx.globalAlpha = 0.55;
+            ctx.drawImage(gi.img, 0, 0, sz, sz);
+            ctx.restore();
         }
+    }
+    if (!s.freeMode && s.currentStroke < s.startPoints.length && s.startPoints[s.currentStroke]) {
+        const sp = s.startPoints[s.currentStroke];
+        ctx.save(); ctx.fillStyle = '#3b82f6'; ctx.globalAlpha = 0.9;
+        ctx.beginPath(); ctx.arc(sp.x * s.scale, sp.y * s.scale, 8, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
     }
-    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 5;
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.globalAlpha = 0.85;
-    const comp = s.freeMode ? s.userStrokes.length : Math.min(s.userStrokes.length, s.currentStroke);
-    for (let i = 0; i < comp; i++) {
-        const pts = s.userStrokes[i];
-        if (pts.length < 2) continue;
+    for (let i = 0; i < s.userStrokes.length; i++) {
+        const pts = s.userStrokes[i]; if (pts.length < 2) continue;
+        ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 5;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalAlpha = 0.9;
         ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
         for (let j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
         ctx.stroke();
     }
     if (s.currentPoints.length >= 2) {
         ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 5;
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.globalAlpha = 1;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalAlpha = 1;
         ctx.beginPath(); ctx.moveTo(s.currentPoints[0].x, s.currentPoints[0].y);
         for (let i = 1; i < s.currentPoints.length; i++) ctx.lineTo(s.currentPoints[i].x, s.currentPoints[i].y);
         ctx.stroke();
@@ -12828,26 +12842,53 @@ function kwGetPos(e) {
 }
 function kwMouseDown(e) { kwState.isDrawing = true; kwState.currentPoints = [kwGetPos(e)]; }
 function kwMouseMove(e) { if (!kwState.isDrawing) return; kwState.currentPoints.push(kwGetPos(e)); kwRedraw(); }
+
+function kwValidateStroke(pts) {
+    const s = kwState;
+    if (s.currentStroke >= s.startPoints.length || !s.startPoints[s.currentStroke]) return true;
+    const exp = s.startPoints[s.currentStroke];
+    const dx = pts[0].x - exp.x * s.scale;
+    const dy = pts[0].y - exp.y * s.scale;
+    return Math.sqrt(dx * dx + dy * dy) < s.canvasSize * 0.28;
+}
+
+function kwFlashCanvas(color) {
+    const w = document.getElementById('kwCanvasWrap');
+    w.style.boxShadow = color === 'green'
+        ? '0 0 20px rgba(22,163,74,0.5), inset 0 0 20px rgba(22,163,74,0.08)'
+        : '0 0 20px rgba(239,68,68,0.5), inset 0 0 20px rgba(239,68,68,0.08)';
+    setTimeout(() => { w.style.boxShadow = ''; }, 450);
+}
+
+function kwShakeCanvas() {
+    const w = document.getElementById('kwCanvasWrap');
+    w.style.animation = 'kwShake 0.4s ease';
+    setTimeout(() => { w.style.animation = ''; }, 420);
+}
+
 function kwMouseUp() {
     if (!kwState.isDrawing) return;
     kwState.isDrawing = false;
-    if (kwState.currentPoints.length > 1) {
+    if (kwState.currentPoints.length > 2) {
         kwState.userStrokes.push([...kwState.currentPoints]);
-        // Auto-advance to next stroke in guided mode
-        if (!kwState.freeMode && kwState.currentStroke < kwState.totalStrokes - 1) {
-            setTimeout(() => {
-                kwState.currentStroke++;
-                kwUpdateProgress();
-                kwRedraw();
-            }, 350);
-        } else if (!kwState.freeMode && kwState.currentStroke === kwState.totalStrokes - 1) {
-            setTimeout(() => {
-                const prog = document.getElementById('kwProgress');
-                prog.textContent = 'Ho\u00e0n th\u00e0nh!';
-                prog.classList.add('done');
-                document.getElementById('kwHint').textContent = 'Tuy\u1ec7t v\u1edbi! B\u1ea1n \u0111\u00e3 vi\u1ebft \u0111\u00fang h\u1ebft c\u00e1c n\u00e9t.';
-                playKanaAudio(kwState.kana);
-            }, 350);
+        if (!kwState.freeMode) {
+            if (kwValidateStroke(kwState.currentPoints)) {
+                kwFlashCanvas('green');
+                if (kwState.currentStroke < kwState.totalStrokes - 1) {
+                    setTimeout(() => { kwState.currentStroke++; kwUpdateProgress(); kwRedraw(); }, 400);
+                } else {
+                    setTimeout(() => {
+                        const p = document.getElementById('kwProgress');
+                        p.textContent = 'Ho\u00e0n th\u00e0nh!'; p.classList.add('done');
+                        document.getElementById('kwHint').textContent = 'Tuy\u1ec7t v\u1edbi!';
+                        playKanaAudio(kwState.kana);
+                    }, 400);
+                }
+            } else {
+                kwFlashCanvas('red'); kwShakeCanvas();
+                document.getElementById('kwHint').textContent = 'B\u1eaft \u0111\u1ea7u t\u1eeb ch\u1ea5m xanh!';
+                setTimeout(() => { kwState.userStrokes.pop(); document.getElementById('kwHint').textContent = ''; kwRedraw(); }, 500);
+            }
         }
     }
     kwState.currentPoints = []; kwRedraw();
@@ -12859,20 +12900,24 @@ function kwTouchEnd() { kwMouseUp(); }
 function kwRedo() {
     const s = kwState;
     if (s.freeMode) { s.userStrokes = []; s.currentPoints = []; }
-    else { s.userStrokes.length = Math.min(s.userStrokes.length, s.currentStroke); s.currentPoints = []; }
+    else {
+        if (s.currentStroke >= s.totalStrokes) s.currentStroke = s.totalStrokes - 1;
+        else if (s.currentStroke > 0) s.currentStroke--;
+        s.userStrokes.length = s.currentStroke; s.currentPoints = [];
+        document.getElementById('kwProgress').classList.remove('done');
+        document.getElementById('kwHint').textContent = '';
+        kwUpdateProgress();
+    }
     kwRedraw();
 }
 
 function kwNextStroke() {
-    const s = kwState;
-    if (s.freeMode) return;
-    if (s.currentStroke < s.totalStrokes - 1) {
-        s.currentStroke++; kwUpdateProgress(); kwRedraw();
-    } else {
-        const prog = document.getElementById('kwProgress');
-        prog.textContent = 'Ho\u00e0n th\u00e0nh!';
-        prog.classList.add('done');
-        document.getElementById('kwHint').textContent = 'Tuy\u1ec7t v\u1eddi! B\u1ea1n \u0111\u00e3 vi\u1ebft \u0111\u00fang h\u1ebft c\u00e1c n\u00e9t.';
+    const s = kwState; if (s.freeMode) return;
+    if (s.currentStroke < s.totalStrokes - 1) { s.currentStroke++; kwUpdateProgress(); kwRedraw(); }
+    else {
+        const p = document.getElementById('kwProgress');
+        p.textContent = 'Ho\u00e0n th\u00e0nh!'; p.classList.add('done');
+        document.getElementById('kwHint').textContent = 'Tuy\u1ec7t v\u1edbi!';
         playKanaAudio(s.kana);
     }
 }
@@ -12880,18 +12925,17 @@ function kwNextStroke() {
 function kwToggleFree() {
     const s = kwState; s.freeMode = !s.freeMode;
     const btn = document.getElementById('kwFreeBtn');
-    const label = btn.querySelector('.material-symbols-outlined').nextSibling;
+    const icon = btn.querySelector('.material-symbols-outlined');
+    const label = icon.nextSibling;
     if (s.freeMode) {
-        btn.classList.add('active');
-        btn.querySelector('.material-symbols-outlined').textContent = 'brush';
-        label.textContent = 'Vi\u1ebft theo m\u1eabu';
+        btn.classList.add('active'); icon.textContent = 'brush';
+        if (label) label.textContent = 'Vi\u1ebft theo m\u1eabu';
         document.getElementById('kwProgress').textContent = 'T\u1ef1 vi\u1ebft';
         document.getElementById('kwProgress').classList.remove('done');
-        document.getElementById('kwHint').textContent = 'Vi\u1ebft t\u1ef1 do, kh\u00f4ng h\u1ea1n ch\u1ebf n\u00e9t.';
+        document.getElementById('kwHint').textContent = 'Vi\u1ebft t\u1ef1 do.';
     } else {
-        btn.classList.remove('active');
-        btn.querySelector('.material-symbols-outlined').textContent = 'edit';
-        label.textContent = 'T\u1ef1 vi\u1ebft';
+        btn.classList.remove('active'); icon.textContent = 'edit';
+        if (label) label.textContent = 'T\u1ef1 vi\u1ebft';
         document.getElementById('kwHint').textContent = '';
         kwUpdateProgress();
     }
@@ -12899,9 +12943,9 @@ function kwToggleFree() {
 }
 
 function kwUpdateProgress() {
-    const s = kwState; const prog = document.getElementById('kwProgress');
-    prog.classList.remove('done');
-    prog.textContent = s.totalStrokes > 0 ? 'N\u00e9t ' + (s.currentStroke + 1) + '/' + s.totalStrokes : '';
+    const s = kwState; const p = document.getElementById('kwProgress');
+    p.classList.remove('done');
+    p.textContent = s.totalStrokes > 0 ? 'N\u00e9t ' + (s.currentStroke + 1) + '/' + s.totalStrokes : '';
 }
 
 function kwDrawFallback() {
@@ -12918,10 +12962,7 @@ function closeKanaWriteModal() {
     document.getElementById('kwOverlay').classList.remove('show');
     document.getElementById('kwBox').classList.remove('show');
     kwState.isDrawing = false;
-    setTimeout(() => {
-        document.getElementById('kanaWriteModal').classList.add('hidden');
-        document.body.style.overflow = '';
-    }, 260);
+    setTimeout(() => { document.getElementById('kanaWriteModal').classList.add('hidden'); document.body.style.overflow = ''; }, 260);
 }
 // ================= END KANA WRITING PRACTICE =================
 // ================= END BẢNG CHỮ CÁI =================
