@@ -843,11 +843,13 @@ var worker_default = {
 
           if (hasImages) {
             // VISION MODE: Qwen 3.8 27B / Llama 4 Maverick hỗ trợ image_url
-            // Format: data:image/webp;base64,xxxxx hoặc data:image/jpeg;base64,xxxxx
+            // 🟢 THÊM detail: "low" → Groq chỉ tính 85 token/ảnh (fixed)
+            // thay vì tính token cho base64 string như text (~8000 token)
+            // Đây là cách Groq Playground dùng để không bị TPM limit
             messageContent = [
               ...images.map(img => ({
                 type: "image_url",
-                image_url: { url: img }
+                image_url: { url: img, detail: "low" }
               })),
               { type: "text", text: prompt }
             ];
