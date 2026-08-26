@@ -25520,29 +25520,75 @@ async function askAIWhyWrong() {
 
 /* ================= HỆ THỐNG GỌI VERCEL API (GEMINI) ================= */
 async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback, onCompleteCallback) {
+    // ⏱️ TIMEOUT 20s cho fetch - chống treo pending mãi
+    const fetchController = new AbortController();
+    const fetchTimeoutId = setTimeout(() => fetchController.abort(), 20000);
+
+    let response;
     try {
-        const response = await fetch(`${DICT_API_URL}/api/gemini`, {
+        response = await fetch(`${DICT_API_URL}/api/gemini`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: promptText, images: imagesArray })
+            body: JSON.stringify({ prompt: promptText, images: imagesArray }),
+            signal: fetchController.signal
         });
-
-        if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            // 🟢 CẬP NHẬT: Cộng dồn thêm trường "detail" do Worker truyền về để in ra chính xác lỗi từ Google
-            const detailStr = errData.detail ? `\n(Chi tiết lỗi: ${errData.detail})` : "";
-            throw new Error((errData.error || 'Yêu cầu kết nối AI thất bại') + detailStr);
+        clearTimeout(fetchTimeoutId);
+    } catch (fetchErr) {
+        clearTimeout(fetchTimeoutId);
+        // Phân biệt lỗi timeout và lỗi mạng thường
+        if (fetchErr.name === 'AbortError') {
+            throw new Error('Gemini timeout (20s) - server không phản hồi');
         }
+        throw new Error(`Lỗi mạng Gemini: ${fetchErr.message}`);
+    }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-        let buffer = '';
-        let fullResponseText = '';
+    if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        // 🟢 CẬP NHẬT: Cộng dồn thêm trường "detail" do Worker truyền về để in ra chính xác lỗi từ Google
+        const detailStr = errData.detail ? `\n(Chi tiết lỗi: ${errData.detail})` : "";
+        throw new Error((errData.error || 'Yêu cầu kết nối AI thất bại') + detailStr);
+    }
 
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let fullResponseText = '';
+    let lastChunkTime = Date.now();
+
+    try {
         while (true) {
-            const { done, value } = await reader.read();
+            // ⏱️ TIMEOUT 25s cho mỗi chunk read - nếu server im lặng quá lâu → abort
+            const readController = new AbortController();
+            const readTimeoutId = setTimeout(() => readController.abort(), 25000);
+
+            let readResult;
+            try {
+                readResult = await Promise.race([
+                    reader.read(),
+                    new Promise((_, reject) => {
+                        readController.signal.addEventListener('abort', () => {
+                            reject(new Error('Gemini stream timeout (25s không có data)'));
+                        });
+                    })
+                ]);
+                clearTimeout(readTimeoutId);
+            } catch (readErr) {
+                clearTimeout(readTimeoutId);
+                // Hủy reader để giải phóng tài nguyên
+                try { await reader.cancel(); } catch (e) {}
+                // Nếu đã có 1 phần text → trả về phần đó thay vì báo lỗi
+                if (fullResponseText.trim()) {
+                    console.warn('⚠️ Gemini stream bị cắt giữa chừng, trả về partial text:', fullResponseText.length, 'chars');
+                    if (onCompleteCallback) onCompleteCallback(fullResponseText);
+                    return;
+                }
+                throw readErr.name === 'AbortError' ? new Error('Gemini stream timeout') : readErr;
+            }
+
+            const { done, value } = readResult;
             if (done) break;
 
+            lastChunkTime = Date.now();
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
             buffer = lines.pop(); // Giữ lại dòng dở dang cuối cùng
@@ -25550,9 +25596,9 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
             for (const line of lines) {
                 const cleanLine = line.trim();
                 if (!cleanLine.startsWith('data: ')) continue;
-                
+
                 const dataStr = cleanLine.replace(/^data:\s*/, '');
-                
+
                 try {
                     const parsed = JSON.parse(dataStr);
                     // Giải mã cấu trúc JSON của từng chunk nhỏ từ Google Gemini
@@ -25572,6 +25618,7 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
         }
     } catch (err) {
         console.error("Lỗi đọc Stream phía Client:", err);
+        try { await reader.cancel(); } catch (e) {}
         throw err;
     }
 }
