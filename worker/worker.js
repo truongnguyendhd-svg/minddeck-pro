@@ -72,7 +72,7 @@ __name2(callMistralAI, "callMistralAI");
 __name22(callMistralAI, "callMistralAI");
 
 // Hàm bổ trợ gọi Groq AI dạng không Stream (Non-Streaming JSON Object) chuyên bồi đắp ngầm
-async function callGroqAI_NonStream(prompt, env, model = "qwen/qwen3.6-27b") {
+async function callGroqAI_NonStream(prompt, env, model = "qwen/qwen3.8-27b") {
   const groqKey = getRandomKey(env.GROQ_API_KEYS);
   if (!groqKey) {
     throw new Error("Chưa cấu hình API Key Groq trong biến môi trường GROQ_API_KEYS!");
@@ -622,8 +622,8 @@ var worker_default = {
             ]
           }`;
 
-          // Gọi Qwen 3.6 27B qua hạ tầng Groq
-          const aiResponseText = await callGroqAI_NonStream(aiPrompt, env, "qwen/qwen3.6-27b");
+          // Gọi Qwen 3.8 27B qua hạ tầng Groq
+          const aiResponseText = await callGroqAI_NonStream(aiPrompt, env, "qwen/qwen3.8-27b");
           
           let responseText = aiResponseText.trim();
           const jsonStart = responseText.indexOf("{");
@@ -773,8 +773,8 @@ var worker_default = {
       // =========================================================================
       if (path === "/api/groq" && request.method === "POST") {
         try {
-          const { prompt, model = "qwen/qwen3.6-27b" } = await request.json();
-          
+          const { prompt, model = "qwen/qwen3.8-27b", images = [] } = await request.json();
+
           const keysString = env.GROQ_API_KEYS;
           if (!keysString) {
             return new Response(JSON.stringify({ error: "Lỗi Server: Chưa cấu hình biến môi trường GROQ_API_KEYS trên Cloudflare" }), {
@@ -789,6 +789,26 @@ var worker_default = {
               status: 500,
               headers: { ...corsHeaders, "Content-Type": "application/json" }
             });
+          }
+
+          // 🟢 XÂY DỰNG PAYLOAD: Hỗ trợ cả TEXT thuần và VISION (ảnh)
+          // OpenAI-compatible format: content có thể là string (text) hoặc mảng (text + image_url)
+          const hasImages = Array.isArray(images) && images.length > 0;
+          let messageContent;
+
+          if (hasImages) {
+            // VISION MODE: Llama 4 Maverick / Scout hỗ trợ image_url
+            // Format: data:image/webp;base64,xxxxx hoặc data:image/jpeg;base64,xxxxx
+            messageContent = [
+              ...images.map(img => ({
+                type: "image_url",
+                image_url: { url: img }
+              })),
+              { type: "text", text: prompt }
+            ];
+          } else {
+            // TEXT MODE: Qwen 3.6 27B
+            messageContent = prompt;
           }
 
           let startIndex = Math.floor(Math.random() * apiKeys.length);
@@ -820,7 +840,7 @@ var worker_default = {
                 },
                 body: JSON.stringify({
                   model: modelId,
-                  messages: [{ role: "user", content: prompt }],
+                  messages: [{ role: "user", content: messageContent }],
                   temperature: 0.2,
                   max_completion_tokens: 6096,
                   stream: true,
@@ -850,9 +870,9 @@ var worker_default = {
           }
 
           console.error("❌ Tất cả API Keys của Groq đều đã cạn kiệt hoặc gặp lỗi.");
-          return new Response(JSON.stringify({ 
+          return new Response(JSON.stringify({
             error: 'Hệ thống Groq đang bận hoặc quá tải. Vui lòng thử lại sau!',
-            detail: lastErrorMessage 
+            detail: lastErrorMessage
           }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" }
