@@ -894,8 +894,19 @@ var worker_default = {
               });
 
               if (!response.ok) {
-                const data = await response.json().catch(() => ({}));
-                throw new Error(data.error?.message || `Lỗi HTTP ${response.status} từ Groq`);
+                // 🟢 Log chi tiết lỗi để debug (đặc biệt cho vision request)
+                let errDetail = `HTTP ${response.status}`;
+                try {
+                    const data = await response.json().catch(() => null);
+                    if (data) {
+                        errDetail = data.error?.message || data.error || data.detail || JSON.stringify(data).slice(0, 300);
+                    } else {
+                        const textResp = await response.text().catch(() => '');
+                        if (textResp) errDetail = textResp.slice(0, 300);
+                    }
+                } catch (_) {}
+                console.warn(`⚠️ Groq API Key thứ ${currentIndex + 1} thất bại (${modelId}):`, errDetail);
+                throw new Error(errDetail);
               }
 
               return new Response(response.body, {
