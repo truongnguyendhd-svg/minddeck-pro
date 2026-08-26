@@ -24623,11 +24623,28 @@ async function popoverActionAI(e) {
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
         // iOS Safari fix: xoa text selection de modal khong bi che boi selection UI
         window.getSelection().removeAllRanges();
-        const processedAIResponse = wrapKanjiWithLink(aiResponse);
-        showAIModal(processedAIResponse, "Phan tich chuyen sau");
+
+        // 🛡️ Bảo vệ: Nếu AI trả về rỗng (cả Gemini và Groq đều fail) → hiển thị thông báo lỗi
+        if (!aiResponse || !aiResponse.trim()) {
+            showAIModal(
+                `<b style="color: #e53e3e;">⚠️ Không thể kết nối AI</b><br><br>` +
+                `<div style="font-size: 14px; color: #4a5568; line-height: 1.6;">` +
+                `Cả hai máy chủ AI (Gemini & Groq) đều đang gặp sự cố.<br>` +
+                `Vui lòng thử lại sau ít phút, hoặc kiểm tra kết nối mạng của bạn.<br><br>` +
+                `<b>Mẹo:</b> Bạn vẫn có thể dùng nút "Tra từ điển nhanh" (🔍) để tra cứu từ này ngay lập tức.` +
+                `</div>`,
+                "❌ Lỗi AI"
+            );
+        } else {
+            const processedAIResponse = wrapKanjiWithLink(aiResponse);
+            showAIModal(processedAIResponse, "Phan tich chuyen sau");
+        }
     } catch (err) {
         hideLoading();
-        showAIModal(`<b style="color: #e53e3e;">LOI AI:</b><br>${err.message}`, "\u274c Loi");
+        showAIModal(
+            `<b style="color: #e53e3e;">❌ Lỗi AI:</b><br>${err.message}`,
+            "❌ Lỗi"
+        );
         console.warn("popoverActionAI error:", err);
     } finally {
         window._popoverAIActionRunning = false;
@@ -25582,34 +25599,38 @@ async function callGeminiAI(promptText, imagesArray = []) {
     return fullText;
 }
 // =========================================================================
-// 🟢 THÊM MỚI: BỘ ĐIỀU PHỐI LAI DẠNG STREAM (PRIMARY: GROQ - FALLBACK: GEMINI)
+// 🟢 BỘ ĐIỀU PHỐI LAI DẠNG STREAM (PRIMARY: GEMINI - FALLBACK: GROQ)
 // =========================================================================
 async function callHybridAIStream(promptText, imagesArray = [], onChunk, onComplete, options = {}) {
     const hasImages = (imagesArray && imagesArray.length > 0);
     const preferModel = options.model || "qwen/qwen3.6-27b";
 
-    // CHỐT CHẶN 1: Nếu có hình ảnh, ưu tiên gọi thẳng sang mắt thần Gemini
-    if (hasImages) {
-        console.log("MindDeck: Phát hiện hình ảnh. Định tuyến thẳng sang Gemini Flash...");
-        return callGeminiAIStream(promptText, imagesArray, onChunk, onComplete);
-    }
+    // Cờ đánh dấu đã gọi onComplete chưa (chống gọi 2 lần)
+    let onCompleteFired = false;
+    const safeOnComplete = (text) => {
+        if (onCompleteFired) return;
+        onCompleteFired = true;
+        try { onComplete(text); } catch (e) { console.warn('onComplete error:', e); }
+    };
 
-    // CHỐT CHẶN 2: Với văn bản thuần, ưu tiên Gemini Flash (Primary)
-    try {
-        console.log("MindDeck: Gọi Gemini Flash (Primary)...");
-        await callGeminiAIStream(promptText, imagesArray, onChunk, onComplete);
-    } catch (geminiError) {
-        // CHỐT CHẶN DỰ PHÒNG (FALLBACK): Tự kích hoạt khi Gemini quá tải hoặc lỗi mạng
-        console.warn("⚠️ Gemini API gặp sự cố. Tự động kích hoạt chốt chặn dự phòng Groq Qwen 3.6 27B...", geminiError.message);
-        showToast("⚠️ Máy chủ chính bận. Đang tự động chuyển hướng sang Gia sư dự phòng...");
+    // Hàm fallback sang Groq (dùng chung cho cả 2 trường hợp)
+    const fallbackToGroq = async (reason) => {
+        console.warn(`⚠️ Kích hoạt fallback Groq. Lý do: ${reason}`);
+        showToast("⚠️ Máy chủ chính bận. Đang chuyển sang Gia sư dự phòng...");
 
         try {
             console.log(`MindDeck: Gọi Qwen 3.6 27B qua Groq (Fallback)...`);
+            // ⏱️ Timeout 15s cho fetch để chống treo mãi
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+
             const response = await fetch(`${DICT_API_URL}/api/groq`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: promptText, model: preferModel })
+                body: JSON.stringify({ prompt: promptText, model: preferModel }),
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 throw new Error(`Groq Gateway Error (HTTP ${response.status})`);
@@ -25631,14 +25652,14 @@ async function callHybridAIStream(promptText, imagesArray = [], onChunk, onCompl
                 for (const line of lines) {
                     const cleanLine = line.trim();
                     if (!cleanLine.startsWith('data: ')) continue;
-                    
+
                     const dataStr = cleanLine.replace(/^data:\s*/, '');
                     if (dataStr === '[DONE]') continue;
 
                     try {
                         const parsed = JSON.parse(dataStr);
                         const chunkText = parsed.choices?.[0]?.delta?.content;
-                        
+
                         if (chunkText) {
                             fullText += chunkText;
                             onChunk(cleanModelOutputText(chunkText));
@@ -25651,24 +25672,84 @@ async function callHybridAIStream(promptText, imagesArray = [], onChunk, onCompl
 
             let finalCleanText = fullText.replace(/🧠[\s\S]*?<\/think>/g, "").trim();
             finalCleanText = cleanModelOutputText(finalCleanText);
-            
-            if (onComplete) onComplete(finalCleanText);
+
+            // 🛡️ Nếu Groq cũng trả về rỗng → ném lỗi để caller xử lý
+            if (!finalCleanText) {
+                throw new Error("Groq trả về kết quả rỗng");
+            }
+
+            safeOnComplete(finalCleanText);
         } catch (groqError) {
             console.error("❌ Cả Gemini và Groq đều thất bại.", groqError.message);
-            if (onComplete) onComplete("");
+            safeOnComplete(""); // Trả về rỗng để caller hiển thị lỗi
         }
+    };
+
+    // CHỐT CHẶN 1: Nếu có hình ảnh, ưu tiên gọi thẳng sang Gemini Flash (không có fallback vì Groq không hỗ trợ ảnh)
+    if (hasImages) {
+        console.log("MindDeck: Phát hiện hình ảnh. Định tuyến thẳng sang Gemini Flash...");
+        try {
+            // Thu thập text để check rỗng
+            let collectedText = "";
+            await callGeminiAIStream(
+                promptText,
+                imagesArray,
+                (chunk) => { collectedText += chunk; onChunk(chunk); },
+                (finalText) => { safeOnComplete(finalText || collectedText); }
+            );
+            // Nếu callGeminiAIStream resolve nhưng onComplete chưa được fire (text rỗng) → fallback
+            if (!onCompleteFired) {
+                await fallbackToGroq("Gemini ảnh trả về rỗng (không hỗ trợ ảnh trên Groq, sẽ thử lại)");
+            }
+        } catch (err) {
+            await fallbackToGroq(`Gemini ảnh lỗi: ${err.message}`);
+        }
+        return;
+    }
+
+    // CHỐT CHẶN 2: Với văn bản thuần, ưu tiên Gemini Flash (Primary)
+    try {
+        console.log("MindDeck: Gọi Gemini Flash (Primary)...");
+        let collectedText = "";
+        await callGeminiAIStream(
+            promptText,
+            imagesArray,
+            (chunk) => { collectedText += chunk; onChunk(chunk); },
+            (finalText) => { safeOnComplete(finalText || collectedText); }
+        );
+        // 🛡️ QUAN TRỌNG: Nếu Gemini resolve thành công nhưng không có text nào được nhận
+        // (stream rỗng, server trả 200 OK nhưng không có data) → tự động fallback sang Groq
+        if (!onCompleteFired && collectedText.trim() === "") {
+            console.warn("⚠️ Gemini trả về stream rỗng (200 OK nhưng không có data). Tự động fallback...");
+            await fallbackToGroq("Gemini stream rỗng (200 OK nhưng không có data)");
+        }
+    } catch (geminiError) {
+        // CHỐT CHẶN DỰ PHÒNG (FALLBACK): Tự kích hoạt khi Gemini quá tải hoặc lỗi mạng
+        console.warn("⚠️ Gemini API gặp sự cố. Tự động kích hoạt chốt chặn dự phòng Groq Qwen 3.6 27B...", geminiError.message);
+        await fallbackToGroq(`Gemini error: ${geminiError.message}`);
     }
 }
 
 // 🟢 BỘ ĐIỀU PHỐI LAI DẠNG ĐỒNG BỘ (TRẢ VỀ FULL TEXT KHÔNG STREAM)
 async function callHybridAI(promptText, imagesArray = []) {
     let fullText = "";
+    let resolveFn;
+    const completionPromise = new Promise(r => { resolveFn = r; });
+
     await callHybridAIStream(
         promptText,
         imagesArray,
         (chunk) => { fullText += chunk; },
-        () => {}
+        (finalText) => {
+            // Ưu tiên finalText (đã qua clean) hơn fullText (raw chunks)
+            if (finalText && finalText.trim()) {
+                fullText = finalText;
+            }
+            resolveFn();
+        }
     );
+    // Đợi callback onComplete hoàn tất (đảm bảo fullText đã được set)
+    await completionPromise;
     return fullText;
 }
 
