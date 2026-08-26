@@ -9253,40 +9253,125 @@ body.pg-mode .pg-footer-bar { display: block !important; }
 
 /* ====================================================================
    🟢 SPLIT MODE — Desktop: khi mở Chat, chia màn hình 2 nửa
-   - Trái (50vw): header + player + footer
-   - Phải (50vw): khung chat, border-left dọc từ mép trên xuống mép dưới
+   - Dùng CSS variable --pg-split-width (px) để control vị trí divider
+   - Default 50% viewport, JS drag sẽ cập nhật giá trị này
+   - Tất cả element (header, player, footer, chat, divider) đều đọc cùng biến
    ==================================================================== */
 @media (min-width: 701px) {
-    /* Khi chat mở: player thu hẹp còn 50% trái */
+    /* Khởi tạo biến khi vào Playground (chưa mở chat) */
+    body.pg-mode {
+        --pg-split-width: 50vw;
+    }
+
+    /* Khi chat mở: dùng --pg-split-width cho mọi element */
+    body.pg-mode.pg-chat-open .app-header {
+        /* Header: phần trái = --pg-split-width, phần chat đè lên phần phải */
+    }
+
+    /* Wrap player + footer + header playground zone đều có width = --pg-split-width */
     body.pg-mode.pg-chat-open .pg-wrap {
-        width: 50vw;
+        width: var(--pg-split-width);
         height: calc(100vh - var(--header-height, 60px) - 52px);
     }
-    /* Chat panel: fixed 50% phải, full height từ header đến footer */
+    body.pg-mode.pg-chat-open #playgroundFooter {
+        width: var(--pg-split-width);
+    }
+    /* Header playground zone (ô input + GO) cũng bị giới hạn trái */
+    body.pg-mode.pg-chat-open #headerPlaygroundZone {
+        max-width: calc(var(--pg-split-width) - 120px);
+    }
+
+    /* Chat panel: fixed ở bên phải divider, width = phần còn lại */
     body.pg-mode.pg-chat-open .pg-chat-panel {
         position: fixed;
         top: var(--header-height, 60px);
         bottom: 52px;
         right: 0;
         left: auto;
-        width: 50vw;
-        max-width: 50vw;
+        width: calc(100vw - var(--pg-split-width));
+        max-width: none;
         height: auto;
-        transform: none !important; /* bỏ animation slide từ phải */
-        border-left: 2px solid #d2d2d7;
+        transform: none !important;
+        border-left: 0; /* bỏ border-left cũ, dùng divider riêng */
         border-radius: 0;
         box-shadow: none;
         z-index: 40;
         background: #1a1a1a;
     }
-    /* Khi chat đóng ( không có class pg-chat-open ): chat panel ẩn hoàn toàn */
+
+    /* DIVIDER — dọc, có thể kéo, nằm ngay tại vị trí --pg-split-width */
+    body.pg-mode.pg-chat-open .pg-split-divider {
+        position: fixed;
+        top: var(--header-height, 60px);
+        bottom: 52px;
+        left: var(--pg-split-width);
+        width: 8px;
+        margin-left: -4px;
+        cursor: col-resize;
+        z-index: 45;
+        background: transparent;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        touch-action: none;
+    }
+    body.pg-mode.pg-chat-open .pg-split-divider::before {
+        content: '';
+        position: absolute;
+        top: 0; bottom: 0;
+        left: 50%;
+        width: 2px;
+        background: #d2d2d7;
+        transform: translateX(-50%);
+        transition: background 0.2s, width 0.2s;
+    }
+    body.pg-mode.pg-chat-open .pg-split-divider:hover::before,
+    body.pg-mode.pg-chat-open .pg-split-divider.dragging::before {
+        background: #2563eb;
+        width: 3px;
+    }
+    .pg-split-handle {
+        position: relative;
+        z-index: 2;
+        background: #fff;
+        border: 1px solid #d2d2d7;
+        border-radius: 50%;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    body.pg-mode.pg-chat-open .pg-split-divider:hover .pg-split-handle,
+    body.pg-mode.pg-chat-open .pg-split-divider.dragging .pg-split-handle {
+        border-color: #2563eb;
+        box-shadow: 0 2px 12px rgba(37, 99, 235, 0.3);
+    }
+    .pg-split-handle .material-symbols-outlined {
+        font-size: 20px;
+        color: #6b7280;
+        transform: rotate(90deg);
+        transition: color 0.2s;
+    }
+    body.pg-mode.pg-chat-open .pg-split-divider:hover .pg-split-handle .material-symbols-outlined,
+    body.pg-mode.pg-chat-open .pg-split-divider.dragging .pg-split-handle .material-symbols-outlined {
+        color: #2563eb;
+    }
+
+    /* Ẩn divider khi không mở chat */
+    body.pg-mode:not(.pg-chat-open) .pg-split-divider { display: none; }
+
+    /* Khi chat đóng: ẩn chat panel */
     body.pg-mode:not(.pg-chat-open) .pg-chat-panel {
         transform: translateX(100%) !important;
     }
 }
 
-/* Mobile: giữ nguyên overlay slide-in từ phải (không split) */
+/* Mobile: giữ nguyên overlay slide-in từ phải (không split, không divider) */
 @media (max-width: 700px) {
+    .pg-split-divider { display: none !important; }
     body.pg-mode .pg-chat-panel {
         position: absolute;
         top: 0; right: 0; bottom: 0;
@@ -10165,6 +10250,13 @@ body.pg-mode .pg-footer-bar { display: block !important; }
                     <span class="material-symbols-outlined">repeat</span>
                     <span id="pgABFloatingText">A: --:-- | B: --:--</span>
                     <button onclick="PlaygroundApp.clearAB()" title="Xóa A-B"><span class="material-symbols-outlined">close</span></button>
+                </div>
+
+                <!-- DRAG DIVIDER — phân cách Player | Chat, có thể kéo qua lại (desktop only) -->
+                <div class="pg-split-divider" id="pgSplitDivider">
+                    <div class="pg-split-handle">
+                        <span class="material-symbols-outlined">drag_handle</span>
+                    </div>
                 </div>
 
                 <!-- Chat Panel (slides from right) -->
@@ -18872,6 +18964,8 @@ function showPlaygroundPage(skipHash = false) {
     updateHeaderTitle('PLAYGROUND');
     // Lazy-load YouTube IFrame API
     PlaygroundApp.loadYouTubeApi();
+    // Khởi tạo drag divider (chỉ chạy 1 lần nhờ flag dataset.bound)
+    PlaygroundApp.initSplitDivider();
     // Nếu có yêu cầu load đang chờ → thực thi
     if (pgPendingLoad) {
         const pending = pgPendingLoad;
@@ -19287,6 +19381,64 @@ const PlaygroundApp = {
                 if (input) input.focus();
             }, 350);
         }
+    },
+
+    // -------------------------------------------------------------
+    // SPLIT DIVIDER DRAG — kéo qua lại để đổi tỷ lệ player | chat
+    // -------------------------------------------------------------
+    initSplitDivider() {
+        const divider = document.getElementById('pgSplitDivider');
+        if (!divider || divider.dataset.bound === '1') return;
+        divider.dataset.bound = '1';
+
+        let isDragging = false;
+        const MIN_PX = 280;   // tối thiểu player 280px
+        const MAX_RATIO = 0.8; // tối đa 80% viewport cho player
+
+        const onStart = (e) => {
+            // Chỉ cho phép drag khi chat đang mở + desktop
+            if (!document.body.classList.contains('pg-chat-open')) return;
+            if (window.innerWidth <= 700) return;
+            isDragging = true;
+            divider.classList.add('dragging');
+            document.body.style.userSelect = 'none';
+            document.body.style.cursor = 'col-resize';
+            e.preventDefault();
+        };
+
+        const onMove = (e) => {
+            if (!isDragging) return;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const vw = window.innerWidth;
+            const minPx = Math.max(MIN_PX, vw * 0.2);  // ≥20% viewport
+            const maxPx = vw * MAX_RATIO;                // ≤80% viewport
+            const newWidth = Math.max(minPx, Math.min(maxPx, clientX));
+            document.body.style.setProperty('--pg-split-width', newWidth + 'px');
+        };
+
+        const onEnd = () => {
+            if (!isDragging) return;
+            isDragging = false;
+            divider.classList.remove('dragging');
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
+        };
+
+        divider.addEventListener('mousedown', onStart);
+        divider.addEventListener('touchstart', onStart, { passive: false });
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('touchmove', onMove, { passive: false });
+        document.addEventListener('mouseup', onEnd);
+        document.addEventListener('touchend', onEnd);
+        // Khi resize viewport, reset về 50% nếu vượt giới hạn
+        window.addEventListener('resize', () => {
+            if (!document.body.classList.contains('pg-chat-open')) return;
+            const current = parseFloat(getComputedStyle(document.body).getPropertyValue('--pg-split-width'));
+            const vw = window.innerWidth;
+            if (isNaN(current) || current < MIN_PX || current > vw * MAX_RATIO) {
+                document.body.style.setProperty('--pg-split-width', '50vw');
+            }
+        });
     },
 
     async sendChat() {
