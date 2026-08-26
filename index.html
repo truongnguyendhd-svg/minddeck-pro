@@ -25646,13 +25646,241 @@ async function callGeminiAI(promptText, imagesArray = []) {
     return fullText;
 }
 // =========================================================================
-// 🟢 BỘ ĐIỀU PHỐI LAI DẠNG STREAM (PRIMARY: GEMINI - FALLBACK: GROQ)
+// 🟢 HELPER: STREAM PARSER DÙNG CHUNG CHO OPENAI-COMPATIBLE APIs (GROQ + MISTRAL)
+// =========================================================================
+async function parseOpenAIStream(reader, onChunk, options = {}) {
+    const { cleanThink = true } = options;
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let fullText = '';
+
+    while (true) {
+        // ⏱️ TIMEOUT 25s cho mỗi chunk read
+        const readController = new AbortController();
+        const readTimeoutId = setTimeout(() => readController.abort(), 25000);
+
+        let readResult;
+        try {
+            readResult = await Promise.race([
+                reader.read(),
+                new Promise((_, reject) => {
+                    readController.signal.addEventListener('abort', () => {
+                        reject(new Error('Stream timeout (25s không có data)'));
+                    });
+                })
+            ]);
+            clearTimeout(readTimeoutId);
+        } catch (readErr) {
+            clearTimeout(readTimeoutId);
+            try { await reader.cancel(); } catch (e) {}
+            // 🛡️ Partial recovery: Nếu đã có text → trả về phần đã nhận
+            if (fullText.trim()) {
+                console.warn('⚠️ Stream bị cắt giữa chừng, trả về partial:', fullText.length, 'chars');
+                if (cleanThink) {
+                    fullText = fullText.replace(/🧠[\s\S]*?<\/think>/g, "").trim();
+                }
+                return cleanModelOutputText(fullText);
+            }
+            throw readErr.name === 'AbortError' ? new Error('Stream timeout') : readErr;
+        }
+
+        const { done, value } = readResult;
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+            const cleanLine = line.trim();
+            if (!cleanLine.startsWith('data: ')) continue;
+
+            const dataStr = cleanLine.replace(/^data:\s*/, '');
+            if (dataStr === '[DONE]') continue;
+
+            try {
+                const parsed = JSON.parse(dataStr);
+                const chunkText = parsed.choices?.[0]?.delta?.content;
+
+                if (chunkText) {
+                    fullText += chunkText;
+                    onChunk(cleanModelOutputText(chunkText));
+                }
+            } catch (e) {
+                // Bỏ qua dòng JSON chưa trọn vẹn
+            }
+        }
+    }
+
+    // 🧹 Clean <think> tags từ Qwen models
+    if (cleanThink) {
+        fullText = fullText.replace(/🧠[\s\S]*?<\/think>/g, "").trim();
+    }
+    return cleanModelOutputText(fullText);
+}
+
+// =========================================================================
+// 🟢 HÀM GỌI GROQ TEXT MODE (QWEN 3.8 27B - PRIMARY CHO TEXT)
+// =========================================================================
+async function callGroqTextStream(promptText, onChunk, onComplete) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+    let response;
+    try {
+        response = await fetch(`${DICT_API_URL}/api/groq`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt: promptText,
+                model: "qwen/qwen3.8-27b",
+                images: []
+            }),
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+    } catch (err) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+            throw new Error('Groq timeout (20s) - server không phản hồi');
+        }
+        throw new Error(`Lỗi mạng Groq: ${err.message}`);
+    }
+
+    if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Groq HTTP ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const finalText = await parseOpenAIStream(reader, onChunk, { cleanThink: true });
+    if (onComplete) onComplete(finalText);
+}
+
+// =========================================================================
+// 🟢 HÀM GỌI GROQ VISION MODE (QWEN 3.8 27B - PRIMARY CHO ẢNH)
+// =========================================================================
+async function callGroqVisionStream(promptText, imagesArray, onChunk, onComplete) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s cho vision (OCR chậm hơn)
+
+    let response;
+    try {
+        response = await fetch(`${DICT_API_URL}/api/groq`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt: promptText,
+                model: "qwen/qwen3.8-27b",
+                images: imagesArray
+            }),
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+    } catch (err) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+            throw new Error('Groq Vision timeout (30s)');
+        }
+        throw new Error(`Lỗi mạng Groq Vision: ${err.message}`);
+    }
+
+    if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Groq Vision HTTP ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const finalText = await parseOpenAIStream(reader, onChunk, { cleanThink: true });
+    if (onComplete) onComplete(finalText);
+}
+
+// =========================================================================
+// 🟢 HÀM GỌI GROQ VISION FALLBACK (LLAMA 4 MAVERICK - DỰ PHÒNG CHO ẢNH)
+// =========================================================================
+async function callGroqLlama4VisionStream(promptText, imagesArray, onChunk, onComplete) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    let response;
+    try {
+        response = await fetch(`${DICT_API_URL}/api/groq`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt: promptText,
+                model: "meta-llama/llama-4-maverick-17b-128e-instruct",
+                images: imagesArray
+            }),
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+    } catch (err) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+            throw new Error('Llama 4 Vision timeout (30s)');
+        }
+        throw new Error(`Lỗi mạng Llama 4 Vision: ${err.message}`);
+    }
+
+    if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Llama 4 Vision HTTP ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const finalText = await parseOpenAIStream(reader, onChunk, { cleanThink: false });
+    if (onComplete) onComplete(finalText);
+}
+
+// =========================================================================
+// 🟢 HÀM GỌI MISTRAL (TEXT FALLBACK - MISTRAL SMALL LATEST)
+// =========================================================================
+async function callMistralAIStream(promptText, onChunk, onComplete) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+    let response;
+    try {
+        response = await fetch(`${DICT_API_URL}/api/mistral`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt: promptText,
+                model: "mistral-small-latest"
+            }),
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+    } catch (err) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+            throw new Error('Mistral timeout (20s)');
+        }
+        throw new Error(`Lỗi mạng Mistral: ${err.message}`);
+    }
+
+    if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Mistral HTTP ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const finalText = await parseOpenAIStream(reader, onChunk, { cleanThink: false });
+    if (onComplete) onComplete(finalText);
+}
+
+// =========================================================================
+// 🟢 BỘ ĐIỀU PHỐI LAI (HYBRID AI COORDINATOR)
+// =========================================================================
+// CẤU TRÚC FALLBACK:
+//   • CÓ ẢNH: Groq Qwen 3.8 27B (Vision) → Groq Llama 4 Maverick (Vision)
+//   • TEXT THUẦN: Groq Qwen 3.8 27B → Mistral Small
 // =========================================================================
 async function callHybridAIStream(promptText, imagesArray = [], onChunk, onComplete, options = {}) {
     const hasImages = (imagesArray && imagesArray.length > 0);
-    const preferModel = options.model || "qwen/qwen3.6-27b";
 
-    // Cờ đánh dấu đã gọi onComplete chưa (chống gọi 2 lần)
+    // Cờ chống gọi onComplete 2 lần
     let onCompleteFired = false;
     const safeOnComplete = (text) => {
         if (onCompleteFired) return;
@@ -25660,120 +25888,101 @@ async function callHybridAIStream(promptText, imagesArray = [], onChunk, onCompl
         try { onComplete(text); } catch (e) { console.warn('onComplete error:', e); }
     };
 
-    // Hàm fallback sang Groq (dùng chung cho cả 2 trường hợp)
-    const fallbackToGroq = async (reason) => {
-        console.warn(`⚠️ Kích hoạt fallback Groq. Lý do: ${reason}`);
-        showToast("⚠️ Máy chủ chính bận. Đang chuyển sang Gia sư dự phòng...");
-
-        try {
-            console.log(`MindDeck: Gọi Qwen 3.6 27B qua Groq (Fallback)...`);
-            // ⏱️ Timeout 15s cho fetch để chống treo mãi
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-            const response = await fetch(`${DICT_API_URL}/api/groq`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: promptText, model: preferModel }),
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-
-            if (!response.ok) {
-                throw new Error(`Groq Gateway Error (HTTP ${response.status})`);
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder('utf-8');
-            let buffer = '';
-            let fullText = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop();
-
-                for (const line of lines) {
-                    const cleanLine = line.trim();
-                    if (!cleanLine.startsWith('data: ')) continue;
-
-                    const dataStr = cleanLine.replace(/^data:\s*/, '');
-                    if (dataStr === '[DONE]') continue;
-
-                    try {
-                        const parsed = JSON.parse(dataStr);
-                        const chunkText = parsed.choices?.[0]?.delta?.content;
-
-                        if (chunkText) {
-                            fullText += chunkText;
-                            onChunk(cleanModelOutputText(chunkText));
-                        }
-                    } catch (e) {
-                        // Bỏ qua dòng JSON chưa trọn vẹn
-                    }
-                }
-            }
-
-            let finalCleanText = fullText.replace(/🧠[\s\S]*?<\/think>/g, "").trim();
-            finalCleanText = cleanModelOutputText(finalCleanText);
-
-            // 🛡️ Nếu Groq cũng trả về rỗng → ném lỗi để caller xử lý
-            if (!finalCleanText) {
-                throw new Error("Groq trả về kết quả rỗng");
-            }
-
-            safeOnComplete(finalCleanText);
-        } catch (groqError) {
-            console.error("❌ Cả Gemini và Groq đều thất bại.", groqError.message);
-            safeOnComplete(""); // Trả về rỗng để caller hiển thị lỗi
-        }
-    };
-
-    // CHỐT CHẶN 1: Nếu có hình ảnh, ưu tiên gọi thẳng sang Gemini Flash (không có fallback vì Groq không hỗ trợ ảnh)
+    // ====================================================================
+    // CASE 1: CÓ ẢNH → Groq Qwen 3.8 (Primary) → Groq Llama 4 (Fallback)
+    // ====================================================================
     if (hasImages) {
-        console.log("MindDeck: Phát hiện hình ảnh. Định tuyến thẳng sang Gemini Flash...");
+        console.log("MindDeck: Phát hiện ảnh. Thử Groq Qwen 3.8 27B (Vision) trước...");
+        let qwenText = "";
+        let qwenFailed = false;
+
         try {
-            // Thu thập text để check rỗng
-            let collectedText = "";
-            await callGeminiAIStream(
+            await callGroqVisionStream(
                 promptText,
                 imagesArray,
-                (chunk) => { collectedText += chunk; onChunk(chunk); },
-                (finalText) => { safeOnComplete(finalText || collectedText); }
+                (chunk) => { qwenText += chunk; onChunk(chunk); },
+                (finalText) => { safeOnComplete(finalText || qwenText); }
             );
-            // Nếu callGeminiAIStream resolve nhưng onComplete chưa được fire (text rỗng) → fallback
-            if (!onCompleteFired) {
-                await fallbackToGroq("Gemini ảnh trả về rỗng (không hỗ trợ ảnh trên Groq, sẽ thử lại)");
+            // Nếu Qwen resolve nhưng không có text → fallback
+            if (!onCompleteFired && qwenText.trim() === "") {
+                console.warn("⚠️ Qwen 3.8 Vision stream rỗng. Fallback sang Llama 4...");
+                qwenFailed = true;
             }
-        } catch (err) {
-            await fallbackToGroq(`Gemini ảnh lỗi: ${err.message}`);
+        } catch (qwenErr) {
+            console.warn("⚠️ Qwen 3.8 Vision lỗi:", qwenErr.message);
+            qwenFailed = true;
+        }
+
+        // 🔄 FALLBACK: Groq Llama 4 Maverick (Vision)
+        if (qwenFailed && !onCompleteFired) {
+            showToast("⚠️ Qwen lỗi. Đang chuyển sang Llama 4 (Vision)...");
+            console.log("MindDeck: Gọi Groq Llama 4 Maverick (Vision Fallback)...");
+
+            try {
+                let llamaText = "";
+                await callGroqLlama4VisionStream(
+                    promptText,
+                    imagesArray,
+                    (chunk) => { llamaText += chunk; onChunk(chunk); },
+                    (finalText) => { safeOnComplete(finalText || llamaText); }
+                );
+
+                if (!onCompleteFired && llamaText.trim() === "") {
+                    console.error("❌ Cả Qwen 3.8 và Llama 4 Vision đều trả về rỗng");
+                    safeOnComplete("");
+                }
+            } catch (llamaErr) {
+                console.error("❌ Cả Qwen 3.8 và Llama 4 Vision đều thất bại:", llamaErr.message);
+                safeOnComplete("");
+            }
         }
         return;
     }
 
-    // CHỐT CHẶN 2: Với văn bản thuần, ưu tiên Gemini Flash (Primary)
+    // ====================================================================
+    // CASE 2: TEXT THUẦN → Groq Qwen 3.8 (Primary) → Mistral (Fallback)
+    // ====================================================================
+    console.log("MindDeck: Text thuần. Thử Groq Qwen 3.8 27B trước...");
+    let qwenFailed = false;
+
     try {
-        console.log("MindDeck: Gọi Gemini Flash (Primary)...");
-        let collectedText = "";
-        await callGeminiAIStream(
+        let qwenText = "";
+        await callGroqTextStream(
             promptText,
-            imagesArray,
-            (chunk) => { collectedText += chunk; onChunk(chunk); },
-            (finalText) => { safeOnComplete(finalText || collectedText); }
+            (chunk) => { qwenText += chunk; onChunk(chunk); },
+            (finalText) => { safeOnComplete(finalText || qwenText); }
         );
-        // 🛡️ QUAN TRỌNG: Nếu Gemini resolve thành công nhưng không có text nào được nhận
-        // (stream rỗng, server trả 200 OK nhưng không có data) → tự động fallback sang Groq
-        if (!onCompleteFired && collectedText.trim() === "") {
-            console.warn("⚠️ Gemini trả về stream rỗng (200 OK nhưng không có data). Tự động fallback...");
-            await fallbackToGroq("Gemini stream rỗng (200 OK nhưng không có data)");
+
+        if (!onCompleteFired && qwenText.trim() === "") {
+            console.warn("⚠️ Groq stream rỗng. Fallback sang Mistral...");
+            qwenFailed = true;
         }
-    } catch (geminiError) {
-        // CHỐT CHẶN DỰ PHÒNG (FALLBACK): Tự kích hoạt khi Gemini quá tải hoặc lỗi mạng
-        console.warn("⚠️ Gemini API gặp sự cố. Tự động kích hoạt chốt chặn dự phòng Groq Qwen 3.6 27B...", geminiError.message);
-        await fallbackToGroq(`Gemini error: ${geminiError.message}`);
+    } catch (qwenErr) {
+        console.warn("⚠️ Groq lỗi:", qwenErr.message);
+        qwenFailed = true;
+    }
+
+    // 🔄 FALLBACK: Mistral Small
+    if (qwenFailed && !onCompleteFired) {
+        showToast("⚠️ Groq bận. Đang chuyển sang Mistral...");
+        console.log("MindDeck: Gọi Mistral Small (Fallback)...");
+
+        try {
+            let mistralText = "";
+            await callMistralAIStream(
+                promptText,
+                (chunk) => { mistralText += chunk; onChunk(chunk); },
+                (finalText) => { safeOnComplete(finalText || mistralText); }
+            );
+
+            if (!onCompleteFired && mistralText.trim() === "") {
+                console.error("❌ Cả Groq và Mistral đều trả về rỗng");
+                safeOnComplete("");
+            }
+        } catch (mistralErr) {
+            console.error("❌ Cả Groq và Mistral đều thất bại:", mistralErr.message);
+            safeOnComplete("");
+        }
     }
 }
 
