@@ -9078,7 +9078,16 @@ body.grammar-searching #headerGrammarSearch {
     padding: 12px;
     background: #0f0f0f;
     border-top: 1px solid #2a2a2a;
-    display: flex; gap: 8px; align-items: center; /* 🟢 center → nút send căn giữa theo trục Y */
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+/* Input row: textarea + send button nằm ngang */
+.pg-chat-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
 }
 .pg-chat-input {
     flex: 1;
@@ -9111,6 +9120,69 @@ body.grammar-searching #headerGrammarSearch {
 .pg-chat-send:hover { background: #1d4ed8; }
 .pg-chat-send:active { transform: scale(0.92); }
 .pg-chat-send .material-symbols-outlined { font-size: 20px; }
+
+/* ============================================================
+   🟢 PENDING IMAGES ZONE — ảnh chờ gửi (paste từ clipboard)
+   ============================================================ */
+.pg-pending-images-zone {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 4px 0;
+}
+.pg-pending-img-wrap {
+    position: relative;
+    width: 60px;
+    height: 60px;
+    flex-shrink: 0;
+}
+.pg-pending-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid #2a2a2a;
+    display: block;
+}
+.pg-pending-img-remove {
+    position: absolute;
+    top: -6px; right: -6px;
+    width: 18px; height: 18px;
+    background: #ef4444;
+    color: #fff;
+    border: 2px solid #0f0f0f;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: transform 0.1s, background 0.2s;
+}
+.pg-pending-img-remove:hover { background: #dc2626; transform: scale(1.15); }
+.pg-pending-img-remove .material-symbols-outlined { font-size: 11px; }
+
+/* Ảnh thumbnail trong chat bubble (user message) */
+.pg-chat-images-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+.pg-chat-img-thumb {
+    max-width: 140px;
+    max-height: 140px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    object-fit: cover;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+.pg-chat-img-thumb:hover { transform: scale(1.03); }
+/* Light theme */
+.pg-chat-panel.chat-light .pg-pending-img { border-color: #d2d2d7; }
+.pg-chat-panel.chat-light .pg-pending-img-remove { border-color: #fff; }
+.pg-chat-panel.chat-light .pg-chat-img-thumb { border-color: rgba(0, 0, 0, 0.15); }
 
 /* ============================================================
    🟢 CHAT HEADER ACTIONS — chứa darkmode + close button
@@ -10510,10 +10582,15 @@ body.pg-chat-open .pg-chat-panel {
                         </div>
                     </div>
                     <div class="pg-chat-input-wrap">
-                        <textarea id="pgChatInput" class="pg-chat-input" placeholder="Nhập câu hỏi..." rows="2" onkeypress="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); PlaygroundApp.sendChat();}"></textarea>
-                        <button class="pg-chat-send" onclick="PlaygroundApp.sendChat()" title="Gửi">
-                            <span class="material-symbols-outlined">send</span>
-                        </button>
+                        <!-- PENDING IMAGES ZONE — ảnh chờ gửi (paste từ clipboard) -->
+                        <div class="pg-pending-images-zone" id="pgPendingImagesZone" style="display:none;"></div>
+                        <!-- Input row: textarea + send button -->
+                        <div class="pg-chat-input-row">
+                            <textarea id="pgChatInput" class="pg-chat-input" placeholder="Nhập câu hỏi... (Ctrl+V để dán ảnh)" rows="2" onkeypress="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); PlaygroundApp.sendChat();}"></textarea>
+                            <button class="pg-chat-send" onclick="PlaygroundApp.sendChat()" title="Gửi">
+                                <span class="material-symbols-outlined">send</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -19186,6 +19263,7 @@ const PG_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 let pgProgressTimer = null;
 let pgChatStreaming = false;
 let pgPendingLoad = null; // queue payload khi YT API chưa sẵn sàng
+let pgPendingImages = []; // mảng dataURL ảnh chờ gửi (paste từ clipboard)
 
 function showPlaygroundPage(skipHash = false) {
     // 🟢 RESET trạng thái form chưa lưu NGAY TRƯỚC KHI chuyển route —
@@ -19612,8 +19690,13 @@ const PlaygroundApp = {
         const isOpen = document.body.classList.contains('pg-chat-open');
         if (toggle) toggle.classList.toggle('active', isOpen);
         if (isOpen) {
+            // Bind paste event cho chat input (chỉ 1 lần)
+            const input = document.getElementById('pgChatInput');
+            if (input && !input.dataset.pasteBound) {
+                input.dataset.pasteBound = '1';
+                input.addEventListener('paste', (e) => this.handlePaste(e));
+            }
             setTimeout(() => {
-                const input = document.getElementById('pgChatInput');
                 if (input) input.focus();
             }, 350);
         }
@@ -19843,42 +19926,57 @@ const PlaygroundApp = {
         const input = document.getElementById('pgChatInput');
         if (!input) return;
         const text = input.value.trim();
-        if (!text) return;
+        const images = [...pgPendingImages]; // snapshot
+        if (!text && images.length === 0) return;
         if (pgChatStreaming) {
             this.toast('Đang trả lời, vui lòng đợi...', 'info');
             return;
         }
-        // Render tin nhắn user
-        this.appendChatMsg('user', text);
+        // Render tin nhắn user (text + ảnh thumbnail)
+        const userMsgHTML = images.length > 0
+            ? `${escapeHTML(text || '(ảnh)')}<div class="pg-chat-images-row">${images.map((src, i) => `<img src="${src}" class="pg-chat-img-thumb" alt="ảnh ${i+1}" />`).join('')}</div>`
+            : escapeHTML(text);
+        this.appendChatMsgHTML('user', userMsgHTML);
         input.value = '';
+        // Clear pending images
+        pgPendingImages = [];
+        this.renderPendingImages();
         // Xây prompt kèm context video
         const curTime = (pgPlayer && pgPlayer.getCurrentTime) ? this.fmtTime(pgPlayer.getCurrentTime() || 0) : '0:00';
         const ctx = pgCurrentVideoMeta.videoId
             ? `(Người dùng đang xem video YouTube — tiêu đề: "${pgCurrentVideoMeta.title || pgCurrentVideoMeta.videoId}", videoId: ${pgCurrentVideoMeta.videoId}${pgCurrentVideoMeta.playlistId ? `, playlistId: ${pgCurrentVideoMeta.playlistId}` : ''}, thời gian hiện tại: ${curTime})`
             : '(Người dùng chưa mở video nào trong Playground)';
-        const sysPrompt = `Bạn là trợ lý AI học tiếng Nhật trong ứng dụng Alcohol (MindDeck). ${ctx}\n\nYêu cầu của người dùng: ${text}\n\nHãy trả lời ngắn gọn, thân thiện, hỗ trợ giải thích từ vựng/ngữ pháp tiếng Nhật hoặc trả lời câu hỏi về nội dung video. Nếu người dùng hỏi về một đoạn trong video, hãy gợi ý cách hiểu dựa trên tiêu đề và ngữ cảnh. Có thể dùng tiếng Việt hoặc tiếng Nhật tùy theo câu hỏi của người dùng.`;
+        const userReqText = text || '(Xin hãy phân tích ảnh đính kèm)';
+        const sysPrompt = `Bạn là trợ lý AI học tiếng Nhật trong ứng dụng Alcohol (MindDeck). ${ctx}\n\nYêu cầu của người dùng: ${userReqText}${images.length > 0 ? `\n\n(Lưu ý: người dùng đã đính kèm ${images.length} ảnh — hãy phân tích nội dung ảnh, nhận diện chữ Kanji/Hiragana/Katakana, giải thích từ vựng hoặc ngữ pháp xuất hiện trong ảnh nếu có.)` : ''}\n\nHãy trả lời ngắn gọn, thân thiện, hỗ trợ giải thích từ vựng/ngữ pháp tiếng Nhật hoặc trả lời câu hỏi về nội dung video/ảnh. Có thể dùng tiếng Việt hoặc tiếng Nhật tùy theo câu hỏi của người dùng.`;
         // Tạo bot bubble (streaming)
         const botMsg = this.appendChatMsg('bot', '');
         botMsg.classList.add('pg-chat-msg-streaming');
         pgChatStreaming = true;
         try {
-            if (typeof callGroqTextStream !== 'function') {
-                throw new Error('Hàm AI chưa sẵn sàng. Vui lòng tải lại trang.');
-            }
-            await callGroqTextStream(
-                sysPrompt,
-                (chunk) => {
-                    const bubble = botMsg.querySelector('.pg-chat-bubble');
-                    if (bubble) bubble.textContent += chunk;
-                    this.scrollChatToBottom();
-                },
-                (finalText) => {
-                    const bubble = botMsg.querySelector('.pg-chat-bubble');
-                    if (bubble) bubble.textContent = finalText || '(Không có phản hồi)';
-                    botMsg.classList.remove('pg-chat-msg-streaming');
-                    this.scrollChatToBottom();
+            const onChunk = (chunk) => {
+                const bubble = botMsg.querySelector('.pg-chat-bubble');
+                if (bubble) bubble.textContent += chunk;
+                this.scrollChatToBottom();
+            };
+            const onComplete = (finalText) => {
+                const bubble = botMsg.querySelector('.pg-chat-bubble');
+                if (bubble) bubble.textContent = finalText || '(Không có phản hồi)';
+                botMsg.classList.remove('pg-chat-msg-streaming');
+                this.scrollChatToBottom();
+            };
+            if (images.length > 0) {
+                // 🟢 Có ảnh → gọi Vision API (Qwen 3.8 27B hỗ trợ ảnh qua Groq)
+                if (typeof callGroqVisionStream !== 'function') {
+                    throw new Error('Hàm AI Vision chưa sẵn sàng. Vui lòng tải lại trang.');
                 }
-            );
+                await callGroqVisionStream(sysPrompt, images, onChunk, onComplete);
+            } else {
+                // Chỉ text → gọi Text API
+                if (typeof callGroqTextStream !== 'function') {
+                    throw new Error('Hàm AI chưa sẵn sàng. Vui lòng tải lại trang.');
+                }
+                await callGroqTextStream(sysPrompt, onChunk, onComplete);
+            }
         } catch (err) {
             const bubble = botMsg.querySelector('.pg-chat-bubble');
             if (bubble) bubble.textContent = '⚠️ Lỗi: ' + err.message;
@@ -19886,6 +19984,97 @@ const PlaygroundApp = {
         } finally {
             pgChatStreaming = false;
         }
+    },
+
+    // -------------------------------------------------------------
+    // PASTE IMAGE — xử lý khi user paste ảnh vào ô chat input
+    // -------------------------------------------------------------
+    handlePaste(e) {
+        const items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        let foundImage = false;
+        for (const item of items) {
+            if (item.type && item.type.startsWith('image/')) {
+                foundImage = true;
+                const file = item.getAsFile();
+                if (!file) continue;
+                // Giới hạn: tối đa 4 ảnh/lần gửi
+                if (pgPendingImages.length >= 4) {
+                    this.toast('Tối đa 4 ảnh/lần gửi.', 'warn');
+                    break;
+                }
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    // Nén ảnh về max 1024px để giảm payload
+                    this._compressImage(ev.target.result, 1024, (compressed) => {
+                        pgPendingImages.push(compressed);
+                        this.renderPendingImages();
+                    });
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+        if (foundImage) {
+            e.preventDefault(); // chặn paste ảnh thành base64 text khổng lồ
+        }
+    },
+
+    _compressImage(dataUrl, maxDim, cb) {
+        const img = new Image();
+        img.onload = () => {
+            let { width, height } = img;
+            if (width > maxDim || height > maxDim) {
+                const ratio = Math.min(maxDim / width, maxDim / height);
+                width = Math.round(width * ratio);
+                height = Math.round(height * ratio);
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            cb(canvas.toDataURL('image/jpeg', 0.85));
+        };
+        img.onerror = () => cb(dataUrl); // fallback: dùng gốc
+        img.src = dataUrl;
+    },
+
+    renderPendingImages() {
+        const zone = document.getElementById('pgPendingImagesZone');
+        if (!zone) return;
+        if (pgPendingImages.length === 0) {
+            zone.style.display = 'none';
+            zone.innerHTML = '';
+            return;
+        }
+        zone.style.display = 'flex';
+        zone.innerHTML = pgPendingImages.map((src, i) => `
+            <div class="pg-pending-img-wrap">
+                <img src="${src}" class="pg-pending-img" alt="ảnh chờ gửi ${i+1}" />
+                <button class="pg-pending-img-remove" onclick="PlaygroundApp.removePendingImage(${i})" title="Xóa ảnh">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+        `).join('');
+    },
+
+    removePendingImage(index) {
+        pgPendingImages.splice(index, 1);
+        this.renderPendingImages();
+    },
+
+    appendChatMsgHTML(role, html) {
+        const container = document.getElementById('pgChatMessages');
+        if (!container) return null;
+        const msg = document.createElement('div');
+        msg.className = `pg-chat-msg pg-chat-msg-${role}`;
+        const bubble = document.createElement('div');
+        bubble.className = 'pg-chat-bubble';
+        bubble.innerHTML = html;
+        msg.appendChild(bubble);
+        container.appendChild(msg);
+        this.scrollChatToBottom();
+        return msg;
     },
 
     appendChatMsg(role, text) {
