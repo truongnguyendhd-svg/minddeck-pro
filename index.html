@@ -9218,13 +9218,13 @@ body.pg-mode .pg-stage { background: #000; cursor: default; }
 }
 body.pg-mode .pg-footer-bar { display: block !important; }
 
-/* 2 nút action: centered, to, có icon + label */
+/* 2 nút action: screenshot căn TRÁI, chat căn PHẢI */
 .pg-footer-actions {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: space-between;
     gap: 16px;
-    max-width: 480px;
+    max-width: 100%;
     margin: 0 auto;
 }
 .pg-footer-action-btn {
@@ -9241,9 +9241,8 @@ body.pg-mode .pg-footer-bar { display: block !important; }
     font-size: 14px;
     font-weight: 600;
     transition: background 0.2s, transform 0.1s, border-color 0.2s;
-    flex: 1;
+    flex: 0 0 auto;
     justify-content: center;
-    max-width: 220px;
 }
 .pg-footer-action-btn:hover { background: #ebebed; border-color: #b8b8be; }
 .pg-footer-action-btn:active { transform: scale(0.97); }
@@ -9251,6 +9250,55 @@ body.pg-mode .pg-footer-bar { display: block !important; }
 .pg-screenshot-action:hover { background: rgba(34, 197, 94, 0.12); border-color: #16a34a; color: #15803d; }
 .pg-chat-action:hover { background: rgba(37, 99, 235, 0.12); border-color: #2563eb; color: #1d4ed8; }
 .pg-chat-action.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+/* ====================================================================
+   🟢 SPLIT MODE — Desktop: khi mở Chat, chia màn hình 2 nửa
+   - Trái (50vw): header + player + footer
+   - Phải (50vw): khung chat, border-left dọc từ mép trên xuống mép dưới
+   ==================================================================== */
+@media (min-width: 701px) {
+    /* Khi chat mở: player thu hẹp còn 50% trái */
+    body.pg-mode.pg-chat-open .pg-wrap {
+        width: 50vw;
+        height: calc(100vh - var(--header-height, 60px) - 52px);
+    }
+    /* Chat panel: fixed 50% phải, full height từ header đến footer */
+    body.pg-mode.pg-chat-open .pg-chat-panel {
+        position: fixed;
+        top: var(--header-height, 60px);
+        bottom: 52px;
+        right: 0;
+        left: auto;
+        width: 50vw;
+        max-width: 50vw;
+        height: auto;
+        transform: none !important; /* bỏ animation slide từ phải */
+        border-left: 2px solid #d2d2d7;
+        border-radius: 0;
+        box-shadow: none;
+        z-index: 40;
+        background: #1a1a1a;
+    }
+    /* Khi chat đóng ( không có class pg-chat-open ): chat panel ẩn hoàn toàn */
+    body.pg-mode:not(.pg-chat-open) .pg-chat-panel {
+        transform: translateX(100%) !important;
+    }
+}
+
+/* Mobile: giữ nguyên overlay slide-in từ phải (không split) */
+@media (max-width: 700px) {
+    body.pg-mode .pg-chat-panel {
+        position: absolute;
+        top: 0; right: 0; bottom: 0;
+        width: 100%;
+        max-width: 100%;
+        transform: translateX(100%);
+        transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    body.pg-mode.pg-chat-open .pg-chat-panel {
+        transform: translateX(0);
+    }
+}
 
 /* A/B Floating Badge — hiển thị trên player khi A/B được set */
 .pg-ab-floating {
@@ -12247,6 +12295,7 @@ function showPage(p) {
     document.body.classList.remove('game-fullscreen-mode'); 
     document.body.classList.remove('grammar-header-mode'); // Xóa trạng thái header ngữ pháp
     document.body.classList.remove('pg-mode'); // 🟢 Xóa trạng thái Playground (ẩn header zone + footer)
+    document.body.classList.remove('pg-chat-open'); // 🟢 Đóng chat panel khi rời Playground
 
     // 🟢 GẮN LẠI CLASS ĐẶC BIỆT TÙY THEO TRANG ĐÍCH
     if (p === 'reviewPage') {
@@ -19228,8 +19277,9 @@ const PlaygroundApp = {
         const panel = document.getElementById('pgChatPanel');
         const toggle = document.querySelector('.pg-chat-action');
         if (!panel) return;
-        panel.classList.toggle('open');
-        const isOpen = panel.classList.contains('open');
+        // Toggle class trên body → CSS sẽ lo split layout (desktop) hoặc slide-in (mobile)
+        document.body.classList.toggle('pg-chat-open');
+        const isOpen = document.body.classList.contains('pg-chat-open');
         if (toggle) toggle.classList.toggle('active', isOpen);
         if (isOpen) {
             setTimeout(() => {
