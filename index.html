@@ -9126,6 +9126,114 @@ body.grammar-searching #headerGrammarSearch {
     .pg-wrap { aspect-ratio: auto; height: calc(100vh - 110px); }
 }
 
+/* ====================================================================
+   🟢 PLAYGROUND — 3-tier layout (header / body / footer)
+   ==================================================================== */
+
+/* HEADER ZONE — ô dán link + GO, tích hợp vào header app */
+.pg-url-input-header {
+    flex: 1;
+    background: #f5f5f7;
+    border: 1px solid #d2d2d7;
+    color: #1d1d1f;
+    padding: 9px 14px;
+    border-radius: 9px;
+    font-size: 14px;
+    outline: none;
+    font-family: inherit;
+    min-width: 0;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.pg-url-input-header::placeholder { color: #86868b; }
+.pg-url-input-header:focus {
+    border-color: #FF0000;
+    box-shadow: 0 0 0 3px rgba(255, 0, 0, 0.12);
+    background: #fff;
+}
+.pg-go-btn-header {
+    background: #FF0000;
+    color: #fff; border: none;
+    padding: 9px 22px;
+    border-radius: 9px;
+    font-weight: 700; font-size: 14px;
+    cursor: pointer; letter-spacing: 0.5px;
+    transition: background 0.2s, transform 0.1s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.pg-go-btn-header:hover { background: #cc0000; }
+.pg-go-btn-header:active { transform: scale(0.96); }
+
+/* Khi vào trang Playground: 
+   - Ẩn ô tra từ điển và ô search ngữ pháp
+   - Hiện header playground zone
+   - Ếp main-content full màn (no padding, no max-width)
+   - Hiện footer fixed
+*/
+body.pg-mode #headerSearch { display: none !important; }
+body.pg-mode #headerGrammarSearch { display: none !important; }
+body.pg-mode #grammarSearchCancelBtn { display: none !important; }
+body.pg-mode #headerPlaygroundZone { display: flex !important; }
+body.pg-mode #playgroundFooter { display: block !important; }
+body.pg-mode #breadcrumb { display: none !important; }
+body.pg-mode .main-content { padding: 0 !important; max-width: 100% !important; }
+body.pg-mode #playgroundPage {
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+/* Player chiếm toàn bộ không gian giữa header (60px) và footer (~88px) */
+body.pg-mode .pg-wrap {
+    width: 100vw;
+    aspect-ratio: auto;
+    max-height: none;
+    height: calc(100vh - var(--header-height, 60px) - 92px);
+    border-radius: 0;
+    box-shadow: none;
+}
+body.pg-mode .pg-stage { background: #000; }
+/* Welcome screen hover — bỏ cursor pointer vì click không còn mở controls */
+body.pg-mode .pg-stage { cursor: default; }
+
+/* FOOTER FIXED — sticky bottom, luôn hiển thị khi ở Playground */
+.pg-footer-fixed {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: #0f0f0f;
+    border-top: 1px solid #2a2a2a;
+    padding: 10px 16px 12px;
+    z-index: 50;
+    display: none;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+}
+body.pg-mode .pg-footer-fixed { display: block; }
+/* Khi footer tách rời khỏi player: 
+   - progress bar dùng màu sáng để nổi trên nền #0f0f0f
+   - controls dùng màu trắng (đã có sẵn)
+   - A/B marker đặt top: -3px để ăn lên progress bar
+*/
+.pg-footer-fixed .pg-progress-wrap { margin-bottom: 10px; padding: 5px 0; }
+.pg-footer-fixed .pg-ab-marker { top: 5px; height: 14px; }
+.pg-footer-fixed .pg-time-display {
+    color: rgba(255, 255, 255, 0.78);
+    margin-top: 6px;
+}
+.pg-footer-fixed .pg-controls {
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+/* Mobile — gọn footer */
+@media (max-width: 700px) {
+    body.pg-mode .pg-wrap {
+        height: calc(100vh - var(--header-height, 60px) - 130px);
+    }
+    .pg-footer-fixed { padding: 8px 10px 10px; }
+    .pg-footer-fixed .pg-controls { gap: 3px; }
+    .pg-url-input-header { font-size: 13px; padding: 8px 12px; }
+    .pg-go-btn-header { padding: 8px 14px; font-size: 13px; }
+}
+
 </style>
 </head>
 <body>
@@ -9173,6 +9281,12 @@ body.grammar-searching #headerGrammarSearch {
             
             <!-- NÚT HỦY HIỆN RA KHI TÌM KIẾM -->
             <button id="grammarSearchCancelBtn" onclick="disableGrammarSearchMode()" style="display: none; background: transparent; border: none; color: #0071e3; font-weight: 600; font-size: 15px; cursor: pointer; white-space: nowrap; padding: 0;">Hủy</button>
+
+            <!-- 3. PLAYGROUND ZONE — Ô dán link YouTube + nút GO (chỉ hiện ở trang Playground) -->
+            <div id="headerPlaygroundZone" class="hidden" style="display: none; flex: 1; align-items: center; gap: 8px; max-width: 720px;">
+                <input id="pgUrlInput" type="text" class="pg-url-input-header" placeholder="Dán link YouTube (video, youtu.be, shorts, playlist)..." onkeypress="if(event.key==='Enter') PlaygroundApp.loadFromInput()" />
+                <button class="pg-go-btn-header" onclick="PlaygroundApp.loadFromInput()">GO</button>
+            </div>
         </div>
     </div>
 </div>
@@ -9915,9 +10029,10 @@ body.grammar-searching #headerGrammarSearch {
         </div>
     </div>
 
-    <!-- ================= TRANG PLAYGROUND — YOUTUBE PLAYER ================= -->
+    <!-- ================= TRANG PLAYGROUND — YOUTUBE PLAYER (3-tier layout) ================= -->
     <div id="playgroundPage" class="hidden">
-        <div class="pg-wrap">
+        <!-- BODY: Player full màn, chiếm trọn khoảng giữa header và footer -->
+        <div class="pg-wrap" id="pgWrap">
             <div class="pg-stage" id="pgStage" onclick="PlaygroundApp.onStageClick(event)">
                 <!-- Welcome / idle screen -->
                 <div class="pg-welcome" id="pgWelcome">
@@ -9926,86 +10041,12 @@ body.grammar-searching #headerGrammarSearch {
                             <path d="M8 5v14l11-7z"/>
                         </svg>
                     </div>
-                    <div class="pg-welcome-text">Bấm vào đây để nhập link</div>
+                    <div class="pg-welcome-text">Dán link YouTube vào ô phía trên</div>
                     <div class="pg-welcome-sub">Hỗ trợ video riêng lẻ &amp; playlist YouTube</div>
                 </div>
 
                 <!-- YouTube IFrame will be injected here -->
                 <div class="pg-player" id="pgPlayer"></div>
-
-                <!-- Header (slides down from top) -->
-                <div class="pg-header" id="pgHeader">
-                    <input id="pgUrlInput" type="text" class="pg-url-input" placeholder="Dán link YouTube (video, youtu.be, shorts, hoặc playlist)..." onkeypress="if(event.key==='Enter') PlaygroundApp.loadFromInput()" />
-                    <button class="pg-go-btn" onclick="PlaygroundApp.loadFromInput()">GO</button>
-                    <button class="pg-close-btn" onclick="PlaygroundApp.hideControls()" title="Ẩn thanh điều khiển">
-                        <span class="material-symbols-outlined">close</span>
-                    </button>
-                </div>
-
-                <!-- A/B status badge -->
-                <div class="pg-ab-status" id="pgABStatus" style="display:none;">
-                    <span class="material-symbols-outlined">repeat</span>
-                    <span id="pgABStatusText">A: --:-- | B: --:--</span>
-                    <button onclick="PlaygroundApp.clearAB()" style="background:transparent;border:none;color:#fbbf24;cursor:pointer;padding:0 0 0 4px;display:flex;align-items:center;" title="Xóa A-B">
-                        <span class="material-symbols-outlined" style="font-size:14px;">close</span>
-                    </button>
-                </div>
-
-                <!-- Footer (slides up from bottom) -->
-                <div class="pg-footer" id="pgFooter">
-                    <!-- Progress bar with A/B markers -->
-                    <div class="pg-progress-wrap" id="pgProgressWrap" onclick="PlaygroundApp.onProgressClick(event)">
-                        <div class="pg-progress-bar" id="pgProgressBar">
-                            <div class="pg-progress-filled" id="pgProgressFilled"></div>
-                        </div>
-                        <div class="pg-ab-marker pg-ab-marker-a" id="pgMarkerA"></div>
-                        <div class="pg-ab-marker pg-ab-marker-b" id="pgMarkerB"></div>
-                        <div class="pg-time-display">
-                            <span id="pgCurTime">0:00</span> / <span id="pgTotalTime">0:00</span>
-                        </div>
-                    </div>
-
-                    <!-- Control buttons -->
-                    <div class="pg-controls">
-                        <button class="pg-ctrl-btn" onclick="PlaygroundApp.prevVideo()" title="Video trước"><span class="material-symbols-outlined">skip_previous</span></button>
-                        <button class="pg-ctrl-btn" onclick="PlaygroundApp.seekBy(-10)" title="Lùi 10s (←/j)"><span class="material-symbols-outlined">replay_10</span></button>
-                        <button class="pg-ctrl-btn pg-ctrl-play" onclick="PlaygroundApp.togglePlay()" title="Play/Pause (Space/k)"><span class="material-symbols-outlined" id="pgPlayIcon">play_arrow</span></button>
-                        <button class="pg-ctrl-btn" onclick="PlaygroundApp.seekBy(10)" title="Tiến 10s (→/l)"><span class="material-symbols-outlined">forward_10</span></button>
-                        <button class="pg-ctrl-btn" onclick="PlaygroundApp.nextVideo()" title="Video sau"><span class="material-symbols-outlined">skip_next</span></button>
-
-                        <div class="pg-ctrl-divider"></div>
-
-                        <!-- Speed -->
-                        <button class="pg-ctrl-btn" onclick="PlaygroundApp.cycleSpeed()" title="Tốc độ phát"><span id="pgSpeedLabel">1x</span></button>
-
-                        <!-- CC -->
-                        <button class="pg-ctrl-btn" onclick="PlaygroundApp.toggleCC()" title="Phụ đề (c)" id="pgCCBtn"><span class="material-symbols-outlined">closed_caption</span></button>
-
-                        <!-- Loop single video -->
-                        <button class="pg-ctrl-btn" onclick="PlaygroundApp.toggleLoop()" title="Lặp lại video" id="pgLoopBtn"><span class="material-symbols-outlined">repeat</span></button>
-
-                        <!-- A-B Repeat -->
-                        <div class="pg-ctrl-group pg-ab-group">
-                            <button class="pg-ctrl-btn pg-ab-btn" onclick="PlaygroundApp.markA()" title="Đánh dấu điểm A" id="pgABtn">A</button>
-                            <button class="pg-ctrl-btn pg-ab-btn" onclick="PlaygroundApp.markB()" title="Đánh dấu điểm B" id="pgBBtn">B</button>
-                            <button class="pg-ctrl-btn pg-ab-clear" onclick="PlaygroundApp.clearAB()" title="Xóa A-B"><span class="material-symbols-outlined">close</span></button>
-                        </div>
-
-                        <!-- Volume -->
-                        <div class="pg-ctrl-group pg-volume-group">
-                            <button class="pg-ctrl-btn" onclick="PlaygroundApp.toggleMute()" title="Tắt/bật tiếng (m)" id="pgMuteBtn"><span class="material-symbols-outlined" id="pgVolIcon">volume_up</span></button>
-                            <input type="range" min="0" max="100" value="100" class="pg-volume-slider" id="pgVolumeSlider" oninput="PlaygroundApp.setVolume(this.value)" aria-label="Âm lượng" />
-                        </div>
-
-                        <div class="pg-ctrl-divider"></div>
-
-                        <!-- Screenshot -->
-                        <button class="pg-ctrl-btn pg-ctrl-action pg-screenshot-toggle" onclick="PlaygroundApp.screenshot()" title="Chụp màn hình — tải thumbnail video ở mốc hiện tại"><span class="material-symbols-outlined">photo_camera</span></button>
-
-                        <!-- Chat toggle -->
-                        <button class="pg-ctrl-btn pg-ctrl-action pg-chat-toggle" onclick="PlaygroundApp.toggleChat()" title="Chat với AI"><span class="material-symbols-outlined">chat</span></button>
-                    </div>
-                </div>
 
                 <!-- Chat Panel (slides from right) -->
                 <div class="pg-chat-panel" id="pgChatPanel">
@@ -10030,6 +10071,63 @@ body.grammar-searching #headerGrammarSearch {
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- ================= PLAYGROUND FOOTER — fixed bottom (chỉ hiện ở trang Playground) ================= -->
+    <div id="playgroundFooter" class="pg-footer-fixed hidden">
+        <!-- Progress bar + A/B markers + A/B status -->
+        <div class="pg-progress-wrap" id="pgProgressWrap" onclick="PlaygroundApp.onProgressClick(event)">
+            <div class="pg-progress-bar" id="pgProgressBar">
+                <div class="pg-progress-filled" id="pgProgressFilled"></div>
+            </div>
+            <div class="pg-ab-marker pg-ab-marker-a" id="pgMarkerA"></div>
+            <div class="pg-ab-marker pg-ab-marker-b" id="pgMarkerB"></div>
+            <div class="pg-time-display">
+                <span id="pgCurTime">0:00</span> / <span id="pgTotalTime">0:00</span>
+                <span class="pg-ab-status-inline" id="pgABStatusInline" style="display:none; margin-left:12px; color:#fbbf24;">• A: <span id="pgABStatusA">--:--</span> | B: <span id="pgABStatusB">--:--</span></span>
+            </div>
+        </div>
+
+        <!-- Control buttons -->
+        <div class="pg-controls">
+            <button class="pg-ctrl-btn" onclick="PlaygroundApp.prevVideo()" title="Video trước"><span class="material-symbols-outlined">skip_previous</span></button>
+            <button class="pg-ctrl-btn" onclick="PlaygroundApp.seekBy(-10)" title="Lùi 10s (←/j)"><span class="material-symbols-outlined">replay_10</span></button>
+            <button class="pg-ctrl-btn pg-ctrl-play" onclick="PlaygroundApp.togglePlay()" title="Play/Pause (Space/k)"><span class="material-symbols-outlined" id="pgPlayIcon">play_arrow</span></button>
+            <button class="pg-ctrl-btn" onclick="PlaygroundApp.seekBy(10)" title="Tiến 10s (→/l)"><span class="material-symbols-outlined">forward_10</span></button>
+            <button class="pg-ctrl-btn" onclick="PlaygroundApp.nextVideo()" title="Video sau"><span class="material-symbols-outlined">skip_next</span></button>
+
+            <div class="pg-ctrl-divider"></div>
+
+            <!-- Speed -->
+            <button class="pg-ctrl-btn" onclick="PlaygroundApp.cycleSpeed()" title="Tốc độ phát"><span id="pgSpeedLabel">1x</span></button>
+
+            <!-- CC -->
+            <button class="pg-ctrl-btn" onclick="PlaygroundApp.toggleCC()" title="Phụ đề (c)" id="pgCCBtn"><span class="material-symbols-outlined">closed_caption</span></button>
+
+            <!-- Loop single video -->
+            <button class="pg-ctrl-btn" onclick="PlaygroundApp.toggleLoop()" title="Lặp lại video" id="pgLoopBtn"><span class="material-symbols-outlined">repeat</span></button>
+
+            <!-- A-B Repeat -->
+            <div class="pg-ctrl-group pg-ab-group">
+                <button class="pg-ctrl-btn pg-ab-btn" onclick="PlaygroundApp.markA()" title="Đánh dấu điểm A" id="pgABtn">A</button>
+                <button class="pg-ctrl-btn pg-ab-btn" onclick="PlaygroundApp.markB()" title="Đánh dấu điểm B" id="pgBBtn">B</button>
+                <button class="pg-ctrl-btn pg-ab-clear" onclick="PlaygroundApp.clearAB()" title="Xóa A-B"><span class="material-symbols-outlined">close</span></button>
+            </div>
+
+            <!-- Volume -->
+            <div class="pg-ctrl-group pg-volume-group">
+                <button class="pg-ctrl-btn" onclick="PlaygroundApp.toggleMute()" title="Tắt/bật tiếng (m)" id="pgMuteBtn"><span class="material-symbols-outlined" id="pgVolIcon">volume_up</span></button>
+                <input type="range" min="0" max="100" value="100" class="pg-volume-slider" id="pgVolumeSlider" oninput="PlaygroundApp.setVolume(this.value)" aria-label="Âm lượng" />
+            </div>
+
+            <div class="pg-ctrl-divider"></div>
+
+            <!-- Screenshot -->
+            <button class="pg-ctrl-btn pg-ctrl-action pg-screenshot-toggle" onclick="PlaygroundApp.screenshot()" title="Chụp màn hình — tải thumbnail video ở mốc hiện tại"><span class="material-symbols-outlined">photo_camera</span></button>
+
+            <!-- Chat toggle -->
+            <button class="pg-ctrl-btn pg-ctrl-action pg-chat-toggle" onclick="PlaygroundApp.toggleChat()" title="Chat với AI"><span class="material-symbols-outlined">chat</span></button>
         </div>
     </div>
 
@@ -12099,6 +12197,12 @@ function showPage(p) {
         if (headerMenuBlock) headerMenuBlock.classList.remove('hidden');
         if (headerSearch) headerSearch.classList.add('hidden');
         if (headerGrammarSearch) headerGrammarSearch.classList.remove('hidden');
+    } else if (p === 'playgroundPage') {
+        // 🟢 PLAYGROUND: hiện menu + ẩn ô tra từ điển (header zone sẽ tự hiện qua body.pg-mode)
+        if (headerLogo) headerLogo.classList.add('hidden');
+        if (headerMenuBlock) headerMenuBlock.classList.remove('hidden');
+        if (headerSearch) headerSearch.classList.add('hidden');
+        if (headerGrammarSearch) headerGrammarSearch.classList.add('hidden');
     } else {
         if (headerLogo) headerLogo.classList.add('hidden');
         if (headerMenuBlock) headerMenuBlock.classList.remove('hidden');
@@ -12114,6 +12218,7 @@ function showPage(p) {
     document.body.classList.remove('pdf-mode');
     document.body.classList.remove('game-fullscreen-mode'); 
     document.body.classList.remove('grammar-header-mode'); // Xóa trạng thái header ngữ pháp
+    document.body.classList.remove('pg-mode'); // 🟢 Xóa trạng thái Playground (ẩn header zone + footer)
 
     // 🟢 GẮN LẠI CLASS ĐẶC BIỆT TÙY THEO TRANG ĐÍCH
     if (p === 'reviewPage') {
@@ -12133,6 +12238,10 @@ function showPage(p) {
         // Bật CSS đổi Header cho trang ngữ pháp
         document.body.classList.add('grammar-header-mode');
         if (bc) bc.style.marginBottom = '20px';
+    } else if (p === 'playgroundPage') {
+        // 🟢 PLAYGROUND: bật body.pg-mode → hiện header zone + footer fixed, player full màn
+        document.body.classList.add('pg-mode');
+        if (bc) bc.style.marginBottom = '0';
     } else {
         if (bc) bc.style.marginBottom = '20px';
     }
@@ -18854,7 +18963,6 @@ const PlaygroundApp = {
                 pgPlayer.loadVideoById(parsed.videoId);
             }
         }
-        this.showControls();
         this.startProgressTracking();
     },
 
@@ -18994,18 +19102,20 @@ const PlaygroundApp = {
     renderAB() {
         const aBtn = document.getElementById('pgABtn');
         const bBtn = document.getElementById('pgBBtn');
-        const status = document.getElementById('pgABStatus');
-        const statusText = document.getElementById('pgABStatusText');
+        const statusInline = document.getElementById('pgABStatusInline');
+        const statusA = document.getElementById('pgABStatusA');
+        const statusB = document.getElementById('pgABStatusB');
         const markerA = document.getElementById('pgMarkerA');
         const markerB = document.getElementById('pgMarkerB');
         if (aBtn) aBtn.classList.toggle('set', pgAB.a !== null);
         if (bBtn) bBtn.classList.toggle('set-b', pgAB.b !== null);
-        if (status && statusText) {
+        if (statusInline && statusA && statusB) {
             if (pgAB.a !== null || pgAB.b !== null) {
-                status.style.display = 'flex';
-                statusText.textContent = `A: ${pgAB.a !== null ? this.fmtTime(pgAB.a) : '--:--'} | B: ${pgAB.b !== null ? this.fmtTime(pgAB.b) : '--:--'}`;
+                statusInline.style.display = 'inline';
+                statusA.textContent = pgAB.a !== null ? this.fmtTime(pgAB.a) : '--:--';
+                statusB.textContent = pgAB.b !== null ? this.fmtTime(pgAB.b) : '--:--';
             } else {
-                status.style.display = 'none';
+                statusInline.style.display = 'none';
             }
         }
         const dur = (pgPlayer && pgPlayer.getDuration) ? (pgPlayer.getDuration() || 0) : 0;
@@ -19182,30 +19292,12 @@ const PlaygroundApp = {
     },
 
     // -------------------------------------------------------------
-    // STAGE / CONTROLS VISIBILITY
+    // STAGE CLICK — chỉ focus ô input ở header khi click welcome screen
+    // (Footer luôn hiển thị cố định, không cần ẩn/hiện)
     // -------------------------------------------------------------
-    showControls() {
-        const stage = document.getElementById('pgStage');
-        if (stage) stage.classList.add('controls-visible');
-    },
-
-    hideControls() {
-        const stage = document.getElementById('pgStage');
-        if (stage) stage.classList.remove('controls-visible');
-    },
-
-    toggleControls() {
-        const stage = document.getElementById('pgStage');
-        if (!stage) return;
-        stage.classList.toggle('controls-visible');
-    },
-
     onStageClick(e) {
-        // Bỏ qua click vào header / footer / chat panel / button / input / textarea
-        if (e.target.closest('.pg-header') ||
-            e.target.closest('.pg-footer') ||
-            e.target.closest('.pg-chat-panel') ||
-            e.target.closest('.pg-ab-status') ||
+        // Bỏ qua click vào chat panel / button / input / textarea
+        if (e.target.closest('.pg-chat-panel') ||
             e.target.closest('button') ||
             e.target.closest('input') ||
             e.target.closest('textarea')) {
@@ -19213,16 +19305,14 @@ const PlaygroundApp = {
         }
         const welcome = document.getElementById('pgWelcome');
         if (welcome && !welcome.classList.contains('hidden')) {
-            // Lần đầu: mở controls + focus input
-            this.showControls();
-            setTimeout(() => {
-                const inp = document.getElementById('pgUrlInput');
-                if (inp) inp.focus();
-            }, 350);
-        } else {
-            // Đang phát → toggle controls
-            this.toggleControls();
+            // Welcome screen đang hiện → focus vào ô input ở header
+            const inp = document.getElementById('pgUrlInput');
+            if (inp) {
+                inp.focus();
+                inp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
         }
+        // Đang phát video → không làm gì (iframe YouTube tự xử lý click)
     },
 
     onProgressClick(e) {
