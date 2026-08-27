@@ -661,49 +661,6 @@ var worker_default = {
         }
       }
 
-      // =========================================================================
-      // 🟢 ENDPOINT: YOUTUBE THUMBNAIL PROXY — Dùng cho tính năng chụp màn hình
-      // trong trang Playground. Frontend không thể fetch() trực tiếp img.youtube.com
-      // vì CORS nên cần proxy server-side. Thử maxresdefault -> hqdefault -> 404.
-      // =========================================================================
-      if (path === "/api/yt-thumb") {
-        const vid = url.searchParams.get("vid");
-        if (!vid || !/^[a-zA-Z0-9_-]{6,30}$/.test(vid)) {
-          return new Response(JSON.stringify({ error: "Missing or invalid vid" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-          });
-        }
-        const thumbUrls = [
-          `https://img.youtube.com/vi/${vid}/maxresdefault.jpg`,
-          `https://img.youtube.com/vi/${vid}/sddefault.jpg`,
-          `https://img.youtube.com/vi/${vid}/hqdefault.jpg`
-        ];
-        for (const thumbUrl of thumbUrls) {
-          try {
-            const resp = await fetch(thumbUrl, {
-              headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
-            });
-            if (resp.ok) {
-              const buf = await resp.arrayBuffer();
-              // YouTube trả ảnh 120x90 placeholder khi không có thumbnail thật → lọc theo size
-              if (buf && buf.byteLength > 2000) {
-                return new Response(buf, {
-                  headers: {
-                    ...corsHeaders,
-                    "Content-Type": "image/jpeg",
-                    "Cache-Control": "public, max-age=86400"
-                  }
-                });
-              }
-            }
-          } catch (_) { /* thử size tiếp theo */ }
-        }
-        return new Response(JSON.stringify({ error: "Thumbnail not found" }), {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
 
       // =========================================================================
       // 🟢 ENDPOINT: UPLOAD IMAGE — proxy qua imgbb để ẩn API key
@@ -772,6 +729,7 @@ var worker_default = {
           });
         }
       }
+
 
       if (path === "/api/update-examples" && request.method === "POST") {
         const { word, examples } = await request.json();
