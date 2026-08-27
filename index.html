@@ -23615,6 +23615,49 @@ function closeHeaderSearchPanel() {
     if (window.__globalSearchIme) window.__globalSearchIme.clearCandidates();
 }
 
+/**
+ * 🟢 HELPER CHUNG: Mở search panel + chuyển tab + điền text + (tùy chọn) tự động submit
+ * Dùng cho: popover bôi đen text (Tra từ điển / AI Phân tích sâu) + Kanji X-Ray → tra từ điển
+ * @param {string} tab - 'dict' hoặc 'chat'
+ * @param {string} text - text cần điền trước
+ * @param {boolean} autoSubmit - có tự động submit luôn không
+ */
+function openHeaderSearchWithText(tab, text, autoSubmit = false) {
+    if (!text) return;
+    // Mở panel
+    const panel = document.getElementById('headerSearchPanel');
+    const trigger = document.getElementById('headerSearchTrigger');
+    if (!panel) return;
+    if (panel.classList.contains('hidden')) {
+        openHeaderSearchPanel();
+        if (trigger) trigger.classList.add('active');
+    }
+    // Đổi tab
+    if (typeof switchHeaderSearchTab === 'function') {
+        switchHeaderSearchTab(tab);
+    }
+    // Điền text + (tùy chọn) submit sau delay ngắn để DOM kịp render
+    setTimeout(() => {
+        if (tab === 'dict') {
+            const input = document.getElementById('globalSearchInput');
+            if (input) {
+                input.value = text;
+                if (autoSubmit && typeof submitHeaderDictSearch === 'function') {
+                    submitHeaderDictSearch();
+                }
+            }
+        } else if (tab === 'chat') {
+            const textarea = document.getElementById('hspChatInput');
+            if (textarea) {
+                textarea.value = text;
+                if (autoSubmit && typeof submitHeaderChat === 'function') {
+                    submitHeaderChat();
+                }
+            }
+        }
+    }, 80);
+}
+
 function switchHeaderSearchTab(tabName) {
     const panel = document.getElementById('headerSearchPanel');
     if (!panel) return;
@@ -25054,74 +25097,30 @@ document.addEventListener('scroll', () => document.getElementById('selectionPopo
 
 // ================= 4 HÀNH ĐỘNG CỦA POPOVER =================
 
-// Action 1: Tra từ nhanh
+// Action 1: Tra từ điển — mở search panel ở tab "Tra từ điển" + auto-search
 async function popoverActionSearch(e) {
     e.preventDefault(); e.stopPropagation();
     document.getElementById('selectionPopover').classList.remove('show');
-    
     if (!globalSelectedText) return;
-
-    // Bắn thẳng qua API Mazii cho cả Admin và User
-    const dictModal = document.getElementById('quickDictModal');
-    const quickInput = document.getElementById('quickDictSearchInput');
-    if (dictModal && quickInput) {
-        quickInput.value = globalSelectedText;
-        dictModal.style.display = 'flex';
-        searchQuickDictionary();
-    }
+    // 🟢 MỚI: chuyển sang search panel thay vì mở quickDictModal
+    openHeaderSearchWithText('dict', globalSelectedText, true);
 }
 
-// Action 2: AI Deep Dive
+// Action 2: AI Deep Dive — mở search panel ở tab "Chat với AI" + auto-submit với prompt phân tích sâu
 async function popoverActionAI(e) {
     e.preventDefault(); e.stopPropagation();
     document.getElementById('selectionPopover').classList.remove('show');
+    if (!globalSelectedText) return;
 
-    // iOS Safari fix: dat co chan handleSelectionEnd re-fire
-    window._popoverAIActionRunning = true;
-
-    // Luu text ngay lap tuc (iOS co the clear selection khi loading hien len)
+    // 🟢 MỚI: chuyển sang search panel tab Chat với AI, auto-submit prompt phân tích sâu
     const savedText = globalSelectedText;
-
-    showLoading("AI dang phan tich...");
-    const prompt = `Dong vai tro lai giao vien tieng Nhat JLPT. Phan tich cum/cau sau: "${savedText}".
-    Tra ve van ban co ban (dung <b>, <br>) gom 3 phan: 
-    1. Ban dich tieng Viet.
-    2. Phan tich cau truc ngu phap (neu co).
-    3. Tu vung quan trong (Kem Hiragana va Han Viet).`;
-
-    try {
-        const aiResponse = await callHybridAI(prompt);
-        hideLoading();
-        // iOS Safari fix: cho 2 frame de browser paint xong viec an loading
-        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-        // iOS Safari fix: xoa text selection de modal khong bi che boi selection UI
-        window.getSelection().removeAllRanges();
-
-        // 🛡️ Bảo vệ: Nếu AI trả về rỗng (cả Gemini và Groq đều fail) → hiển thị thông báo lỗi
-        if (!aiResponse || !aiResponse.trim()) {
-            showAIModal(
-                `<b style="color: #e53e3e;">⚠️ Không thể kết nối AI</b><br><br>` +
-                `<div style="font-size: 14px; color: #4a5568; line-height: 1.6;">` +
-                `Cả hai máy chủ AI (Gemini & Groq) đều đang gặp sự cố.<br>` +
-                `Vui lòng thử lại sau ít phút, hoặc kiểm tra kết nối mạng của bạn.<br><br>` +
-                `<b>Mẹo:</b> Bạn vẫn có thể dùng nút "Tra từ điển nhanh" (🔍) để tra cứu từ này ngay lập tức.` +
-                `</div>`,
-                "❌ Lỗi AI"
-            );
-        } else {
-            const processedAIResponse = wrapKanjiWithLink(aiResponse);
-            showAIModal(processedAIResponse, "Phan tich chuyen sau");
-        }
-    } catch (err) {
-        hideLoading();
-        showAIModal(
-            `<b style="color: #e53e3e;">❌ Lỗi AI:</b><br>${err.message}`,
-            "❌ Lỗi"
-        );
-        console.warn("popoverActionAI error:", err);
-    } finally {
-        window._popoverAIActionRunning = false;
-    }
+    const promptText =
+        `Phân tích cụm/câu tiếng Nhật sau: "${savedText}". ` +
+        `Trả lời ngắn gọn bằng tiếng Việt, gồm 3 phần:\n` +
+        `1. Bản dịch sang tiếng Việt.\n` +
+        `2. Phân tích cấu trúc ngữ pháp (nếu có — chỉ ra chủ-vị, trợ từ, thì).\n` +
+        `3. Từ vựng quan trọng (kèm Hiragana và Hán Việt).`;
+    openHeaderSearchWithText('chat', promptText, true);
 }
 
 // Action 3: Phát âm (Web Speech API)
@@ -33719,23 +33718,16 @@ function extractTagsFromInfo(infoText) {
         })
         .filter(t => t.startsWith('#')); // Chỉ lấy chuỗi bắt đầu bằng dấu #
 }
-// HÀM ĐIỀU HƯỚNG: TỪ X-RAY KANJI SANG TỪ ĐIỂN TỔNG HỢP
+// HÀM ĐIỀU HƯỚNG: TỪ X-RAY KANJI SANG TỪ ĐIỂN (qua search panel)
 window.searchKanjiInDict = function(kanji) {
     // 1. Tắt Modal X-Ray
     closeModal('xrayModal');
 
-    // 2. Mở Modal Tra từ nhanh
-    const dictModal = document.getElementById('quickDictModal');
-    if (dictModal) dictModal.style.display = 'flex';
-
-    // 3. Đổ chữ Kanji vào ô Search
-    const quickInput = document.getElementById('quickDictSearchInput');
-    if (quickInput) {
-        quickInput.value = kanji;
+    // 2. 🟢 MỚI: Mở search panel ở tab "Tra từ điển" + điền kanji + auto-search
+    //    (trước đây mở quickDictModal — giờ dùng chung search panel cho nhất quán)
+    if (typeof openHeaderSearchWithText === 'function') {
+        openHeaderSearchWithText('dict', kanji, true);
     }
-
-    // 4. Kích hoạt tính năng tìm kiếm (Mazii + Local)
-    searchQuickDictionary();
 };
 // 🟢 HÀM ĐỒNG BỘ GỘP CHỐNG LÃNG PHÍ CONNECTION
 async function syncAllMasteryFromCloud() {
