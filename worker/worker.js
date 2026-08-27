@@ -947,6 +947,12 @@ var worker_default = {
                 finalKey = currentKey.replace("cerebras:", "");
               }
 
+              // 🟢 Set timeout cho fetch Groq — tránh Worker treo mãi nếu Groq chậm
+              // Vision request cần thời gian dài (OCR + fetch ảnh URL)
+              const fetchTimeoutMs = hasImages ? 90000 : 30000; // 90s vision, 30s text
+              const fetchController = new AbortController();
+              const fetchTimeoutId = setTimeout(() => fetchController.abort(), fetchTimeoutMs);
+
               const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
@@ -957,15 +963,13 @@ var worker_default = {
                   model: modelId,
                   messages: [{ role: "user", content: messageContent }],
                   temperature: 0.2,
-                  // 🟢 Giảm max_completion_tokens khi có ảnh để tránh vượt TPM limit 8000
-                  // Groq tính TPM = input + max_output → 6096 output + ~250 input = 6346 (OK text)
-                  // Nhưng có ảnh: 6096 + 256 (ảnh) + 69 (prompt) = 6421 → vẫn OK
-                  // Tuy nhiên Groq có thể tính dư → giảm xuống 3072 cho vision request an toàn
                   max_completion_tokens: hasImages ? 3072 : 6096,
                   stream: true,
                   reasoning_format: "hidden"
-                })
+                }),
+                signal: fetchController.signal
               });
+              clearTimeout(fetchTimeoutId);
 
               if (!response.ok) {
                 // 🟢 Log chi tiết lỗi để debug (đặc biệt cho vision request)
@@ -994,8 +998,14 @@ var worker_default = {
               });
 
             } catch (error) {
-              console.warn(`⚠️ Groq API Key thứ ${currentIndex + 1} thất bại:`, error.message);
-              lastErrorMessage = error.message;
+              clearTimeout(fetchTimeoutId);
+              if (error.name === 'AbortError') {
+                console.warn(`⚠️ Groq API Key thứ ${currentIndex + 1} timeout sau ${fetchTimeoutMs/1000}s`);
+                lastErrorMessage = `Timeout sau ${fetchTimeoutMs/1000}s (vision request chậm — thử gửi ảnh nhỏ hơn)`;
+              } else {
+                console.warn(`⚠️ Groq API Key thứ ${currentIndex + 1} thất bại:`, error.message);
+                lastErrorMessage = error.message;
+              }
             }
           }
 
