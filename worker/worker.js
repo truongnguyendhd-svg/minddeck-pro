@@ -705,6 +705,74 @@ var worker_default = {
         });
       }
 
+      // =========================================================================
+      // 🟢 ENDPOINT: UPLOAD IMAGE — proxy qua imgbb để ẩn API key
+      // Frontend gửi base64 → Worker gọi imgbb API (với secret key) → trả URL
+      // Cách này ẩn IMGBB_API_KEY khỏi frontend, tránh bị view source lấy key
+      // Ảnh tự xóa sau 1 giờ (expiration: 3600)
+      // =========================================================================
+      if (path === "/api/upload-image" && request.method === "POST") {
+        try {
+          const { image } = await request.json();
+          if (!image || typeof image !== 'string') {
+            return new Response(JSON.stringify({ error: "Missing image data" }), {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+          }
+          if (!env.IMGBB_API_KEY) {
+            return new Response(JSON.stringify({ error: "Server chưa cấu hình IMGBB_API_KEY" }), {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+          }
+          // Strip prefix "data:image/jpeg;base64,"
+          const base64Match = image.match(/^data:image\/[a-z]+;base64,(.+)$/i);
+          const base64Clean = base64Match ? base64Match[1] : image;
+
+          // Gọi imgbb API từ server-side (key ẩn trong env)
+          const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${env.IMGBB_API_KEY}&expiration=3600`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `image=${encodeURIComponent(base64Clean)}`
+          });
+
+          if (!imgbbResponse.ok) {
+            const errText = await imgbbResponse.text().catch(() => '');
+            console.warn('imgbb upload failed:', imgbbResponse.status, errText);
+            return new Response(JSON.stringify({
+              error: `imgbb HTTP ${imgbbResponse.status}`,
+              detail: errText.slice(0, 300)
+            }), {
+              status: 502,
+              headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+          }
+
+          const imgbbData = await imgbbResponse.json();
+          if (!imgbbData.success || !imgbbData.data || !imgbbData.data.url) {
+            return new Response(JSON.stringify({ error: "imgbb upload failed" }), {
+              status: 502,
+              headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+          }
+
+          return new Response(JSON.stringify({
+            success: true,
+            url: imgbbData.data.url,
+            delete_url: imgbbData.data.delete_url || null,
+            expiresIn: 3600
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        } catch (err) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
+      }
+
       if (path === "/api/update-examples" && request.method === "POST") {
         const { word, examples } = await request.json();
         if (!word || !examples || !Array.isArray(examples)) {
