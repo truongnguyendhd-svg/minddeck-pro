@@ -19264,6 +19264,8 @@ let pgProgressTimer = null;
 let pgChatStreaming = false;
 let pgPendingLoad = null; // queue payload khi YT API chưa sẵn sàng
 let pgPendingImages = []; // mảng dataURL ảnh chờ gửi (paste từ clipboard)
+// 🟢 IMGBB_API_KEY đã chuyển sang Worker secret (env.IMGBB_API_KEY)
+// Frontend gọi /api/upload-image — key ẩn, không bị view source
 
 function showPlaygroundPage(skipHash = false) {
     // 🟢 RESET trạng thái form chưa lưu NGAY TRƯỚC KHI chuyển route —
@@ -19926,15 +19928,35 @@ const PlaygroundApp = {
         const input = document.getElementById('pgChatInput');
         if (!input) return;
         const text = input.value.trim();
-        const images = [...pgPendingImages]; // snapshot ảnh base64
-        if (!text && images.length === 0) return;
+        const localImages = [...pgPendingImages]; // snapshot ảnh base64
+        if (!text && localImages.length === 0) return;
         if (pgChatStreaming) {
             this.toast('Đang trả lời, vui lòng đợi...', 'info');
             return;
         }
-        // Render tin nhắn user (text + ảnh thumbnail)
-        const userMsgHTML = images.length > 0
-            ? `${escapeHTML(text || '(ảnh)')}<div class="pg-chat-images-row">${images.map((src, i) => `<img src="${src}" class="pg-chat-img-thumb" alt="ảnh ${i+1}" />`).join('')}</div>`
+
+        // 🟢 UPLOAD ảnh lên imgbb qua Worker proxy (key ẩn) trước khi gửi Groq
+        // Tránh gửi base64 → vượt TPM limit 8000 tokens
+        let imageUrls = [];
+        if (localImages.length > 0) {
+            this.toast(`Đang upload ${localImages.length} ảnh...`, 'info');
+            try {
+                const uploadResults = await Promise.all(
+                    localImages.map(img => this._uploadImage(img))
+                );
+                imageUrls = uploadResults.filter(r => r !== null);
+                if (imageUrls.length === 0 && localImages.length > 0) {
+                    throw new Error('Không upload được ảnh');
+                }
+            } catch (err) {
+                this.toast('Lỗi upload ảnh: ' + err.message + ' — thử gửi không ảnh...', 'warn');
+                imageUrls = [];
+            }
+        }
+
+        // Render tin nhắn user (text + ảnh thumbnail — dùng local base64 để preview nhanh)
+        const userMsgHTML = localImages.length > 0
+            ? `${escapeHTML(text || '(ảnh)')}<div class="pg-chat-images-row">${localImages.map((src, i) => `<img src="${src}" class="pg-chat-img-thumb" alt="ảnh ${i+1}" />`).join('')}</div>`
             : escapeHTML(text);
         this.appendChatMsgHTML('user', userMsgHTML);
         input.value = '';
@@ -19947,7 +19969,7 @@ const PlaygroundApp = {
             ? `(Người dùng đang xem video YouTube — tiêu đề: "${pgCurrentVideoMeta.title || pgCurrentVideoMeta.videoId}", videoId: ${pgCurrentVideoMeta.videoId}${pgCurrentVideoMeta.playlistId ? `, playlistId: ${pgCurrentVideoMeta.playlistId}` : ''}, thời gian hiện tại: ${curTime})`
             : '(Người dùng chưa mở video nào trong Playground)';
         const userReqText = text || '(Phân tích ảnh đính kèm)';
-        const sysPrompt = `Trợ lý AI tiếng Nhật trong app Alcohol. ${ctx}\nYêu cầu: ${userReqText}${images.length > 0 ? `\n(Đính kèm ${images.length} ảnh — nhận diện Kanji/Kana, giải thích từ vựng/ngữ pháp.)` : ''}\nTrả lời ngắn gọn, tiếng Việt hoặc Nhật.`;
+        const sysPrompt = `Trợ lý AI tiếng Nhật trong app Alcohol. ${ctx}\nYêu cầu: ${userReqText}${imageUrls.length > 0 ? `\n(Đính kèm ${imageUrls.length} ảnh — nhận diện Kanji/Kana, giải thích từ vựng/ngữ pháp.)` : ''}\nTrả lời ngắn gọn, tiếng Việt hoặc Nhật.`;
         // Tạo bot bubble (streaming)
         const botMsg = this.appendChatMsg('bot', '');
         botMsg.classList.add('pg-chat-msg-streaming');
@@ -19964,12 +19986,12 @@ const PlaygroundApp = {
                 botMsg.classList.remove('pg-chat-msg-streaming');
                 this.scrollChatToBottom();
             };
-            if (images.length > 0) {
-                // 🟢 Có ảnh → gọi Vision API với base64 (worker đã thêm detail:"low" → chỉ 85 token/ảnh)
+            if (imageUrls.length > 0) {
+                // 🟢 Có ảnh → gọi Vision API với URL (không phải base64) → tránh TPM limit
                 if (typeof callGroqVisionStream !== 'function') {
                     throw new Error('Hàm AI Vision chưa sẵn sàng. Vui lòng tải lại trang.');
                 }
-                await callGroqVisionStream(sysPrompt, images, onChunk, onComplete);
+                await callGroqVisionStream(sysPrompt, imageUrls, onChunk, onComplete);
             } else {
                 // Chỉ text → gọi Text API
                 if (typeof callGroqTextStream !== 'function') {
@@ -19984,6 +20006,27 @@ const PlaygroundApp = {
         } finally {
             pgChatStreaming = false;
         }
+    },
+
+    // -------------------------------------------------------------
+    // UPLOAD IMAGE — gọi Worker endpoint /api/upload-image (proxy imgbb)
+    // API key ẩn trong Worker env.IMGBB_API_KEY, không lộ ra frontend
+    // -------------------------------------------------------------
+    async _uploadImage(base64DataUrl) {
+        const response = await fetch(`${DICT_API_URL}/api/upload-image`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: base64DataUrl })
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || `Upload HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        if (!data.success || !data.url) {
+            throw new Error(data.error || 'Upload failed');
+        }
+        return data.url;
     },
 
     // -------------------------------------------------------------
@@ -20005,14 +20048,14 @@ const PlaygroundApp = {
                 }
                 const reader = new FileReader();
                 reader.onload = (ev) => {
-                    // 🟢 Nén ảnh vừa phải — worker đã thêm detail:"low" cho Groq
-                    // → Groq chỉ tính 85 token/ảnh (fixed), không lo TPM limit
-                    // - maxDim 768px (đủ đọc text Kanji rõ)
-                    // - quality 0.7 (chất lượng tốt, file ~50-80KB)
-                    this._compressImage(ev.target.result, 768, (compressed) => {
+                    // 🟢 Nén ảnh vừa phải — sẽ upload lên imgbb rồi gửi URL cho Groq
+                    // → Groq chỉ tính ~256 token/ảnh (image tiles), không lo TPM limit
+                    // - maxDim 1024px (đọc text Kanji rõ)
+                    // - quality 0.8 (chất lượng tốt)
+                    this._compressImage(ev.target.result, 1024, (compressed) => {
                         pgPendingImages.push(compressed);
                         this.renderPendingImages();
-                    }, 0.7);
+                    }, 0.8);
                 };
                 reader.readAsDataURL(file);
             }
