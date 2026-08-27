@@ -957,7 +957,11 @@ var worker_default = {
                   model: modelId,
                   messages: [{ role: "user", content: messageContent }],
                   temperature: 0.2,
-                  max_completion_tokens: 6096,
+                  // 🟢 Giảm max_completion_tokens khi có ảnh để tránh vượt TPM limit 8000
+                  // Groq tính TPM = input + max_output → 6096 output + ~250 input = 6346 (OK text)
+                  // Nhưng có ảnh: 6096 + 256 (ảnh) + 69 (prompt) = 6421 → vẫn OK
+                  // Tuy nhiên Groq có thể tính dư → giảm xuống 3072 cho vision request an toàn
+                  max_completion_tokens: hasImages ? 3072 : 6096,
                   stream: true,
                   reasoning_format: "hidden"
                 })
