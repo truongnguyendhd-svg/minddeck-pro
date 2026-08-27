@@ -8973,7 +8973,6 @@ body.grammar-searching #headerGrammarSearch {
 }
 .pg-chat-toggle.active { background: #2563eb; }
 .pg-chat-toggle.active .material-symbols-outlined { color: #fff; }
-.pg-screenshot-toggle:hover { background: rgba(34,197,94,0.25); }
 
 /* A/B Status badge — top-right */
 .pg-ab-status {
@@ -9579,7 +9578,7 @@ body.pg-mode .pg-stage { background: #000; cursor: default; }
 }
 body.pg-mode .pg-footer-bar { display: block !important; }
 
-/* 2 nút action: screenshot căn TRÁI, chat căn PHẢI */
+/* Nút chat căn phải */
 .pg-footer-actions {
     display: flex;
     align-items: center;
@@ -9608,7 +9607,6 @@ body.pg-mode .pg-footer-bar { display: block !important; }
 .pg-footer-action-btn:hover { background: #ebebed; border-color: #b8b8be; }
 .pg-footer-action-btn:active { transform: scale(0.97); }
 .pg-footer-action-btn .material-symbols-outlined { font-size: 22px; }
-.pg-screenshot-action:hover { background: rgba(34, 197, 94, 0.12); border-color: #16a34a; color: #15803d; }
 .pg-chat-action:hover { background: rgba(37, 99, 235, 0.12); border-color: #2563eb; color: #1d4ed8; }
 .pg-chat-action.active { background: #2563eb; border-color: #2563eb; color: #fff; }
 
@@ -9710,84 +9708,6 @@ body.pg-chat-open .pg-chat-panel {
     .pg-url-input-header { font-size: 13px; height: 36px; padding: 0 12px; }
     .pg-go-btn-header { padding: 0 16px; font-size: 13px; height: 36px; }
 }
-
-/* ============================================================
-   🟢 SCREENSHOT CROP OVERLAY — giống PDF reader Snipping Tool
-   ============================================================ */
-.pg-crop-overlay {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0, 0, 0, 0.85);
-    z-index: 9999;
-    display: none;
-    cursor: crosshair;
-    touch-action: none;
-    align-items: center;
-    justify-content: center;
-}
-.pg-crop-bg {
-    max-width: 95vw;
-    max-height: 90vh;
-    object-fit: contain;
-    pointer-events: none;
-    user-select: none;
-    -webkit-user-drag: none;
-}
-.pg-crop-hint {
-    position: fixed;
-    top: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.85);
-    color: #fff;
-    padding: 10px 20px;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    pointer-events: none;
-    z-index: 10001;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-}
-.pg-crop-box {
-    position: fixed;
-    border: 2px solid #2563eb;
-    background: transparent;
-    display: none;
-    pointer-events: none;
-    z-index: 10000;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
-}
-.pg-crop-menu {
-    position: fixed;
-    display: none;
-    gap: 4px;
-    background: #fff;
-    border-radius: 10px;
-    padding: 4px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-    z-index: 10002;
-}
-.pg-crop-menu button {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: transparent;
-    border: none;
-    color: #1d1d1f;
-    padding: 8px 14px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 13px;
-    font-weight: 600;
-    transition: background 0.15s;
-}
-.pg-crop-menu button:hover { background: #f5f5f7; }
-.pg-crop-menu button:first-child { color: #2563eb; }
-.pg-crop-menu button:nth-child(2) { color: #16a34a; }
-.pg-crop-menu button:last-child { color: #ef4444; }
-.pg-crop-menu button .material-symbols-outlined { font-size: 18px; }
 
 </style>
 </head>
@@ -10677,9 +10597,6 @@ body.pg-chat-open .pg-chat-panel {
         <!-- ================= PLAYGROUND FOOTER — 2 nút: Screenshot + Chat ================= -->
         <div id="playgroundFooter" class="pg-footer-bar">
             <div class="pg-footer-actions">
-                <button class="pg-footer-action-btn pg-screenshot-action" onclick="PlaygroundApp.screenshot()" title="Chụp màn hình — tải thumbnail video ở mốc hiện tại">
-                    <span class="material-symbols-outlined">photo_camera</span>
-                </button>
                 <button class="pg-footer-action-btn pg-chat-action" onclick="PlaygroundApp.toggleChat()" title="Chat với AI">
                     <span class="material-symbols-outlined">chat</span>
                 </button>
@@ -19717,300 +19634,6 @@ const PlaygroundApp = {
         else icon.textContent = 'volume_up';
     },
 
-    // -------------------------------------------------------------
-    // SCREENSHOT với CROP — dùng thumbnail YouTube + crop overlay
-    // (Cross-origin iframe không cho phép canvas.drawImage trực tiếp)
-    // -------------------------------------------------------------
-    async screenshot() {
-        if (!pgPlayer || !pgCurrentVideoMeta.videoId) {
-            this.toast('Hãy phát một video trước khi chụp.', 'warn');
-            return;
-        }
-
-        // 1. Pause video ngay lập tức
-        try { pgPlayer.pauseVideo(); } catch (_) {}
-
-        const t = (pgPlayer.getCurrentTime && pgPlayer.getCurrentTime()) || 0;
-        const vid = pgCurrentVideoMeta.videoId;
-        const ts = this.fmtTime(t);
-
-        // 2. Tải thumbnail qua Cloudflare Worker proxy (chống CORS)
-        this.toast('📸 Đang tải thumbnail...', 'info');
-        const proxyUrl = `${DICT_API_URL}/api/yt-thumb?vid=${encodeURIComponent(vid)}`;
-
-        try {
-            const response = await fetch(proxyUrl);
-            if (!response.ok) throw new Error('HTTP ' + response.status);
-            const blob = await response.blob();
-            if (!blob || blob.size < 2000) throw new Error('Thumbnail không khả dụng');
-
-            // 3. Convert blob → dataURL
-            const reader = new FileReader();
-            const dataUrl = await new Promise((resolve, reject) => {
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-            });
-
-            // 4. Lấy kích thước ảnh gốc
-            const img = new Image();
-            const imgInfo = await new Promise((resolve, reject) => {
-                img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-                img.onerror = reject;
-                img.src = dataUrl;
-            });
-
-            // 5. Hiển thị crop overlay
-            this._showCropOverlay(dataUrl, imgInfo.width, imgInfo.height);
-            this.toast(`📸 Thumbnail sẵn sàng — kéo để cắt vùng (Mốc: ${ts})`, 'info');
-        } catch (err) {
-            console.warn('[Playground] screenshot error:', err);
-            this.toast('Lỗi tải thumbnail: ' + err.message + ' — thử mở trực tiếp', 'warn');
-            window.open(`https://img.youtube.com/vi/${vid}/maxresdefault.jpg`, '_blank');
-        }
-    },
-
-    // Hiển thị crop overlay (giống PDF reader)
-    _showCropOverlay(fullDataUrl, srcW, srcH) {
-        // Tạo overlay
-        let overlay = document.getElementById('pgCropOverlay');
-        if (!overlay) {
-            overlay = document.createElement('div');
-            overlay.id = 'pgCropOverlay';
-            overlay.className = 'pg-crop-overlay';
-            overlay.innerHTML = `
-                <div class="pg-crop-hint">Kéo để chọn vùng cắt — Esc để hủy</div>
-                <img class="pg-crop-bg" id="pgCropBg" alt="thumbnail" />
-                <div class="pg-crop-box" id="pgCropBox"></div>
-                <div class="pg-crop-menu" id="pgCropMenu">
-                    <button onclick="PlaygroundApp._executeCrop()" title="Cắt & copy clipboard">
-                        <span class="material-symbols-outlined">crop</span>
-                        Cắt
-                    </button>
-                    <button onclick="PlaygroundApp._downloadFullScreenshot()" title="Copy toàn bộ">
-                        <span class="material-symbols-outlined">download</span>
-                        Toàn bộ
-                    </button>
-                    <button onclick="PlaygroundApp._cancelCrop()" title="Hủy">
-                        <span class="material-symbols-outlined">close</span>
-                    </button>
-                </div>
-            `;
-            document.body.appendChild(overlay);
-            this._bindCropEvents(overlay);
-        }
-        // Lưu ảnh full vào dataset
-        overlay.dataset.fullImg = fullDataUrl;
-        overlay.dataset.srcW = srcW;
-        overlay.dataset.srcH = srcH;
-        // Set thumbnail làm nền
-        const bgImg = document.getElementById('pgCropBg');
-        if (bgImg) bgImg.src = fullDataUrl;
-        overlay.style.display = 'flex';
-        // Reset crop box
-        const cropBox = document.getElementById('pgCropBox');
-        const cropMenu = document.getElementById('pgCropMenu');
-        if (cropBox) cropBox.style.display = 'none';
-        if (cropMenu) cropMenu.style.display = 'none';
-    },
-
-    _bindCropEvents(overlay) {
-        if (overlay.dataset.bound === '1') return;
-        overlay.dataset.bound = '1';
-        let isDrawing = false;
-        let startX = 0, startY = 0;
-        const cropBox = document.getElementById('pgCropBox');
-        const cropMenu = document.getElementById('pgCropMenu');
-
-        const getPos = (e) => {
-            if (e.touches && e.touches.length > 0) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
-            return { x: e.clientX, y: e.clientY };
-        };
-
-        const onStart = (e) => {
-            if (e.target.closest('.pg-crop-menu')) return;
-            e.preventDefault();
-            isDrawing = true;
-            const p = getPos(e);
-            startX = p.x; startY = p.y;
-            cropBox.style.display = 'block';
-            cropBox.style.left = startX + 'px';
-            cropBox.style.top = startY + 'px';
-            cropBox.style.width = '0px';
-            cropBox.style.height = '0px';
-            cropMenu.style.display = 'none';
-        };
-
-        const onMove = (e) => {
-            if (!isDrawing) return;
-            e.preventDefault();
-            const p = getPos(e);
-            const x = Math.min(startX, p.x);
-            const y = Math.min(startY, p.y);
-            const w = Math.abs(p.x - startX);
-            const h = Math.abs(p.y - startY);
-            cropBox.style.left = x + 'px';
-            cropBox.style.top = y + 'px';
-            cropBox.style.width = w + 'px';
-            cropBox.style.height = h + 'px';
-            overlay.dataset.cropX = x;
-            overlay.dataset.cropY = y;
-            overlay.dataset.cropW = w;
-            overlay.dataset.cropH = h;
-        };
-
-        const onEnd = (e) => {
-            if (!isDrawing) return;
-            isDrawing = false;
-            const w = parseFloat(overlay.dataset.cropW || 0);
-            const h = parseFloat(overlay.dataset.cropH || 0);
-            if (w < 20 || h < 20) {
-                cropBox.style.display = 'none';
-                return;
-            }
-            // Hiện menu
-            cropMenu.style.display = 'flex';
-            const x = parseFloat(overlay.dataset.cropX);
-            const y = parseFloat(overlay.dataset.cropY);
-            let menuX = x + w + 10;
-            let menuY = y + h - 50;
-            if (menuX + 250 > window.innerWidth) menuX = x - 260;
-            if (menuY < 0) menuY = 10;
-            if (menuY + 60 > window.innerHeight) menuY = window.innerHeight - 70;
-            cropMenu.style.left = menuX + 'px';
-            cropMenu.style.top = menuY + 'px';
-        };
-
-        overlay.addEventListener('mousedown', onStart);
-        overlay.addEventListener('touchstart', onStart, { passive: false });
-        overlay.addEventListener('mousemove', onMove);
-        overlay.addEventListener('touchmove', onMove, { passive: false });
-        overlay.addEventListener('mouseup', onEnd);
-        overlay.addEventListener('touchend', onEnd);
-
-        // Esc để hủy
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && overlay.style.display !== 'none') {
-                this._cancelCrop();
-            }
-        });
-    },
-
-    async _executeCrop() {
-        const overlay = document.getElementById('pgCropOverlay');
-        if (!overlay) return;
-        const fullImg = overlay.dataset.fullImg;
-        const srcW = parseInt(overlay.dataset.srcW);
-        const srcH = parseInt(overlay.dataset.srcH);
-        const cropX = parseFloat(overlay.dataset.cropX || 0);
-        const cropY = parseFloat(overlay.dataset.cropY || 0);
-        const cropW = parseFloat(overlay.dataset.cropW || 0);
-        const cropH = parseFloat(overlay.dataset.cropH || 0);
-
-        // Lấy tọa độ thực của thumbnail (vì object-fit: contain)
-        const bgImg = document.getElementById('pgCropBg');
-        if (!bgImg) return this._cancelCrop();
-        const imgRect = bgImg.getBoundingClientRect();
-        // Scale: tọa độ viewport → tọa độ ảnh gốc
-        const scaleX = srcW / imgRect.width;
-        const scaleY = srcH / imgRect.height;
-        const sx = (cropX - imgRect.left) * scaleX;
-        const sy = (cropY - imgRect.top) * scaleY;
-        const sw = cropW * scaleX;
-        const sh = cropH * scaleY;
-
-        if (sw <= 0 || sh <= 0 || sx < 0 || sy < 0 || sx + sw > srcW || sy + sh > srcH) {
-            this._cancelCrop();
-            return this.toast('Vùng cắt ngoài ảnh — hãy kéo lại trong vùng thumbnail.', 'warn');
-        }
-
-        // Load ảnh full → crop → canvas
-        const img = new Image();
-        img.onload = async () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = sw;
-            canvas.height = sh;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-
-            // 🟢 Copy vào clipboard để paste vào chat được luôn
-            const copied = await this._copyCanvasToClipboard(canvas);
-            this._cancelCrop();
-            if (copied) {
-                this.toast('📸 Đã cắt và copy vào clipboard — paste (Ctrl+V) vào chat để gửi AI', 'success');
-            } else {
-                // Fallback: download file
-                const dataUrl = canvas.toDataURL('image/png');
-                const filename = `pg_crop_${Date.now()}.png`;
-                const a = document.createElement('a');
-                a.href = dataUrl;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                this.toast(`📸 Đã tải: ${filename} (clipboard không hỗ trợ)`, 'success');
-            }
-        };
-        img.src = fullImg;
-    },
-
-    async _downloadFullScreenshot() {
-        const overlay = document.getElementById('pgCropOverlay');
-        if (!overlay) return;
-        const fullImg = overlay.dataset.fullImg;
-        const vid = pgCurrentVideoMeta.videoId || 'screenshot';
-        const ts = this.fmtTime((pgPlayer && pgPlayer.getCurrentTime && pgPlayer.getCurrentTime()) || 0);
-
-        // Convert dataURL → canvas → clipboard
-        const img = new Image();
-        img.onload = async () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
-
-            const copied = await this._copyCanvasToClipboard(canvas);
-            this._cancelCrop();
-            if (copied) {
-                this.toast('📸 Đã copy toàn bộ vào clipboard — paste (Ctrl+V) vào chat', 'success');
-            } else {
-                // Fallback: download
-                const filename = `pg_${vid}_${ts.replace(/:/g, '-')}.png`;
-                const a = document.createElement('a');
-                a.href = fullImg;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                this.toast(`📸 Đã tải: ${filename}`, 'success');
-            }
-        };
-        img.src = fullImg;
-    },
-
-    // Copy canvas vào clipboard (trả về true nếu thành công)
-    async _copyCanvasToClipboard(canvas) {
-        try {
-            if (!navigator.clipboard || !navigator.clipboard.write) {
-                return false; // Clipboard API không hỗ trợ
-            }
-            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-            if (!blob) return false;
-            await navigator.clipboard.write([
-                new ClipboardItem({ 'image/png': blob })
-            ]);
-            return true;
-        } catch (err) {
-            console.warn('[Playground] clipboard write failed:', err);
-            return false;
-        }
-    },
-
-    _cancelCrop() {
-        const overlay = document.getElementById('pgCropOverlay');
-        if (overlay) overlay.style.display = 'none';
-    },
 
     // -------------------------------------------------------------
     // CHAT PANEL — slide từ phải vào, dùng callGroqTextStream
