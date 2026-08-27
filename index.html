@@ -9717,11 +9717,21 @@ body.pg-chat-open .pg-chat-panel {
 .pg-crop-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.85);
     z-index: 9999;
     display: none;
     cursor: crosshair;
     touch-action: none;
+    align-items: center;
+    justify-content: center;
+}
+.pg-crop-bg {
+    max-width: 95vw;
+    max-height: 90vh;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
 }
 .pg-crop-hint {
     position: fixed;
@@ -9742,11 +9752,11 @@ body.pg-chat-open .pg-chat-panel {
 .pg-crop-box {
     position: fixed;
     border: 2px solid #2563eb;
-    background: rgba(37, 99, 235, 0.1);
+    background: transparent;
     display: none;
     pointer-events: none;
     z-index: 10000;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
 }
 .pg-crop-menu {
     position: fixed;
@@ -19708,8 +19718,8 @@ const PlaygroundApp = {
     },
 
     // -------------------------------------------------------------
-    // SCREENSHOT với CROP — pause video → capture screen → crop → download
-    // Dùng getDisplayMedia API (giống Snipping Tool)
+    // SCREENSHOT với CROP — dùng thumbnail YouTube + crop overlay
+    // (Cross-origin iframe không cho phép canvas.drawImage trực tiếp)
     // -------------------------------------------------------------
     async screenshot() {
         if (!pgPlayer || !pgCurrentVideoMeta.videoId) {
@@ -19720,87 +19730,44 @@ const PlaygroundApp = {
         // 1. Pause video ngay lập tức
         try { pgPlayer.pauseVideo(); } catch (_) {}
 
-        // 2. Check browser support
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-            this.toast('Trình duyệt không hỗ trợ chụp màn hình. Dùng thumbnail thay thế.', 'warn');
-            return this._screenshotThumbnail();
-        }
-
-        // 3. Capture screen
-        let stream;
-        try {
-            stream = await navigator.mediaDevices.getDisplayMedia({
-                video: { cursor: 'always' },
-                audio: false
-            });
-        } catch (err) {
-            console.warn('[Playground] getDisplayMedia cancelled/error:', err);
-            if (err.name === 'NotAllowedError') {
-                this.toast('Đã hủy chụp màn hình.', 'info');
-            } else {
-                this.toast('Lỗi chụp màn hình: ' + err.message + ' — dùng thumbnail', 'warn');
-                this._screenshotThumbnail();
-            }
-            return;
-        }
-
-        // 4. Capture frame vào canvas
-        try {
-            const video = document.createElement('video');
-            video.srcObject = stream;
-            video.muted = true;
-            await video.play();
-
-            // Đợi 1 frame để video sẵn sàng
-            await new Promise(r => requestAnimationFrame(r));
-
-            const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0);
-
-            // Dừng stream
-            stream.getTracks().forEach(t => t.stop());
-
-            // 5. Hiển thị crop overlay
-            const fullDataUrl = canvas.toDataURL('image/png');
-            this._showCropOverlay(fullDataUrl, canvas.width, canvas.height);
-        } catch (err) {
-            console.error('[Playground] capture error:', err);
-            stream.getTracks().forEach(t => t.stop());
-            this.toast('Lỗi capture: ' + err.message, 'error');
-        }
-    },
-
-    // Fallback: dùng thumbnail như cũ
-    _screenshotThumbnail() {
         const t = (pgPlayer.getCurrentTime && pgPlayer.getCurrentTime()) || 0;
         const vid = pgCurrentVideoMeta.videoId;
         const ts = this.fmtTime(t);
-        const proxyUrl = `${DICT_API_URL}/api/yt-thumb?vid=${encodeURIComponent(vid)}`;
+
+        // 2. Tải thumbnail qua Cloudflare Worker proxy (chống CORS)
         this.toast('📸 Đang tải thumbnail...', 'info');
-        fetch(proxyUrl)
-            .then(resp => {
-                if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                return resp.blob();
-            })
-            .then(blob => {
-                if (!blob || blob.size < 2000) throw new Error('Thumbnail không khả dụng');
-                const filename = `yt_${vid}_${ts.replace(/:/g, '-')}.jpg`;
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-                this.toast(`📸 Đã tải: ${filename}\n(Mốc: ${ts})`, 'success');
-            })
-            .catch(err => {
-                window.open(`https://img.youtube.com/vi/${vid}/maxresdefault.jpg`, '_blank');
-                this.toast(`Đã mở thumbnail trong tab mới. (Mốc: ${ts})`, 'info');
+        const proxyUrl = `${DICT_API_URL}/api/yt-thumb?vid=${encodeURIComponent(vid)}`;
+
+        try {
+            const response = await fetch(proxyUrl);
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            const blob = await response.blob();
+            if (!blob || blob.size < 2000) throw new Error('Thumbnail không khả dụng');
+
+            // 3. Convert blob → dataURL
+            const reader = new FileReader();
+            const dataUrl = await new Promise((resolve, reject) => {
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
             });
+
+            // 4. Lấy kích thước ảnh gốc
+            const img = new Image();
+            const imgInfo = await new Promise((resolve, reject) => {
+                img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+                img.onerror = reject;
+                img.src = dataUrl;
+            });
+
+            // 5. Hiển thị crop overlay
+            this._showCropOverlay(dataUrl, imgInfo.width, imgInfo.height);
+            this.toast(`📸 Thumbnail sẵn sàng — kéo để cắt vùng (Mốc: ${ts})`, 'info');
+        } catch (err) {
+            console.warn('[Playground] screenshot error:', err);
+            this.toast('Lỗi tải thumbnail: ' + err.message + ' — thử mở trực tiếp', 'warn');
+            window.open(`https://img.youtube.com/vi/${vid}/maxresdefault.jpg`, '_blank');
+        }
     },
 
     // Hiển thị crop overlay (giống PDF reader)
@@ -19813,13 +19780,14 @@ const PlaygroundApp = {
             overlay.className = 'pg-crop-overlay';
             overlay.innerHTML = `
                 <div class="pg-crop-hint">Kéo để chọn vùng cắt — Esc để hủy</div>
+                <img class="pg-crop-bg" id="pgCropBg" alt="thumbnail" />
                 <div class="pg-crop-box" id="pgCropBox"></div>
                 <div class="pg-crop-menu" id="pgCropMenu">
-                    <button onclick="PlaygroundApp._executeCrop()" title="Cắt & tải xuống">
+                    <button onclick="PlaygroundApp._executeCrop()" title="Cắt & copy clipboard">
                         <span class="material-symbols-outlined">crop</span>
                         Cắt
                     </button>
-                    <button onclick="PlaygroundApp._downloadFullScreenshot()" title="Tải toàn bộ">
+                    <button onclick="PlaygroundApp._downloadFullScreenshot()" title="Copy toàn bộ">
                         <span class="material-symbols-outlined">download</span>
                         Toàn bộ
                     </button>
@@ -19835,6 +19803,9 @@ const PlaygroundApp = {
         overlay.dataset.fullImg = fullDataUrl;
         overlay.dataset.srcW = srcW;
         overlay.dataset.srcH = srcH;
+        // Set thumbnail làm nền
+        const bgImg = document.getElementById('pgCropBg');
+        if (bgImg) bgImg.src = fullDataUrl;
         overlay.style.display = 'flex';
         // Reset crop box
         const cropBox = document.getElementById('pgCropBox');
@@ -19936,18 +19907,21 @@ const PlaygroundApp = {
         const cropW = parseFloat(overlay.dataset.cropW || 0);
         const cropH = parseFloat(overlay.dataset.cropH || 0);
 
-        // Chuyển tọa độ viewport → tọa độ ảnh gốc
-        const overlayRect = overlay.getBoundingClientRect();
-        const scaleX = srcW / overlayRect.width;
-        const scaleY = srcH / overlayRect.height;
-        const sx = (cropX - overlayRect.left) * scaleX;
-        const sy = (cropY - overlayRect.top) * scaleY;
+        // Lấy tọa độ thực của thumbnail (vì object-fit: contain)
+        const bgImg = document.getElementById('pgCropBg');
+        if (!bgImg) return this._cancelCrop();
+        const imgRect = bgImg.getBoundingClientRect();
+        // Scale: tọa độ viewport → tọa độ ảnh gốc
+        const scaleX = srcW / imgRect.width;
+        const scaleY = srcH / imgRect.height;
+        const sx = (cropX - imgRect.left) * scaleX;
+        const sy = (cropY - imgRect.top) * scaleY;
         const sw = cropW * scaleX;
         const sh = cropH * scaleY;
 
-        if (sw <= 0 || sh <= 0) {
+        if (sw <= 0 || sh <= 0 || sx < 0 || sy < 0 || sx + sw > srcW || sy + sh > srcH) {
             this._cancelCrop();
-            return this.toast('Vùng cắt không hợp lệ.', 'warn');
+            return this.toast('Vùng cắt ngoài ảnh — hãy kéo lại trong vùng thumbnail.', 'warn');
         }
 
         // Load ảnh full → crop → canvas
