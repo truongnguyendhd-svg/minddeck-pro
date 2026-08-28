@@ -1803,14 +1803,20 @@ body.hsp-open {
 .hsp-chat-clear.visible { display: inline-block; }
 
 /* ================= THREAD REPLY UI (v18) ================= */
-/* 🟢 Bot message (A1) — flex row: [bubble-block (flex:1)] + [reply-btn (căn bottom)] */
-/* Nút reply A1 nằm NGOÀI A1, căn phải, cùng dòng bottom */
-/* Khi A1 dài ra (có A2 bên trong), nút reply chạy xuống dưới theo */
+/* 🟢 Bot message (A1) — flex column: [bubble-block] + [action-bar dưới A1] */
 .hsp-chat-msg.bot { 
-    flex-direction: row; 
-    align-items: flex-end;  /* nút reply căn bottom = bottom của A1 (kể cả khi dài) */
+    flex-direction: column; 
+    align-items: stretch;
     gap: 8px;
     max-width: 88%;
+}
+
+/* 🟢 Action bar — chứa nút regenerate + reply, căn phải, dưới A1 */
+.hsp-chat-action-bar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 0 4px;
 }
 
 /* 🟢 Bubble block — chứa bubble + thread-content, flex: 1 */
@@ -25955,9 +25961,14 @@ async function submitHeaderChat() {
         '  <div class="hsp-chat-bubble"><span class="hsp-typing">●●●</span></div>' +
         '  <div class="hsp-chat-thread-content" id="thread-content-' + threadId + '"></div>' +
         '</div>' +
-        '<button class="hsp-chat-reply-btn" onclick="event.stopPropagation(); toggleReplyForm(\'' + threadId + '\')" title="Phản hồi về câu trả lời này">' +
-        '  <span class="material-symbols-outlined">reply</span>' +
-        '</button>';
+        '<div class="hsp-chat-action-bar">' +
+        '  <button class="hsp-chat-reply-btn" onclick="event.stopPropagation(); regenerateResponse(\'' + threadId + '\')" title="Tạo câu trả lời mới">' +
+        '    <span class="material-symbols-outlined">refresh</span>' +
+        '  </button>' +
+        '  <button class="hsp-chat-reply-btn" onclick="event.stopPropagation(); toggleReplyForm(\'' + threadId + '\')" title="Phản hồi về câu trả lời này">' +
+        '    <span class="material-symbols-outlined">reply</span>' +
+        '  </button>' +
+        '</div>';
     messages.appendChild(botMsg);
     const bubble = botMsg.querySelector('.hsp-chat-bubble');
     messages.scrollTop = messages.scrollHeight;
@@ -26029,6 +26040,102 @@ async function submitHeaderChat() {
 // =========================================================================
 // 🟢 THREAD REPLY FUNCTIONS
 // =========================================================================
+
+// 🟢 Regenerate response — gọi lại AI với prompt gốc của thread
+// Xóa A1 content hiện tại, hiển thị typing, gọi AI lại
+async function regenerateResponse(threadId) {
+    if (hspChatStreaming) {
+        showToast('⏳ Đợi AI trả lời xong câu hiện tại...');
+        return;
+    }
+    if (!chatThreads[threadId] || chatThreads[threadId].length === 0) {
+        showToast('⚠️ Không tìm thấy prompt gốc để regenerate');
+        return;
+    }
+
+    // Lấy user prompt gốc (first message in thread)
+    const originalUserMsg = chatThreads[threadId].find(m => m.role === 'user' || m.role === 'user');
+    if (!originalUserMsg) {
+        showToast('⚠️ Không tìm thấy prompt gốc');
+        return;
+    }
+    const originalText = originalUserMsg.text;
+
+    // Tìm bot message element
+    const botMsg = document.querySelector('.hsp-chat-msg.bot[data-thread-id="' + threadId + '"]');
+    if (!botMsg) {
+        showToast('⚠️ Không tìm thấy bubble để regenerate');
+        return;
+    }
+    const bubble = botMsg.querySelector('.hsp-chat-bubble');
+    const threadContent = botMsg.querySelector('.hsp-chat-thread-content');
+
+    // Xóa A1 content hiện tại + thread content (replies)
+    bubble.innerHTML = '<span class="hsp-typing">●●●</span>';
+    if (threadContent) threadContent.innerHTML = '';
+
+    // Reset chatThreads[threadId] — chỉ giữ lại user prompt gốc
+    chatThreads[threadId] = [{ role: 'user', text: originalText }];
+
+    hspChatStreaming = true;
+    let buffer = '';
+    let firstChunkArrived = false;
+
+    // System prompt (giống submitHeaderChat)
+    const systemPrompt =
+        'Bạn là trợ lý AI tiếng Nhật cho người Việt học JLPT. Trả lời NGẮN GỌN, ĐÚNG TRỌNG TÂM, bằng tiếng Việt.\n' +
+        'Hỗ trợ: tra từ vựng (đọc, nghĩa, loại từ), phân tích câu (chủ-vị, trợ từ, thì), ' +
+        'ngữ pháp JLPT N5–N1 (cấu trúc + ví dụ minh họa), Hán tự (âm on/kun, bộ, nghĩa Hán Việt).\n' +
+        'Quy tắc định dạng:\n' +
+        '- Dùng **in đậm** cho từ khóa, cấu trúc.\n' +
+        '- Dùng `code` cho từ/câu tiếng Nhật (vd: `勉強する`).\n' +
+        '- Dùng ```code block``` cho đoạn văn dài.\n' +
+        '- Xuống dòng giữa các ý. Không chào hỏi dài dòng.';
+
+    const messagesArray = [
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: originalText }
+    ];
+
+    console.log(`MindDeck: Regenerating response for thread ${threadId}`);
+
+    const messages = document.getElementById('hspChatMessages');
+    try {
+        await callHybridAIStream(
+            originalText,
+            [],
+            (chunk) => {
+                if (!firstChunkArrived) {
+                    firstChunkArrived = true;
+                    bubble.innerHTML = '';
+                }
+                buffer += chunk;
+                bubble.innerHTML = renderHspMarkdown(buffer) + '<span class="hsp-cursor">▌</span>';
+                messages.scrollTop = messages.scrollHeight;
+            },
+            (fullText) => {
+                const finalText = fullText || buffer;
+                if (finalText.trim()) {
+                    bubble.innerHTML = renderHspMarkdown(finalText);
+                    chatThreads[threadId].push({ role: 'assistant', text: finalText });
+                } else {
+                    bubble.innerHTML = '<em style="color:#a0aec0;">AI không phản hồi. Vui lòng thử lại.</em>';
+                }
+                messages.scrollTop = messages.scrollHeight;
+            },
+            { messages: messagesArray }
+        );
+    } catch (err) {
+        console.error('regenerateResponse error:', err);
+        if (!firstChunkArrived) {
+            bubble.innerHTML = '<em style="color:#e53e3e;">Lỗi: ' + escapeHTML(err.message) + '</em>';
+        } else {
+            bubble.innerHTML = renderHspMarkdown(buffer) + '<em style="color:#e53e3e; display:block; margin-top:6px;">[Bị gián đoạn]</em>';
+        }
+    } finally {
+        hspChatStreaming = false;
+    }
+}
 
 // Toggle hiển thị ô phản hồi dưới bot bubble
 // 🟢 threadId: ID của thread sẽ tạo khi user submit (vd t1.1, t1.1.1)
