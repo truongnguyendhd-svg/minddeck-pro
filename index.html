@@ -23986,7 +23986,8 @@ async function submitHeaderChat() {
     let buffer = '';
     let firstChunkArrived = false;
 
-    // System prompt định hình trợ lý tiếng Nhật cho người Việt
+    // 🟢 REFACTORED: Tách system prompt và user query thành 2 messages riêng.
+    // Qwen 3.8 27B hiểu role rõ ràng hơn → output chuẩn hơn.
     const systemPrompt =
         'Bạn là trợ lý AI tiếng Nhật cho người Việt học JLPT. Trả lời NGẮN GỌN, ĐÚNG TRỌNG TÂM, bằng tiếng Việt.\n' +
         'Hỗ trợ: tra từ vựng (đọc, nghĩa, loại từ), phân tích câu (chủ-vị, trợ từ, thì), ' +
@@ -23995,12 +23996,17 @@ async function submitHeaderChat() {
         '- Dùng **in đậm** cho từ khóa, cấu trúc.\n' +
         '- Dùng `code` cho từ/câu tiếng Nhật (vd: `勉強する`).\n' +
         '- Dùng ```code block``` cho đoạn văn dài.\n' +
-        '- Xuống dòng giữa các ý. Không chào hỏi dài dòng.\n\n' +
-        'Câu hỏi của người dùng:\n' + text;
+        '- Xuống dòng giữa các ý. Không chào hỏi dài dòng.';
+
+    // 🟢 MỚI: Mảng messages tách role — gửi qua callHybridAIStream qua options.messages
+    const messagesArray = [
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: text }
+    ];
 
     try {
         await callHybridAIStream(
-            systemPrompt,
+            text,  // 🟢 promptText fallback cho Mistral/Groq cũ
             [],
             (chunk) => {
                 if (!firstChunkArrived) {
@@ -24020,7 +24026,8 @@ async function submitHeaderChat() {
                     bubble.innerHTML = '<em style="color:#a0aec0;">AI không phản hồi. Vui lòng thử lại.</em>';
                 }
                 messages.scrollTop = messages.scrollHeight;
-            }
+            },
+            { messages: messagesArray }  // 🟢 options.messages cho Qwen tách role
         );
     } catch (err) {
         console.error('submitHeaderChat error:', err);
@@ -26379,7 +26386,7 @@ async function parseOpenAIStream(reader, onChunk, options = {}) {
             if (fullText.trim()) {
                 console.warn('⚠️ Stream bị cắt giữa chừng, trả về partial:', fullText.length, 'chars');
                 if (cleanThink) {
-                    fullText = fullText.replace(/🧠[\s\S]*?<\/think>/g, "").trim();
+                    fullText = fullText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
                 }
                 return cleanModelOutputText(fullText);
             }
@@ -26402,6 +26409,12 @@ async function parseOpenAIStream(reader, onChunk, options = {}) {
 
             try {
                 const parsed = JSON.parse(dataStr);
+                // 🟢 FIX: Khi worker dùng reasoning_format="parsed", Groq gửi 2 loại delta:
+                //   - delta.reasoning (nội bộ, phải bỏ qua)
+                //   - delta.content (output thật, hiển thị cho user)
+                if (parsed.choices?.[0]?.delta?.reasoning && !parsed.choices?.[0]?.delta?.content) {
+                    continue;  // bỏ qua chunk reasoning-only
+                }
                 const chunkText = parsed.choices?.[0]?.delta?.content;
 
                 if (chunkText) {
@@ -26416,7 +26429,7 @@ async function parseOpenAIStream(reader, onChunk, options = {}) {
 
     // 🧹 Clean <think> tags từ Qwen models
     if (cleanThink) {
-        fullText = fullText.replace(/🧠[\s\S]*?<\/think>/g, "").trim();
+        fullText = fullText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
     }
     return cleanModelOutputText(fullText);
 }
@@ -26424,27 +26437,31 @@ async function parseOpenAIStream(reader, onChunk, options = {}) {
 // =========================================================================
 // 🟢 HÀM GỌI GROQ TEXT MODE (QWEN 3.8 27B - PRIMARY CHO TEXT)
 // =========================================================================
-async function callGroqTextStream(promptText, onChunk, onComplete) {
+async function callGroqTextStream(promptText, onChunk, onComplete, messagesArray) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    // 🟢 BUMP timeout 20s → 90s: Reasoning model (Qwen 3.8) cần thời gian suy nghĩ
+    // trước khi emit content. 20s quá ngắn → dễ timeout khi reasoning dài.
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
+
+    // 🟢 BACKWARDS-COMPAT: Nếu caller truyền messagesArray → gửi messages array
+    // (cho phép tách role system/user). Không → fallback gửi prompt string như cũ.
+    const payload = messagesArray && messagesArray.length > 0
+        ? { messages: messagesArray, model: "qwen/qwen3.8-27b", images: [] }
+        : { prompt: promptText, model: "qwen/qwen3.8-27b", images: [] };
 
     let response;
     try {
         response = await fetch(`${DICT_API_URL}/api/groq`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                prompt: promptText,
-                model: "qwen/qwen3.8-27b",
-                images: []
-            }),
+            body: JSON.stringify(payload),
             signal: controller.signal
         });
         clearTimeout(timeoutId);
     } catch (err) {
         clearTimeout(timeoutId);
         if (err.name === 'AbortError') {
-            throw new Error('Groq timeout (20s) - server không phản hồi');
+            throw new Error('Groq timeout (90s) - server không phản hồi');
         }
         throw new Error(`Lỗi mạng Groq: ${err.message}`);
     }
@@ -26582,6 +26599,8 @@ async function callMistralAIStream(promptText, onChunk, onComplete) {
 //   • TEXT THUẦN: Groq Qwen 3.8 27B → Mistral Small
 // =========================================================================
 async function callHybridAIStream(promptText, imagesArray = [], onChunk, onComplete, options = {}) {
+    // 🟢 MỚI: Hỗ trợ options.messages để tách role system/user
+    const messagesArray = options && options.messages ? options.messages : null;
     const hasImages = (imagesArray && imagesArray.length > 0);
 
     // Cờ chống gọi onComplete 2 lần
@@ -26654,7 +26673,8 @@ async function callHybridAIStream(promptText, imagesArray = [], onChunk, onCompl
         await callGroqTextStream(
             promptText,
             (chunk) => { qwenText += chunk; onChunk(chunk); },
-            (finalText) => { safeOnComplete(finalText || qwenText); }
+            (finalText) => { safeOnComplete(finalText || qwenText); },
+            messagesArray  // 🟢 forward messages array cho Qwen
         );
 
         if (!onCompleteFired && qwenText.trim() === "") {
