@@ -1872,6 +1872,16 @@ body.hsp-open {
 .hsp-chat-reply-form button:hover { background: #0058b9; }
 .hsp-chat-reply-form button:disabled { background: #a0aec0; cursor: not-allowed; }
 .hsp-chat-reply-form .material-symbols-outlined { font-size: 16px; }
+.hsp-chat-reply-cancel {
+    background: transparent !important;
+    color: #a0aec0 !important;
+    width: 24px !important;
+    height: 24px !important;
+    border-radius: 50% !important;
+    flex-shrink: 0;
+}
+.hsp-chat-reply-cancel:hover { background: #edf2f7 !important; color: #e53e3e !important; }
+.hsp-chat-reply-cancel .material-symbols-outlined { font-size: 16px; }
 .hsp-chat-reply-msg {
     padding: 8px 12px;
     border-radius: 10px;
@@ -24203,8 +24213,10 @@ function toggleReplyForm(threadId) {
     form.innerHTML =
         '<textarea placeholder="Phản hồi về câu trả lời này... (Enter để gửi, Shift+Enter xuống dòng)" rows="1"' +
         '   oninput="autoResizeTextarea(this)"' +
-        '   onkeypress="if(event.key === \'Enter\' && !event.shiftKey){ event.preventDefault(); submitThreadReply(\'' + threadId + '\'); }"></textarea>' +
-        '<button onclick="submitThreadReply(\'' + threadId + '\')" title="Gửi phản hồi">' +
+        '   onkeypress="if(event.key === \'Enter\' && !event.shiftKey){ event.preventDefault(); event.stopPropagation(); submitThreadReply(\'' + threadId + '\'); }"></textarea>' +
+        '<button class="hsp-chat-reply-cancel" onclick="event.stopPropagation(); event.preventDefault(); this.closest(\'.hsp-chat-reply-form\').remove()" title="Hủy phản hồi">' +
+        '<span class="material-symbols-outlined">close</span></button>' +
+        '<button onclick="event.stopPropagation(); event.preventDefault(); submitThreadReply(\'' + threadId + '\')" title="Gửi phản hồi">' +
         '<span class="material-symbols-outlined">arrow_upward</span></button>';
     container.appendChild(form);
 
@@ -24240,6 +24252,10 @@ async function submitThreadReply(threadId) {
 
     // Render user reply message (thay form bằng message user)
     form.remove();
+    // 🟢 FIX: Refocus main input để giữ focus trong panel
+    // (tránh click-outside handler đóng panel khi activeElement trở thành body)
+    const mainInput = document.getElementById('hspChatInput');
+    if (mainInput) { try { mainInput.focus({ preventScroll: true }); } catch (_) { mainInput.focus(); } }
     const userReply = document.createElement('div');
     userReply.className = 'hsp-chat-reply-msg user';
     userReply.textContent = text;
@@ -24324,14 +24340,8 @@ async function submitThreadReply(threadId) {
         }
     } finally {
         hspChatStreaming = false;
-        // Mở lại form phản hồi để user có thể tiếp tục chat trong thread
-        // (chỉ nếu thread vẫn còn tồn tại)
-        if (chatThreads[threadId]) {
-            const existingForm = container.querySelector('.hsp-chat-reply-form');
-            if (!existingForm) {
-                toggleReplyForm(threadId);
-            }
-        }
+        // 🟢 KHÔNG tự mở lại form phản hồi — user bấm "Phản hồi" lại nếu muốn tiếp tục
+        // (tránh spam UI khi user chỉ muốn hỏi 1 câu phụ rồi dừng)
     }
 }
 
@@ -24388,6 +24398,8 @@ document.addEventListener('click', function (e) {
     // Không đóng khi user đang focus vào input/textarea trong panel
     const activeEl = document.activeElement;
     if (activeEl && panel.contains(activeEl) && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
+    // 🟢 FIX: Không đóng panel khi AI đang stream (tránh mất câu trả lời giữa chừng)
+    if (typeof hspChatStreaming !== 'undefined' && hspChatStreaming) return;
     closeHeaderSearchPanel();
     if (trigger) trigger.classList.remove('active');
 });
