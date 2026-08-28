@@ -1805,6 +1805,123 @@ body.hsp-open {
 .hsp-chat-clear:hover { background: #edf2f7; color: #1d1d1f; }
 .hsp-chat-clear.visible { display: inline-block; }
 
+/* ================= THREAD REPLY UI ================= */
+.hsp-chat-msg.bot { flex-direction: column; align-items: flex-start; }
+.hsp-chat-msg.bot .hsp-chat-bubble { width: 100%; box-sizing: border-box; }
+.hsp-chat-reply-btn {
+    margin-top: 6px;
+    background: transparent;
+    border: none;
+    color: #8a8a8e;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    transition: all 0.15s;
+    font-family: inherit;
+}
+.hsp-chat-reply-btn:hover { background: #f1f3f4; color: #0071e3; }
+.hsp-chat-reply-btn .material-symbols-outlined { font-size: 13px; }
+.hsp-chat-thread-container {
+    width: 100%;
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.hsp-chat-reply-form {
+    display: flex;
+    gap: 6px;
+    align-items: flex-end;
+    padding: 8px 10px;
+    background: #f8f9fa;
+    border: 1px solid #edf2f7;
+    border-radius: 10px;
+    border-left: 3px solid #0071e3;
+}
+.hsp-chat-reply-form textarea {
+    flex: 1;
+    border: none;
+    background: transparent;
+    resize: none;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    line-height: 1.4;
+    color: #1d1d1f;
+    min-height: 32px;
+    max-height: 120px;
+    padding: 4px 0;
+}
+.hsp-chat-reply-form button {
+    background: #0071e3;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.hsp-chat-reply-form button:hover { background: #0058b9; }
+.hsp-chat-reply-form button:disabled { background: #a0aec0; cursor: not-allowed; }
+.hsp-chat-reply-form .material-symbols-outlined { font-size: 16px; }
+.hsp-chat-reply-msg {
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    max-width: 92%;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+    animation: hspMsgIn 0.25s ease;
+}
+.hsp-chat-reply-msg.user {
+    align-self: flex-end;
+    background: #e3f0ff;
+    color: #004085;
+    border-bottom-right-radius: 4px;
+}
+.hsp-chat-reply-msg.bot {
+    align-self: flex-start;
+    background: #ffffff;
+    border: 1px solid #edf2f7;
+    border-left: 3px solid #34d399;
+    border-bottom-left-radius: 4px;
+    width: 92%;
+    box-sizing: border-box;
+}
+.hsp-chat-reply-msg.bot p { margin: 0 0 6px 0; }
+.hsp-chat-reply-msg.bot p:last-child { margin-bottom: 0; }
+.hsp-chat-reply-msg.bot strong { font-weight: 700; color: #1d1d1f; }
+.hsp-chat-reply-msg.bot em { font-style: italic; color: #4a5568; }
+.hsp-chat-reply-msg.bot code {
+    background: #f1f3f4; padding: 1px 5px; border-radius: 4px;
+    font-family: 'Noto Sans JP', monospace; font-size: 12.5px; color: #c026d3;
+}
+.hsp-chat-reply-msg.bot pre {
+    background: #f1f3f4; padding: 6px 10px; border-radius: 6px;
+    overflow-x: auto; font-family: 'Noto Sans JP', monospace; font-size: 12px;
+    margin: 4px 0; white-space: pre;
+}
+.hsp-chat-thread-badge {
+    display: inline-block;
+    background: #e6f7ee;
+    color: #047857;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+
 /* Mobile tweaks — panel đã full màn nên không cần override vị trí nữa */
 @media (max-width: 600px) {
     .hsp-tab { padding: 10px 8px; font-size: 13px; }
@@ -23939,7 +24056,11 @@ async function submitHeaderDictSearch() {
 
 // Chat với AI — streaming response bằng callHybridAIStream
 let hspChatStreaming = false;
-let hspChatHistory = []; // Lưu lịch sử đơn giản [{role, text}]
+let hspChatHistory = []; // Lưu lịch sử đơn giản [{role, text}] (legacy, không còn dùng cho memory)
+// 🟢 THREAD STATE — thay thế multi-turn memory cũ
+let threadCounter = 0;
+let chatThreads = {};  // { threadId: [{role, text}, ...] } — full memory per thread, không drop
+let activeReplyThreadId = null;  // threadId đang mở ô input reply
 
 async function submitHeaderChat() {
     if (hspChatStreaming) return;
@@ -23964,7 +24085,6 @@ async function submitHeaderChat() {
     userMsg.innerHTML = '<div class="hsp-chat-bubble"></div>';
     userMsg.querySelector('.hsp-chat-bubble').textContent = text;
     messages.appendChild(userMsg);
-    hspChatHistory.push({ role: 'user', text: text });
 
     // Clear input
     input.value = '';
@@ -23974,10 +24094,21 @@ async function submitHeaderChat() {
     // Auto-scroll
     messages.scrollTop = messages.scrollHeight;
 
-    // Thêm bot placeholder (typing indicator)
+    // 🟢 THREAD: Tạo threadId mới cho bot bubble sắp tạo
+    // Mỗi câu chat mới từ main input = thread mới (NO memory from previous threads)
+    const threadId = 't' + (++threadCounter);
+    chatThreads[threadId] = [
+        { role: 'user', text: text }
+    ];
+
+    // Thêm bot placeholder (typing indicator) + reply button + thread container
     const botMsg = document.createElement('div');
     botMsg.className = 'hsp-chat-msg bot';
-    botMsg.innerHTML = '<div class="hsp-chat-bubble"><span class="hsp-typing">●●●</span></div>';
+    botMsg.dataset.threadId = threadId;
+    botMsg.innerHTML = '<div class="hsp-chat-bubble"><span class="hsp-typing">●●●</span></div>' +
+        '<button class="hsp-chat-reply-btn" onclick="toggleReplyForm(\'' + threadId + '\')" title="Phản hồi về câu trả lời này">' +
+        '<span class="material-symbols-outlined">reply</span>Phản hồi</button>' +
+        '<div class="hsp-chat-thread-container" id="thread-container-' + threadId + '"></div>';
     messages.appendChild(botMsg);
     const bubble = botMsg.querySelector('.hsp-chat-bubble');
     messages.scrollTop = messages.scrollHeight;
@@ -23986,8 +24117,7 @@ async function submitHeaderChat() {
     let buffer = '';
     let firstChunkArrived = false;
 
-    // 🟢 REFACTORED: Tách system prompt và user query thành 2 messages riêng.
-    // Qwen 3.8 27B hiểu role rõ ràng hơn → output chuẩn hơn.
+    // System prompt định hình trợ lý tiếng Nhật cho người Việt
     const systemPrompt =
         'Bạn là trợ lý AI tiếng Nhật cho người Việt học JLPT. Trả lời NGẮN GỌN, ĐÚNG TRỌNG TÂM, bằng tiếng Việt.\n' +
         'Hỗ trợ: tra từ vựng (đọc, nghĩa, loại từ), phân tích câu (chủ-vị, trợ từ, thì), ' +
@@ -23998,15 +24128,17 @@ async function submitHeaderChat() {
         '- Dùng ```code block``` cho đoạn văn dài.\n' +
         '- Xuống dòng giữa các ý. Không chào hỏi dài dòng.';
 
-    // 🟢 MỚI: Mảng messages tách role — gửi qua callHybridAIStream qua options.messages
+    // 🟢 NEW THREAD: Câu chat mới = context mới, KHÔNG mang lịch sử từ thread khác
     const messagesArray = [
         { role: "system", content: systemPrompt },
         { role: "user",   content: text }
     ];
 
+    console.log(`MindDeck: New thread ${threadId} started (no memory from previous threads)`);
+
     try {
         await callHybridAIStream(
-            text,  // 🟢 promptText fallback cho Mistral/Groq cũ
+            text,  // promptText fallback cho Mistral/Groq cũ
             [],
             (chunk) => {
                 if (!firstChunkArrived) {
@@ -24021,7 +24153,8 @@ async function submitHeaderChat() {
                 const finalText = fullText || buffer;
                 if (finalText.trim()) {
                     bubble.innerHTML = renderHspMarkdown(finalText);
-                    hspChatHistory.push({ role: 'bot', text: finalText });
+                    // 🟢 Lưu vào chatThreads[threadId] để dùng cho reply sau này
+                    chatThreads[threadId].push({ role: 'assistant', text: finalText });
                 } else {
                     bubble.innerHTML = '<em style="color:#a0aec0;">AI không phản hồi. Vui lòng thử lại.</em>';
                 }
@@ -24044,12 +24177,174 @@ async function submitHeaderChat() {
     }
 }
 
+// =========================================================================
+// 🟢 THREAD REPLY FUNCTIONS
+// =========================================================================
+
+// Toggle hiển thị ô phản hồi dưới bot bubble
+function toggleReplyForm(threadId) {
+    if (hspChatStreaming) {
+        showToast('⏳ Đợi AI trả lời xong câu hiện tại...');
+        return;
+    }
+    const container = document.getElementById('thread-container-' + threadId);
+    if (!container) return;
+
+    // Nếu đã có form đang mở trong thread này → đóng lại
+    const existingForm = container.querySelector('.hsp-chat-reply-form');
+    if (existingForm) {
+        existingForm.remove();
+        return;
+    }
+
+    // Tạo form phản hồi
+    const form = document.createElement('div');
+    form.className = 'hsp-chat-reply-form';
+    form.innerHTML =
+        '<textarea placeholder="Phản hồi về câu trả lời này... (Enter để gửi, Shift+Enter xuống dòng)" rows="1"' +
+        '   oninput="autoResizeTextarea(this)"' +
+        '   onkeypress="if(event.key === \'Enter\' && !event.shiftKey){ event.preventDefault(); submitThreadReply(\'' + threadId + '\'); }"></textarea>' +
+        '<button onclick="submitThreadReply(\'' + threadId + '\')" title="Gửi phản hồi">' +
+        '<span class="material-symbols-outlined">arrow_upward</span></button>';
+    container.appendChild(form);
+
+    // Focus vào textarea
+    const ta = form.querySelector('textarea');
+    setTimeout(() => { try { ta.focus({ preventScroll: true }); } catch (_) { ta.focus(); } }, 50);
+}
+
+// Auto-resize textarea khi user gõ
+function autoResizeTextarea(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// Submit phản hồi trong thread — AI trả lời tiếp trong cùng context
+async function submitThreadReply(threadId) {
+    if (hspChatStreaming) return;
+    const container = document.getElementById('thread-container-' + threadId);
+    if (!container) return;
+
+    // Tìm textarea trong form
+    const form = container.querySelector('.hsp-chat-reply-form');
+    if (!form) return;
+    const ta = form.querySelector('textarea');
+    if (!ta) return;
+    const text = ta.value.trim();
+    if (!text) return;
+
+    // 🟢 Thread memory: dùng TOÀN BỘ lịch sử trong chatThreads[threadId]
+    // KHÔNG slice/drop — memory đầy đủ trong thread
+    if (!chatThreads[threadId]) chatThreads[threadId] = [];
+    chatThreads[threadId].push({ role: 'user', text: text });
+
+    // Render user reply message (thay form bằng message user)
+    form.remove();
+    const userReply = document.createElement('div');
+    userReply.className = 'hsp-chat-reply-msg user';
+    userReply.textContent = text;
+    container.appendChild(userReply);
+
+    // Auto-scroll chat panel
+    const messages = document.getElementById('hspChatMessages');
+    messages.scrollTop = messages.scrollHeight;
+
+    // Thêm bot placeholder trong thread
+    const botReply = document.createElement('div');
+    botReply.className = 'hsp-chat-reply-msg bot';
+    botReply.innerHTML = '<span class="hsp-typing">●●●</span>';
+    container.appendChild(botReply);
+    const bubble = botReply;
+    messages.scrollTop = messages.scrollHeight;
+
+    hspChatStreaming = true;
+    let buffer = '';
+    let firstChunkArrived = false;
+
+    // System prompt (giống submitHeaderChat)
+    const systemPrompt =
+        'Bạn là trợ lý AI tiếng Nhật cho người Việt học JLPT. Trả lời NGẮN GỌN, ĐÚNG TRỌNG TÂM, bằng tiếng Việt.\n' +
+        'Hỗ trợ: tra từ vựng (đọc, nghĩa, loại từ), phân tích câu (chủ-vị, trợ từ, thì), ' +
+        'ngữ pháp JLPT N5–N1 (cấu trúc + ví dụ minh họa), Hán tự (âm on/kun, bộ, nghĩa Hán Việt).\n' +
+        'Quy tắc định dạng:\n' +
+        '- Dùng **in đậm** cho từ khóa, cấu trúc.\n' +
+        '- Dùng `code` cho từ/câu tiếng Nhật (vd: `勉強する`).\n' +
+        '- Dùng ```code block``` cho đoạn văn dài.\n' +
+        '- Xuống dòng giữa các ý. Không chào hỏi dài dòng.';
+
+    // 🟢 FULL THREAD MEMORY: convert chatThreads[threadId] → messagesArray
+    // Không slice, không drop — toàn bộ context của thread được giữ
+    const threadHistory = chatThreads[threadId]
+        .filter(m => m && m.text && m.text.trim())
+        .slice(0, -1)  // exclude current user message (vừa push ở trên)
+        .map(m => ({
+            role: m.role === 'assistant' ? 'assistant' : 'user',
+            content: m.text
+        }));
+
+    const messagesArray = [
+        { role: "system", content: systemPrompt },
+        ...threadHistory,                          // 🟢 full thread memory (no drop)
+        { role: "user",   content: text }          // câu hỏi hiện tại
+    ];
+
+    console.log(`MindDeck: Thread ${threadId} reply — gửi ${threadHistory.length} tin nhắn context (full memory)`);
+
+    try {
+        await callHybridAIStream(
+            text,
+            [],
+            (chunk) => {
+                if (!firstChunkArrived) {
+                    firstChunkArrived = true;
+                    bubble.innerHTML = '';
+                }
+                buffer += chunk;
+                bubble.innerHTML = renderHspMarkdown(buffer) + '<span class="hsp-cursor">▌</span>';
+                messages.scrollTop = messages.scrollHeight;
+            },
+            (fullText) => {
+                const finalText = fullText || buffer;
+                if (finalText.trim()) {
+                    bubble.innerHTML = renderHspMarkdown(finalText);
+                    chatThreads[threadId].push({ role: 'assistant', text: finalText });
+                } else {
+                    bubble.innerHTML = '<em style="color:#a0aec0;">AI không phản hồi.</em>';
+                }
+                messages.scrollTop = messages.scrollHeight;
+            },
+            { messages: messagesArray }
+        );
+    } catch (err) {
+        console.error('submitThreadReply error:', err);
+        if (!firstChunkArrived) {
+            bubble.innerHTML = '<em style="color:#e53e3e;">Lỗi: ' + escapeHTML(err.message) + '</em>';
+        } else {
+            bubble.innerHTML = renderHspMarkdown(buffer) + '<em style="color:#e53e3e; display:block; margin-top:6px;">[Bị gián đoạn]</em>';
+        }
+    } finally {
+        hspChatStreaming = false;
+        // Mở lại form phản hồi để user có thể tiếp tục chat trong thread
+        // (chỉ nếu thread vẫn còn tồn tại)
+        if (chatThreads[threadId]) {
+            const existingForm = container.querySelector('.hsp-chat-reply-form');
+            if (!existingForm) {
+                toggleReplyForm(threadId);
+            }
+        }
+    }
+}
+
 function clearHeaderChat() {
     const messages = document.getElementById('hspChatMessages');
     const clearBtn = document.getElementById('hspChatClear');
     if (!messages) return;
     messages.innerHTML = '<div class="hsp-chat-empty">Hỏi AI về từ vựng, ngữ pháp, phân tích câu tiếng Nhật...<br>Hỗ trợ cả tiếng Việt &amp; tiếng Nhật.</div>';
     hspChatHistory = [];
+    // 🟢 Reset thread state
+    chatThreads = {};
+    threadCounter = 0;
+    activeReplyThreadId = null;
     if (clearBtn) clearBtn.classList.remove('visible');
 }
 
@@ -26557,26 +26852,30 @@ async function callGroqLlama4VisionStream(promptText, imagesArray, onChunk, onCo
 // =========================================================================
 // 🟢 HÀM GỌI MISTRAL (TEXT FALLBACK - MISTRAL SMALL LATEST)
 // =========================================================================
-async function callMistralAIStream(promptText, onChunk, onComplete) {
+async function callMistralAIStream(promptText, onChunk, onComplete, messagesArray) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    // 🟢 BUMP timeout 20s → 90s để đồng bộ với Groq (reasoning model cần thời gian)
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
+
+    // 🟢 BACKWARDS-COMPAT: Nếu caller truyền messagesArray → gửi messages array
+    // (cho phép multi-turn memory). Không → fallback gửi prompt string như cũ.
+    const payload = messagesArray && messagesArray.length > 0
+        ? { messages: messagesArray, model: "mistral-small-latest" }
+        : { prompt: promptText, model: "mistral-small-latest" };
 
     let response;
     try {
         response = await fetch(`${DICT_API_URL}/api/mistral`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                prompt: promptText,
-                model: "mistral-small-latest"
-            }),
+            body: JSON.stringify(payload),
             signal: controller.signal
         });
         clearTimeout(timeoutId);
     } catch (err) {
         clearTimeout(timeoutId);
         if (err.name === 'AbortError') {
-            throw new Error('Mistral timeout (20s)');
+            throw new Error('Mistral timeout (90s)');
         }
         throw new Error(`Lỗi mạng Mistral: ${err.message}`);
     }
@@ -26696,7 +26995,8 @@ async function callHybridAIStream(promptText, imagesArray = [], onChunk, onCompl
             await callMistralAIStream(
                 promptText,
                 (chunk) => { mistralText += chunk; onChunk(chunk); },
-                (finalText) => { safeOnComplete(finalText || mistralText); }
+                (finalText) => { safeOnComplete(finalText || mistralText); },
+                messagesArray  // 🟢 forward multi-turn memory cho Mistral fallback
             );
 
             if (!onCompleteFired && mistralText.trim() === "") {
