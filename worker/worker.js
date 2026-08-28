@@ -843,7 +843,17 @@ var worker_default = {
       // =========================================================================
       if (path === "/api/groq" && request.method === "POST") {
         try {
-          const { prompt, model = "qwen/qwen3.8-27b", images = [] } = await request.json();
+          // 🟢 BACKWARDS-COMPAT: Hỗ trợ cả `prompt` (string) cũ và `messages` (array) mới.
+          // - Nếu client gửi `messages` array → ưu tiên dùng (cho phép tách role system/user)
+          // - Nếu chỉ gửi `prompt` string → fallback về `[{role:"user", content: prompt}]`
+          const reqBody = await request.json();
+          const { prompt, model = "qwen/qwen3.8-27b", images = [] } = reqBody;
+          let messages;
+          if (Array.isArray(reqBody.messages) && reqBody.messages.length > 0) {
+            messages = reqBody.messages;
+          } else {
+            messages = [{ role: "user", content: prompt }];
+          }
 
           const keysString = env.GROQ_API_KEYS;
           if (!keysString) {
@@ -865,23 +875,22 @@ var worker_default = {
           // OpenAI-compatible format: content có thể là string (text) hoặc mảng (text + image_url)
           // Qwen 3.8 27B và Llama 4 Maverick đều hỗ trợ image_url qua Groq API
           const hasImages = Array.isArray(images) && images.length > 0;
-          let messageContent;
 
           if (hasImages) {
-            // VISION MODE: Qwen 3.8 27B / Llama 4 Maverick hỗ trợ image_url
+            // VISION MODE: Inject ảnh vào message cuối cùng (giả định là message của user)
             // 🟢 THÊM detail: "low" → Groq chỉ tính 85 token/ảnh (fixed)
             // thay vì tính token cho base64 string như text (~8000 token)
             // Đây là cách Groq Playground dùng để không bị TPM limit
-            messageContent = [
+            const lastIdx = messages.length - 1;
+            const lastMsg = messages[lastIdx];
+            const lastText = typeof lastMsg.content === 'string' ? lastMsg.content : '';
+            lastMsg.content = [
               ...images.map(img => ({
                 type: "image_url",
                 image_url: { url: img, detail: "low" }
               })),
-              { type: "text", text: prompt }
+              { type: "text", text: lastText || prompt || '' }
             ];
-          } else {
-            // TEXT MODE: Qwen 3.8 27B
-            messageContent = prompt;
           }
 
           let startIndex = Math.floor(Math.random() * apiKeys.length);
@@ -919,11 +928,19 @@ var worker_default = {
                 },
                 body: JSON.stringify({
                   model: modelId,
-                  messages: [{ role: "user", content: messageContent }],
-                  temperature: 0.2,
-                  max_completion_tokens: hasImages ? 3072 : 6096,
+                  messages: messages,
+                  // 🟢 BUMP temperature 0.2 → 0.6: Reasoning model cần nhiệt độ cao hơn
+                  // để suy nghĩ linh hoạt. 0.2 quá thấp → output bị "lười suy nghĩ".
+                  temperature: 0.6,
+                  // 🟢 BUMP token budget lên MAX 32768 để reasoning model (Qwen 3.8) có đủ chỗ suy nghĩ.
+                  // Lưu ý: đây là ceiling, không phải tiêu thụ thực tế. Reasoning thường ăn 3-6k tokens.
+                  max_completion_tokens: 32768,
                   stream: true,
-                  reasoning_format: "hidden"
+                  // 🟢 Đổi từ "hidden" → "parsed":
+                  // - "hidden": Qwen vẫn tính reasoning tokens nhưng không trả về → tối nghĩa, lãng phí
+                  // - "parsed": Reasoning được tách riêng vào delta.reasoning, content chỉ có final answer
+                  // Frontend chỉ render delta.content → tự động clean, không cần regex.
+                  reasoning_format: "parsed"
                 }),
                 signal: fetchController.signal
               });
@@ -945,6 +962,13 @@ var worker_default = {
                 throw new Error(errDetail);
               }
 
+              // 🟢 LỌC STREAM: Khi reasoning_format="parsed", Groq gửi các chunk có dạng:
+              //   data: {"choices":[{"delta":{"reasoning":"..."}}]}    ← reasoning nội bộ
+              //   data: {"choices":[{"delta":{"content":"..."}}]}     ← output thật
+              // Frontend chỉ quan tâm content. Ta forward thẳng response.body vì:
+              // 1. parseOpenAIStream ở frontend chỉ đọc delta.content → tự động bỏ reasoning
+              // 2. Giữ nguyên stream giúp SSE pass-through, không cần parse lại Worker-side
+              // (Nếu sau này cần lọc triệt để, dùng TransformStream để strip reasoning chunks.)
               return new Response(response.body, {
                 status: 200,
                 headers: {
@@ -989,7 +1013,15 @@ var worker_default = {
       // =========================================================================
       if (path === "/api/mistral" && request.method === "POST") {
         try {
-          const { prompt, model = "mistral-small-latest" } = await request.json();
+          // 🟢 BACKWARDS-COMPAT: Hỗ trợ cả `prompt` (string) cũ và `messages` (array) mới.
+          const reqBody = await request.json();
+          const { prompt, model = "mistral-small-latest" } = reqBody;
+          let messages;
+          if (Array.isArray(reqBody.messages) && reqBody.messages.length > 0) {
+            messages = reqBody.messages;
+          } else {
+            messages = [{ role: "user", content: prompt }];
+          }
           
           const keysString = env.MISTRAL_API_KEYS;
           if (!keysString) {
@@ -1023,8 +1055,9 @@ var worker_default = {
                 },
                 body: JSON.stringify({
                   model: model,
-                  messages: [{ role: "user", content: prompt }],
-                  temperature: 0.2,
+                  messages: messages,
+                  // 🟢 BUMP temperature 0.2 → 0.6 để đồng bộ với Groq
+                  temperature: 0.6,
                   stream: true
                 })
               });
