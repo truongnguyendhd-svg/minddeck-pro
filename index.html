@@ -1805,31 +1805,41 @@ body.hsp-open {
 .hsp-chat-clear:hover { background: #edf2f7; color: #1d1d1f; }
 .hsp-chat-clear.visible { display: inline-block; }
 
-/* ================= THREAD REPLY UI (v10 redesign) ================= */
-/* Bot message wrapper — flex column to stack bubble + thread container */
+/* ================= THREAD REPLY UI (v13 redesign) ================= */
+/* Bot message wrapper — flex column để stack [bubble-row] + [thread-container] */
 .hsp-chat-msg.bot { 
     flex-direction: column; 
-    align-items: flex-start; 
+    align-items: stretch; 
 }
-.hsp-chat-msg.bot .hsp-chat-bubble { 
-    width: 100%; 
-    box-sizing: border-box; 
+
+/* 🟢 MỚI: Bubble row — flex ngang chứa [bubble] + [reply button] */
+/* Reply button nằm bên phải bubble, cùng dòng, căn bottom */
+.hsp-chat-bubble-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    width: 100%;
+}
+.hsp-chat-bubble-row .hsp-chat-bubble {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
 }
 
 /* Nút Phản hồi — icon-only, nền trắng, bo tròn, shadow nhẹ */
 .hsp-chat-reply-btn {
-    margin-top: 8px;
     background: #ffffff;
     border: none;
     color: #6b7280;
     cursor: pointer;
-    padding: 6px;
+    padding: 0;
     border-radius: 50%;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 30px;
     height: 30px;
+    flex-shrink: 0;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
     transition: all 0.18s ease;
     font-family: inherit;
@@ -1843,26 +1853,27 @@ body.hsp-open {
 .hsp-chat-reply-btn:active { transform: translateY(0); }
 .hsp-chat-reply-btn .material-symbols-outlined { font-size: 17px; font-weight: 500; }
 
-/* Thread container — wraps toàn bộ chủ đề (gốc + replies) trên nền xám nhạt */
+/* Thread container — nền xám, LIỀN BORDER bot bubble (margin-top: 0) */
 .hsp-chat-thread-container {
     width: 100%;
-    margin-top: 10px;
+    margin-top: 0;
     padding: 12px;
     background: #f5f5f7;
     border-radius: 14px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
-/* 🟢 Khi thread container rỗng (chưa có reply nào) → ẩn hoàn toàn */
 .hsp-chat-thread-container:empty {
     display: none;
     margin: 0;
     padding: 0;
 }
 
-/* Reply form — bỏ border-left xanh, dùng border xám nhẹ */
+/* Reply form */
 .hsp-chat-reply-form {
     display: flex;
     gap: 6px;
@@ -1915,7 +1926,7 @@ body.hsp-open {
 .hsp-chat-reply-cancel:hover { background: #f3f4f6 !important; color: #e53e3e !important; }
 .hsp-chat-reply-cancel .material-symbols-outlined { font-size: 16px; }
 
-/* User reply bubble — sát bot bubble nhận phản hồi, max-width 80%, căn phải */
+/* User reply bubble */
 .hsp-chat-reply-msg.user {
     align-self: flex-end;
     max-width: 80%;
@@ -1931,12 +1942,12 @@ body.hsp-open {
     overflow-wrap: anywhere;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     animation: hspMsgIn 0.25s ease;
-    margin-top: 0;  /* sát bubble trên */
+    margin-top: 0;
 }
 
-/* Bot reply bubble — rộng = bubble gốc (100%), căn trái, nền trắng */
+/* Bot reply bubble — full width */
 .hsp-chat-reply-msg.bot {
-    align-self: stretch;  /* full width = bằng bubble gốc */
+    align-self: stretch;
     width: 100%;
     box-sizing: border-box;
     padding: 11px 14px;
@@ -1952,7 +1963,7 @@ body.hsp-open {
     overflow-wrap: anywhere;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
     animation: hspMsgIn 0.25s ease;
-    margin-top: 0;  /* sát user reply bubble trên */
+    margin-top: 0;
 }
 .hsp-chat-reply-msg.bot p { margin: 0 0 8px 0; }
 .hsp-chat-reply-msg.bot p:last-child { margin-bottom: 0; }
@@ -25922,9 +25933,12 @@ async function submitHeaderChat() {
     const botMsg = document.createElement('div');
     botMsg.className = 'hsp-chat-msg bot';
     botMsg.dataset.threadId = threadId;
-    botMsg.innerHTML = '<div class="hsp-chat-bubble"><span class="hsp-typing">●●●</span></div>' +
-        '<button class="hsp-chat-reply-btn" onclick="event.stopPropagation(); toggleReplyForm(\'' + threadId + '\')" title="Phản hồi về câu trả lời này">' +
-        '<span class="material-symbols-outlined">reply</span></button>' +
+    botMsg.innerHTML = '<div class="hsp-chat-bubble-row">' +
+        '  <div class="hsp-chat-bubble"><span class="hsp-typing">●●●</span></div>' +
+        '  <button class="hsp-chat-reply-btn" onclick="event.stopPropagation(); toggleReplyForm(\'' + threadId + '\')" title="Phản hồi về câu trả lời này">' +
+        '    <span class="material-symbols-outlined">reply</span>' +
+        '  </button>' +
+        '</div>' +
         '<div class="hsp-chat-thread-container" id="thread-container-' + threadId + '"></div>';
     messages.appendChild(botMsg);
     const bubble = botMsg.querySelector('.hsp-chat-bubble');
@@ -26105,8 +26119,8 @@ async function submitThreadReply(threadId) {
     const botReplyWrapper = document.createElement('div');
     botReplyWrapper.className = 'hsp-chat-reply-msg-wrapper';
     botReplyWrapper.innerHTML =
-        '<div class="hsp-chat-reply-msg bot"><span class="hsp-typing">●●●</span></div>' +
-        '<div class="hsp-chat-reply-btn-wrapper">' +
+        '<div class="hsp-chat-bubble-row">' +
+        '  <div class="hsp-chat-reply-msg bot"><span class="hsp-typing">●●●</span></div>' +
         '  <button class="hsp-chat-reply-btn" onclick="event.stopPropagation(); toggleReplyForm(\'' + childThreadId + '\', \'' + threadId + '\')" title="Phản hồi tiếp">' +
         '    <span class="material-symbols-outlined">reply</span>' +
         '  </button>' +
