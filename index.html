@@ -26087,20 +26087,41 @@ async function regenerateResponse(threadId) {
         return;
     }
 
-    // Lấy user prompt cuối cùng (cho fallback promptText)
-    const lastUserMsg = [...threadHistory].reverse().find(m => m.role === 'user');
-    const originalText = lastUserMsg ? lastUserMsg.text : threadHistory[0].text;
+    // 🟢 Lấy originalText khác nhau cho A1 vs A2
+    // - A1: Lấy user message ĐẦU TIÊN (Q1 — prompt gốc)
+    // - A2: Lấy user message CUỐI CÙNG (user reply — câu hỏi cho A2)
+    let originalText;
+    if (isA1) {
+        const firstUserMsg = threadHistory.find(m => m.role === 'user');
+        originalText = firstUserMsg ? firstUserMsg.text : threadHistory[0].text;
+    } else {
+        const lastUserMsg = [...threadHistory].reverse().find(m => m.role === 'user');
+        originalText = lastUserMsg ? lastUserMsg.text : threadHistory[0].text;
+    }
 
     // 🟢 FIX: KHÔNG xóa threadContent (replies bên trong) — chỉ clear bubble hiện tại
     // Tránh xóa A2 khi regenerate A1, hoặc xóa replies của A2 khi regenerate A2
     bubble.innerHTML = '<span class="hsp-typing">●●●</span>';
 
-    // Reset chatThreads[threadId] — xóa assistant message cuối (câu trả lời cũ)
-    const historyWithoutLastAssistant = threadHistory.filter((m, i, arr) => {
-        if (m.role === 'assistant' && i === arr.length - 1) return false;
-        return true;
-    });
-    chatThreads[threadId] = historyWithoutLastAssistant.map(m => ({ ...m }));
+    // 🟢 FIX: Reset chatThreads[threadId] khác nhau cho A1 vs A2
+    if (isA1) {
+        // A1: Reset về [{user: Q1}] — chỉ giữ user message ĐẦU TIÊN (prompt gốc)
+        // Không giữ lại user replies (để AI không dùng reply làm prompt)
+        const firstUserMsg = threadHistory.find(m => m.role === 'user');
+        if (firstUserMsg) {
+            chatThreads[threadId] = [{ role: 'user', text: firstUserMsg.text }];
+        } else {
+            showToast('⚠️ Không tìm thấy user prompt gốc');
+            return;
+        }
+    } else {
+        // A2: Giữ history trừ assistant cuối (câu trả lời cũ sắp được thay thế)
+        const historyWithoutLastAssistant = threadHistory.filter((m, i, arr) => {
+            if (m.role === 'assistant' && i === arr.length - 1) return false;
+            return true;
+        });
+        chatThreads[threadId] = historyWithoutLastAssistant.map(m => ({ ...m }));
+    }
 
     hspChatStreaming = true;
     let buffer = '';
@@ -26283,6 +26304,13 @@ async function submitThreadReply(threadId) {
     // 🟢 Lưu parentThreadId để khi user submit reply, ta biết inherit memory từ đâu
     botReplyWrapper.dataset.parentThreadId = threadId;
     botReplyWrapper.dataset.threadId = childThreadId;
+    // 🟢 FIX: Khởi tạo chatThreads[childThreadId] ngay để regenerateResponse có thể dùng
+    // Inherit từ parent (đã có user Q1 + assistant A1 + user reply) + user reply đã push ở trên
+    // Assistant A2 sẽ được push sau khi AI trả lời xong
+    if (!chatThreads[childThreadId]) {
+        chatThreads[childThreadId] = chatThreads[threadId].map(m => ({ ...m }));
+        console.log(`MindDeck: Thread ${childThreadId} initialized with ${chatThreads[childThreadId].length} messages from parent ${threadId}`);
+    }
     const bubble = botReplyWrapper.querySelector('.hsp-chat-reply-msg.bot');
     messages.scrollTop = messages.scrollHeight;
 
