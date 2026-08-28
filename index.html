@@ -26041,8 +26041,8 @@ async function submitHeaderChat() {
 // 🟢 THREAD REPLY FUNCTIONS
 // =========================================================================
 
-// 🟢 Regenerate response — gọi lại AI với prompt gốc của thread
-// Xóa A1 content hiện tại, hiển thị typing, gọi AI lại
+// 🟢 Regenerate response — gọi lại AI với prompt/context gốc của thread
+// Hỗ trợ cả A1 (data-thread-id trên .hsp-chat-msg.bot) và A2 (data-thread-id trên .hsp-chat-reply-msg-wrapper)
 async function regenerateResponse(threadId) {
     if (hspChatStreaming) {
         showToast('⏳ Đợi AI trả lời xong câu hiện tại...');
@@ -26053,35 +26053,60 @@ async function regenerateResponse(threadId) {
         return;
     }
 
-    // Lấy user prompt gốc (first message in thread)
-    const originalUserMsg = chatThreads[threadId].find(m => m.role === 'user' || m.role === 'user');
-    if (!originalUserMsg) {
-        showToast('⚠️ Không tìm thấy prompt gốc');
-        return;
+    // Tìm element — có thể là A1 (.hsp-chat-msg.bot) hoặc A2 (.hsp-chat-reply-msg-wrapper)
+    let wrapper = document.querySelector('.hsp-chat-msg.bot[data-thread-id="' + threadId + '"]');
+    let isA1 = true;
+    if (!wrapper) {
+        wrapper = document.querySelector('.hsp-chat-reply-msg-wrapper[data-thread-id="' + threadId + '"]');
+        isA1 = false;
     }
-    const originalText = originalUserMsg.text;
-
-    // Tìm bot message element
-    const botMsg = document.querySelector('.hsp-chat-msg.bot[data-thread-id="' + threadId + '"]');
-    if (!botMsg) {
+    if (!wrapper) {
         showToast('⚠️ Không tìm thấy bubble để regenerate');
         return;
     }
-    const bubble = botMsg.querySelector('.hsp-chat-bubble');
-    const threadContent = botMsg.querySelector('.hsp-chat-thread-content');
 
-    // Xóa A1 content hiện tại + thread content (replies)
+    // Bubble selector khác nhau: A1 dùng .hsp-chat-bubble, A2 dùng .hsp-chat-reply-msg.bot
+    const bubble = isA1
+        ? wrapper.querySelector('.hsp-chat-bubble')
+        : wrapper.querySelector('.hsp-chat-reply-msg.bot');
+    const threadContent = wrapper.querySelector('.hsp-chat-thread-content');
+
+    if (!bubble) {
+        showToast('⚠️ Không tìm thấy bubble content');
+        return;
+    }
+
+    // Lấy prompt/context gốc từ chatThreads[threadId]
+    // - A1: chỉ có 1 user message → dùng nó
+    // - A2: có nhiều messages (inherit từ parent + user reply) → dùng toàn bộ history
+    const threadHistory = chatThreads[threadId].filter(m => m && m.text && m.text.trim());
+    if (threadHistory.length === 0) {
+        showToast('⚠️ Không tìm thấy prompt gốc');
+        return;
+    }
+
+    // Lấy user prompt cuối cùng (cho fallback promptText)
+    const lastUserMsg = [...threadHistory].reverse().find(m => m.role === 'user');
+    const originalText = lastUserMsg ? lastUserMsg.text : threadHistory[0].text;
+
+    // Xóa content hiện tại + thread content (replies bên trong)
     bubble.innerHTML = '<span class="hsp-typing">●●●</span>';
     if (threadContent) threadContent.innerHTML = '';
 
-    // Reset chatThreads[threadId] — chỉ giữ lại user prompt gốc
-    chatThreads[threadId] = [{ role: 'user', text: originalText }];
+    // Reset chatThreads[threadId] — giữ lại history (không gồm assistant cuối cùng)
+    // Xóa assistant message cuối (câu trả lời cũ sắp được thay thế)
+    const historyWithoutLastAssistant = threadHistory.filter((m, i, arr) => {
+        // Giữ tất cả trừ assistant message cuối cùng
+        if (m.role === 'assistant' && i === arr.length - 1) return false;
+        return true;
+    });
+    chatThreads[threadId] = historyWithoutLastAssistant.map(m => ({ ...m }));
 
     hspChatStreaming = true;
     let buffer = '';
     let firstChunkArrived = false;
 
-    // System prompt (giống submitHeaderChat)
+    // System prompt
     const systemPrompt =
         'Bạn là trợ lý AI tiếng Nhật cho người Việt học JLPT. Trả lời NGẮN GỌN, ĐÚNG TRỌNG TÂM, bằng tiếng Việt.\n' +
         'Hỗ trợ: tra từ vựng (đọc, nghĩa, loại từ), phân tích câu (chủ-vị, trợ từ, thì), ' +
@@ -26092,12 +26117,16 @@ async function regenerateResponse(threadId) {
         '- Dùng ```code block``` cho đoạn văn dài.\n' +
         '- Xuống dòng giữa các ý. Không chào hỏi dài dòng.';
 
+    // 🟢 Build messagesArray từ chatThreads[threadId] (đã xóa assistant cuối)
     const messagesArray = [
         { role: "system", content: systemPrompt },
-        { role: "user",   content: originalText }
+        ...chatThreads[threadId].map(m => ({
+            role: m.role === 'assistant' ? 'assistant' : 'user',
+            content: m.text
+        }))
     ];
 
-    console.log(`MindDeck: Regenerating response for thread ${threadId}`);
+    console.log(`MindDeck: Regenerating response for thread ${threadId} (${isA1 ? 'A1' : 'A2'}), ${messagesArray.length} messages`);
 
     const messages = document.getElementById('hspChatMessages');
     try {
@@ -26243,7 +26272,10 @@ async function submitThreadReply(threadId) {
         '<div class="hsp-chat-reply-msg bot"><span class="hsp-typing">●●●</span></div>' +
         '<div class="hsp-chat-reply-btn-wrapper">' +
         '  <button class="hsp-chat-reply-btn" onclick="event.stopPropagation(); toggleReplyForm(\'' + childThreadId + '\', \'' + threadId + '\')" title="Phản hồi tiếp">' +
-        '    <span class="material-symbols-outlined">reply</span>' +
+        '    <span class="material-symbols-outlined">arrow_forward</span>' +
+        '  </button>' +
+        '  <button class="hsp-chat-reply-btn" onclick="event.stopPropagation(); regenerateResponse(\'' + childThreadId + '\')" title="Tạo câu trả lời mới">' +
+        '    <span class="material-symbols-outlined">refresh</span>' +
         '  </button>' +
         '</div>' +
         '<div class="hsp-chat-thread-content" id="thread-content-' + childThreadId + '"></div>';
