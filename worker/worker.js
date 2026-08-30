@@ -900,6 +900,19 @@ var worker_default = {
             const currentIndex = (startIndex + i) % apiKeys.length;
             const currentKey = apiKeys[currentIndex];
 
+            // 🟢 FIX BUG "fetchTimeoutId is not defined":
+            // Trước đây `fetchTimeoutId` được khai báo bằng `const` bên trong `try {}`
+            // → không visible ở `catch {}` block → khi API key thất bại, code cố gọi
+            // clearTimeout(fetchTimeoutId) trong catch → ném ReferenceError ra ngoài,
+            // làm sập toàn bộ endpoint /api/groq và trả về frontend lỗi:
+            //   "fetchTimeoutId is not defined"  ← Đây chính là lỗi user gặp phải
+            //   trong tính năng Gia sư AI của PDF Reader!
+            // FIX: Khai báo fetchTimeoutId ở scope NGOÀI try (let = null),
+            // gán giá trị bên trong try, và clear an toàn trong catch.
+            // Tương tự với fetchTimeoutMs để catch có thể đọc được khi log.
+            let fetchTimeoutMs = hasImages ? 90000 : 30000; // 90s vision, 30s text
+            let fetchTimeoutId = null;
+
             try {
               let finalKey = currentKey;
               let apiUrl = "https://api.groq.com/openai/v1/chat/completions";
@@ -916,9 +929,9 @@ var worker_default = {
 
               // 🟢 Set timeout cho fetch Groq — tránh Worker treo mãi nếu Groq chậm
               // Vision request cần thời gian dài (OCR + fetch ảnh URL)
-              const fetchTimeoutMs = hasImages ? 90000 : 30000; // 90s vision, 30s text
+              fetchTimeoutMs = hasImages ? 90000 : 30000; // 90s vision, 30s text
               const fetchController = new AbortController();
-              const fetchTimeoutId = setTimeout(() => fetchController.abort(), fetchTimeoutMs);
+              fetchTimeoutId = setTimeout(() => fetchController.abort(), fetchTimeoutMs);
 
               const response = await fetch(apiUrl, {
                 method: 'POST',
@@ -980,7 +993,12 @@ var worker_default = {
               });
 
             } catch (error) {
-              clearTimeout(fetchTimeoutId);
+              // 🟢 FIX: clearTimeout chỉ chạy khi fetchTimeoutId đã được gán
+              // (tránh ReferenceError nếu fetch ném lỗi trước cả khi setTimeout chạy)
+              if (fetchTimeoutId !== null) {
+                clearTimeout(fetchTimeoutId);
+                fetchTimeoutId = null;
+              }
               if (error.name === 'AbortError') {
                 console.warn(`⚠️ Groq API Key thứ ${currentIndex + 1} timeout sau ${fetchTimeoutMs/1000}s`);
                 lastErrorMessage = `Timeout sau ${fetchTimeoutMs/1000}s (vision request chậm — thử gửi ảnh nhỏ hơn)`;
