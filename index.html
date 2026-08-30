@@ -27440,7 +27440,7 @@ function saveGrammarToDeck() {
     );
 }
 
-/* ================= MINI MARKDOWN PARSER (TỐI ƯU CHO GEMINI AI) ================= */
+/* ================= MINI MARKDOWN PARSER (TỐI ƯU CHO GROQ QWEN AI) ================= */
 function parseAIMarkdown(text) {
     if (!text) return "";
 
@@ -28571,10 +28571,10 @@ async function askAIWhyWrong() {
         hideLoading();
         showAIModal(response, "Giải thích đáp án");
     } catch (err) {
-        console.warn("⚠️ Groq gặp sự cố khi giải thích trắc nghiệm. Chuyển sang Gemini...", err.message);
+        console.warn("⚠️ Groq Qwen (callHybridAI) gặp sự cố khi giải thích trắc nghiệm. Chuyển sang Groq Qwen dự phòng...", err.message);
         
         try {
-            // Tự động lùi về Gemini cứu hộ
+            // Tự động lùi về Groq Qwen cứu hộ (callGeminiAI da migration sang /api/groq qwen3.8-27b)
             const response = await callGeminiAI(prompt);
             hideLoading();
             showAIModal(response, "Giải thích đáp án");
@@ -28588,114 +28588,74 @@ async function askAIWhyWrong() {
 
 
 
-/* ================= HỆ THỐNG GỌI VERCEL API (GEMINI) ================= */
+/* ================= HỆ THỐNG GỌI AI QUA GROQ QWEN 3.8 27B =================
+   🟢 LỊCH SỬ: Trước đây file này gọi /api/gemini (Google Gemini 3.7 Flash).
+   Đã MIGRATION sang /api/groq với model "qwen/qwen3.8-27b" của Groq.
+   Giữ nguyên tên hàm callGeminiAIStream / callGeminiAI để bảo toàn 100%
+   tương thích với các caller cũ (Kanji Builder, Gia sư Ngữ pháp, OCR PDF,
+   mnemonic, generate examples, kana handwriting evaluation...) — không cần
+   sửa bất kỳ dòng gọi nào trong 9 caller cũ.
+   ========================================================================= */
 async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback, onCompleteCallback) {
-    // ⏱️ TIMEOUT 20s cho fetch - chống treo pending mãi
+    // 🟢 Reasoning model (Qwen 3.8) cần thời gian dài để suy nghĩ trước khi emit content
+    //    → 90s cho text thuần, 120s cho vision (Groq phải fetch ảnh URL + OCR + stream)
+    const hasImages = Array.isArray(imagesArray) && imagesArray.length > 0;
+    const fetchTimeoutMs = hasImages ? 120000 : 90000;
     const fetchController = new AbortController();
-    const fetchTimeoutId = setTimeout(() => fetchController.abort(), 20000);
+    const fetchTimeoutId = setTimeout(() => fetchController.abort(), fetchTimeoutMs);
 
     let response;
     try {
-        response = await fetch(`${DICT_API_URL}/api/gemini`, {
+        response = await fetch(`${DICT_API_URL}/api/groq`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: promptText, images: imagesArray }),
+            // 🟢 Worker /api/groq hỗ trợ payload dạng { prompt: string, images: string[], model: string }
+            //    — Worker sẽ tự wrap thành [{role:'user', content: prompt}] + inject images vào message.
+            //    Worker cũng tự set temperature=0.6, max_completion_tokens=32768,
+            //    reasoning_format="parsed" để tách reasoning khỏi content.
+            body: JSON.stringify({
+                prompt: promptText,
+                model: "qwen/qwen3.8-27b",
+                images: imagesArray
+            }),
             signal: fetchController.signal
         });
         clearTimeout(fetchTimeoutId);
     } catch (fetchErr) {
         clearTimeout(fetchTimeoutId);
-        // Phân biệt lỗi timeout và lỗi mạng thường
         if (fetchErr.name === 'AbortError') {
-            throw new Error('Gemini timeout (20s) - server không phản hồi');
+            throw new Error(`Groq Qwen timeout (${fetchTimeoutMs / 1000}s) - server không phản hồi`);
         }
-        throw new Error(`Lỗi mạng Gemini: ${fetchErr.message}`);
+        throw new Error(`Lỗi mạng Groq Qwen: ${fetchErr.message}`);
     }
 
     if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        // 🟢 CẬP NHẬT: Cộng dồn thêm trường "detail" do Worker truyền về để in ra chính xác lỗi từ Google
+        // 🟢 Worker /api/groq truyền cả trường "detail" (lỗi thật từ Groq) để debug
         const detailStr = errData.detail ? `\n(Chi tiết lỗi: ${errData.detail})` : "";
         throw new Error((errData.error || 'Yêu cầu kết nối AI thất bại') + detailStr);
     }
 
     const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
-    let fullResponseText = '';
-    let lastChunkTime = Date.now();
-
-    try {
-        while (true) {
-            // ⏱️ TIMEOUT 25s cho mỗi chunk read - nếu server im lặng quá lâu → abort
-            const readController = new AbortController();
-            const readTimeoutId = setTimeout(() => readController.abort(), 25000);
-
-            let readResult;
-            try {
-                readResult = await Promise.race([
-                    reader.read(),
-                    new Promise((_, reject) => {
-                        readController.signal.addEventListener('abort', () => {
-                            reject(new Error('Gemini stream timeout (25s không có data)'));
-                        });
-                    })
-                ]);
-                clearTimeout(readTimeoutId);
-            } catch (readErr) {
-                clearTimeout(readTimeoutId);
-                // Hủy reader để giải phóng tài nguyên
-                try { await reader.cancel(); } catch (e) {}
-                // Nếu đã có 1 phần text → trả về phần đó thay vì báo lỗi
-                if (fullResponseText.trim()) {
-                    console.warn('⚠️ Gemini stream bị cắt giữa chừng, trả về partial text:', fullResponseText.length, 'chars');
-                    if (onCompleteCallback) onCompleteCallback(fullResponseText);
-                    return;
-                }
-                throw readErr.name === 'AbortError' ? new Error('Gemini stream timeout') : readErr;
-            }
-
-            const { done, value } = readResult;
-            if (done) break;
-
-            lastChunkTime = Date.now();
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop(); // Giữ lại dòng dở dang cuối cùng
-
-            for (const line of lines) {
-                const cleanLine = line.trim();
-                if (!cleanLine.startsWith('data: ')) continue;
-
-                const dataStr = cleanLine.replace(/^data:\s*/, '');
-
-                try {
-                    const parsed = JSON.parse(dataStr);
-                    // Giải mã cấu trúc JSON của từng chunk nhỏ từ Google Gemini
-                    const chunkText = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (chunkText) {
-                        fullResponseText += chunkText;
-                        onChunkCallback(chunkText); // Đẩy từ mới ra giao diện tức thì
-                    }
-                } catch (e) {
-                    // Bỏ qua nếu dòng bị lỗi hoặc chưa truyền tải trọn vẹn
-                }
-            }
-        }
-
-        if (onCompleteCallback) {
-            onCompleteCallback(fullResponseText);
-        }
-    } catch (err) {
-        console.error("Lỗi đọc Stream phía Client:", err);
-        try { await reader.cancel(); } catch (e) {}
-        throw err;
+    // 🟢 TÁI SỬ DỤNG parseOpenAIStream (đã có sẵn cho Groq/Mistral ở phía dưới):
+    //    - Tách delta.content (bỏ delta.reasoning do worker set reasoning_format="parsed")
+    //    - Bỏ qua chunk reasoning-only (chỉ có delta.reasoning, không có delta.content)
+    //    - Clean ```json fence và <think> tags (reasoning leak)
+    //    - Timeout 25s cho mỗi chunk read (bên trong parseOpenAIStream)
+    //    - Partial recovery: nếu stream bị cắt giữa chừng có text, trả về partial text
+    // Trước đây dùng inline parser riêng cho Gemini (parsed.candidates[0].content.parts[0].text),
+    // giờ dùng chung parser OpenAI-compatible vì Groq dùng OpenAI Streaming format.
+    const finalText = await parseOpenAIStream(reader, onChunkCallback, { cleanThink: true });
+    if (onCompleteCallback) {
+        onCompleteCallback(finalText);
     }
 }
 
-// Ghi đè lại callGeminiAI thành một wrapper đồng bộ ngược
-// Việc này giúp duy trì 100% khả năng tương thích với tất cả các tính năng cũ của bạn
-// (như Kanji Builder, Gia sư Ngữ pháp, Thống kê...) mà không cần phải viết lại chúng.
+// 🟢 Wrapper đồng bộ ngược (giữ nguyên để 9 caller cũ không cần sửa)
+// — Tên hàm vẫn là callGeminiAI để bảo toàn 100% tương thích với:
+//   Kanji Builder, Gia sư Ngữ pháp, Thống kê, OCR PDF, Mnemonic,
+//   Generate Examples, Kana Handwriting Evaluation, Quiz Feedback...
+// Trên thực tế đã MIGRATION sang Groq Qwen 3.8 27B qua /api/groq.
 async function callGeminiAI(promptText, imagesArray = []) {
     let fullText = "";
     
@@ -29571,7 +29531,7 @@ async function openAdminAutoGrammarModal() {
     const ok = await showConfirm(
         "Khởi chạy bồi đắp tự động? 🚀",
         `Hệ thống phát hiện có <b>${totalEmpty} cấu trúc ngữ pháp</b> bị trống thông tin.<br><br>
-         AI Gemini sẽ **chạy ngầm liên tục** bồi đắp từng đợt 5 câu cho đến khi hoàn thành hoặc cho tới khi bạn nhấn dừng.<br>
+         AI Groq Qwen sẽ **chạy ngầm liên tục** bồi đắp từng đợt 5 câu cho đến khi hoàn thành hoặc cho tới khi bạn nhấn dừng.<br>
          <i>* Đã cấu trúc thuật toán tự phục hồi (Auto-Retry) nếu chạm hạn mức giới hạn API của Google.</i>`,
         "Chạy tiến trình",
         "Hủy bỏ"
@@ -29675,7 +29635,7 @@ async function startContinuousReplenish(totalEmpty) {
         ]`;
 
         try {
-            // 3. Gọi Gemini AI
+            // 3. Gọi Groq Qwen 3.8 27B (qua wrapper callGeminiAI)
             let aiResponse = await callGeminiAI(prompt);
             let cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
             
@@ -30517,7 +30477,7 @@ async function triggerPdfAI(actionType, croppedBase64 = null) {
     }
 
     try {
-        // 3. GỌI API GEMINI (Truyền Prompt + Array chứa 1 ảnh Base64)
+        // 3. GỌI API GROQ QWEN 3.8 27B (Truyền Prompt + Array chứa 1 ảnh Base64)
         const aiResponse = await callGeminiAI(prompt, [base64Image]);
 
         // 4. XỬ LÝ KẾT QUẢ TRẢ VỀ (BÓC TÁCH JSON NẾU CÓ)
@@ -35058,16 +35018,16 @@ async function executeAiAction(actionType) {
                 let cleanResponse = "";
                 let newExs = null;
 
-                // 🟢 THIẾT LẬP VÒNG LẶP THỬ SAI TỰ ĐỘNG CHUYỂN HƯỚNG SANG GEMINI
+                // 🟢 THIẾT LẬP VÒNG LẶP THỬ SAI TỰ ĐỘNG CHUYỂN HƯỚNG SANG GROQ QWEN DỰ PHÒNG
                 try {
                     aiResponse = await callHybridAI(aiPrompt);
                     cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
                     newExs = JSON.parse(cleanResponse);
                 } catch (groqJsonError) {
-                    console.warn("⚠️ Groq Qwen3.6-27b bị tràn bộ nhớ hoặc lỗi JSON. Tự động chuyển sang Gemini...", groqJsonError.message);
+                    console.warn("⚠️ Groq Qwen (callHybridAI) bị tràn bộ nhớ hoặc lỗi JSON. Tự động chuyển sang Groq Qwen dự phòng (callGeminiAI)...", groqJsonError.message);
                     showToast("⚠️ Trình xử lý chính bận. Đang chuyển hướng sang Gia sư dự phòng...");
                     
-                    // Gọi sang chốt chặn dự phòng Gemini
+                    // Gọi sang chốt chặn dự phòng Groq Qwen (callGeminiAI da migration sang /api/groq)
                     aiResponse = await callGeminiAI(aiPrompt);
                     cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
                     newExs = JSON.parse(cleanResponse);
@@ -35219,7 +35179,7 @@ async function saveExamplesToCard() {
    Mở khi user bấm nút "draw" (icon bút chì) trong ex-actions-row.
    Logic:
    1. Gọi D1 lấy ví dụ → nếu đủ 15 câu → bốc random 1 câu (KHÔNG gọi AI)
-   2. Nếu D1 chưa đủ → AI sinh câu mới (Groq Qwen → Gemini fallback)
+   2. Nếu D1 chưa đủ → AI sinh câu mới (Groq Qwen primary qua callHybridAI → Groq Qwen fallback qua callGeminiAI)
    3. Hiển thị câu trong #cloudExampleModal (modal nổi trên cùng)
    4. User bấm OK → cập nhật vào thẻ đang học (Supabase)
    5. User bấm Hủy → đóng modal, không thay đổi thẻ
@@ -35296,7 +35256,7 @@ async function changeExampleInBlock(frontEncoded, exIndex) {
                 cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
                 newExs = JSON.parse(cleanResponse);
             } catch (groqErr) {
-                console.warn("⚠️ Groq lỗi JSON, chuyển Gemini...", groqErr.message);
+                console.warn("⚠️ Groq Qwen (callHybridAI) lỗi JSON, chuyển sang Groq Qwen dự phòng (callGeminiAI)...", groqErr.message);
                 aiResponse = await callGeminiAI(aiPrompt);
                 cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
                 newExs = JSON.parse(cleanResponse);
