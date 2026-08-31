@@ -28590,9 +28590,24 @@ async function askAIWhyWrong() {
 
 /* ================= HỆ THỐNG GỌI VERCEL API (GEMINI) ================= */
 async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback, onCompleteCallback) {
-    // ⏱️ TIMEOUT 20s cho fetch - chống treo pending mãi
+    // 🟢 FIX PDF AI timeout (lỗi "Gemini timeout (20s) - server không phản hồi"):
+    // Pipeline vision request (PDF reader gửi ảnh base64 inline) tốn 10-30s+ trước byte đầu:
+    //   1. Upload ảnh lớn (100KB-2MB) tới Worker: 2-5s
+    //   2. Worker forward sang Gemini API: 1-2s
+    //   3. Gemini decode base64 + chạy vision model (OCR + analyze): 5-15s
+    //   4. Bắt đầu stream chunk đầu tiên
+    // Timeout cũ 20s → abort giữa chừng → lỗi.
+    //
+    // Giải pháp: phân tầng timeout theo loại request:
+    //   - TEXT thuần: 30s fetch + 25s per-chunk (như cũ)
+    //   - VISION (có ảnh): 120s fetch + 60s per-chunk (đủ cho pipeline dài)
+    const hasImages = Array.isArray(imagesArray) && imagesArray.length > 0;
+    const fetchTimeoutMs = hasImages ? 120000 : 30000;   // 120s vision, 30s text
+    const chunkTimeoutMs = hasImages ? 60000 : 25000;    // 60s vision, 25s text
+    const timeoutLabel = hasImages ? '120s vision' : '30s text';
+
     const fetchController = new AbortController();
-    const fetchTimeoutId = setTimeout(() => fetchController.abort(), 20000);
+    const fetchTimeoutId = setTimeout(() => fetchController.abort(), fetchTimeoutMs);
 
     let response;
     try {
@@ -28607,7 +28622,7 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
         clearTimeout(fetchTimeoutId);
         // Phân biệt lỗi timeout và lỗi mạng thường
         if (fetchErr.name === 'AbortError') {
-            throw new Error('Gemini timeout (20s) - server không phản hồi');
+            throw new Error(`Gemini timeout (${timeoutLabel}) - server không phản hồi`);
         }
         throw new Error(`Lỗi mạng Gemini: ${fetchErr.message}`);
     }
@@ -28627,9 +28642,10 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
 
     try {
         while (true) {
-            // ⏱️ TIMEOUT 25s cho mỗi chunk read - nếu server im lặng quá lâu → abort
+            // ⏱️ TIMEOUT động cho mỗi chunk read - nếu server im lặng quá lâu → abort
+            // Vision request có thể có gap dài giữa các chunk (model đang suy nghĩ thêm)
             const readController = new AbortController();
-            const readTimeoutId = setTimeout(() => readController.abort(), 25000);
+            const readTimeoutId = setTimeout(() => readController.abort(), chunkTimeoutMs);
 
             let readResult;
             try {
@@ -28637,7 +28653,7 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
                     reader.read(),
                     new Promise((_, reject) => {
                         readController.signal.addEventListener('abort', () => {
-                            reject(new Error('Gemini stream timeout (25s không có data)'));
+                            reject(new Error(`Gemini stream timeout (${chunkTimeoutMs/1000}s không có data)`));
                         });
                     })
                 ]);
@@ -28652,7 +28668,7 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
                     if (onCompleteCallback) onCompleteCallback(fullResponseText);
                     return;
                 }
-                throw readErr.name === 'AbortError' ? new Error('Gemini stream timeout') : readErr;
+                throw readErr.name === 'AbortError' ? new Error(`Gemini stream timeout (${chunkTimeoutMs/1000}s)`) : readErr;
             }
 
             const { done, value } = readResult;
