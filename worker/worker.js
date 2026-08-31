@@ -687,151 +687,28 @@ var worker_default = {
           const base64Match = image.match(/^data:image\/[a-z]+;base64,(.+)$/i);
           const base64Clean = base64Match ? base64Match[1] : image;
 
-          // 🟢 FIX BUG "You have been forbidden to use this website" (imgbb HTTP 400, code 103):
-          // imgbb CHẶN Cloudflare Workers vì:
-          // 1. Request từ Worker có User-Agent: "Cloudflare-Workers" → bị block
-          // 2. IP xuất phát từ dải mạng Cloudflare → bị imgbb nhận diện là bot
-          //
-          // FIX: Thêm User-Agent + Accept header để giả lập browser thật.
-          // (imgbb chỉ chặn pattern chứ không verify kỹ — UA browser là đủ qua.)
-          // Nếu imgbb vẫn chặn → fallback sang tmpfiles.org (không cần API key).
-          //
-          // 🟢 LƯU Ý về catbox.moe: Đã thử nhưng bị lỗi "Invalid uploader" (HTTP 412)
-          // vì catbox mới thêm cơ chế anti-bot nghiêm ngặt (check Sec-Fetch headers).
-          // Đã chuyển sang tmpfiles.org — API đơn giản hơn và không chặn Cloudflare Workers.
-          const BROWSER_HEADERS = {
-            // 🟢 Đổi sang Firefox UA vì Chrome 120 đã bị imgbb blacklist
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0',
-            'Accept': 'application/json, text/html, */*',
-            'Accept-Language': 'en-US,en;q=0.9'
-          };
+          // Gọi imgbb API từ server-side (key ẩn trong env)
+          const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${env.IMGBB_API_KEY}&expiration=3600`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `image=${encodeURIComponent(base64Clean)}`
+          });
 
-          // 🟢 HÀM UPLOAD TMPFILES.ORG (FALLBACK TỐT NHẤT — không cần key, không chặn Worker)
-          // API: https://tmpfiles.org/api/v1/upload
-          // - Body: multipart/form-data với file binary
-          // - Trả về: JSON có trường "data": {"url": "https://tmpfiles.org/12345/abc.webp"}
-          // - URL cần convert: thay "tmpfiles.org/" → "tmpfiles.org/dl/" để lấy file trực tiếp
-          // - Ảnh tự xóa sau 1 giờ (60 phút)
-          // - Không có API key, không check User-Agent nghiêm ngặt
-          async function uploadToTmpfiles(base64DataUrl) {
-            const tmpMatch = base64DataUrl.match(/^data:image\/([a-z]+);base64,(.+)$/i);
-            if (!tmpMatch) throw new Error("Invalid base64 data URL");
-            const mime = tmpMatch[1];
-            const base64 = tmpMatch[2];
-            const binary = atob(base64);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
-            // Tạo multipart/form-data body thủ công
-            const ext = mime === 'jpeg' ? 'jpg' : mime;
-            const filename = `upload_${Date.now()}.${ext}`;
-            const boundary = '----CloudflareWorkerBoundary' + Math.random().toString(36).slice(2);
-            const body = new Uint8Array([
-              ...new TextEncoder().encode(
-                `--${boundary}\r\n` +
-                `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
-                `Content-Type: image/${mime}\r\n\r\n`
-              ),
-              ...bytes,
-              ...new TextEncoder().encode(`\r\n--${boundary}--\r\n`)
-            ]);
-
-            const tmpResponse = await fetch('https://tmpfiles.org/api/v1/upload', {
-              method: 'POST',
-              headers: {
-                'Content-Type': `multipart/form-data; boundary=${boundary}`,
-                ...BROWSER_HEADERS
-              },
-              body: body
-            });
-
-            if (!tmpResponse.ok) {
-              const errText = await tmpResponse.text().catch(() => '');
-              throw new Error(`tmpfiles HTTP ${tmpResponse.status}: ${errText.slice(0, 200)}`);
-            }
-
-            // Parse JSON response
-            const tmpData = await tmpResponse.json().catch(() => null);
-            if (!tmpData || !tmpData.data || !tmpData.data.url) {
-              throw new Error(`tmpfiles response không có URL: ${JSON.stringify(tmpData).slice(0, 200)}`);
-            }
-
-            // 🟢 CONVERT URL: tmpfiles.org/12345/abc.webp → tmpfiles.org/dl/12345/abc.webp
-            // (URL gốc trả về trang HTML preview, thêm /dl/ để lấy file trực tiếp)
-            const directUrl = tmpData.data.url.replace(
-              'tmpfiles.org/',
-              'tmpfiles.org/dl/'
-            );
-            return directUrl;
-          }
-
-          // 🟢 THỬ IMGBB TRƯỚC, FALLBACK TMPFILES.ORG
-          let imageUrl = null;
-          let provider = null;
-          let lastError = null;
-
-          // Lần 1: Thử imgbb (theo docs chính thức: dùng multipart/form-data, KHÔNG phải urlencoded)
-          // 🟢 FIX LỖI "You have been forbidden" (code 103):
-          // Trước đây dùng application/x-www-form-urlencoded → imgbb reject (có thể do mới update policy).
-          // Theo docs imgbb (https://api.imgbb.com/), cú pháp chính thức là:
-          //   curl --request POST "https://api.imgbb.com/1/upload?key=KEY&expiration=600" \
-          //        --form "image=<BASE64>"
-          // Tức là multipart/form-data với field tên "image" chứa base64 (KHÔNG có prefix data:image/...;base64,)
-          try {
-            // Tạo multipart/form-data body thủ công
-            const imgbbBoundary = '----ImgbbBoundary' + Math.random().toString(36).slice(2);
-            const imgbbBody = new Uint8Array([
-              ...new TextEncoder().encode(
-                `--${imgbbBoundary}\r\n` +
-                `Content-Disposition: form-data; name="image"\r\n\r\n`
-              ),
-              ...new TextEncoder().encode(base64Clean),
-              ...new TextEncoder().encode(`\r\n--${imgbbBoundary}--\r\n`)
-            ]);
-
-            const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${env.IMGBB_API_KEY}&expiration=600`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': `multipart/form-data; boundary=${imgbbBoundary}`,
-                ...BROWSER_HEADERS
-              },
-              body: imgbbBody
-            });
-
-            if (imgbbResponse.ok) {
-              const imgbbData = await imgbbResponse.json();
-              if (imgbbData.success && imgbbData.data && imgbbData.data.url) {
-                imageUrl = imgbbData.data.url;
-                provider = 'imgbb';
-              }
-            } else {
-              const errText = await imgbbResponse.text().catch(() => '');
-              lastError = `imgbb HTTP ${imgbbResponse.status}: ${errText.slice(0, 200)}`;
-              console.warn('imgbb upload failed, fallback to tmpfiles:', lastError);
-            }
-          } catch (imgbbErr) {
-            lastError = `imgbb error: ${imgbbErr.message}`;
-            console.warn('imgbb fetch error, fallback to tmpfiles:', imgbbErr.message);
-          }
-
-          // Lần 2: Nếu imgbb fail → thử tmpfiles.org (không cần key, không chặn Worker)
-          if (!imageUrl) {
-            try {
-              imageUrl = await uploadToTmpfiles(image);
-              provider = 'tmpfiles';
-              console.log('tmpfiles upload OK:', imageUrl);
-            } catch (tmpErr) {
-              console.error('tmpfiles also failed:', tmpErr.message);
-              lastError = `${lastError} | tmpfiles: ${tmpErr.message}`;
-            }
-          }
-
-          // Nếu cả 2 đều fail → trả lỗi cho frontend
-          if (!imageUrl) {
+          if (!imgbbResponse.ok) {
+            const errText = await imgbbResponse.text().catch(() => '');
+            console.warn('imgbb upload failed:', imgbbResponse.status, errText);
             return new Response(JSON.stringify({
-              error: 'Tất cả image host đều thất bại',
-              detail: lastError
+              error: `imgbb HTTP ${imgbbResponse.status}`,
+              detail: errText.slice(0, 300)
             }), {
+              status: 502,
+              headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+          }
+
+          const imgbbData = await imgbbResponse.json();
+          if (!imgbbData.success || !imgbbData.data || !imgbbData.data.url) {
+            return new Response(JSON.stringify({ error: "imgbb upload failed" }), {
               status: 502,
               headers: { ...corsHeaders, "Content-Type": "application/json" }
             });
@@ -839,10 +716,9 @@ var worker_default = {
 
           return new Response(JSON.stringify({
             success: true,
-            url: imageUrl,
-            provider: provider,  // 'imgbb' hoặc 'tmpfiles' (frontend có thể log để debug)
-            delete_url: null,
-            expiresIn: provider === 'imgbb' ? 3600 : 3600  // cả 2 đều 1 giờ
+            url: imgbbData.data.url,
+            delete_url: imgbbData.data.delete_url || null,
+            expiresIn: 3600
           }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" }
           });
@@ -866,15 +742,101 @@ var worker_default = {
       }
 
       // =========================================================================
-      // 🗑️ ENDPOINT /api/gemini ĐÃ BỊ XÓA (MIGRATION SANG /api/groq)
-      // -------------------------------------------------------------------------
-      // Lịch sử: trước đây endpoint này gọi Google Gemini 3.7 Flash. Sau khi
-      // migration sang Groq Qwen 3.8 27B (xem /api/groq phía dưới), không còn
-      // caller nào gọi tới endpoint này nữa — đã xóa để dọn dead code.
-      // Nếu sau này cần fallback đa model, có thể tái kích hoạt bằng cách:
-      //   1. Set GEMINI_API_KEYS trong Cloudflare secrets
-      //   2. Restore block code từ git history trước commit này
+      // 🟢 ENDPOINT: AI GEMINI STREAM (Xoay tua ngẫu nhiên nhiều Key)
       // =========================================================================
+      if (path === "/api/gemini" && request.method === "POST") {
+        try {
+          const { prompt, images } = await request.json();
+          
+          const keysString = env.GEMINI_API_KEYS;
+          if (!keysString) {
+            return new Response(JSON.stringify({ error: "Lỗi Server: Chưa cấu hình biến môi trường GEMINI_API_KEYS" }), {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+          }
+
+          const apiKeys = keysString.split(',').map(key => key.trim()).filter(key => key.length > 0);
+          if (apiKeys.length === 0) {
+            return new Response(JSON.stringify({ error: "Lỗi Server: Biến môi trường GEMINI_API_KEYS trống" }), {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+          }
+
+          let startIndex = Math.floor(Math.random() * apiKeys.length);
+          let lastErrorMessage = "";
+          let partsArray = [{ text: prompt }];
+
+          if (images && Array.isArray(images) && images.length > 0) {
+            images.forEach(imgString => {
+              const cleanBase64 = imgString.includes(',') ? imgString.split(',')[1] : imgString;
+              partsArray.push({
+                inlineData: {
+                  mimeType: "image/jpeg",
+                  data: cleanBase64
+                }
+              });
+            });
+          }
+
+          for (let i = 0; i < apiKeys.length; i++) {
+            const currentIndex = (startIndex + i) % apiKeys.length;
+            const currentKey = apiKeys[currentIndex];
+
+            try {
+              const modelName = "gemini-3.7-flash";
+              const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${currentKey}`;
+
+              const response = await fetch(geminiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: partsArray }],
+                  generationConfig: {
+                    temperature: 0.2,
+                    maxOutputTokens: 65536
+                  }
+                })
+              });
+
+              if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error?.message || `Lỗi HTTP ${response.status} từ Google Gemini`);
+              }
+
+              return new Response(response.body, {
+                status: 200,
+                headers: {
+                  ...corsHeaders,
+                  'Content-Type': 'text/event-stream',
+                  'Cache-Control': 'no-cache, no-transform',
+                  'Connection': 'keep-alive',
+                }
+              });
+
+            } catch (error) {
+              console.warn(`⚠️ API Key thứ ${currentIndex + 1} thất bại:`, error.message);
+              lastErrorMessage = error.message;
+            }
+          }
+
+          console.error("❌ Tất cả API Keys đều đã cạn kiệt hoặc gặp lỗi.");
+          return new Response(JSON.stringify({ 
+            error: 'Hệ thống AI đang bận hoặc quá tải. Vui lòng thử lại sau!',
+            detail: lastErrorMessage 
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+
+        } catch (err) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
+      }
 
       // =========================================================================
       // 🟢 ENDPOINT: AI GROQ STREAM (Xoay tua ngẫu nhiên nhiều Key)
@@ -938,19 +900,6 @@ var worker_default = {
             const currentIndex = (startIndex + i) % apiKeys.length;
             const currentKey = apiKeys[currentIndex];
 
-            // 🟢 FIX BUG "fetchTimeoutId is not defined":
-            // Trước đây `fetchTimeoutId` được khai báo bằng `const` bên trong `try {}`
-            // → không visible ở `catch {}` block → khi API key thất bại, code cố gọi
-            // clearTimeout(fetchTimeoutId) trong catch → ném ReferenceError ra ngoài,
-            // làm sập toàn bộ endpoint /api/groq và trả về frontend lỗi:
-            //   "fetchTimeoutId is not defined"  ← Đây chính là lỗi user gặp phải
-            //   trong tính năng Gia sư AI của PDF Reader!
-            // FIX: Khai báo fetchTimeoutId ở scope NGOÀI try (let = null),
-            // gán giá trị bên trong try, và clear an toàn trong catch.
-            // Tương tự với fetchTimeoutMs để catch có thể đọc được khi log.
-            let fetchTimeoutMs = hasImages ? 90000 : 30000; // 90s vision, 30s text
-            let fetchTimeoutId = null;
-
             try {
               let finalKey = currentKey;
               let apiUrl = "https://api.groq.com/openai/v1/chat/completions";
@@ -967,9 +916,9 @@ var worker_default = {
 
               // 🟢 Set timeout cho fetch Groq — tránh Worker treo mãi nếu Groq chậm
               // Vision request cần thời gian dài (OCR + fetch ảnh URL)
-              fetchTimeoutMs = hasImages ? 90000 : 30000; // 90s vision, 30s text
+              const fetchTimeoutMs = hasImages ? 90000 : 30000; // 90s vision, 30s text
               const fetchController = new AbortController();
-              fetchTimeoutId = setTimeout(() => fetchController.abort(), fetchTimeoutMs);
+              const fetchTimeoutId = setTimeout(() => fetchController.abort(), fetchTimeoutMs);
 
               const response = await fetch(apiUrl, {
                 method: 'POST',
@@ -983,27 +932,9 @@ var worker_default = {
                   // 🟢 BUMP temperature 0.2 → 0.6: Reasoning model cần nhiệt độ cao hơn
                   // để suy nghĩ linh hoạt. 0.2 quá thấp → output bị "lười suy nghĩ".
                   temperature: 0.6,
-                  // 🟢 FIX LỖI TPM LIMIT (Tokens Per Minute):
-                  // Groq free tier (service_tier=on_demand) có TPM = 8000 tokens/phút.
-                  //
-                  // Cách Groq tính token cho mỗi request:
-                  //   TOTAL = input_tokens + max_completion_tokens
-                  //   (Bao gồm CẢ output ceiling, không phải chỉ input!)
-                  //
-                  // Tính toán để TOTAL < 7000 (room cho retry khi TPM full):
-                  //   - Input (system prompt + user text + ảnh URL detail:"low"): ~2500 tokens
-                  //   - max_completion_tokens: 4000 tokens (output ceiling)
-                  //   - Tổng: ~6500 tokens → dưới 8000 TPM limit ✓
-                  //
-                  // Lưu ý về ảnh URL (detail:"low"):
-                  //   - Groq download ảnh từ URL (imgbb/tmpfiles) về server
-                  //   - Tokenize ảnh qua Vision Transformer
-                  //   - detail:"low" → ảnh resize về 512×512 → chỉ ~85 token/ảnh (fixed)
-                  //   → Ảnh URL KHÔNG tốn nhiều token hơn base64 (cùng ~85 token)
-                  //
-                  // Reasoning model thực tế chỉ cần 3-4K tokens để suy nghĩ + output.
-                  // Nếu cần output dài hơn → user phải đợi 60s để TPM reset.
-                  max_completion_tokens: 4000,
+                  // 🟢 BUMP token budget lên MAX 32768 để reasoning model (Qwen 3.8) có đủ chỗ suy nghĩ.
+                  // Lưu ý: đây là ceiling, không phải tiêu thụ thực tế. Reasoning thường ăn 3-6k tokens.
+                  max_completion_tokens: 32768,
                   stream: true,
                   // 🟢 Đổi từ "hidden" → "parsed":
                   // - "hidden": Qwen vẫn tính reasoning tokens nhưng không trả về → tối nghĩa, lãng phí
@@ -1049,41 +980,13 @@ var worker_default = {
               });
 
             } catch (error) {
-              // 🟢 FIX: clearTimeout chỉ chạy khi fetchTimeoutId đã được gán
-              // (tránh ReferenceError nếu fetch ném lỗi trước cả khi setTimeout chạy)
-              if (fetchTimeoutId !== null) {
-                clearTimeout(fetchTimeoutId);
-                fetchTimeoutId = null;
-              }
+              clearTimeout(fetchTimeoutId);
               if (error.name === 'AbortError') {
                 console.warn(`⚠️ Groq API Key thứ ${currentIndex + 1} timeout sau ${fetchTimeoutMs/1000}s`);
                 lastErrorMessage = `Timeout sau ${fetchTimeoutMs/1000}s (vision request chậm — thử gửi ảnh nhỏ hơn)`;
               } else {
                 console.warn(`⚠️ Groq API Key thứ ${currentIndex + 1} thất bại:`, error.message);
                 lastErrorMessage = error.message;
-
-                // 🟢 FIX TPM LIMIT — Detect lỗi TPM để trả message thân thiện cho frontend:
-                // Groq free tier có TPM = 8000 tokens/phút. Khi request vượt limit,
-                // Groq trả lỗi 429 với message chứa "tokens per minute (TPM)".
-                //
-                // KHÔNG retry trong Worker vì Cloudflare Worker có wall-time limit 30s
-                // (free tier). Đợi 60s sẽ bị timeout → trả lỗi ngay cho frontend với
-                // gợi ý "đợi 60s rồi bấm gửi lại".
-                //
-                // Frontend có thể hiện nút "Thử lại" hoặc đợi auto retry.
-                if (error.message && error.message.toLowerCase().includes('tokens per minute')) {
-                  // Trích xuất thông tin TPM limit để hiển thị cho user
-                  const tpmMatch = error.message.match(/Limit\s+(\d+),\s+Requested\s+(\d+)/i);
-                  if (tpmMatch) {
-                    lastErrorMessage = `⚠️ Đã vượt giới hạn Groq free tier (TPM = ${tpmMatch[1]} tokens/phút, request cần ${tpmMatch[2]} tokens). Đợi khoảng 60 giây rồi bấm gửi lại, hoặc gửi câu ngắn hơn/ảnh nhỏ hơn.`;
-                  } else {
-                    lastErrorMessage = `⚠️ Đã vượt giới hạn Groq free tier (TPM = 8000 tokens/phút). Đợi khoảng 60 giây rồi bấm gửi lại.`;
-                  }
-                  // THOÁT VÒNG LẶP KEY NGAY — vì TPM limit áp dụng cho TẤT CẢ key
-                  // (cùng organization) → thử key khác cũng fail → break để tiết kiệm thời gian.
-                  console.warn('⏳ TPM limit hit — break key loop, trả lỗi cho frontend');
-                  break;
-                }
               }
             }
           }
@@ -1106,37 +1009,18 @@ var worker_default = {
       }
 
       // =========================================================================
-      // 🟢 ENDPOINT: AI MISTRAL STREAM (Hỗ trợ cả TEXT và VISION - Pixtral 12B)
+      // 🟢 ENDPOINT: AI MISTRAL STREAM (Xoay tua ngẫu nhiên nhiều Key)
       // =========================================================================
       if (path === "/api/mistral" && request.method === "POST") {
         try {
           // 🟢 BACKWARDS-COMPAT: Hỗ trợ cả `prompt` (string) cũ và `messages` (array) mới.
-          // 🟢 MỚI: Hỗ trợ `images` array (URL hoặc base64) — tự inject vào message.
           const reqBody = await request.json();
-          const { prompt, model = "mistral-small-latest", images = [] } = reqBody;
+          const { prompt, model = "mistral-small-latest" } = reqBody;
           let messages;
           if (Array.isArray(reqBody.messages) && reqBody.messages.length > 0) {
             messages = reqBody.messages;
           } else {
             messages = [{ role: "user", content: prompt }];
-          }
-
-          // 🟢 VISION MODE: Inject ảnh vào message cuối cùng (giống logic /api/groq)
-          //    Khi có ảnh + caller truyền model=pixtral-12b-2409 → tự động bơm image_url
-          //    Pixtral dùng OpenAI-compatible format (giống Groq):
-          //      content: [{type:"image_url", image_url:{url, detail}}, {type:"text", text}]
-          const hasImages = Array.isArray(images) && images.length > 0;
-          if (hasImages) {
-            const lastIdx = messages.length - 1;
-            const lastMsg = messages[lastIdx];
-            const lastText = typeof lastMsg.content === 'string' ? lastMsg.content : '';
-            lastMsg.content = [
-              ...images.map(img => ({
-                type: "image_url",
-                image_url: { url: img, detail: "low" }  // Pixtral hỗ trợ detail:"low"
-              })),
-              { type: "text", text: lastText || prompt || '' }
-            ];
           }
           
           const keysString = env.MISTRAL_API_KEYS;
@@ -1163,26 +1047,19 @@ var worker_default = {
             const currentKey = apiKeys[currentIndex];
 
             try {
-              // 🟢 Pixtral hỗ trợ max_tokens (không phải max_completion_tokens như Groq)
-              //    Pixtral output tối đa 8192 tokens/lần
-              const mistralPayload = {
-                model: model,
-                messages: messages,
-                temperature: 0.6,
-                stream: true
-              };
-              // 🟢 Chỉ thêm max_tokens nếu model hỗ trợ (Pixtral/Mistral dùng max_tokens)
-              if (model.startsWith('pixtral') || model.startsWith('mistral')) {
-                mistralPayload.max_tokens = 4096;  // Output ceiling an toàn
-              }
-
               const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
                 method: 'POST',
                 headers: {
                   'Authorization': `Bearer ${currentKey}`,
                   'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(mistralPayload)
+                body: JSON.stringify({
+                  model: model,
+                  messages: messages,
+                  // 🟢 BUMP temperature 0.2 → 0.6 để đồng bộ với Groq
+                  temperature: 0.6,
+                  stream: true
+                })
               });
 
               if (!response.ok) {
