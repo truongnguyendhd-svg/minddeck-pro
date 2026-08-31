@@ -986,6 +986,19 @@ var worker_default = {
 
               // 🟢 fetchWithTimeout: nếu Groq không phản hồi trong fetchTimeoutMs
               // → throw AbortTimeoutError (đã được helper convert từ AbortError)
+              //
+              // 🟢 FIX "max_completion_tokens must be <= 16384":
+              // Groq cập nhật giới hạn output token theo từng model. Bảng tham chiếu:
+              //   - qwen/qwen3.8-27b                              → 16384 (reasoning model)
+              //   - meta-llama/llama-4-maverick-17b-128e-instruct → 8192
+              //   - default fallback                             → 8192 (an toàn cho mọi model khác)
+              // Nếu truyền vượt giới hạn → Groq trả HTTP 400, toàn bộ for-loop fail.
+              const MAX_COMPLETION_TOKENS_BY_MODEL = {
+                "qwen/qwen3.8-27b": 16384,
+                "meta-llama/llama-4-maverick-17b-128e-instruct": 8192
+              };
+              const maxCompletionTokens = MAX_COMPLETION_TOKENS_BY_MODEL[modelId] || 8192;
+
               const response = await fetchWithTimeout(apiUrl, {
                 method: 'POST',
                 headers: {
@@ -998,9 +1011,9 @@ var worker_default = {
                   // 🟢 BUMP temperature 0.2 → 0.6: Reasoning model cần nhiệt độ cao hơn
                   // để suy nghĩ linh hoạt. 0.2 quá thấp → output bị "lười suy nghĩ".
                   temperature: 0.6,
-                  // 🟢 BUMP token budget lên MAX 32768 để reasoning model (Qwen 3.8) có đủ chỗ suy nghĩ.
-                  // Lưu ý: đây là ceiling, không phải tiêu thụ thực tế. Reasoning thường ăn 3-6k tokens.
-                  max_completion_tokens: 32768,
+                  // 🟢 Sử dụng max tokens động theo model (xem MAX_COMPLETION_TOKENS_BY_MODEL ở trên).
+                  // Đây là ceiling, không phải tiêu thụ thực tế. Reasoning Qwen 3.8 thường ăn 3-6k tokens.
+                  max_completion_tokens: maxCompletionTokens,
                   stream: true,
                   // 🟢 Đổi từ "hidden" → "parsed":
                   // - "hidden": Qwen vẫn tính reasoning tokens nhưng không trả về → tối nghĩa, lãng phí
