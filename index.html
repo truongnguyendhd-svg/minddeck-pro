@@ -25828,7 +25828,12 @@ function openHeaderSearchWithText(tab, text, autoSubmit = false, options = {}) {
                 // 🟢 Hiển thị displayText (ngắn) cho user, nhưng lưu fullPrompt riêng
                 textarea.value = displayText;
                 if (autoSubmit && typeof submitHeaderChat === 'function') {
-                    submitHeaderChat({ fullPrompt: fullPrompt });
+                    // 🟢 Forward skipSystemPrompt + task cho submitHeaderChat
+                    submitHeaderChat({
+                        fullPrompt: fullPrompt,
+                        skipSystemPrompt: !!(options.skipSystemPrompt),
+                        task: options.task
+                    });
                 }
             }
         }
@@ -25898,9 +25903,12 @@ async function submitHeaderChat(options = {}) {
     const submitBtn = document.getElementById('hspChatSubmit');
     if (!input) return;
     // 🟢 options.fullPrompt: prompt đầy đủ gửi cho AI (có thể dài hơn displayText)
+    // 🟢 options.skipSystemPrompt: bỏ qua systemPrompt mặc định của chat header
+    //   (dùng khi caller có system prompt riêng — vd popoverActionAI có prompt 6 phần)
     // Nếu không có → dùng textarea value (backwards-compat)
     const displayText = input.value.trim();
     const fullPrompt = (options && options.fullPrompt) ? options.fullPrompt.trim() : displayText;
+    const skipSystemPrompt = !!(options && options.skipSystemPrompt);
     if (!displayText || !fullPrompt) return;
     // 🟢 textForAI = prompt đầy đủ; textForDisplay = hiển thị ngắn gọn cho user
     const textForAI = fullPrompt;
@@ -25976,10 +25984,14 @@ async function submitHeaderChat(options = {}) {
 
     // 🟢 NEW THREAD: Câu chat mới = context mới, KHÔNG mang lịch sử từ thread khác
     // 🟢 messagesArray dùng textForAI (prompt đầy đủ) — AI nhận đủ context
-    const messagesArray = [
-        { role: "system", content: systemPrompt },
-        { role: "user",   content: textForAI }
-    ];
+    // 🟢 skipSystemPrompt: bỏ systemPrompt mặc định khi caller có prompt riêng
+    //   (vd popoverActionAI có prompt 6 phần phân tích — không cần "Trả lời NGẮN GỌN")
+    const messagesArray = skipSystemPrompt
+        ? [{ role: "user", content: textForAI }]
+        : [
+            { role: "system", content: systemPrompt },
+            { role: "user",   content: textForAI }
+        ];
 
     console.log(`MindDeck: New thread ${threadId} started (no memory from previous threads)`);
 
@@ -27725,7 +27737,15 @@ Chọn ra 1-3 chữ Kanji quan trọng/khó nhất trong câu để phân tích:
 
 6. CÂU VÍ DỤ MỞ RỘNG:
 - Cung cấp thêm 2 câu ví dụ mới, sử dụng lại từ vựng hoặc ngữ pháp chính của câu trên để tôi hiểu rõ cách áp dụng trong tình huống khác (Kèm phiên âm và dịch nghĩa).`;
-    openHeaderSearchWithText('chat', displayText, true, { displayText, fullPrompt });
+    // 🟢 skipSystemPrompt: true → không thêm "Trả lời NGẮN GỌN" của chat header
+    //   vì popover AI có prompt 6 phần phân tích chi tiết riêng
+    // 🟢 task: 'heavy' → dùng thinkingBudget 24576 cho phân tích sâu
+    openHeaderSearchWithText('chat', displayText, true, {
+        displayText,
+        fullPrompt,
+        skipSystemPrompt: true,
+        task: 'heavy'
+    });
 }
 
 // Action 3: Phát âm (Web Speech API)
