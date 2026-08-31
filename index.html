@@ -28640,9 +28640,15 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
     // `contents` cho Gemini API.
     const messagesArray = options && options.messages ? options.messages : null;
     const hasImages = Array.isArray(imagesArray) && imagesArray.length > 0;
-    const fetchTimeoutMs = hasImages ? 180000 : 90000;    // 180s vision, 90s text
-    const chunkTimeoutMs = hasImages ? 120000 : 60000;    // 120s vision, 60s text
-    const timeoutLabel = hasImages ? '180s vision' : '90s text';
+    // 🟢 BUMP fetch timeout 90s → 150s (text): giai đoạn này Worker chưa bơm heartbeat
+    // (đang chờ Google gửi response headers + upload payload lớn trên mobile chậm).
+    const fetchTimeoutMs = hasImages ? 180000 : 150000;   // 180s vision, 150s text
+    // 🟢 CHUNK TIMEOUT: Worker giờ bơm heartbeat ': hb' mỗi 15s khi model đang nghĩ
+    // → reader LUÔN nhận được byte → timeout dưới đây giờ chỉ để phát hiện kết nối
+    // CHẾT thật sự (mất 4+ nhịp hb liên tiếp = 60s+ không byte nào).
+    // BUMP: 60s→90s (text), 120s→150s (vision) — dư an toàn cho mạng mobile yếu.
+    const chunkTimeoutMs = hasImages ? 150000 : 90000;    // 150s vision, 90s text
+    const timeoutLabel = hasImages ? '180s vision' : '150s text';
 
     const fetchController = new AbortController();
     const fetchTimeoutId = setTimeout(() => fetchController.abort(), fetchTimeoutMs);
@@ -28711,6 +28717,8 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
                 // Nếu đã có 1 phần text → trả về phần đó thay vì báo lỗi
                 if (fullResponseText.trim()) {
                     console.warn('⚠️ Gemini stream bị cắt giữa chừng, trả về partial text:', fullResponseText.length, 'chars');
+                    // 🟢 Minh bạch với người dùng: báo rõ nội dung bị cắt do kết nối, không phải lỗi nội dung
+                    try { showToast('⚠️ Kết nối AI gián đoạn — hiển thị phần nội dung đã nhận'); } catch (e) {}
                     if (onCompleteCallback) onCompleteCallback(fullResponseText);
                     return;
                 }
@@ -28789,9 +28797,11 @@ async function parseOpenAIStream(reader, onChunk, options = {}) {
     let fullText = '';
 
     while (true) {
-        // ⏱️ TIMEOUT 25s cho mỗi chunk read
+        // ⏱️ TIMEOUT 45s cho mỗi chunk read (🟢 BUMP từ 25s)
+        // Worker bơm heartbeat ': hb' mỗi 15s → nếu 45s không nhận được byte nào
+        // nghĩa là 3 nhịp hb liên tiếp bị mất = kết nối đã chết thật sự → abort hợp lệ.
         const readController = new AbortController();
-        const readTimeoutId = setTimeout(() => readController.abort(), 25000);
+        const readTimeoutId = setTimeout(() => readController.abort(), 45000);
 
         let readResult;
         try {
@@ -28799,7 +28809,7 @@ async function parseOpenAIStream(reader, onChunk, options = {}) {
                 reader.read(),
                 new Promise((_, reject) => {
                     readController.signal.addEventListener('abort', () => {
-                        reject(new Error('Stream timeout (25s không có data)'));
+                        reject(new Error('Stream timeout (45s không có data)'));
                     });
                 })
             ]);
@@ -28810,6 +28820,8 @@ async function parseOpenAIStream(reader, onChunk, options = {}) {
             // 🛡️ Partial recovery: Nếu đã có text → trả về phần đã nhận
             if (fullText.trim()) {
                 console.warn('⚠️ Stream bị cắt giữa chừng, trả về partial:', fullText.length, 'chars');
+                // 🟢 Minh bạch với người dùng: báo rõ nội dung bị cắt do kết nối
+                try { showToast('⚠️ Kết nối AI gián đoạn — hiển thị phần nội dung đã nhận'); } catch (e) {}
                 if (cleanThink) {
                     fullText = fullText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
                 }
