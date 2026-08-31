@@ -25793,8 +25793,13 @@ function closeHeaderSearchPanel() {
  * @param {string} text - text cần điền trước
  * @param {boolean} autoSubmit - có tự động submit luôn không
  */
-function openHeaderSearchWithText(tab, text, autoSubmit = false) {
+function openHeaderSearchWithText(tab, text, autoSubmit = false, options = {}) {
     if (!text) return;
+    // 🟢 options.displayText: text hiển thị trong bong bóng user (ngắn gọn)
+    // 🟢 options.fullPrompt: text thật sự gửi cho AI (có thể dài hơn, kèm system context)
+    // Nếu không có options → displayText = fullPrompt = text (backwards-compat)
+    const displayText = options.displayText || text;
+    const fullPrompt = options.fullPrompt || text;
     // Mở panel
     const panel = document.getElementById('headerSearchPanel');
     const trigger = document.getElementById('headerSearchTrigger');
@@ -25812,7 +25817,7 @@ function openHeaderSearchWithText(tab, text, autoSubmit = false) {
         if (tab === 'dict') {
             const input = document.getElementById('globalSearchInput');
             if (input) {
-                input.value = text;
+                input.value = displayText;
                 if (autoSubmit && typeof submitHeaderDictSearch === 'function') {
                     submitHeaderDictSearch();
                 }
@@ -25820,9 +25825,10 @@ function openHeaderSearchWithText(tab, text, autoSubmit = false) {
         } else if (tab === 'chat') {
             const textarea = document.getElementById('hspChatInput');
             if (textarea) {
-                textarea.value = text;
+                // 🟢 Hiển thị displayText (ngắn) cho user, nhưng lưu fullPrompt riêng
+                textarea.value = displayText;
                 if (autoSubmit && typeof submitHeaderChat === 'function') {
-                    submitHeaderChat();
+                    submitHeaderChat({ fullPrompt: fullPrompt });
                 }
             }
         }
@@ -25886,13 +25892,19 @@ let threadCounter = 0;
 let chatThreads = {};  // { threadId: [{role, text}, ...] } — full memory per thread, không drop
 let activeReplyThreadId = null;  // threadId đang mở ô input reply
 
-async function submitHeaderChat() {
+async function submitHeaderChat(options = {}) {
     if (hspChatStreaming) return;
     const input = document.getElementById('hspChatInput');
     const submitBtn = document.getElementById('hspChatSubmit');
     if (!input) return;
-    const text = input.value.trim();
-    if (!text) return;
+    // 🟢 options.fullPrompt: prompt đầy đủ gửi cho AI (có thể dài hơn displayText)
+    // Nếu không có → dùng textarea value (backwards-compat)
+    const displayText = input.value.trim();
+    const fullPrompt = (options && options.fullPrompt) ? options.fullPrompt.trim() : displayText;
+    if (!displayText || !fullPrompt) return;
+    // 🟢 textForAI = prompt đầy đủ; textForDisplay = hiển thị ngắn gọn cho user
+    const textForAI = fullPrompt;
+    const textForDisplay = displayText;
 
     const messages = document.getElementById('hspChatMessages');
     const clearBtn = document.getElementById('hspChatClear');
@@ -25904,10 +25916,11 @@ async function submitHeaderChat() {
     if (clearBtn) clearBtn.classList.add('visible');
 
     // Thêm message user
+    // 🟢 Hiển thị textForDisplay (ngắn gọn) thay vì text (prompt đầy đủ)
     const userMsg = document.createElement('div');
     userMsg.className = 'hsp-chat-msg user';
     userMsg.innerHTML = '<div class="hsp-chat-bubble"></div>';
-    userMsg.querySelector('.hsp-chat-bubble').textContent = text;
+    userMsg.querySelector('.hsp-chat-bubble').textContent = textForDisplay;
     messages.appendChild(userMsg);
 
     // Clear input
@@ -25920,9 +25933,10 @@ async function submitHeaderChat() {
 
     // 🟢 THREAD: Tạo threadId mới cho bot bubble sắp tạo
     // Mỗi câu chat mới từ main input = thread mới (NO memory from previous threads)
+    // 🟢 Lưu textForDisplay vào thread (để hiển thị lại khi reload), nhưng gửi textForAI cho AI
     const threadId = 't' + (++threadCounter);
     chatThreads[threadId] = [
-        { role: 'user', text: text }
+        { role: 'user', text: textForDisplay }
     ];
 
     // Thêm bot placeholder (typing indicator) + reply button + thread container
@@ -25961,16 +25975,17 @@ async function submitHeaderChat() {
         '- Xuống dòng giữa các ý. Không chào hỏi dài dòng.';
 
     // 🟢 NEW THREAD: Câu chat mới = context mới, KHÔNG mang lịch sử từ thread khác
+    // 🟢 messagesArray dùng textForAI (prompt đầy đủ) — AI nhận đủ context
     const messagesArray = [
         { role: "system", content: systemPrompt },
-        { role: "user",   content: text }
+        { role: "user",   content: textForAI }
     ];
 
     console.log(`MindDeck: New thread ${threadId} started (no memory from previous threads)`);
 
     try {
         await callHybridAIStream(
-            text,  // promptText fallback cho Mistral/Groq cũ
+            textForAI,  // 🟢 promptText fallback cho Mistral/Groq cũ (đầy đủ context)
             [],
             (chunk) => {
                 if (!firstChunkArrived) {
@@ -27671,7 +27686,10 @@ async function popoverActionAI(e) {
 
     // 🟢 Auto-submit với prompt phân tích toàn diện
     const savedText = globalSelectedText;
-    const promptText = `
+    // 🟢 displayText: chỉ câu bôi đen (hiển thị trong bong bóng user)
+    // 🟢 fullPrompt: prompt đầy đủ với hướng dẫn chi tiết (gửi cho AI, ẩn khỏi UI)
+    const displayText = savedText;
+    const fullPrompt = `
 Hãy đóng vai một giáo viên tiếng Nhật JLPT N1 xuất sắc, chuyên nghiệp và tận tâm. Nhiệm vụ của bạn là phân tích toàn diện, chi tiết và dễ hiểu nhất câu tiếng Nhật sau đây để giúp một người đang học tiếng Nhật có thể nắm vững hoàn toàn cách sử dụng:
 
 Câu tiếng Nhật: "${savedText}"
@@ -27707,7 +27725,7 @@ Chọn ra 1-3 chữ Kanji quan trọng/khó nhất trong câu để phân tích:
 
 6. CÂU VÍ DỤ MỞ RỘNG:
 - Cung cấp thêm 2 câu ví dụ mới, sử dụng lại từ vựng hoặc ngữ pháp chính của câu trên để tôi hiểu rõ cách áp dụng trong tình huống khác (Kèm phiên âm và dịch nghĩa).`;
-    openHeaderSearchWithText('chat', promptText, true);
+    openHeaderSearchWithText('chat', displayText, true, { displayText, fullPrompt });
 }
 
 // Action 3: Phát âm (Web Speech API)
