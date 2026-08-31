@@ -1106,18 +1106,37 @@ var worker_default = {
       }
 
       // =========================================================================
-      // 🟢 ENDPOINT: AI MISTRAL STREAM (Xoay tua ngẫu nhiên nhiều Key)
+      // 🟢 ENDPOINT: AI MISTRAL STREAM (Hỗ trợ cả TEXT và VISION - Pixtral 12B)
       // =========================================================================
       if (path === "/api/mistral" && request.method === "POST") {
         try {
           // 🟢 BACKWARDS-COMPAT: Hỗ trợ cả `prompt` (string) cũ và `messages` (array) mới.
+          // 🟢 MỚI: Hỗ trợ `images` array (URL hoặc base64) — tự inject vào message.
           const reqBody = await request.json();
-          const { prompt, model = "mistral-small-latest" } = reqBody;
+          const { prompt, model = "mistral-small-latest", images = [] } = reqBody;
           let messages;
           if (Array.isArray(reqBody.messages) && reqBody.messages.length > 0) {
             messages = reqBody.messages;
           } else {
             messages = [{ role: "user", content: prompt }];
+          }
+
+          // 🟢 VISION MODE: Inject ảnh vào message cuối cùng (giống logic /api/groq)
+          //    Khi có ảnh + caller truyền model=pixtral-12b-2409 → tự động bơm image_url
+          //    Pixtral dùng OpenAI-compatible format (giống Groq):
+          //      content: [{type:"image_url", image_url:{url, detail}}, {type:"text", text}]
+          const hasImages = Array.isArray(images) && images.length > 0;
+          if (hasImages) {
+            const lastIdx = messages.length - 1;
+            const lastMsg = messages[lastIdx];
+            const lastText = typeof lastMsg.content === 'string' ? lastMsg.content : '';
+            lastMsg.content = [
+              ...images.map(img => ({
+                type: "image_url",
+                image_url: { url: img, detail: "low" }  // Pixtral hỗ trợ detail:"low"
+              })),
+              { type: "text", text: lastText || prompt || '' }
+            ];
           }
           
           const keysString = env.MISTRAL_API_KEYS;
@@ -1144,19 +1163,26 @@ var worker_default = {
             const currentKey = apiKeys[currentIndex];
 
             try {
+              // 🟢 Pixtral hỗ trợ max_tokens (không phải max_completion_tokens như Groq)
+              //    Pixtral output tối đa 8192 tokens/lần
+              const mistralPayload = {
+                model: model,
+                messages: messages,
+                temperature: 0.6,
+                stream: true
+              };
+              // 🟢 Chỉ thêm max_tokens nếu model hỗ trợ (Pixtral/Mistral dùng max_tokens)
+              if (model.startsWith('pixtral') || model.startsWith('mistral')) {
+                mistralPayload.max_tokens = 4096;  // Output ceiling an toàn
+              }
+
               const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
                 method: 'POST',
                 headers: {
                   'Authorization': `Bearer ${currentKey}`,
                   'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                  model: model,
-                  messages: messages,
-                  // 🟢 BUMP temperature 0.2 → 0.6 để đồng bộ với Groq
-                  temperature: 0.6,
-                  stream: true
-                })
+                body: JSON.stringify(mistralPayload)
               });
 
               if (!response.ok) {
