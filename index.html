@@ -28589,7 +28589,7 @@ async function askAIWhyWrong() {
 
 
 /* ================= HỆ THỐNG GỌI VERCEL API (GEMINI) ================= */
-async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback, onCompleteCallback) {
+async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback, onCompleteCallback, options = {}) {
     // 🟢 FIX PDF AI timeout (lỗi "Gemini timeout (20s) - server không phản hồi"):
     // Pipeline vision request (PDF reader gửi ảnh base64 inline) tốn 10-30s+ trước byte đầu:
     //   1. Upload ảnh lớn (100KB-2MB) tới Worker: 2-5s
@@ -28601,6 +28601,11 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
     // Giải pháp: phân tầng timeout theo loại request:
     //   - TEXT thuần: 30s fetch + 25s per-chunk (như cũ)
     //   - VISION (có ảnh): 120s fetch + 60s per-chunk (đủ cho pipeline dài)
+    //
+    // 🟢 Refactor: hỗ trợ options.messages (multi-turn) — forward sang Worker
+    // dưới dạng `messages` array thay vì `prompt` string. Worker tự build
+    // `contents` cho Gemini API.
+    const messagesArray = options && options.messages ? options.messages : null;
     const hasImages = Array.isArray(imagesArray) && imagesArray.length > 0;
     const fetchTimeoutMs = hasImages ? 120000 : 30000;   // 120s vision, 30s text
     const chunkTimeoutMs = hasImages ? 60000 : 25000;    // 60s vision, 25s text
@@ -28609,12 +28614,17 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
     const fetchController = new AbortController();
     const fetchTimeoutId = setTimeout(() => fetchController.abort(), fetchTimeoutMs);
 
+    // 🟢 BUILD BODY: Multi-turn (messages array) hoặc single-turn (prompt string)
+    const body = messagesArray && messagesArray.length > 0
+        ? { messages: messagesArray, images: imagesArray }
+        : { prompt: promptText, images: imagesArray };
+
     let response;
     try {
         response = await fetch(`${DICT_API_URL}/api/gemini`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: promptText, images: imagesArray }),
+            body: JSON.stringify(body),
             signal: fetchController.signal
         });
         clearTimeout(fetchTimeoutId);
@@ -28713,23 +28723,21 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
 // Việc này giúp duy trì 100% khả năng tương thích với tất cả các tính năng cũ của bạn
 // (như Kanji Builder, Gia sư Ngữ pháp, Thống kê...) mà không cần phải viết lại chúng.
 async function callGeminiAI(promptText, imagesArray = []) {
-    let fullText = "";
-    
+    // 🟢 REFACTOR: callGeminiAI giờ là wrapper của callHybridAI
+    // → Tự động fallback: Gemini → Groq → Mistral cho MỌI call site
+    //   (PDF AI, Kanji X-ray, Grammar Vault, Mnemonic, Daily Story, Admin...)
+    // Giữ tên hàm cũ để backwards-compat với các tính năng đã viết.
+    //
+    // Trước đây: chỉ gọi Gemini, nếu fail → báo lỗi (PDF AI hay timeout).
+    // Sau refactor: thử Gemini trước, nếu fail tự chuyển Groq/Mistral.
+
     // Bản vá hỗ trợ nếu các tính năng cũ vô tình truyền chuỗi thay vì mảng ảnh
     let processedImages = imagesArray;
     if (typeof imagesArray === 'string') {
         processedImages = [imagesArray];
     }
 
-    await callGeminiAIStream(
-        promptText,
-        processedImages,
-        (chunk) => {
-            fullText += chunk;
-        },
-        () => {}
-    );
-    return fullText;
+    return await callHybridAI(promptText, processedImages);
 }
 // =========================================================================
 // 🟢 HELPER: STREAM PARSER DÙNG CHUNG CHO OPENAI-COMPATIBLE APIs (GROQ + MISTRAL)
@@ -28980,7 +28988,21 @@ async function callMistralAIStream(promptText, onChunk, onComplete, messagesArra
 //   • TEXT THUẦN: Groq Qwen 3.8 27B → Mistral Small
 // =========================================================================
 async function callHybridAIStream(promptText, imagesArray = [], onChunk, onComplete, options = {}) {
-    // 🟢 MỚI: Hỗ trợ options.messages để tách role system/user
+    // 🟢 Refactor: thứ tự provider mới — Gemini → Groq → Mistral/Llama 4
+    //
+    // Lý do thay đổi:
+    // - Gemini 3.7 Flash là reasoning model mặc định (tự suy nghĩ, không cần config)
+    //   → chất lượng cao cho mọi task (text lẫn vision)
+    // - Gemini có context window 1M tokens + maxOutputTokens 65536 → xử lý được
+    //   cả task nặng (PDF AI, grammar, daily story)
+    // - Gemini không có TPM limit khắt khe như Groq Free (8000 TPM)
+    // - Groq Qwen 3.8 làm fallback thứ 2 (reasoning tốt, nhưng TPM thấp)
+    // - Mistral/Llama 4 làm fallback cuối cùng (nhanh nhưng không reasoning)
+    //
+    // Pipeline:
+    //   - VISION: Gemini → Groq Qwen 3.8 Vision → Groq Llama 4 Maverick Vision
+    //   - TEXT:   Gemini → Groq Qwen 3.8 → Mistral Small
+
     const messagesArray = options && options.messages ? options.messages : null;
     const hasImages = (imagesArray && imagesArray.length > 0);
 
@@ -28993,103 +29015,90 @@ async function callHybridAIStream(promptText, imagesArray = [], onChunk, onCompl
     };
 
     // ====================================================================
-    // CASE 1: CÓ ẢNH → Groq Qwen 3.8 (Primary) → Groq Llama 4 (Fallback)
+    // Định nghĩa danh sách provider theo thứ tự ưu tiên
+    // Mỗi provider: { name, fn(onChunk, onComplete) → Promise }
     // ====================================================================
+    let providers;
     if (hasImages) {
-        console.log("MindDeck: Phát hiện ảnh. Thử Groq Qwen 3.8 27B (Vision) trước...");
-        let qwenText = "";
-        let qwenFailed = false;
-
-        try {
-            await callGroqVisionStream(
-                promptText,
-                imagesArray,
-                (chunk) => { qwenText += chunk; onChunk(chunk); },
-                (finalText) => { safeOnComplete(finalText || qwenText); }
-            );
-            // Nếu Qwen resolve nhưng không có text → fallback
-            if (!onCompleteFired && qwenText.trim() === "") {
-                console.warn("⚠️ Qwen 3.8 Vision stream rỗng. Fallback sang Llama 4...");
-                qwenFailed = true;
+        // CASE VISION: Gemini → Groq Qwen 3.8 Vision → Groq Llama 4 Maverick Vision
+        providers = [
+            {
+                name: "Gemini 3.7 Flash (Vision)",
+                shortName: "Gemini",
+                fn: (onC, onCplt) => callGeminiAIStream(promptText, imagesArray, onC, onCplt)
+            },
+            {
+                name: "Groq Qwen 3.8 27B (Vision)",
+                shortName: "Qwen",
+                fn: (onC, onCplt) => callGroqVisionStream(promptText, imagesArray, onC, onCplt)
+            },
+            {
+                name: "Groq Llama 4 Maverick (Vision)",
+                shortName: "Llama 4",
+                fn: (onC, onCplt) => callGroqLlama4VisionStream(promptText, imagesArray, onC, onCplt)
             }
-        } catch (qwenErr) {
-            console.warn("⚠️ Qwen 3.8 Vision lỗi:", qwenErr.message);
-            qwenFailed = true;
-        }
-
-        // 🔄 FALLBACK: Groq Llama 4 Maverick (Vision)
-        if (qwenFailed && !onCompleteFired) {
-            showToast("⚠️ Qwen lỗi. Đang chuyển sang Llama 4 (Vision)...");
-            console.log("MindDeck: Gọi Groq Llama 4 Maverick (Vision Fallback)...");
-
-            try {
-                let llamaText = "";
-                await callGroqLlama4VisionStream(
-                    promptText,
-                    imagesArray,
-                    (chunk) => { llamaText += chunk; onChunk(chunk); },
-                    (finalText) => { safeOnComplete(finalText || llamaText); }
-                );
-
-                if (!onCompleteFired && llamaText.trim() === "") {
-                    console.error("❌ Cả Qwen 3.8 và Llama 4 Vision đều trả về rỗng");
-                    safeOnComplete("");
-                }
-            } catch (llamaErr) {
-                console.error("❌ Cả Qwen 3.8 và Llama 4 Vision đều thất bại:", llamaErr.message);
-                safeOnComplete("");
+        ];
+    } else {
+        // CASE TEXT: Gemini → Groq Qwen 3.8 → Mistral Small
+        providers = [
+            {
+                name: "Gemini 3.7 Flash",
+                shortName: "Gemini",
+                fn: (onC, onCplt) => callGeminiAIStream(promptText, [], onC, onCplt, { messages: messagesArray })
+            },
+            {
+                name: "Groq Qwen 3.8 27B",
+                shortName: "Groq",
+                fn: (onC, onCplt) => callGroqTextStream(promptText, onC, onCplt, messagesArray)
+            },
+            {
+                name: "Mistral Small",
+                shortName: "Mistral",
+                fn: (onC, onCplt) => callMistralAIStream(promptText, onC, onCplt, messagesArray)
             }
-        }
-        return;
+        ];
     }
 
     // ====================================================================
-    // CASE 2: TEXT THUẦN → Groq Qwen 3.8 (Primary) → Mistral (Fallback)
+    // Thử từng provider theo thứ tự, fallback nếu fail
     // ====================================================================
-    console.log("MindDeck: Text thuần. Thử Groq Qwen 3.8 27B trước...");
-    let qwenFailed = false;
+    for (let i = 0; i < providers.length; i++) {
+        const provider = providers[i];
+        console.log(`MindDeck: [${i+1}/${providers.length}] Thử ${provider.name}...`);
 
-    try {
-        let qwenText = "";
-        await callGroqTextStream(
-            promptText,
-            (chunk) => { qwenText += chunk; onChunk(chunk); },
-            (finalText) => { safeOnComplete(finalText || qwenText); },
-            messagesArray  // 🟢 forward messages array cho Qwen
-        );
-
-        if (!onCompleteFired && qwenText.trim() === "") {
-            console.warn("⚠️ Groq stream rỗng. Fallback sang Mistral...");
-            qwenFailed = true;
-        }
-    } catch (qwenErr) {
-        console.warn("⚠️ Groq lỗi:", qwenErr.message);
-        qwenFailed = true;
-    }
-
-    // 🔄 FALLBACK: Mistral Small
-    if (qwenFailed && !onCompleteFired) {
-        showToast("⚠️ Groq bận. Đang chuyển sang Mistral...");
-        console.log("MindDeck: Gọi Mistral Small (Fallback)...");
+        let text = "";
+        let failed = false;
 
         try {
-            let mistralText = "";
-            await callMistralAIStream(
-                promptText,
-                (chunk) => { mistralText += chunk; onChunk(chunk); },
-                (finalText) => { safeOnComplete(finalText || mistralText); },
-                messagesArray  // 🟢 forward multi-turn memory cho Mistral fallback
+            await provider.fn(
+                (chunk) => { text += chunk; onChunk(chunk); },
+                (finalText) => { safeOnComplete(finalText || text); }
             );
-
-            if (!onCompleteFired && mistralText.trim() === "") {
-                console.error("❌ Cả Groq và Mistral đều trả về rỗng");
-                safeOnComplete("");
+            // Nếu provider resolve nhưng không có text → fallback
+            if (!onCompleteFired && text.trim() === "") {
+                console.warn(`⚠️ ${provider.name} stream rỗng.`);
+                failed = true;
             }
-        } catch (mistralErr) {
-            console.error("❌ Cả Groq và Mistral đều thất bại:", mistralErr.message);
-            safeOnComplete("");
+        } catch (err) {
+            console.warn(`⚠️ ${provider.name} lỗi:`, err.message);
+            failed = true;
+        }
+
+        if (!failed) {
+            // Thành công — thoát vòng lặp
+            return;
+        }
+
+        // Nếu còn provider kế tiếp → showToast báo fallback
+        if (i < providers.length - 1) {
+            const next = providers[i + 1];
+            showToast(`⚠️ ${provider.shortName} lỗi. Đang chuyển sang ${next.shortName}...`);
         }
     }
+
+    // Tất cả provider đều fail
+    console.error(`❌ Tất cả ${providers.length} provider đều thất bại`);
+    safeOnComplete("");
 }
 
 // 🟢 BỘ ĐIỀU PHỐI LAI DẠNG ĐỒNG BỘ (TRẢ VỀ FULL TEXT KHÔNG STREAM)
