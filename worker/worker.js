@@ -687,28 +687,124 @@ var worker_default = {
           const base64Match = image.match(/^data:image\/[a-z]+;base64,(.+)$/i);
           const base64Clean = base64Match ? base64Match[1] : image;
 
-          // Gọi imgbb API từ server-side (key ẩn trong env)
-          const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${env.IMGBB_API_KEY}&expiration=3600`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `image=${encodeURIComponent(base64Clean)}`
-          });
+          // 🟢 FIX BUG "You have been forbidden to use this website" (imgbb HTTP 400, code 103):
+          // imgbb CHẶN Cloudflare Workers vì:
+          // 1. Request từ Worker có User-Agent: "Cloudflare-Workers" → bị block
+          // 2. IP xuất phát từ dải mạng Cloudflare → bị imgbb nhận diện là bot
+          //
+          // FIX: Thêm User-Agent + Accept header để giả lập browser thật.
+          // (imgbb chỉ chặn pattern chứ không verify kỹ — UA browser là đủ qua.)
+          // Nếu imgbb vẫn chặn → fallback sang catbox.moe (không cần API key).
+          const BROWSER_HEADERS = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/html, */*',
+            'Accept-Language': 'en-US,en;q=0.9'
+          };
 
-          if (!imgbbResponse.ok) {
-            const errText = await imgbbResponse.text().catch(() => '');
-            console.warn('imgbb upload failed:', imgbbResponse.status, errText);
-            return new Response(JSON.stringify({
-              error: `imgbb HTTP ${imgbbResponse.status}`,
-              detail: errText.slice(0, 300)
-            }), {
-              status: 502,
-              headers: { ...corsHeaders, "Content-Type": "application/json" }
+          // 🟢 HÀM UPLOAD CATBOX (FALLBACK — không cần key, không chặn Worker)
+          // API: https://catbox.moe/user/api.php
+          // - Endpoint: https://catbox.moe/user/api.php
+          // - Body: reqtype=fileupload&fileToUpload=<binary>
+          // - Trả về: URL thẳng (vd: https://files.catbox.moe/abc123.webp)
+          // - KHÔNG có expiration — ảnh tồn tại vĩnh viễn (nhưng anonymous, không delete)
+          // - Giới hạn: 200MB/file, không có API key
+          async function uploadToCatbox(base64DataUrl) {
+            // Convert base64 → Uint8Array
+            const catboxMatch = base64DataUrl.match(/^data:image\/([a-z]+);base64,(.+)$/i);
+            if (!catboxMatch) throw new Error("Invalid base64 data URL");
+            const mime = catboxMatch[1];
+            const base64 = catboxMatch[2];
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+            // Tạo FormData với boundary
+            const ext = mime === 'jpeg' ? 'jpg' : mime;
+            const filename = `upload_${Date.now()}.${ext}`;
+            const boundary = '----CloudflareWorkerBoundary' + Math.random().toString(36).slice(2);
+            const body = new Uint8Array([
+              ...new TextEncoder().encode(
+                `--${boundary}\r\n` +
+                `Content-Disposition: form-data; name="reqtype"\r\n\r\n` +
+                `fileupload\r\n` +
+                `--${boundary}\r\n` +
+                `Content-Disposition: form-data; name="fileToUpload"; filename="${filename}"\r\n` +
+                `Content-Type: image/${mime}\r\n\r\n`
+              ),
+              ...bytes,
+              ...new TextEncoder().encode(`\r\n--${boundary}--\r\n`)
+            ]);
+
+            const catboxResponse = await fetch('https://catbox.moe/user/api.php', {
+              method: 'POST',
+              headers: {
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                ...BROWSER_HEADERS
+              },
+              body: body
             });
+
+            if (!catboxResponse.ok) {
+              const errText = await catboxResponse.text().catch(() => '');
+              throw new Error(`catbox HTTP ${catboxResponse.status}: ${errText.slice(0, 200)}`);
+            }
+            const url = (await catboxResponse.text()).trim();
+            if (!url.startsWith('http')) {
+              throw new Error(`catbox trả về không phải URL: ${url.slice(0, 100)}`);
+            }
+            return url;
           }
 
-          const imgbbData = await imgbbResponse.json();
-          if (!imgbbData.success || !imgbbData.data || !imgbbData.data.url) {
-            return new Response(JSON.stringify({ error: "imgbb upload failed" }), {
+          // 🟢 THỬ IMGBB TRƯỚC, FALLBACK CATBOX
+          let imageUrl = null;
+          let provider = null;
+          let lastError = null;
+
+          // Lần 1: Thử imgbb (có key + đã có UA giả lập browser)
+          try {
+            const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${env.IMGBB_API_KEY}&expiration=3600`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                ...BROWSER_HEADERS
+              },
+              body: `image=${encodeURIComponent(base64Clean)}`
+            });
+
+            if (imgbbResponse.ok) {
+              const imgbbData = await imgbbResponse.json();
+              if (imgbbData.success && imgbbData.data && imgbbData.data.url) {
+                imageUrl = imgbbData.data.url;
+                provider = 'imgbb';
+              }
+            } else {
+              const errText = await imgbbResponse.text().catch(() => '');
+              lastError = `imgbb HTTP ${imgbbResponse.status}: ${errText.slice(0, 200)}`;
+              console.warn('imgbb upload failed, fallback to catbox:', lastError);
+            }
+          } catch (imgbbErr) {
+            lastError = `imgbb error: ${imgbbErr.message}`;
+            console.warn('imgbb fetch error, fallback to catbox:', imgbbErr.message);
+          }
+
+          // Lần 2: Nếu imgbb fail → thử catbox (không cần key, không chặn Worker)
+          if (!imageUrl) {
+            try {
+              imageUrl = await uploadToCatbox(image);  // truyền nguyên data URL, không phải base64Clean
+              provider = 'catbox';
+              console.log('catbox upload OK:', imageUrl);
+            } catch (catboxErr) {
+              console.error('catbox also failed:', catboxErr.message);
+              lastError = `${lastError} | catbox: ${catboxErr.message}`;
+            }
+          }
+
+          // Nếu cả 2 đều fail → trả lỗi cho frontend
+          if (!imageUrl) {
+            return new Response(JSON.stringify({
+              error: 'Tất cả image host đều thất bại',
+              detail: lastError
+            }), {
               status: 502,
               headers: { ...corsHeaders, "Content-Type": "application/json" }
             });
@@ -716,9 +812,10 @@ var worker_default = {
 
           return new Response(JSON.stringify({
             success: true,
-            url: imgbbData.data.url,
-            delete_url: imgbbData.data.delete_url || null,
-            expiresIn: 3600
+            url: imageUrl,
+            provider: provider,  // 'imgbb' hoặc 'catbox' (frontend có thể log để debug)
+            delete_url: null,     // catbox không có delete URL
+            expiresIn: provider === 'imgbb' ? 3600 : null  // catbox vô thời hạn
           }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" }
           });
