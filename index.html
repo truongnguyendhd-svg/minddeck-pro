@@ -28591,25 +28591,31 @@ async function askAIWhyWrong() {
 /* ================= HỆ THỐNG GỌI VERCEL API (GEMINI) ================= */
 async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback, onCompleteCallback, options = {}) {
     // 🟢 FIX PDF AI timeout (lỗi "Gemini timeout (20s) - server không phản hồi"):
-    // Pipeline vision request (PDF reader gửi ảnh base64 inline) tốn 10-30s+ trước byte đầu:
+    // Pipeline vision request (PDF reader gửi ảnh base64 inline) tốn 10-60s+ trước byte đầu:
     //   1. Upload ảnh lớn (100KB-2MB) tới Worker: 2-5s
     //   2. Worker forward sang Gemini API: 1-2s
-    //   3. Gemini decode base64 + chạy vision model (OCR + analyze): 5-15s
+    //   3. Gemini decode base64 + reasoning model (24576 token budget): 5-45s
     //   4. Bắt đầu stream chunk đầu tiên
     // Timeout cũ 20s → abort giữa chừng → lỗi.
+    // Sau nhiều lần bump: 90s text / 180s vision — đủ cho reasoning dài.
     //
     // Giải pháp: phân tầng timeout theo loại request:
-    //   - TEXT thuần: 30s fetch + 25s per-chunk (như cũ)
-    //   - VISION (có ảnh): 120s fetch + 60s per-chunk (đủ cho pipeline dài)
+    //   - TEXT thuần: 90s fetch + 60s per-chunk
+    //   - VISION (có ảnh): 180s fetch + 120s per-chunk (đủ cho pipeline dài)
+    //
+    // 🟢 BUMP timeout: Gemini 3.7 Flash là reasoning model → có thể mất 10-60s
+    // trước byte đầu (reasoning + processing). Cũ 30s text hay bị timeout
+    // khi prompt dài (PDF AI, multi-turn chat, daily story, grammar analysis).
+    // Mới: 90s text / 180s vision — đồng bộ với Worker.
     //
     // 🟢 Refactor: hỗ trợ options.messages (multi-turn) — forward sang Worker
     // dưới dạng `messages` array thay vì `prompt` string. Worker tự build
     // `contents` cho Gemini API.
     const messagesArray = options && options.messages ? options.messages : null;
     const hasImages = Array.isArray(imagesArray) && imagesArray.length > 0;
-    const fetchTimeoutMs = hasImages ? 120000 : 30000;   // 120s vision, 30s text
-    const chunkTimeoutMs = hasImages ? 60000 : 25000;    // 60s vision, 25s text
-    const timeoutLabel = hasImages ? '120s vision' : '30s text';
+    const fetchTimeoutMs = hasImages ? 180000 : 90000;    // 180s vision, 90s text
+    const chunkTimeoutMs = hasImages ? 120000 : 60000;    // 120s vision, 60s text
+    const timeoutLabel = hasImages ? '180s vision' : '90s text';
 
     const fetchController = new AbortController();
     const fetchTimeoutId = setTimeout(() => fetchController.abort(), fetchTimeoutMs);
