@@ -109,6 +109,56 @@ async function callGroqAI_NonStream(prompt, env, model = "qwen/qwen3.8-27b") {
 }
 __name(callGroqAI_NonStream, "callGroqAI_NonStream");
 
+// =========================================================================
+// 🟢 HELPER: fetchWithTimeout — fetch có timeout bằng Promise.race
+// =========================================================================
+// Mục đích: thay thế pattern `setTimeout + AbortController + clearTimeout`
+// vốn dễ gây lỗi scoping (ReferenceError: fetchTimeoutId is not defined).
+//
+// Cách hoạt động:
+//   1. Tạo AbortController nội bộ (không phụ thuộc signal của caller).
+//   2. Race giữa `fetch()` và `setTimeout(() => controller.abort(), timeoutMs)`.
+//   3. Dùng `.finally()` để clearTimeout — chạy dù resolve hay reject,
+//      không cần lo scoping như try/catch.
+//   4. `.catch()` convert AbortError (do timeout) thành AbortTimeoutError,
+//      giúp caller phân biệt với abort thật từ user (nếu có).
+//
+// Sử dụng:
+//   try {
+//     const res = await fetchWithTimeout(url, opts, 30000);
+//     ...
+//   } catch (err) {
+//     if (err.name === 'AbortTimeoutError') { /* timeout */ }
+//     else { /* lỗi mạng / HTTP */ }
+//   }
+// =========================================================================
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  // Override signal của caller bằng controller.signal nội bộ
+  // (caller không thể tự abort — chỉ timeout mới abort)
+  const finalOptions = { ...options, signal: controller.signal };
+
+  try {
+    return await fetch(url, finalOptions);
+  } catch (err) {
+    // AbortError do timeout fire → convert thành AbortTimeoutError
+    // để caller phân biệt với abort thật từ user
+    if (err.name === 'AbortError') {
+      const timeoutErr = new Error(`Timeout sau ${timeoutMs / 1000}s`);
+      timeoutErr.name = 'AbortTimeoutError';
+      timeoutErr.originalError = err;
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    // 🟢 Luôn clear timeout dù thành công hay lỗi — không cần lo scoping
+    clearTimeout(timeoutId);
+  }
+}
+__name(fetchWithTimeout, "fetchWithTimeout");
+
 var worker_default = {
   async fetch(request, env, ctx) {
     const corsHeaders = {
@@ -780,6 +830,13 @@ var worker_default = {
             });
           }
 
+          // 🟢 Refactor: thêm fetchWithTimeout cho Gemini.
+          // Gemini 3.7 Flash emit token nhanh (không phải reasoning model) nhưng
+          // Google API vẫn có thể treo khi rate limit hoặc load cao.
+          // Vision + base64 inline tốn thời gian encode → 120s cho vision, 60s cho text.
+          const hasImages = partsArray.length > 1;
+          const fetchTimeoutMs = hasImages ? 120000 : 60000;
+
           for (let i = 0; i < apiKeys.length; i++) {
             const currentIndex = (startIndex + i) % apiKeys.length;
             const currentKey = apiKeys[currentIndex];
@@ -788,7 +845,7 @@ var worker_default = {
               const modelName = "gemini-3.7-flash";
               const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${currentKey}`;
 
-              const response = await fetch(geminiUrl, {
+              const response = await fetchWithTimeout(geminiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -798,7 +855,7 @@ var worker_default = {
                     maxOutputTokens: 65536
                   }
                 })
-              });
+              }, fetchTimeoutMs);
 
               if (!response.ok) {
                 const data = await response.json().catch(() => ({}));
@@ -816,8 +873,14 @@ var worker_default = {
               });
 
             } catch (error) {
-              console.warn(`⚠️ API Key thứ ${currentIndex + 1} thất bại:`, error.message);
-              lastErrorMessage = error.message;
+              // 🟢 Phân loại lỗi timeout vs lỗi thường
+              if (error.name === 'AbortTimeoutError') {
+                console.warn(`⚠️ Gemini API Key thứ ${currentIndex + 1} timeout sau ${fetchTimeoutMs/1000}s`);
+                lastErrorMessage = `Timeout sau ${fetchTimeoutMs/1000}s`;
+              } else {
+                console.warn(`⚠️ API Key thứ ${currentIndex + 1} thất bại:`, error.message);
+                lastErrorMessage = error.message;
+              }
             }
           }
 
@@ -896,6 +959,13 @@ var worker_default = {
           let startIndex = Math.floor(Math.random() * apiKeys.length);
           let lastErrorMessage = "";
 
+          // 🟢 Refactor: dùng fetchWithTimeout thay cho setTimeout + AbortController thủ công.
+          // Lý do: pattern cũ gây lỗi "fetchTimeoutId is not defined" do const trong try
+          // là block-scoped, catch không thấy được. fetchWithTimeout tự quản lý timer
+          // nội bộ qua .finally() → không còn vấn đề scoping.
+          // Timeout phân tầng: 90s cho vision (OCR + fetch ảnh), 30s cho text thuần.
+          const fetchTimeoutMs = hasImages ? 90000 : 30000;
+
           for (let i = 0; i < apiKeys.length; i++) {
             const currentIndex = (startIndex + i) % apiKeys.length;
             const currentKey = apiKeys[currentIndex];
@@ -914,13 +984,9 @@ var worker_default = {
                 finalKey = currentKey.replace("cerebras:", "");
               }
 
-              // 🟢 Set timeout cho fetch Groq — tránh Worker treo mãi nếu Groq chậm
-              // Vision request cần thời gian dài (OCR + fetch ảnh URL)
-              const fetchTimeoutMs = hasImages ? 90000 : 30000; // 90s vision, 30s text
-              const fetchController = new AbortController();
-              const fetchTimeoutId = setTimeout(() => fetchController.abort(), fetchTimeoutMs);
-
-              const response = await fetch(apiUrl, {
+              // 🟢 fetchWithTimeout: nếu Groq không phản hồi trong fetchTimeoutMs
+              // → throw AbortTimeoutError (đã được helper convert từ AbortError)
+              const response = await fetchWithTimeout(apiUrl, {
                 method: 'POST',
                 headers: {
                   'Authorization': `Bearer ${finalKey}`,
@@ -941,10 +1007,8 @@ var worker_default = {
                   // - "parsed": Reasoning được tách riêng vào delta.reasoning, content chỉ có final answer
                   // Frontend chỉ render delta.content → tự động clean, không cần regex.
                   reasoning_format: "parsed"
-                }),
-                signal: fetchController.signal
-              });
-              clearTimeout(fetchTimeoutId);
+                })
+              }, fetchTimeoutMs);
 
               if (!response.ok) {
                 // 🟢 Log chi tiết lỗi để debug (đặc biệt cho vision request)
@@ -980,14 +1044,16 @@ var worker_default = {
               });
 
             } catch (error) {
-              clearTimeout(fetchTimeoutId);
-              if (error.name === 'AbortError') {
+              // 🟢 Refactor: không còn cần clear timeout thủ công — fetchWithTimeout
+              // đã tự clear qua .finally(). Chỉ cần phân loại lỗi.
+              if (error.name === 'AbortTimeoutError') {
                 console.warn(`⚠️ Groq API Key thứ ${currentIndex + 1} timeout sau ${fetchTimeoutMs/1000}s`);
                 lastErrorMessage = `Timeout sau ${fetchTimeoutMs/1000}s (vision request chậm — thử gửi ảnh nhỏ hơn)`;
               } else {
                 console.warn(`⚠️ Groq API Key thứ ${currentIndex + 1} thất bại:`, error.message);
                 lastErrorMessage = error.message;
               }
+              // 🔄 Tiếp tục vòng for thử key kế tiếp
             }
           }
 
@@ -1042,12 +1108,18 @@ var worker_default = {
           let startIndex = Math.floor(Math.random() * apiKeys.length);
           let lastErrorMessage = "";
 
+          // 🟢 Refactor: Mistral không phải reasoning model nhưng vẫn có thể bị
+          // upstream treo (half-open connection, load balancer chết mềm).
+          // Thêm fetchWithTimeout 60s để fail-fast → thử key kế tiếp trong for-loop.
+          // 60s là biên an toàn cho Mistral Small (thường emit token ngay < 3s).
+          const fetchTimeoutMs = 60000;
+
           for (let i = 0; i < apiKeys.length; i++) {
             const currentIndex = (startIndex + i) % apiKeys.length;
             const currentKey = apiKeys[currentIndex];
 
             try {
-              const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+              const response = await fetchWithTimeout("https://api.mistral.ai/v1/chat/completions", {
                 method: 'POST',
                 headers: {
                   'Authorization': `Bearer ${currentKey}`,
@@ -1060,7 +1132,7 @@ var worker_default = {
                   temperature: 0.6,
                   stream: true
                 })
-              });
+              }, fetchTimeoutMs);
 
               if (!response.ok) {
                 const data = await response.json().catch(() => ({}));
@@ -1078,8 +1150,14 @@ var worker_default = {
               });
 
             } catch (error) {
-              console.warn(`⚠️ Mistral API Key thứ ${currentIndex + 1} thất bại:`, error.message);
-              lastErrorMessage = error.message;
+              // 🟢 Phân loại lỗi timeout vs lỗi thường để log rõ ràng
+              if (error.name === 'AbortTimeoutError') {
+                console.warn(`⚠️ Mistral API Key thứ ${currentIndex + 1} timeout sau ${fetchTimeoutMs/1000}s`);
+                lastErrorMessage = `Timeout sau ${fetchTimeoutMs/1000}s`;
+              } else {
+                console.warn(`⚠️ Mistral API Key thứ ${currentIndex + 1} thất bại:`, error.message);
+                lastErrorMessage = error.message;
+              }
             }
           }
 
