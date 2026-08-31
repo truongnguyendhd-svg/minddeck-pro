@@ -802,9 +802,9 @@ var worker_default = {
           // 🟢 Multi-turn: build `contents` array với role user/model (Gemini API format)
           // 🟢 Vision: inject ảnh vào user message cuối cùng (giống Groq)
           const reqBody = await request.json();
-          // 🟢 task: 'light' (8192) | 'heavy' (24576) — chọn thinkingBudget cho Gemini
-          // - light: sinh ví dụ, mnemonic, chat, tra từ điển (task ngắn, output ngắn)
-          // - heavy: PDF AI, daily story, admin auto-fill, grammar analysis (task dài, output dài)
+          // 🟢 task: 'light' | 'heavy' — chọn thinkingLevel cho Gemini 3
+          // - light: sinh ví dụ, mnemonic, chat, tra từ điển (task ngắn, output ngắn) → thinkingLevel "low"
+          // - heavy: PDF AI, daily story, admin auto-fill, grammar analysis (task dài, output dài) → thinkingLevel "high"
           // Mặc định 'light' để tránh tốn token vô ích cho task đơn giản.
           const { prompt, images = [], messages = null, task = 'light' } = reqBody;
 
@@ -907,11 +907,16 @@ var worker_default = {
               const modelName = "gemini-3.7-flash";
               const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${currentKey}`;
 
-              // 🟢 thinkingConfig: giới hạn reasoning budget theo task type
-              // - 'light' (8192):    task đơn giản → reasoning nhanh, không lãng phí token
-              // - 'heavy' (24576):   task phức tạp → reasoning sâu, output chất lượng cao
-              // Gemini default là 24576 → đặt 'light' cho task nhẹ tiết kiệm 67% token.
-              const thinkingBudget = (task === 'heavy') ? 24576 : 8192;
+              // 🟢 FIX (31/08/2026): thinkingBudget (số token) đã là LEGACY với Gemini 3.
+              // Google thay thế bằng thinkingLevel (enum: "low" | "medium" | "high").
+              // LƯU Ý:
+              //   1. gemini-3.7-flash KHÔNG hỗ trợ "minimal" (chỉ low/medium/high, default medium).
+              //   2. Nếu gửi CẢ thinkingLevel VÀ thinkingBudget trong cùng request
+              //      → Google trả về lỗi 400 ("You cannot use both").
+              // Ánh xạ task:
+              //   - 'light' → "low":  task đơn giản → reasoning nhanh, không lãng phí token
+              //   - 'heavy' → "high": task phức tạp → reasoning sâu, output chất lượng cao
+              const thinkingLevel = (task === 'heavy') ? "high" : "low";
 
               const response = await fetchWithTimeout(geminiUrl, {
                 method: 'POST',
@@ -919,10 +924,12 @@ var worker_default = {
                 body: JSON.stringify({
                   contents: contents,
                   generationConfig: {
-                    temperature: 0.2,
+                    // 🟢 FIX (31/08/2026): Google khuyến nghị GIỮ temperature mặc định (1.0)
+                    // cho MỌI model Gemini 3 — đặt < 1.0 có thể gây hành vi bất thường
+                    // (giảm chất lượng reasoning). → Xóa field temperature để dùng default.
                     maxOutputTokens: 65536,
                     thinkingConfig: {
-                      thinkingBudget: thinkingBudget
+                      thinkingLevel: thinkingLevel
                     }
                   }
                 })
