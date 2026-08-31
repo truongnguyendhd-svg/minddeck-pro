@@ -985,17 +985,25 @@ var worker_default = {
                   temperature: 0.6,
                   // 🟢 FIX LỖI TPM LIMIT (Tokens Per Minute):
                   // Groq free tier (service_tier=on_demand) có TPM = 8000 tokens/phút.
-                  // Trước đây set 16384 → tổng request ~18K tokens → vượt TPM limit.
                   //
-                  // Tính toán lại:
-                  //   Input (system + user + ảnh URL): ~1500 tokens
-                  //   max_completion_tokens (output ceiling): 6000 tokens
-                  //   Tổng: ~7500 tokens → dưới 8000 TPM limit ✓
+                  // Cách Groq tính token cho mỗi request:
+                  //   TOTAL = input_tokens + max_completion_tokens
+                  //   (Bao gồm CẢ output ceiling, không phải chỉ input!)
                   //
-                  // Reasoning model thực tế chỉ ăn 3-5K tokens để suy nghĩ + output.
-                  // 6000 là con số tối ưu: vừa đủ reasoning, không vượt TPM.
+                  // Tính toán để TOTAL < 7000 (room cho retry khi TPM full):
+                  //   - Input (system prompt + user text + ảnh URL detail:"low"): ~2500 tokens
+                  //   - max_completion_tokens: 4000 tokens (output ceiling)
+                  //   - Tổng: ~6500 tokens → dưới 8000 TPM limit ✓
+                  //
+                  // Lưu ý về ảnh URL (detail:"low"):
+                  //   - Groq download ảnh từ URL (imgbb/tmpfiles) về server
+                  //   - Tokenize ảnh qua Vision Transformer
+                  //   - detail:"low" → ảnh resize về 512×512 → chỉ ~85 token/ảnh (fixed)
+                  //   → Ảnh URL KHÔNG tốn nhiều token hơn base64 (cùng ~85 token)
+                  //
+                  // Reasoning model thực tế chỉ cần 3-4K tokens để suy nghĩ + output.
                   // Nếu cần output dài hơn → user phải đợi 60s để TPM reset.
-                  max_completion_tokens: 6000,
+                  max_completion_tokens: 4000,
                   stream: true,
                   // 🟢 Đổi từ "hidden" → "parsed":
                   // - "hidden": Qwen vẫn tính reasoning tokens nhưng không trả về → tối nghĩa, lãng phí
