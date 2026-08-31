@@ -983,11 +983,19 @@ var worker_default = {
                   // 🟢 BUMP temperature 0.2 → 0.6: Reasoning model cần nhiệt độ cao hơn
                   // để suy nghĩ linh hoạt. 0.2 quá thấp → output bị "lười suy nghĩ".
                   temperature: 0.6,
-                  // 🟢 FIX LỖI "max_completion_tokens must be <= 16384":
-                  // Groq giới hạn max_completion_tokens tối đa = 16384 cho hầu hết model (qwen3.8-27b).
-                  // Trước đây set 32768 → bị reject ngay từ request.
-                  // Reasoning model thực tế chỉ ăn 3-6k tokens → 16384 là dư sức.
-                  max_completion_tokens: 16384,
+                  // 🟢 FIX LỖI TPM LIMIT (Tokens Per Minute):
+                  // Groq free tier (service_tier=on_demand) có TPM = 8000 tokens/phút.
+                  // Trước đây set 16384 → tổng request ~18K tokens → vượt TPM limit.
+                  //
+                  // Tính toán lại:
+                  //   Input (system + user + ảnh URL): ~1500 tokens
+                  //   max_completion_tokens (output ceiling): 6000 tokens
+                  //   Tổng: ~7500 tokens → dưới 8000 TPM limit ✓
+                  //
+                  // Reasoning model thực tế chỉ ăn 3-5K tokens để suy nghĩ + output.
+                  // 6000 là con số tối ưu: vừa đủ reasoning, không vượt TPM.
+                  // Nếu cần output dài hơn → user phải đợi 60s để TPM reset.
+                  max_completion_tokens: 6000,
                   stream: true,
                   // 🟢 Đổi từ "hidden" → "parsed":
                   // - "hidden": Qwen vẫn tính reasoning tokens nhưng không trả về → tối nghĩa, lãng phí
@@ -1045,6 +1053,29 @@ var worker_default = {
               } else {
                 console.warn(`⚠️ Groq API Key thứ ${currentIndex + 1} thất bại:`, error.message);
                 lastErrorMessage = error.message;
+
+                // 🟢 FIX TPM LIMIT — Detect lỗi TPM để trả message thân thiện cho frontend:
+                // Groq free tier có TPM = 8000 tokens/phút. Khi request vượt limit,
+                // Groq trả lỗi 429 với message chứa "tokens per minute (TPM)".
+                //
+                // KHÔNG retry trong Worker vì Cloudflare Worker có wall-time limit 30s
+                // (free tier). Đợi 60s sẽ bị timeout → trả lỗi ngay cho frontend với
+                // gợi ý "đợi 60s rồi bấm gửi lại".
+                //
+                // Frontend có thể hiện nút "Thử lại" hoặc đợi auto retry.
+                if (error.message && error.message.toLowerCase().includes('tokens per minute')) {
+                  // Trích xuất thông tin TPM limit để hiển thị cho user
+                  const tpmMatch = error.message.match(/Limit\s+(\d+),\s+Requested\s+(\d+)/i);
+                  if (tpmMatch) {
+                    lastErrorMessage = `⚠️ Đã vượt giới hạn Groq free tier (TPM = ${tpmMatch[1]} tokens/phút, request cần ${tpmMatch[2]} tokens). Đợi khoảng 60 giây rồi bấm gửi lại, hoặc gửi câu ngắn hơn/ảnh nhỏ hơn.`;
+                  } else {
+                    lastErrorMessage = `⚠️ Đã vượt giới hạn Groq free tier (TPM = 8000 tokens/phút). Đợi khoảng 60 giây rồi bấm gửi lại.`;
+                  }
+                  // THOÁT VÒNG LẶP KEY NGAY — vì TPM limit áp dụng cho TẤT CẢ key
+                  // (cùng organization) → thử key khác cũng fail → break để tiết kiệm thời gian.
+                  console.warn('⏳ TPM limit hit — break key loop, trả lỗi cho frontend');
+                  break;
+                }
               }
             }
           }
