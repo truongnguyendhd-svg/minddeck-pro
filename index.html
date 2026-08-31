@@ -28628,9 +28628,12 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
     const fetchTimeoutId = setTimeout(() => fetchController.abort(), fetchTimeoutMs);
 
     // 🟢 BUILD BODY: Multi-turn (messages array) hoặc single-turn (prompt string)
+    // 🟢 Thêm `task` ('light' | 'heavy') để Worker chọn thinkingBudget cho Gemini.
+    // Mặc định 'light' (8192) — task nhẹ. Frontend có thể gửi 'heavy' cho task phức tạp.
+    const taskType = options && options.task ? options.task : 'light';
     const body = messagesArray && messagesArray.length > 0
-        ? { messages: messagesArray, images: imagesArray }
-        : { prompt: promptText, images: imagesArray };
+        ? { messages: messagesArray, images: imagesArray, task: taskType }
+        : { prompt: promptText, images: imagesArray, task: taskType };
 
     let response;
     try {
@@ -28735,7 +28738,7 @@ async function callGeminiAIStream(promptText, imagesArray = [], onChunkCallback,
 // Ghi đè lại callGeminiAI thành một wrapper đồng bộ ngược
 // Việc này giúp duy trì 100% khả năng tương thích với tất cả các tính năng cũ của bạn
 // (như Kanji Builder, Gia sư Ngữ pháp, Thống kê...) mà không cần phải viết lại chúng.
-async function callGeminiAI(promptText, imagesArray = []) {
+async function callGeminiAI(promptText, imagesArray = [], task = 'light') {
     // 🟢 REFACTOR: callGeminiAI giờ là wrapper của callHybridAI
     // → Tự động fallback: Gemini → Groq → Mistral cho MỌI call site
     //   (PDF AI, Kanji X-ray, Grammar Vault, Mnemonic, Daily Story, Admin...)
@@ -28743,6 +28746,10 @@ async function callGeminiAI(promptText, imagesArray = []) {
     //
     // Trước đây: chỉ gọi Gemini, nếu fail → báo lỗi (PDF AI hay timeout).
     // Sau refactor: thử Gemini trước, nếu fail tự chuyển Groq/Mistral.
+    //
+    // 🟢 task: 'light' (8192 reasoning) | 'heavy' (24576 reasoning)
+    // - 'light' cho task ngắn: sinh ví dụ, mnemonic, tra từ
+    // - 'heavy' cho task phức tạp: PDF AI, daily story, grammar analysis
 
     // Bản vá hỗ trợ nếu các tính năng cũ vô tình truyền chuỗi thay vì mảng ảnh
     let processedImages = imagesArray;
@@ -28750,7 +28757,7 @@ async function callGeminiAI(promptText, imagesArray = []) {
         processedImages = [imagesArray];
     }
 
-    return await callHybridAI(promptText, processedImages);
+    return await callHybridAI(promptText, processedImages, { task });
 }
 // =========================================================================
 // 🟢 HELPER: STREAM PARSER DÙNG CHUNG CHO OPENAI-COMPATIBLE APIs (GROQ + MISTRAL)
@@ -29038,7 +29045,8 @@ async function callHybridAIStream(promptText, imagesArray = [], onChunk, onCompl
             {
                 name: "Gemini 3.7 Flash (Vision)",
                 shortName: "Gemini",
-                fn: (onC, onCplt) => callGeminiAIStream(promptText, imagesArray, onC, onCplt)
+                // 🟢 forward task ('light'|'heavy') cho Gemini để chọn thinkingBudget
+                fn: (onC, onCplt) => callGeminiAIStream(promptText, imagesArray, onC, onCplt, { task: options.task || 'light' })
             },
             {
                 name: "Groq Qwen 3.8 27B (Vision)",
@@ -29057,7 +29065,8 @@ async function callHybridAIStream(promptText, imagesArray = [], onChunk, onCompl
             {
                 name: "Gemini 3.7 Flash",
                 shortName: "Gemini",
-                fn: (onC, onCplt) => callGeminiAIStream(promptText, [], onC, onCplt, { messages: messagesArray })
+                // 🟢 forward task ('light'|'heavy') cho Gemini để chọn thinkingBudget
+                fn: (onC, onCplt) => callGeminiAIStream(promptText, [], onC, onCplt, { messages: messagesArray, task: options.task || 'light' })
             },
             {
                 name: "Groq Qwen 3.8 27B",
@@ -29115,7 +29124,7 @@ async function callHybridAIStream(promptText, imagesArray = [], onChunk, onCompl
 }
 
 // 🟢 BỘ ĐIỀU PHỐI LAI DẠNG ĐỒNG BỘ (TRẢ VỀ FULL TEXT KHÔNG STREAM)
-async function callHybridAI(promptText, imagesArray = []) {
+async function callHybridAI(promptText, imagesArray = [], options = {}) {
     let fullText = "";
     let resolveFn;
     const completionPromise = new Promise(r => { resolveFn = r; });
@@ -29130,7 +29139,8 @@ async function callHybridAI(promptText, imagesArray = []) {
                 fullText = finalText;
             }
             resolveFn();
-        }
+        },
+        options  // 🟢 forward options (chứa task) cho callHybridAIStream
     );
     // Đợi callback onComplete hoàn tất (đảm bảo fullText đã được set)
     await completionPromise;
@@ -29714,7 +29724,8 @@ async function startContinuousReplenish(totalEmpty) {
 
         try {
             // 3. Gọi Gemini AI
-            let aiResponse = await callGeminiAI(prompt);
+            // 🟢 task='heavy' — daily story cần reasoning sâu (đọc bản tin + dịch + tạo bài học)
+            let aiResponse = await callGeminiAI(prompt, [], 'heavy');
             let cleanResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
             
             // Cứu hộ JSON bị cắt khúc
@@ -30556,7 +30567,8 @@ async function triggerPdfAI(actionType, croppedBase64 = null) {
 
     try {
         // 3. GỌI API GEMINI (Truyền Prompt + Array chứa 1 ảnh Base64)
-        const aiResponse = await callGeminiAI(prompt, [base64Image]);
+        // 🟢 task='heavy' — PDF AI cần reasoning sâu (OCR + phân tích + sinh output dài)
+        const aiResponse = await callGeminiAI(prompt, [base64Image], 'heavy');
 
         // 4. XỬ LÝ KẾT QUẢ TRẢ VỀ (BÓC TÁCH JSON NẾU CÓ)
         let mainText = aiResponse;
@@ -34131,7 +34143,8 @@ async function autoFillKanjiAdminWithAI() {
     }`;
 
     try {
-        let aiResponse = await callGeminiAI(prompt);
+        // 🟢 task='heavy' — admin kanji builder cần reasoning sâu (sinh JSON kanji đầy đủ)
+        let aiResponse = await callGeminiAI(prompt, [], 'heavy');
         
         const startIndex = aiResponse.indexOf('{');
         const endIndex = aiResponse.lastIndexOf('}');
