@@ -910,7 +910,10 @@ var worker_default = {
           // - Nếu client gửi `messages` array → ưu tiên dùng (cho phép tách role system/user)
           // - Nếu chỉ gửi `prompt` string → fallback về `[{role:"user", content: prompt}]`
           const reqBody = await request.json();
-          const { prompt, model = "qwen/qwen3.8-27b", images = [] } = reqBody;
+          // 🟢 Tham số `max_tokens` (optional) cho phép frontend override budget.
+          // Mặc định Worker tự chọn theo model (xem MAX_COMPLETION_TOKENS_BY_MODEL).
+          // Frontend có thể gửi max_tokens=8192 cho task phức tạp (PDF AI, grammar, ...).
+          const { prompt, model = "qwen/qwen3.8-27b", images = [], max_tokens = null } = reqBody;
           let messages;
           if (Array.isArray(reqBody.messages) && reqBody.messages.length > 0) {
             messages = reqBody.messages;
@@ -988,16 +991,26 @@ var worker_default = {
               // → throw AbortTimeoutError (đã được helper convert từ AbortError)
               //
               // 🟢 FIX "max_completion_tokens must be <= 16384":
-              // Groq cập nhật giới hạn output token theo từng model. Bảng tham chiếu:
-              //   - qwen/qwen3.8-27b                              → 16384 (reasoning model)
-              //   - meta-llama/llama-4-maverick-17b-128e-instruct → 8192
-              //   - default fallback                             → 8192 (an toàn cho mọi model khác)
-              // Nếu truyền vượt giới hạn → Groq trả HTTP 400, toàn bộ for-loop fail.
+              // Groq cập nhật giới hạn output token theo từng model.
+              //
+              // 🟢 FIX "Requested 16572 tokens, TPM Limit 8000":
+              // Qwen 3.8 là reasoning model — có xu hướng "lấp đầy" max_completion_tokens
+              // bằng reasoning tokens dù câu hỏi đơn giản. Đặt 16384 → model suy nghĩ
+              // 16000 token cho cả câu "bạn là ai" → vượt TPM ngay lần đầu.
+              // Giải pháp: giảm budget mặc định xuống 4096 (đủ cho reasoning + answer).
+              //
+              // 🟢 OVERRIDE: Frontend có thể gửi `max_tokens` trong request body
+              // để tăng budget cho task phức tạp (PDF AI, grammar, ...).
+              // Cap tối đa 16384 theo giới hạn của Qwen 3.8 trên Groq.
               const MAX_COMPLETION_TOKENS_BY_MODEL = {
-                "qwen/qwen3.8-27b": 16384,
-                "meta-llama/llama-4-maverick-17b-128e-instruct": 8192
+                "qwen/qwen3.8-27b": 4096,
+                "meta-llama/llama-4-maverick-17b-128e-instruct": 4096
               };
-              const maxCompletionTokens = MAX_COMPLETION_TOKENS_BY_MODEL[modelId] || 8192;
+              const modelDefault = MAX_COMPLETION_TOKENS_BY_MODEL[modelId] || 4096;
+              // 🟢 Ưu tiên max_tokens từ frontend, nhưng cap ở 16384 để tránh lỗi 400
+              const maxCompletionTokens = max_tokens
+                ? Math.min(Math.max(parseInt(max_tokens, 10) || modelDefault, 512), 16384)
+                : modelDefault;
 
               const response = await fetchWithTimeout(apiUrl, {
                 method: 'POST',
