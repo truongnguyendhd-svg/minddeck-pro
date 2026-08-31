@@ -162,7 +162,7 @@ __name(fetchWithTimeout, "fetchWithTimeout");
 // =========================================================================
 // 🟢 FIX "STREAMING BỊ ĐỨT ĐOẠN" (31/08/2026): SSE HEARTBEAT
 // =========================================================================
-// VẤN ĐỀ: Gemini 3.7 Flash / Qwen 3.8 là REASONING MODEL — sau khi nhận request,
+// VẤN ĐỀ: gemini-3-flash-preview / Qwen 3.8 là REASONING MODEL — sau khi nhận request,
 // chúng có thể "nghĩ" 30-90s+ KHÔNG phát một byte nào. Trong khoảng im lặng đó:
 //   1. Proxy/carrier mobile (4G/5G VN) thấy connection idle → drop kết nối
 //   2. Frontend per-chunk timeout (60s/25s) không nhận được byte → tự abort
@@ -946,7 +946,7 @@ var worker_default = {
           }
 
           // 🟢 Refactor: thêm fetchWithTimeout cho Gemini.
-          // 🟢 BUMP timeout: Gemini 3.7 Flash là reasoning model → có thể mất 10-60s
+          // 🟢 BUMP timeout: gemini-3-flash-preview là reasoning model → có thể mất 10-60s
           // trước byte đầu (reasoning + processing).
           const hasImages = (images && Array.isArray(images) && images.length > 0) ||
                             (Array.isArray(messages) && messages.some(m =>
@@ -963,16 +963,16 @@ var worker_default = {
             const currentKey = apiKeys[currentIndex];
 
             try {
-              const modelName = "gemini-3.7-flash";
+              const modelName = "gemini-3-flash-preview";
               const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${currentKey}`;
 
               // 🟢 FIX (31/08/2026): thinkingBudget (số token) đã là LEGACY với Gemini 3.
-              // Google thay thế bằng thinkingLevel (enum: "low" | "medium" | "high").
+              // Google thay thế bằng thinkingLevel (enum: "minimal" | "low" | "medium" | "high").
               // LƯU Ý:
-              //   1. gemini-3.7-flash KHÔNG hỗ trợ "minimal" (chỉ low/medium/high, default medium).
+              //   1. gemini-3-flash-preview hỗ trợ ĐỦ 4 mức (minimal/low/medium/high), default HIGH.
               //   2. Nếu gửi CẢ thinkingLevel VÀ thinkingBudget trong cùng request
               //      → Google trả về lỗi 400 ("You cannot use both").
-              // Ánh xạ task:
+              // Ánh xạ task (default của model là "high" — khá tốn token):
               //   - 'light' → "low":  task đơn giản → reasoning nhanh, không lãng phí token
               //   - 'heavy' → "high": task phức tạp → reasoning sâu, output chất lượng cao
               const thinkingLevel = (task === 'heavy') ? "high" : "low";
