@@ -886,13 +886,14 @@ var worker_default = {
           }
 
           // 🟢 Refactor: thêm fetchWithTimeout cho Gemini.
-          // Gemini 3.7 Flash emit token nhanh (không phải reasoning model) nhưng
-          // Google API vẫn có thể treo khi rate limit hoặc load cao.
-          // Vision + base64 inline tốn thời gian encode → 120s cho vision, 60s cho text.
+          // 🟢 BUMP timeout: Gemini 3.7 Flash là reasoning model → có thể mất 10-60s
+          // trước byte đầu (reasoning + processing). Cũ 60s text / 120s vision hay bị
+          // timeout khi prompt dài (PDF AI, multi-turn chat, daily story).
+          // Mới: 90s text / 180s vision — đồng bộ với frontend.
           const hasImages = (images && Array.isArray(images) && images.length > 0) ||
                             (Array.isArray(messages) && messages.some(m =>
                               Array.isArray(m.content) && m.content.some(c => c.type === 'image_url')));
-          const fetchTimeoutMs = hasImages ? 120000 : 60000;
+          const fetchTimeoutMs = hasImages ? 180000 : 90000;  // 180s vision, 90s text
 
           for (let i = 0; i < apiKeys.length; i++) {
             const currentIndex = (startIndex + i) % apiKeys.length;
