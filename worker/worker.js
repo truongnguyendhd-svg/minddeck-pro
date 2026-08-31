@@ -983,9 +983,11 @@ var worker_default = {
                   // 🟢 BUMP temperature 0.2 → 0.6: Reasoning model cần nhiệt độ cao hơn
                   // để suy nghĩ linh hoạt. 0.2 quá thấp → output bị "lười suy nghĩ".
                   temperature: 0.6,
-                  // 🟢 BUMP token budget lên MAX 32768 để reasoning model (Qwen 3.8) có đủ chỗ suy nghĩ.
-                  // Lưu ý: đây là ceiling, không phải tiêu thụ thực tế. Reasoning thường ăn 3-6k tokens.
-                  max_completion_tokens: 32768,
+                  // 🟢 FIX LỖI "max_completion_tokens must be <= 16384":
+                  // Groq giới hạn max_completion_tokens tối đa = 16384 cho hầu hết model (qwen3.8-27b).
+                  // Trước đây set 32768 → bị reject ngay từ request.
+                  // Reasoning model thực tế chỉ ăn 3-6k tokens → 16384 là dư sức.
+                  max_completion_tokens: 16384,
                   stream: true,
                   // 🟢 Đổi từ "hidden" → "parsed":
                   // - "hidden": Qwen vẫn tính reasoning tokens nhưng không trả về → tối nghĩa, lãng phí
