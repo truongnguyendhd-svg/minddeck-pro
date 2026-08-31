@@ -159,6 +159,62 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
 }
 __name(fetchWithTimeout, "fetchWithTimeout");
 
+// =========================================================================
+// 🟢 FIX "STREAMING BỊ ĐỨT ĐOẠN" (31/08/2026): SSE HEARTBEAT
+// =========================================================================
+// VẤN ĐỀ: Gemini 3.7 Flash / Qwen 3.8 là REASONING MODEL — sau khi nhận request,
+// chúng có thể "nghĩ" 30-90s+ KHÔNG phát một byte nào. Trong khoảng im lặng đó:
+//   1. Proxy/carrier mobile (4G/5G VN) thấy connection idle → drop kết nối
+//   2. Frontend per-chunk timeout (60s/25s) không nhận được byte → tự abort
+//      → trả về partial text bị cụt ("đứt đoạn")
+//
+// GIẢI PHÁP: Bơm các dòng "comment" SSE (`: hb\n\n`) vào stream mỗi 15s khi
+// upstream đang im lặng. Theo chuẩn SSE, dòng bắt đầu bằng ':' là comment —
+// mọi parser đều bỏ qua → KHÔNG ảnh hưởng nội dung, nhưng:
+//   - Proxy/carrier thấy có data flowing → không drop connection
+//   - Frontend reader.read() nhận được byte → reset per-chunk timeout
+//
+// AN TOÀN: Guard `atLineBoundary` — chỉ chèn comment khi byte cuối vừa viết
+// là '\n' (đang ở ranh giới dòng), tuyệt đối không chèn giữa một dòng JSON
+// đang dở dang của upstream.
+function withSSEHeartbeat(body, intervalMs = 15000) {
+  const encoder = new TextEncoder();
+  let atLineBoundary = true; // đầu stream luôn ở ranh giới dòng
+  let heartbeatTimer = null;
+
+  const bridge = new TransformStream({
+    start(controller) {
+      heartbeatTimer = setInterval(() => {
+        if (!atLineBoundary) return; // đang giữa dòng JSON dở dang → chờ
+        try {
+          controller.enqueue(encoder.encode(": hb\n\n"));
+        } catch (e) {
+          clearInterval(heartbeatTimer); // stream đã đóng/lỗi → ngừng bơm
+        }
+      }, intervalMs);
+    },
+    transform(chunk, controller) {
+      if (chunk && chunk.length > 0) {
+        // Ghi nhớ byte cuối để biết có đang ở ranh giới dòng hay không
+        atLineBoundary = chunk[chunk.length - 1] === 0x0A; // '\n'
+        controller.enqueue(chunk);
+      }
+    },
+    flush() {
+      // Upstream kết thúc bình thường → dừng heartbeat, đóng gọn gàng
+      clearInterval(heartbeatTimer);
+    },
+    cancel() {
+      // Client ngắt kết nối (đóng tab / rớt mạng) → dừng heartbeat,
+      // pipeThrough sẽ tự cancel body upstream để giải phóng tài nguyên
+      clearInterval(heartbeatTimer);
+    }
+  });
+
+  return body.pipeThrough(bridge);
+}
+__name(withSSEHeartbeat, "withSSEHeartbeat");
+
 var worker_default = {
   async fetch(request, env, ctx) {
     const corsHeaders = {
@@ -891,13 +947,16 @@ var worker_default = {
 
           // 🟢 Refactor: thêm fetchWithTimeout cho Gemini.
           // 🟢 BUMP timeout: Gemini 3.7 Flash là reasoning model → có thể mất 10-60s
-          // trước byte đầu (reasoning + processing). Cũ 60s text / 120s vision hay bị
-          // timeout khi prompt dài (PDF AI, multi-turn chat, daily story).
-          // Mới: 90s text / 180s vision — đồng bộ với frontend.
+          // trước byte đầu (reasoning + processing).
           const hasImages = (images && Array.isArray(images) && images.length > 0) ||
                             (Array.isArray(messages) && messages.some(m =>
                               Array.isArray(m.content) && m.content.some(c => c.type === 'image_url')));
-          const fetchTimeoutMs = hasImages ? 180000 : 90000;  // 180s vision, 90s text
+          // 🟢 BUMP 90s → 120s (text): timeout này chỉ phủ giai đoạn Worker chờ
+          // Google gửi RESPONSE HEADERS (từ lúc fetch tới khi resolve). Với payload
+          // lớn (PDF AI, long prompt) Google có thể mất >90s để chấp nhận request.
+          // Sau khi headers đến, fetchWithTimeout đã tự clear timer → stream KHÔNG
+          // bị cắt bởi timeout này (heartbeat lo phần giữ kết nối sau đó).
+          const fetchTimeoutMs = hasImages ? 180000 : 120000;  // 180s vision, 120s text
 
           for (let i = 0; i < apiKeys.length; i++) {
             const currentIndex = (startIndex + i) % apiKeys.length;
@@ -940,7 +999,9 @@ var worker_default = {
                 throw new Error(data.error?.message || `Lỗi HTTP ${response.status} từ Google Gemini`);
               }
 
-              return new Response(response.body, {
+              // 🟢 HEARTBEAT: giữ kết nối sống khi Gemini đang think (không phát byte)
+              // → chống carrier/proxy drop connection + frontend per-chunk timeout
+              return new Response(withSSEHeartbeat(response.body), {
                 status: 200,
                 headers: {
                   ...corsHeaders,
@@ -1137,7 +1198,8 @@ var worker_default = {
               // 1. parseOpenAIStream ở frontend chỉ đọc delta.content → tự động bỏ reasoning
               // 2. Giữ nguyên stream giúp SSE pass-through, không cần parse lại Worker-side
               // (Nếu sau này cần lọc triệt để, dùng TransformStream để strip reasoning chunks.)
-              return new Response(response.body, {
+              // 🟢 HEARTBEAT: giữ kết nối sống khi Qwen đang reason (không phát byte)
+              return new Response(withSSEHeartbeat(response.body), {
                 status: 200,
                 headers: {
                   ...corsHeaders,
@@ -1243,7 +1305,8 @@ var worker_default = {
                 throw new Error(data.error?.message || `Lỗi HTTP ${response.status} từ Mistral`);
               }
 
-              return new Response(response.body, {
+              // 🟢 HEARTBEAT: đồng bộ với Gemini/Groq — chống đứt đoạn khi model im lặng
+              return new Response(withSSEHeartbeat(response.body), {
                 status: 200,
                 headers: {
                   ...corsHeaders,
