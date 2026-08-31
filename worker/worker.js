@@ -742,101 +742,15 @@ var worker_default = {
       }
 
       // =========================================================================
-      // 🟢 ENDPOINT: AI GEMINI STREAM (Xoay tua ngẫu nhiên nhiều Key)
+      // 🗑️ ENDPOINT /api/gemini ĐÃ BỊ XÓA (MIGRATION SANG /api/groq)
+      // -------------------------------------------------------------------------
+      // Lịch sử: trước đây endpoint này gọi Google Gemini 3.7 Flash. Sau khi
+      // migration sang Groq Qwen 3.8 27B (xem /api/groq phía dưới), không còn
+      // caller nào gọi tới endpoint này nữa — đã xóa để dọn dead code.
+      // Nếu sau này cần fallback đa model, có thể tái kích hoạt bằng cách:
+      //   1. Set GEMINI_API_KEYS trong Cloudflare secrets
+      //   2. Restore block code từ git history trước commit này
       // =========================================================================
-      if (path === "/api/gemini" && request.method === "POST") {
-        try {
-          const { prompt, images } = await request.json();
-          
-          const keysString = env.GEMINI_API_KEYS;
-          if (!keysString) {
-            return new Response(JSON.stringify({ error: "Lỗi Server: Chưa cấu hình biến môi trường GEMINI_API_KEYS" }), {
-              status: 500,
-              headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-          }
-
-          const apiKeys = keysString.split(',').map(key => key.trim()).filter(key => key.length > 0);
-          if (apiKeys.length === 0) {
-            return new Response(JSON.stringify({ error: "Lỗi Server: Biến môi trường GEMINI_API_KEYS trống" }), {
-              status: 500,
-              headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-          }
-
-          let startIndex = Math.floor(Math.random() * apiKeys.length);
-          let lastErrorMessage = "";
-          let partsArray = [{ text: prompt }];
-
-          if (images && Array.isArray(images) && images.length > 0) {
-            images.forEach(imgString => {
-              const cleanBase64 = imgString.includes(',') ? imgString.split(',')[1] : imgString;
-              partsArray.push({
-                inlineData: {
-                  mimeType: "image/jpeg",
-                  data: cleanBase64
-                }
-              });
-            });
-          }
-
-          for (let i = 0; i < apiKeys.length; i++) {
-            const currentIndex = (startIndex + i) % apiKeys.length;
-            const currentKey = apiKeys[currentIndex];
-
-            try {
-              const modelName = "gemini-3.7-flash";
-              const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${currentKey}`;
-
-              const response = await fetch(geminiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{ parts: partsArray }],
-                  generationConfig: {
-                    temperature: 0.2,
-                    maxOutputTokens: 65536
-                  }
-                })
-              });
-
-              if (!response.ok) {
-                const data = await response.json().catch(() => ({}));
-                throw new Error(data.error?.message || `Lỗi HTTP ${response.status} từ Google Gemini`);
-              }
-
-              return new Response(response.body, {
-                status: 200,
-                headers: {
-                  ...corsHeaders,
-                  'Content-Type': 'text/event-stream',
-                  'Cache-Control': 'no-cache, no-transform',
-                  'Connection': 'keep-alive',
-                }
-              });
-
-            } catch (error) {
-              console.warn(`⚠️ API Key thứ ${currentIndex + 1} thất bại:`, error.message);
-              lastErrorMessage = error.message;
-            }
-          }
-
-          console.error("❌ Tất cả API Keys đều đã cạn kiệt hoặc gặp lỗi.");
-          return new Response(JSON.stringify({ 
-            error: 'Hệ thống AI đang bận hoặc quá tải. Vui lòng thử lại sau!',
-            detail: lastErrorMessage 
-          }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-          });
-
-        } catch (err) {
-          return new Response(JSON.stringify({ error: err.message }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-          });
-        }
-      }
 
       // =========================================================================
       // 🟢 ENDPOINT: AI GROQ STREAM (Xoay tua ngẫu nhiên nhiều Key)
