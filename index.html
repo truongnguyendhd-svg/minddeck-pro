@@ -26039,8 +26039,9 @@ function renderHspAttachPreview() {
 // Thêm ảnh vào preview + tự động upload imgbb
 async function addHspAttachedImage(base64DataUrl) {
     try {
-        // Nén ảnh nếu quá lớn (PNG screenshot thường 2-5MB)
-        const compressed = await compressImageIfNeeded(base64DataUrl, 1200, 0.6);
+        // 🟢 Nén ảnh với tham số tối ưu OCR (max 1600px, WebP 80%)
+        // compressImageIfNeeded đã có default values tốt, không cần truyền tham số
+        const compressed = await compressImageIfNeeded(base64DataUrl);
 
         const imgId = genImageId();
         const imgObj = {
@@ -29000,9 +29001,16 @@ function readFileAsBase64(file) {
     });
 }
 
-// Helper phụ: nén ảnh base64 nếu quá lớn (cho paste ảnh chụp màn hình PNG)
-// Trả về base64 data URL đã nén (WebP 60%, max 1200px)
-async function compressImageIfNeeded(base64DataUrl, maxDim = 1200, quality = 0.6) {
+// Helper phụ: nén ảnh base64 nếu quá lớn
+// Trả về base64 data URL đã nén (WebP)
+// 🟢 THÔNG SỐ NÉN TỐI ƯU CHO OCR (đã cải thiện từ 60% → 80%):
+//    - maxDim = 1600: tăng từ 1200 → 1600 để giữ nét chữ nhỏ (N2-N1, footnote)
+//    - quality = 0.8: tăng từ 0.6 → 0.8 để tránh artifact JPEG làm mờ text
+//    - Lý do: 60% gây mờ text < 14pt → Groq Vision OCR fail với đề thi JLPT
+//    - Đánh đổi: file tăng từ ~100KB → ~250KB (vẫn tiết kiệm vs base64 gốc ~2MB)
+//    - Token: Groq tính theo image dimension + quality, không tăng đáng kể
+//      (detail:"low" vẫn là 85 token/ảnh với dimension ≤ 1568px)
+async function compressImageIfNeeded(base64DataUrl, maxDim = 1600, quality = 0.8) {
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
@@ -29018,12 +29026,16 @@ async function compressImageIfNeeded(base64DataUrl, maxDim = 1200, quality = 0.6
             canvas.width = Math.round(width * scale);
             canvas.height = Math.round(height * scale);
             const ctx = canvas.getContext('2d');
+            // 🟢 Đặt imageSmoothingQuality = "high" để scale xuống vẫn giữ nét chữ
+            // (mặc định "low" làm mờ text khi scale)
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
             // Bôi nền trắng (chống trong suốt — Groq Vision cần nền)
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             const compressed = canvas.toDataURL('image/webp', quality);
-            console.log(`MindDeck: 🗜️ Nén ảnh từ ${width}x${height} → ${canvas.width}x${canvas.height} (${(compressed.length / 1024).toFixed(0)}KB)`);
+            console.log(`MindDeck: 🗜️ Nén ảnh từ ${width}x${height} → ${canvas.width}x${canvas.height} (WebP ${Math.round(quality*100)}%, ${(compressed.length / 1024).toFixed(0)}KB)`);
             resolve(compressed);
         };
         img.onerror = () => reject(new Error('Không load được ảnh để nén'));
@@ -30798,8 +30810,13 @@ function getPdfPageAsBase64() {
     const drawCanvas = document.getElementById('pdfDrawCanvas');
     if (drawCanvas) tCtx.drawImage(drawCanvas, 0, 0); 
 
-    // NÉN ẢNH (SCALE DOWN) TRƯỚC KHI XUẤT BASE64
-    const MAX_WIDTH = 1200;
+    // 🟢 NÉN ẢNH TỐI ƯU CHO OCR JLPT (đề thi, sách tiếng Nhật):
+    //    - MAX_WIDTH = 1600 (tăng từ 1200): giữ nét chữ nhỏ N2-N1, footnote, furigana
+    //    - quality = 0.8 (tăng từ 0.6): tránh artifact làm mờ kanji phức tạp
+    //    - imageSmoothingQuality = "high": scale mượt, giữ nét chữ
+    // Đánh đổi: file tăng từ ~150KB → ~350KB (vẫn rẻ hơn base64 gốc ~3MB nhiều)
+    // Token Groq: detail="low" vẫn = 85 token/ảnh với dim ≤ 1568px → không tăng token đáng kể
+    const MAX_WIDTH = 1600;
     let finalBase64 = null;
 
     if (tempCanvas.width > MAX_WIDTH) {
@@ -30808,10 +30825,13 @@ function getPdfPageAsBase64() {
         scaledCanvas.width = MAX_WIDTH;
         scaledCanvas.height = tempCanvas.height * scale;
         const sCtx = scaledCanvas.getContext('2d');
+        // 🟢 High quality scaling để giữ nét chữ khi downscale
+        sCtx.imageSmoothingEnabled = true;
+        sCtx.imageSmoothingQuality = 'high';
         sCtx.drawImage(tempCanvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
-        finalBase64 = scaledCanvas.toDataURL('image/webp', 0.6); // Chất lượng 60%
+        finalBase64 = scaledCanvas.toDataURL('image/webp', 0.8); // Chất lượng 80% (tăng từ 60%)
     } else {
-        finalBase64 = tempCanvas.toDataURL('image/webp', 0.6);
+        finalBase64 = tempCanvas.toDataURL('image/webp', 0.8);
     }
 
     // 🟢 LƯU VÀO CACHE TRƯỚC KHI TRẢ VỀ
@@ -31438,7 +31458,8 @@ function executeCropAI(actionType) {
     const dCanvas = document.getElementById('pdfDrawCanvas');
     if (dCanvas) tCtx.drawImage(dCanvas, sx, sy, sw, sh, 0, 0, sw, sh); 
 
-    const croppedBase64 = tempCanvas.toDataURL('image/webp', 0.6);
+    // 🟢 Tăng chất lượng từ 60% → 80% để OCR nét chữ nhỏ (N2-N1) chính xác hơn
+    const croppedBase64 = tempCanvas.toDataURL('image/webp', 0.8);
 
     disablePdfCropMode();
     triggerPdfAI(actionType, croppedBase64); 
