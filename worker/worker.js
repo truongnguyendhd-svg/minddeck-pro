@@ -796,8 +796,14 @@ var worker_default = {
       // =========================================================================
       if (path === "/api/gemini" && request.method === "POST") {
         try {
-          const { prompt, images } = await request.json();
-          
+          // 🟢 Refactor: hỗ trợ cả `prompt` (string) cũ và `messages` (array) mới.
+          // - Nếu client gửi `messages` array → ưu tiên dùng (multi-turn cho chat)
+          // - Nếu chỉ gửi `prompt` string → fallback về single-turn (backwards-compat)
+          // 🟢 Multi-turn: build `contents` array với role user/model (Gemini API format)
+          // 🟢 Vision: inject ảnh vào user message cuối cùng (giống Groq)
+          const reqBody = await request.json();
+          const { prompt, images = [], messages = null } = reqBody;
+
           const keysString = env.GEMINI_API_KEYS;
           if (!keysString) {
             return new Response(JSON.stringify({ error: "Lỗi Server: Chưa cấu hình biến môi trường GEMINI_API_KEYS" }), {
@@ -816,25 +822,76 @@ var worker_default = {
 
           let startIndex = Math.floor(Math.random() * apiKeys.length);
           let lastErrorMessage = "";
-          let partsArray = [{ text: prompt }];
 
-          if (images && Array.isArray(images) && images.length > 0) {
-            images.forEach(imgString => {
-              const cleanBase64 = imgString.includes(',') ? imgString.split(',')[1] : imgString;
-              partsArray.push({
-                inlineData: {
-                  mimeType: "image/jpeg",
-                  data: cleanBase64
-                }
+          // 🟢 BUILD CONTENTS: Hỗ trợ cả single-turn (prompt string) và multi-turn (messages array)
+          let contents;
+          if (Array.isArray(messages) && messages.length > 0) {
+            // MULTI-TURN mode: convert OpenAI format → Gemini format
+            // OpenAI:  { role: "user"|"assistant"|"system", content: "..." }
+            // Gemini:  { role: "user"|"model", parts: [{text: "..."}] }
+            // (Gemini không có role "system" → gộp system message vào user đầu tiên)
+            let systemPrefix = "";
+            const turnMessages = [];
+            for (const m of messages) {
+              if (m.role === 'system') {
+                // Gộp system messages thành prefix cho user đầu tiên
+                systemPrefix += (systemPrefix ? "\n" : "") + m.content;
+              } else {
+                turnMessages.push(m);
+              }
+            }
+            // Nếu có system prefix và user đầu tiên → prepend
+            if (systemPrefix && turnMessages.length > 0 && turnMessages[0].role === 'user') {
+              turnMessages[0] = {
+                ...turnMessages[0],
+                content: systemPrefix + "\n\n" + turnMessages[0].content
+              };
+            } else if (systemPrefix) {
+              // Chỉ có system, không có user → tạo user message
+              turnMessages.unshift({ role: 'user', content: systemPrefix });
+            }
+
+            contents = turnMessages.map(m => ({
+              role: m.role === 'assistant' ? 'model' : 'user',
+              parts: [{ text: m.content || '' }]
+            }));
+
+            // 🟢 VISION: Inject ảnh vào user message cuối cùng (nếu có)
+            if (images && Array.isArray(images) && images.length > 0) {
+              let lastUserIdx = contents.length - 1;
+              while (lastUserIdx >= 0 && contents[lastUserIdx].role !== 'user') lastUserIdx--;
+              if (lastUserIdx >= 0) {
+                const imageParts = images.map(imgString => {
+                  const cleanBase64 = imgString.includes(',') ? imgString.split(',')[1] : imgString;
+                  return { inlineData: { mimeType: "image/jpeg", data: cleanBase64 } };
+                });
+                contents[lastUserIdx].parts = [...imageParts, ...contents[lastUserIdx].parts];
+              }
+            }
+          } else {
+            // SINGLE-TURN mode (backwards-compat): prompt string + optional images
+            const partsArray = [{ text: prompt }];
+            if (images && Array.isArray(images) && images.length > 0) {
+              images.forEach(imgString => {
+                const cleanBase64 = imgString.includes(',') ? imgString.split(',')[1] : imgString;
+                partsArray.push({
+                  inlineData: {
+                    mimeType: "image/jpeg",
+                    data: cleanBase64
+                  }
+                });
               });
-            });
+            }
+            contents = [{ parts: partsArray }];
           }
 
           // 🟢 Refactor: thêm fetchWithTimeout cho Gemini.
           // Gemini 3.7 Flash emit token nhanh (không phải reasoning model) nhưng
           // Google API vẫn có thể treo khi rate limit hoặc load cao.
           // Vision + base64 inline tốn thời gian encode → 120s cho vision, 60s cho text.
-          const hasImages = partsArray.length > 1;
+          const hasImages = (images && Array.isArray(images) && images.length > 0) ||
+                            (Array.isArray(messages) && messages.some(m =>
+                              Array.isArray(m.content) && m.content.some(c => c.type === 'image_url')));
           const fetchTimeoutMs = hasImages ? 120000 : 60000;
 
           for (let i = 0; i < apiKeys.length; i++) {
@@ -849,7 +906,7 @@ var worker_default = {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  contents: [{ parts: partsArray }],
+                  contents: contents,
                   generationConfig: {
                     temperature: 0.2,
                     maxOutputTokens: 65536
