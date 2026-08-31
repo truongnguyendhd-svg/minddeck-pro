@@ -802,7 +802,11 @@ var worker_default = {
           // 🟢 Multi-turn: build `contents` array với role user/model (Gemini API format)
           // 🟢 Vision: inject ảnh vào user message cuối cùng (giống Groq)
           const reqBody = await request.json();
-          const { prompt, images = [], messages = null } = reqBody;
+          // 🟢 task: 'light' (8192) | 'heavy' (24576) — chọn thinkingBudget cho Gemini
+          // - light: sinh ví dụ, mnemonic, chat, tra từ điển (task ngắn, output ngắn)
+          // - heavy: PDF AI, daily story, admin auto-fill, grammar analysis (task dài, output dài)
+          // Mặc định 'light' để tránh tốn token vô ích cho task đơn giản.
+          const { prompt, images = [], messages = null, task = 'light' } = reqBody;
 
           const keysString = env.GEMINI_API_KEYS;
           if (!keysString) {
@@ -903,6 +907,12 @@ var worker_default = {
               const modelName = "gemini-3.7-flash";
               const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${currentKey}`;
 
+              // 🟢 thinkingConfig: giới hạn reasoning budget theo task type
+              // - 'light' (8192):    task đơn giản → reasoning nhanh, không lãng phí token
+              // - 'heavy' (24576):   task phức tạp → reasoning sâu, output chất lượng cao
+              // Gemini default là 24576 → đặt 'light' cho task nhẹ tiết kiệm 67% token.
+              const thinkingBudget = (task === 'heavy') ? 24576 : 8192;
+
               const response = await fetchWithTimeout(geminiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -910,7 +920,10 @@ var worker_default = {
                   contents: contents,
                   generationConfig: {
                     temperature: 0.2,
-                    maxOutputTokens: 65536
+                    maxOutputTokens: 65536,
+                    thinkingConfig: {
+                      thinkingBudget: thinkingBudget
+                    }
                   }
                 })
               }, fetchTimeoutMs);
