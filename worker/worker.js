@@ -694,48 +694,49 @@ var worker_default = {
           //
           // FIX: Thêm User-Agent + Accept header để giả lập browser thật.
           // (imgbb chỉ chặn pattern chứ không verify kỹ — UA browser là đủ qua.)
-          // Nếu imgbb vẫn chặn → fallback sang catbox.moe (không cần API key).
+          // Nếu imgbb vẫn chặn → fallback sang tmpfiles.org (không cần API key).
+          //
+          // 🟢 LƯU Ý về catbox.moe: Đã thử nhưng bị lỗi "Invalid uploader" (HTTP 412)
+          // vì catbox mới thêm cơ chế anti-bot nghiêm ngặt (check Sec-Fetch headers).
+          // Đã chuyển sang tmpfiles.org — API đơn giản hơn và không chặn Cloudflare Workers.
           const BROWSER_HEADERS = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            // 🟢 Đổi sang Firefox UA vì Chrome 120 đã bị imgbb blacklist
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0',
             'Accept': 'application/json, text/html, */*',
             'Accept-Language': 'en-US,en;q=0.9'
           };
 
-          // 🟢 HÀM UPLOAD CATBOX (FALLBACK — không cần key, không chặn Worker)
-          // API: https://catbox.moe/user/api.php
-          // - Endpoint: https://catbox.moe/user/api.php
-          // - Body: reqtype=fileupload&fileToUpload=<binary>
-          // - Trả về: URL thẳng (vd: https://files.catbox.moe/abc123.webp)
-          // - KHÔNG có expiration — ảnh tồn tại vĩnh viễn (nhưng anonymous, không delete)
-          // - Giới hạn: 200MB/file, không có API key
-          async function uploadToCatbox(base64DataUrl) {
-            // Convert base64 → Uint8Array
-            const catboxMatch = base64DataUrl.match(/^data:image\/([a-z]+);base64,(.+)$/i);
-            if (!catboxMatch) throw new Error("Invalid base64 data URL");
-            const mime = catboxMatch[1];
-            const base64 = catboxMatch[2];
+          // 🟢 HÀM UPLOAD TMPFILES.ORG (FALLBACK TỐT NHẤT — không cần key, không chặn Worker)
+          // API: https://tmpfiles.org/api/v1/upload
+          // - Body: multipart/form-data với file binary
+          // - Trả về: JSON có trường "data": {"url": "https://tmpfiles.org/12345/abc.webp"}
+          // - URL cần convert: thay "tmpfiles.org/" → "tmpfiles.org/dl/" để lấy file trực tiếp
+          // - Ảnh tự xóa sau 1 giờ (60 phút)
+          // - Không có API key, không check User-Agent nghiêm ngặt
+          async function uploadToTmpfiles(base64DataUrl) {
+            const tmpMatch = base64DataUrl.match(/^data:image\/([a-z]+);base64,(.+)$/i);
+            if (!tmpMatch) throw new Error("Invalid base64 data URL");
+            const mime = tmpMatch[1];
+            const base64 = tmpMatch[2];
             const binary = atob(base64);
             const bytes = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-            // Tạo FormData với boundary
+            // Tạo multipart/form-data body thủ công
             const ext = mime === 'jpeg' ? 'jpg' : mime;
             const filename = `upload_${Date.now()}.${ext}`;
             const boundary = '----CloudflareWorkerBoundary' + Math.random().toString(36).slice(2);
             const body = new Uint8Array([
               ...new TextEncoder().encode(
                 `--${boundary}\r\n` +
-                `Content-Disposition: form-data; name="reqtype"\r\n\r\n` +
-                `fileupload\r\n` +
-                `--${boundary}\r\n` +
-                `Content-Disposition: form-data; name="fileToUpload"; filename="${filename}"\r\n` +
+                `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
                 `Content-Type: image/${mime}\r\n\r\n`
               ),
               ...bytes,
               ...new TextEncoder().encode(`\r\n--${boundary}--\r\n`)
             ]);
 
-            const catboxResponse = await fetch('https://catbox.moe/user/api.php', {
+            const tmpResponse = await fetch('https://tmpfiles.org/api/v1/upload', {
               method: 'POST',
               headers: {
                 'Content-Type': `multipart/form-data; boundary=${boundary}`,
@@ -744,31 +745,57 @@ var worker_default = {
               body: body
             });
 
-            if (!catboxResponse.ok) {
-              const errText = await catboxResponse.text().catch(() => '');
-              throw new Error(`catbox HTTP ${catboxResponse.status}: ${errText.slice(0, 200)}`);
+            if (!tmpResponse.ok) {
+              const errText = await tmpResponse.text().catch(() => '');
+              throw new Error(`tmpfiles HTTP ${tmpResponse.status}: ${errText.slice(0, 200)}`);
             }
-            const url = (await catboxResponse.text()).trim();
-            if (!url.startsWith('http')) {
-              throw new Error(`catbox trả về không phải URL: ${url.slice(0, 100)}`);
+
+            // Parse JSON response
+            const tmpData = await tmpResponse.json().catch(() => null);
+            if (!tmpData || !tmpData.data || !tmpData.data.url) {
+              throw new Error(`tmpfiles response không có URL: ${JSON.stringify(tmpData).slice(0, 200)}`);
             }
-            return url;
+
+            // 🟢 CONVERT URL: tmpfiles.org/12345/abc.webp → tmpfiles.org/dl/12345/abc.webp
+            // (URL gốc trả về trang HTML preview, thêm /dl/ để lấy file trực tiếp)
+            const directUrl = tmpData.data.url.replace(
+              'tmpfiles.org/',
+              'tmpfiles.org/dl/'
+            );
+            return directUrl;
           }
 
-          // 🟢 THỬ IMGBB TRƯỚC, FALLBACK CATBOX
+          // 🟢 THỬ IMGBB TRƯỚC, FALLBACK TMPFILES.ORG
           let imageUrl = null;
           let provider = null;
           let lastError = null;
 
-          // Lần 1: Thử imgbb (có key + đã có UA giả lập browser)
+          // Lần 1: Thử imgbb (theo docs chính thức: dùng multipart/form-data, KHÔNG phải urlencoded)
+          // 🟢 FIX LỖI "You have been forbidden" (code 103):
+          // Trước đây dùng application/x-www-form-urlencoded → imgbb reject (có thể do mới update policy).
+          // Theo docs imgbb (https://api.imgbb.com/), cú pháp chính thức là:
+          //   curl --request POST "https://api.imgbb.com/1/upload?key=KEY&expiration=600" \
+          //        --form "image=<BASE64>"
+          // Tức là multipart/form-data với field tên "image" chứa base64 (KHÔNG có prefix data:image/...;base64,)
           try {
-            const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${env.IMGBB_API_KEY}&expiration=3600`, {
+            // Tạo multipart/form-data body thủ công
+            const imgbbBoundary = '----ImgbbBoundary' + Math.random().toString(36).slice(2);
+            const imgbbBody = new Uint8Array([
+              ...new TextEncoder().encode(
+                `--${imgbbBoundary}\r\n` +
+                `Content-Disposition: form-data; name="image"\r\n\r\n`
+              ),
+              ...new TextEncoder().encode(base64Clean),
+              ...new TextEncoder().encode(`\r\n--${imgbbBoundary}--\r\n`)
+            ]);
+
+            const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${env.IMGBB_API_KEY}&expiration=600`, {
               method: 'POST',
               headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Type': `multipart/form-data; boundary=${imgbbBoundary}`,
                 ...BROWSER_HEADERS
               },
-              body: `image=${encodeURIComponent(base64Clean)}`
+              body: imgbbBody
             });
 
             if (imgbbResponse.ok) {
@@ -780,22 +807,22 @@ var worker_default = {
             } else {
               const errText = await imgbbResponse.text().catch(() => '');
               lastError = `imgbb HTTP ${imgbbResponse.status}: ${errText.slice(0, 200)}`;
-              console.warn('imgbb upload failed, fallback to catbox:', lastError);
+              console.warn('imgbb upload failed, fallback to tmpfiles:', lastError);
             }
           } catch (imgbbErr) {
             lastError = `imgbb error: ${imgbbErr.message}`;
-            console.warn('imgbb fetch error, fallback to catbox:', imgbbErr.message);
+            console.warn('imgbb fetch error, fallback to tmpfiles:', imgbbErr.message);
           }
 
-          // Lần 2: Nếu imgbb fail → thử catbox (không cần key, không chặn Worker)
+          // Lần 2: Nếu imgbb fail → thử tmpfiles.org (không cần key, không chặn Worker)
           if (!imageUrl) {
             try {
-              imageUrl = await uploadToCatbox(image);  // truyền nguyên data URL, không phải base64Clean
-              provider = 'catbox';
-              console.log('catbox upload OK:', imageUrl);
-            } catch (catboxErr) {
-              console.error('catbox also failed:', catboxErr.message);
-              lastError = `${lastError} | catbox: ${catboxErr.message}`;
+              imageUrl = await uploadToTmpfiles(image);
+              provider = 'tmpfiles';
+              console.log('tmpfiles upload OK:', imageUrl);
+            } catch (tmpErr) {
+              console.error('tmpfiles also failed:', tmpErr.message);
+              lastError = `${lastError} | tmpfiles: ${tmpErr.message}`;
             }
           }
 
@@ -813,9 +840,9 @@ var worker_default = {
           return new Response(JSON.stringify({
             success: true,
             url: imageUrl,
-            provider: provider,  // 'imgbb' hoặc 'catbox' (frontend có thể log để debug)
-            delete_url: null,     // catbox không có delete URL
-            expiresIn: provider === 'imgbb' ? 3600 : null  // catbox vô thời hạn
+            provider: provider,  // 'imgbb' hoặc 'tmpfiles' (frontend có thể log để debug)
+            delete_url: null,
+            expiresIn: provider === 'imgbb' ? 3600 : 3600  // cả 2 đều 1 giờ
           }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" }
           });
