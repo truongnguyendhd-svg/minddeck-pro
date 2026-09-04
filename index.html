@@ -11194,12 +11194,16 @@ body.grammar-searching #headerGrammarSearch {
    - Mảnh ghép đang xếp trong Game 6: bỏ đậm (500) — scope theo ID
      riêng của game để không ảnh hưởng Game 5 Scramble dùng chung
      class .scramble-piece (font-weight 800).
-   - Câu hoàn chỉnh (sentenceDiv) và câu tiếng Việt (boostQuestion
-     trong case 6) đã được set 500 trực tiếp trong JS.
+   - Sau khi ghép xong, drop zone hiển thị khối ví dụ hoàn chỉnh
+     (buildExampleSentenceBlock như modal Remedial); câu JP trong khối
+     được set weight 500 bởi rule #sentenceDropZone .example-jp-text.
    ================================================================ */
 #sentenceDropZone .scramble-piece,
 #sentencePool .scramble-piece {
     font-weight: 500; /* Selector ID (1,1,0) thắng .scramble-piece (0,1,0) */
+}
+#sentenceDropZone .example-jp-text {
+    font-weight: 500; /* Câu JP trong khối ví dụ sau khi ghép xong: đậm vừa (không đậm 800, không mảnh 400) */
 }
 </style>
 </head>
@@ -17716,78 +17720,19 @@ function renderBoostCard() {
                 // Xóa các piece đã xếp, giữ nguyên giao diện drop zone
                 sDrop.innerHTML = '';
 
-                // Wrapper flex column căn giữa
+                // Wrapper flex column (stretch để khối ví dụ full-width như trong modal Remedial)
                 const wrap = document.createElement('div');
-                wrap.style.cssText = 'display:flex; flex-direction:column; align-items:center; width:100%; padding:10px 8px 6px 8px; box-sizing:border-box;';
+                wrap.style.cssText = 'display:flex; flex-direction:column; align-items:stretch; width:100%; padding:12px 8px 6px 8px; box-sizing:border-box;';
 
-                // Câu hoàn chỉnh
-                const sentenceDiv = document.createElement('div');
-                sentenceDiv.style.cssText = 'font-size:30px; font-weight:500; color:#1a1a1a; line-height:1.9; letter-spacing:0.5px; text-align:center;'; // 🟢 Không in đậm (yêu cầu user)
-                sentenceDiv.textContent = targetSentence;
-                wrap.appendChild(sentenceDiv);
-
-                // Nút romaji căn phải (flow, không absolute — tránh bị che)
-                const romajiRow = document.createElement('div');
-                romajiRow.style.cssText = 'display:flex; justify-content:center; width:100%; margin-top:6px;';
-
-                const romajiBtn = document.createElement('button');
-                romajiBtn.className = 'btn-toggle-romaji';
-                romajiBtn.id = 'btnSentenceRomaji';
-                romajiBtn.style.cssText = 'background:rgba(0,0,0,0.04); border:none; padding:4px 12px; border-radius:50px; font-size:12px; font-weight:700; color:#4b5563; cursor:pointer; display:flex; align-items:center; gap:4px; transition:0.2s; pointer-events:auto;';
-                romajiBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:15px;">visibility_off</span><span class="btn-text-lbl" style="font-size:12px; font-weight:700;">romaji</span>';
-                romajiBtn.onclick = async function(e) {
-                    e.stopPropagation();
-                    const romajiEl = document.getElementById('sentenceRomajiText');
-                    if (!romajiEl) return;
-                    const isHidden = romajiEl.style.display === 'none';
-                    const btnIcon = this.querySelector('.material-symbols-outlined');
-                    const btnTextLbl = this.querySelector('.btn-text-lbl');
-                    if (isHidden) {
-                        if (romajiEl.innerText.trim() === '') {
-                            // LAZY HYDRATION: fetch từ Google
-                            btnTextLbl.innerText = '...';
-                            btnIcon.innerText = 'sync';
-                            btnIcon.style.animation = 'spin 1s linear infinite';
-                            this.disabled = true;
-                            const result = await fetchRomajiFromGoogle(c.exampleJP || targetSentence);
-                            this.disabled = false;
-                            btnIcon.style.animation = 'none';
-                            if (!result) {
-                                btnTextLbl.innerText = 'Hiện Romaji';
-                                btnIcon.innerText = 'visibility_off';
-                                showToast('Lỗi kết nối Google. Hãy thử lại!');
-                                return;
-                            }
-                            romajiEl.innerText = result;
-                        }
-                        romajiEl.style.display = 'block';
-                        btnTextLbl.innerText = 'Ẩn Romaji';
-                        btnIcon.innerText = 'visibility';
-                        this.style.opacity = '1';
-                    } else {
-                        romajiEl.style.display = 'none';
-                        btnTextLbl.innerText = 'Hiện Romaji';
-                        btnIcon.innerText = 'visibility_off';
-                    }
-                };
-                romajiRow.appendChild(romajiBtn);
-                wrap.appendChild(romajiRow);
-
-                // Khung romaji text (ẩn mặc định, nằm trong drop zone)
-                const romajiDiv = document.createElement('div');
-                romajiDiv.id = 'sentenceRomajiText';
-                romajiDiv.className = 'romaji-sentence';
-                // Ưu tiên romaji1 từ thẻ, nếu có thì không cần fetch
-                const preloadedRomaji = c.romaji1 || '';
-                romajiDiv.style.cssText = 'display:' + (preloadedRomaji ? 'block' : 'none') + '; width:100%; text-align:center; font-size:14px; color:#64748b; font-weight:600; margin-top:4px; line-height:1.6;';
-                romajiDiv.innerText = preloadedRomaji;
-                // Nếu đã có romaji sẵn, cập nhật nút theo trạng thái hiển
-                if (preloadedRomaji) {
-                    romajiBtn.querySelector('.btn-text-lbl').innerText = 'Ẩn Romaji';
-                    romajiBtn.querySelector('.material-symbols-outlined').innerText = 'visibility';
-                    romajiBtn.style.opacity = '1';
-                }
-                wrap.appendChild(romajiDiv);
+                // 🟢 YÊU CẦU MỚI: Ghép xong → hiện ngay KHỐI VÍ DỤ HOÀN CHỈNH
+                // (dùng lại buildExampleSentenceBlock như modal Remedial: header "Ví dụ 1"
+                // + nút Romaji lazy-fetch Google, câu JP với kanji bấm tra được,
+                // romaji, dịch VN, nút Nghe / Test trí nhớ / Đổi ví dụ AI khi có front)
+                wrap.innerHTML = buildExampleSentenceBlock(
+                    (c.id || 'sentence'), 1,
+                    (c.exampleJP || targetSentence), (c.romaji1 || ''),
+                    c.exampleVN, c.front
+                );
                 sDrop.appendChild(wrap);
 
                 // Ẩn pool
