@@ -11176,6 +11176,18 @@ body.grammar-searching #headerGrammarSearch {
     justify-content: center;   /* Đưa khối chữ vào giữa theo chiều ngang */
     text-align: center;        /* Chữ dài xuống nhiều dòng cũng căn giữa */
 }
+
+/* ================================================================
+   🟢 MÀN KẾT QUẢ SÁT HẠCH: TAB "Hổng kiến thức" / "Thuộc bài"
+   + hover cho thẻ trong 2 danh sách (bấm mở modal Remedial tại thẻ đó).
+   Dùng class riêng .assessment-card-list để không ảnh hưởng danh sách
+   tổng kết của chế độ Boost (.summary-list #boostSummaryList).
+   ================================================================ */
+#summaryTabPassed:hover,
+#summaryTabFailed:hover { transform: translateY(-1px); }
+.assessment-card-list li { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.assessment-card-list li:hover { transform: translateY(-1px); box-shadow: 0 5px 14px rgba(0,0,0,0.09); }
+.assessment-card-list li:active { transform: translateY(0); box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
 </style>
 </head>
 <body>
@@ -32332,36 +32344,23 @@ function endAssessmentSession() {
         <p style="color: #4a5568; font-weight: 600;">Bạn đã hoàn thành phiên đánh giá ${total} thẻ.</p>
         
         <div style="display: flex; justify-content: space-between; gap: 15px; margin-top: 20px; margin-bottom: 30px; width: 100%;">
-            <div style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #c6f6d5; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center;">
+            <div id="summaryTabPassed" onclick="switchSummaryTab('passed')" style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 2px solid #c6f6d5; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;">
                 <h3 style="margin:0; color:#38a169; font-size:28px;">${passed}</h3>
                 <small style="color: #718096; font-weight: 700; text-align: center;">Thuộc bài</small>
             </div>
-            <div style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #fed7d7; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center;">
+            <div id="summaryTabFailed" onclick="switchSummaryTab('failed')" style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 2px solid #fed7d7; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;">
                 <h3 style="margin:0; color:#e53e3e; font-size:28px;">${remedial}</h3>
                 <small style="color: #718096; font-weight: 700; text-align: center;">Hổng kiến thức</small>
             </div>
         </div>
+        <div id="summaryListContainer"></div>
     `;
 
-    if (remedial > 0) {
-        html += `<div style="text-align:left; font-size:14px; font-weight:800; color:#c50f1f; margin-bottom:10px; text-transform:uppercase;">Danh sách cần lưu ý:</div>`;
-        html += `<ul class="summary-list" style="margin-top:0;">`;
-        boostState.remedialCards.forEach(c => {
-            html += `
-            <li style="border-left: 4px solid #e53e3e; padding: 12px 16px;">
-                <div>
-                    <div style="font-weight:800; font-size:16px; color:#1a1a1a;">${escapeHTML(c.front)}</div>
-                    <div style="font-size:13px; color:#718096;">${escapeHTML(c.back).replace(/\n/g, ' - ')}</div>
-                </div>
-            </li>`;
-        });
-        html += `</ul>`;
-    }
 
     // ĐÃ CHỈNH SỬA YÊU CẦU 3: Bo góc 16px, text THOÁT VỀ TRANG CHỦ in đậm, to hơn
     html += `
         <button onclick="startRemedialReview()" class="win11-btn-primary" style="margin-top: 20px; width: 100%; padding: 18px; font-size: 16px; border-radius: 16px; background: #0067c0;">
-            <span class="material-symbols-outlined" style="vertical-align: middle; margin-right: 5px;">preview</span> XEM LẠI TOÀN BỘ (${total})
+            XEM LẠI TOÀN BỘ
         </button>
         <button onclick="exitStudySession()" style="margin-top: 15px; width: 100%; padding: 14px; background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: 15px; cursor: pointer; text-transform: uppercase;">
             Thoát về trang chủ
@@ -32369,7 +32368,63 @@ function endAssessmentSession() {
     `;
 
     summaryPage.innerHTML = html;
+
+    // 🟢 Mặc định active ô "Hổng kiến thức" → hiện "Danh sách cần lưu ý"
+    // (Nếu phiên không có thẻ hổng nào → active ô "Thuộc bài" → hiện "Danh sách đã thuộc")
+    switchSummaryTab(remedial > 0 ? 'failed' : 'passed');
 }
+
+// Tab đang được chọn trên màn tổng kết sát hạch ('failed' | 'passed')
+let currentSummaryTab = 'failed';
+
+/* 🟢 TAB TRÊN MÀN KẾT QUẢ SÁT HẠCH:
+   - Ô "Hổng kiến thức" (mặc định) → "Danh sách cần lưu ý" (thẻ rớt, viền đỏ)
+   - Ô "Thuộc bài" → "Danh sách đã thuộc" (thẻ đậu, viền xanh lá)
+   - Nhấn vào 1 thẻ trong danh sách → mở ngay modal Remedial tại đúng thẻ đó */
+window.switchSummaryTab = function(tab) {
+    const failedTab = document.getElementById('summaryTabFailed');
+    const passedTab = document.getElementById('summaryTabPassed');
+    const container = document.getElementById('summaryListContainer');
+    if (!failedTab || !passedTab || !container) return;
+
+    const isFailed = (tab === 'failed');
+    currentSummaryTab = isFailed ? 'failed' : 'passed';
+
+    // Highlight ô đang active: viền đậm màu riêng + nền tint nhẹ + bóng màu + nhãn đổi màu
+    failedTab.style.borderColor = isFailed ? '#e53e3e' : '#fed7d7';
+    failedTab.style.background = isFailed ? '#fff5f5' : '#ffffff';
+    failedTab.style.boxShadow = isFailed ? '0 4px 14px rgba(229, 62, 62, 0.18)' : '0 4px 10px rgba(0,0,0,0.02)';
+    failedTab.querySelector('small').style.color = isFailed ? '#e53e3e' : '#718096';
+    passedTab.style.borderColor = isFailed ? '#c6f6d5' : '#38a169';
+    passedTab.style.background = isFailed ? '#ffffff' : '#f0fff4';
+    passedTab.style.boxShadow = isFailed ? '0 4px 10px rgba(0,0,0,0.02)' : '0 4px 14px rgba(56, 161, 105, 0.18)';
+    passedTab.querySelector('small').style.color = isFailed ? '#718096' : '#38a169';
+
+    // Danh sách thẻ tương ứng. offset = vị trí bắt đầu trong mảng gộp
+    // [...remedialCards, ...passedCards] mà modal Remedial (startRemedialReview) dùng
+    const cards = isFailed ? boostState.remedialCards : boostState.passedCards;
+    const offset = isFailed ? 0 : boostState.remedialCards.length;
+    const borderColor = isFailed ? '#e53e3e' : '#38a169';
+
+    let listHtml = `<div style="text-align:left; font-size:14px; font-weight:800; color:${isFailed ? '#c50f1f' : '#15803d'}; margin-bottom:10px; text-transform:uppercase;">${isFailed ? 'Danh sách cần lưu ý:' : 'Danh sách đã thuộc:'}</div>`;
+
+    if (!cards || cards.length === 0) {
+        listHtml += `<div style="text-align:center; padding: 25px 15px; color:#86868b; background:#fff; border:1px dashed rgba(0,0,0,0.12); border-radius:12px; font-size:14px; font-weight:500;">Không có thẻ nào trong danh sách này.</div>`;
+    } else {
+        listHtml += `<ul class="summary-list assessment-card-list" style="margin-top:0;">`;
+        cards.forEach((c, i) => {
+            listHtml += `
+            <li onclick="startRemedialReview(${offset + i})" style="border: 1.5px solid ${borderColor}; padding: 12px 16px; cursor: pointer;">
+                <div>
+                    <div style="font-weight:800; font-size:16px; color:#1a1a1a;">${escapeHTML(c.front)}</div>
+                    <div style="font-size:13px; color:#718096;">${escapeHTML(c.back).replace(/\n/g, ' - ')}</div>
+                </div>
+            </li>`;
+        });
+        listHtml += `</ul>`;
+    }
+    container.innerHTML = listHtml;
+};
 
 // BẮT ĐẦU PHASE 3: REMEDIAL (KHẮC PHỤC) - Hiển thị toàn bộ thẻ qua MODAL FULLSCREEN
 // Trạng thái cho REMEDIAL modal
@@ -32382,7 +32437,7 @@ let remedialState = {
     filter: 'all'       // 'all' | 'passed' | 'failed'
 };
 
-window.startRemedialReview = function() {
+window.startRemedialReview = function(startIdx) {
     mode = 'remedial';
     // Gộp cả thẻ Rớt và Đậu (Thẻ rớt đưa lên trước để ôn trước)
     const combined = [...boostState.remedialCards, ...boostState.passedCards];
@@ -32394,7 +32449,9 @@ window.startRemedialReview = function() {
     remedialState.cards = combined;
     remedialState.passedIds = passedSet;
     remedialState.failedIds = failedSet;
-    remedialState.index = 0;
+    // 🟢 Nếu được gọi với startIdx (thẻ vừa được nhấn trên trang tổng kết)
+    // → mở modal ngay tại thẻ đó, ngược lại mở từ đầu như cũ
+    remedialState.index = (typeof startIdx === 'number' && startIdx >= 0 && startIdx < combined.length) ? startIdx : 0;
     remedialState.filter = 'all';
     
     // Ẩn trang summary, mở modal
@@ -32744,6 +32801,11 @@ function closeRemedialModal() {
     // 🟢 FIX: Show lại màn hình tổng kết (KẾT QUẢ SÁT HẠCH)
     // vì startRemedialReview() đã ẩn boostSummaryPage
     document.getElementById('boostSummaryPage').classList.remove('hidden');
+    // 🟢 Refresh danh sách theo tab đang mở trên trang tổng kết
+    // (thẻ có thể vừa được sửa qua "Sửa thẻ trực tiếp" trong modal)
+    if (typeof switchSummaryTab === 'function' && typeof currentSummaryTab !== 'undefined') {
+        switchSummaryTab(currentSummaryTab);
+    }
 }
 
 // Hỗ trợ phím tắt: mũi tên trái/phải để chuyển thẻ
