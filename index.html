@@ -36218,6 +36218,11 @@ window.openStudyOptionsModal = function(deckId, deckName, type) {
 
 // 🟢 Hàm đóng study modal — xóa trạng thái lưu trong sessionStorage
 window.closeStudyOptionsModal = function() {
+    // 🟢 GATE ĐIỀU HƯỚNG: đóng modal → hủy gate test đang chờ
+    if (window.__studyNavGate) {
+        if (window.__studyNavGate.timer) clearTimeout(window.__studyNavGate.timer);
+        window.__studyNavGate = null;
+    }
     closeModal('studyOptionsModal');
     sessionStorage.removeItem('minddeck_study_modal');
 };
@@ -36428,16 +36433,100 @@ async function hydrateStudyCard(idx) {
     }
 }
 
+// ============================================================================
+// 🟢 TASK MỚI: GATE TEST TRÍ NHỚ CÂU VÍ DỤ (modal BẮT ĐẦU HỌC)
+// Muốn rời thẻ hiện tại (Tiếp / Trước / chọn thẻ từ list) phải vượt qua test
+// trí nhớ câu ví dụ của THẺ HIỆN TẠI:
+//   - Nhấn Tiếp/Trước/chọn thẻ → tự động vào màn hình test trí nhớ câu ví dụ
+//   - Làm ĐÚNG → tự động đến thẻ đích
+//   - Làm SAI  → toast "Bạn chưa vượt qua test thì không thể đến thẻ tiếp theo"
+// Thẻ không có câu ví dụ → chuyển thẻ bình thường (không có gì để test).
+// Gate lưu tại window.__studyNavGate (hủy khi CLOSE TEST / đóng modal).
+// ============================================================================
+
+/**
+ * Yêu cầu điều hướng thẻ — đi qua gate test trí nhớ câu ví dụ.
+ * @param {number} targetIndex - index thẻ đích (đã validate biên trước đó)
+ * @param {{syncAllCards?: boolean}} [opts] - true khi chọn thẻ từ sidebar list
+ *        (index đích tính theo allCards → phải đồng bộ cards = allCards)
+ */
+function requestStudyCardNavigation(targetIndex, opts) {
+    const syncAllCards = !!(opts && opts.syncAllCards);
+    const cur = (studyState.cards || [])[studyState.index];
+
+    // Không xác định được thẻ hiện tại → chuyển thẳng
+    if (!cur) { performStudyNavigation(targetIndex, syncAllCards); return; }
+
+    // Gate của thẻ này ĐÃ vượt (đang chờ auto-chuyển) → bấm lại là chuyển ngay
+    if (window.__studyNavGate && window.__studyNavGate.cardId === cur.id && window.__studyNavGate.passed) {
+        performStudyNavigation(targetIndex, syncAllCards);
+        return;
+    }
+
+    const parsed = parseCardData(cur);
+    // Ưu tiên test câu Ví dụ 1; thẻ chỉ có Ví dụ 2 thì test Ví dụ 2
+    let gateExIndex = 1;
+    let gateJP = parsed && parsed.exampleJP ? String(parsed.exampleJP).trim() : '';
+    if (!gateJP && parsed && parsed.ex2jp) { gateJP = String(parsed.ex2jp).trim(); gateExIndex = 2; }
+
+    // Thẻ hiện tại KHÔNG có câu ví dụ → không cần test, chuyển thẻ bình thường
+    if (!gateJP) { performStudyNavigation(targetIndex, syncAllCards); return; }
+
+    // Một test trí nhớ của thẻ hiện tại đang chạy (do gate bật hoặc user bật tay)
+    // → chỉ ghi nhận/đổi đích, KHÔNG khởi động lại test (tránh mất chữ đang gõ dở)
+    const activeTestBtn = Array.from(document.querySelectorAll('#studyCardBody [id^="btn-test-"]'))
+        .find(b => b.getAttribute('data-mt-active') === '1');
+    if (activeTestBtn) {
+        if (window.__studyNavGate && window.__studyNavGate.timer) clearTimeout(window.__studyNavGate.timer);
+        window.__studyNavGate = { targetIndex, syncAllCards, cardId: cur.id, timer: null, passed: false };
+        const activeInput = document.getElementById(activeTestBtn.getAttribute('data-mt-testZoneId') + '-input');
+        if (activeInput && activeInput.style.display !== 'none') activeInput.focus();
+        return;
+    }
+
+    // Lưu mục tiêu điều hướng + TỰ ĐỘNG vào màn hình test trí nhớ câu ví dụ
+    window.__studyNavGate = { targetIndex, syncAllCards, cardId: cur.id, timer: null, passed: false };
+    startMemoryTest(
+        document.getElementById('btn-test-' + cur.id + '-' + gateExIndex),
+        encodeURIComponent(gateJP),
+        'jp-text-' + cur.id + '-' + gateExIndex,
+        'test-zone-' + cur.id + '-' + gateExIndex,
+        'vn-text-' + cur.id + '-' + gateExIndex
+    );
+}
+
+/**
+ * Thực hiện điều hướng đến thẻ đích sau khi vượt gate (hoặc khi không cần test).
+ * Dọn sạch UI memory test còn sót trước khi renderStudyCard thay toàn bộ nội dung.
+ */
+function performStudyNavigation(targetIndex, syncAllCards) {
+    // Dọn gate + timer đang chờ
+    if (window.__studyNavGate && window.__studyNavGate.timer) clearTimeout(window.__studyNavGate.timer);
+    window.__studyNavGate = null;
+    // Gỡ class ẩn UI do memory test còn sót (mirror restoreCardAfterTest)
+    try { restoreCardAfterTest(null); } catch (err) { /* bỏ qua an toàn */ }
+    // Ẩn candidates bar + clear IME
+    const mtBar = document.getElementById('memoryTestCandidatesBar');
+    if (mtBar) mtBar.style.display = 'none';
+    if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
+    // Xoá nút CLOSE TEST sót lại (nằm cạnh khối ví dụ trong card body)
+    document.querySelectorAll('.ex-close-test-outside').forEach(el => el.remove());
+    // Đồng bộ danh sách khi điều hướng từ sidebar list
+    if (syncAllCards && studyState.allCards) studyState.cards = studyState.allCards;
+    studyState.index = targetIndex;
+    renderStudyCard();
+}
+
 function nextStudyCard() {
     if (studyState.index < studyState.cards.length - 1) {
-        studyState.index++;
-        renderStudyCard();
+        // 🟢 GATE: phải vượt qua test trí nhớ câu ví dụ của thẻ hiện tại
+        requestStudyCardNavigation(studyState.index + 1);
     }
 }
 function prevStudyCard() {
     if (studyState.index > 0) {
-        studyState.index--;
-        renderStudyCard();
+        // 🟢 GATE: phải vượt qua test trí nhớ câu ví dụ của thẻ hiện tại
+        requestStudyCardNavigation(studyState.index - 1);
     }
 }
 
@@ -36511,12 +36600,10 @@ function renderStudyCardList() {
     if (activeEl) activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
-// Click 1 thẻ trong sidebar → load đầy đủ thông tin vào body + đóng sidebar + clear filter
+// Click 1 thẻ trong sidebar → đóng sidebar + clear filter + GATE test trí nhớ:
+// phải vượt qua test câu ví dụ của thẻ HIỆN TẠI mới được nhảy sang thẻ được chọn
 function jumpToStudyCard(idx) {
     if (idx < 0 || idx >= studyState.allCards.length) return;
-    studyState.index = idx;
-    // Set studyState.cards = allCards để renderStudyCard + prev/next hoạt động đúng
-    studyState.cards = studyState.allCards;
     // Clear filter state + input
     studyState.listFilter = '';
     studyState.filteredList = [];
@@ -36526,8 +36613,6 @@ function jumpToStudyCard(idx) {
     const sfBar = document.getElementById('studyFindCandidatesBar');
     if (sfBar) sfBar.style.display = 'none';
     if (window.__studyFindIme) window.__studyFindIme.clearCandidates();
-    // Render card đầy đủ thông tin
-    renderStudyCard();
     // Đóng sidebar sau khi chọn
     const sidebar = document.getElementById('studySidebar');
     const btn = document.getElementById('btnStudyFlashcard');
@@ -36535,6 +36620,9 @@ function jumpToStudyCard(idx) {
     if (sidebar) sidebar.classList.remove('open');
     if (btn) btn.classList.remove('active');
     if (backdrop) backdrop.classList.remove('visible');
+    // 🟢 GATE: đi qua test trí nhớ câu ví dụ — index đích tính theo allCards
+    // (performStudyNavigation sẽ đồng bộ studyState.cards = allCards trước khi render)
+    requestStudyCardNavigation(idx, { syncAllCards: true });
 }
 
 // Toggle edit dropdown
@@ -37738,6 +37826,21 @@ function checkMemoryTest(jpEncoded, inputEl, jpTextId, testZoneId) {
         const mtBar = document.getElementById('memoryTestCandidatesBar');
         if (mtBar) mtBar.style.display = 'none';
         if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
+
+        // 🟢 GATE ĐIỀU HƯỚNG (modal BẮT ĐẦU HỌC): làm đúng test → tự động đến thẻ đích.
+        // Chỉ kích hoạt khi test này là test gate của thẻ hiện tại
+        // (jpTextId có dạng jp-text-{cardId}-{exIndex}).
+        const __gate = window.__studyNavGate;
+        if (__gate && !__gate.passed && jpTextId && jpTextId.indexOf('jp-text-' + __gate.cardId + '-') === 0) {
+            __gate.passed = true;
+            // Chờ 1.2s cho user thấy "Hoàn hảo!" + pháo hoa, rồi tự chuyển thẻ
+            __gate.timer = setTimeout(() => {
+                __gate.timer = null;
+                if (window.__studyNavGate === __gate) {
+                    performStudyNavigation(__gate.targetIndex, __gate.syncAllCards);
+                }
+            }, 1200);
+        }
     } else {
         // ❌ SAI — bôi đỏ ký tự sai bằng cách diff từng ký tự
         const diffHTML = diffJapanese(jp, userAnswer);
@@ -37745,6 +37848,12 @@ function checkMemoryTest(jpEncoded, inputEl, jpTextId, testZoneId) {
             <div style="background: #fef2f2; padding: 8px 10px; border-radius: 6px; font-family: 'Noto Sans JP', sans-serif; font-size: 14px; line-height: 1.6;">
                 ${diffHTML}
             </div>`;
+
+        // 🟢 GATE ĐIỀU HƯỚNG (modal BẮT ĐẦU HỌC): làm sai test → chặn, không cho đến thẻ tiếp theo
+        const __gate = window.__studyNavGate;
+        if (__gate && !__gate.passed && jpTextId && jpTextId.indexOf('jp-text-' + __gate.cardId + '-') === 0) {
+            showToast('Bạn chưa vượt qua test thì không thể đến thẻ tiếp theo');
+        }
 
         // Hiện lại JP ngay để user thấy đáp án đúng
         jpEl.style.display = 'block';
@@ -37807,6 +37916,11 @@ function restoreCardAfterTest(testZoneId) {
 }
 
 function exitMemoryTest(jpTextId, testZoneId) {
+    // 🟢 GATE ĐIỀU HƯỚNG: user tự thoát test khi chưa vượt → hủy điều hướng đang chờ
+    if (window.__studyNavGate) {
+        if (window.__studyNavGate.timer) clearTimeout(window.__studyNavGate.timer);
+        window.__studyNavGate = null;
+    }
     const jpEl = document.getElementById(jpTextId);
     const testZone = document.getElementById(testZoneId);
     if (jpEl) jpEl.style.display = 'block';
@@ -37860,6 +37974,12 @@ function exitMemoryTest(jpTextId, testZoneId) {
  * Làm lại test từ đầu (reset input, feedback, ẩn JP lại)
  */
 function restartMemoryTest(jpTextId, testZoneId) {
+    // 🟢 GATE ĐIỀU HƯỚNG: bấm "Làm lại" sau khi đã đúng → hủy auto-chuyển, phải vượt lại test
+    if (window.__studyNavGate && window.__studyNavGate.timer) {
+        clearTimeout(window.__studyNavGate.timer);
+        window.__studyNavGate.timer = null;
+        window.__studyNavGate.passed = false;
+    }
     const testZone = document.getElementById(testZoneId);
     const jpEl = document.getElementById(jpTextId);
     if (!testZone || !jpEl) return;
