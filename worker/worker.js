@@ -1415,7 +1415,10 @@ var worker_default = {
                 
                 // Chuẩn hóa và gộp mảng sạch
                 const uniqueCleanedTags = [...new Set(cleanedTags)];
-                const cleanTagsString = uniqueCleanedTags.length > 0 ? `,\${uniqueCleanedTags.join(',')},` : null;
+                // 🟢 FIX BUG: trước đây nhầm `\${...}` (escape) → cột tags bị ghi thành chuỗi
+                // literal "${uniqueCleanedTags.join(',')}" khi xóa 1 tag mà từ còn tag khác.
+                // Bỏ dấu \ để template literal thực sự nối danh sách tag (đúng như dòng 1545).
+                const cleanTagsString = uniqueCleanedTags.length > 0 ? `,${uniqueCleanedTags.join(',')},` : null;
                 
                 batchStatements.push(updateStmt.bind(row.id, cleanTagsString));
               });
