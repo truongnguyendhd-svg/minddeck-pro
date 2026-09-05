@@ -6932,6 +6932,35 @@ body.pdf-mode #pdfReadState {
     text-decoration-color: #fbbf24;
 }
 
+/* 🟢 GATE ĐIỀU HƯỚNG (TIẾP/TRƯỚC/chọn thẻ): banner yêu cầu trên cùng màn hình test trí nhớ */
+.ex-test-gate-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 0 auto 12px auto;
+    padding: 11px 18px;
+    max-width: 480px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.25);
+    font-family: 'Noto Sans JP', sans-serif !important;
+    animation: fadeInChat 0.2s ease;
+}
+.ex-test-gate-banner .material-symbols-outlined {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+/* Trạng thái ĐÃ vượt qua test (xanh lá) */
+.ex-test-gate-banner.gate-passed {
+    background: linear-gradient(135deg, #16a34a, #15803d);
+    box-shadow: 0 8px 20px rgba(22, 163, 74, 0.25);
+}
+
 /* ================= STUDY SIDEBAR LAYOUT ================= */
 .study-content-wrapper {
     flex: 1 1 auto;
@@ -36223,6 +36252,7 @@ window.closeStudyOptionsModal = function() {
         if (window.__studyNavGate.timer) clearTimeout(window.__studyNavGate.timer);
         window.__studyNavGate = null;
     }
+    removeStudyGateBanner(); // gỡ banner gate còn sót
     closeModal('studyOptionsModal');
     sessionStorage.removeItem('minddeck_study_modal');
 };
@@ -36439,10 +36469,44 @@ async function hydrateStudyCard(idx) {
 // trí nhớ câu ví dụ của THẺ HIỆN TẠI:
 //   - Nhấn Tiếp/Trước/chọn thẻ → tự động vào màn hình test trí nhớ câu ví dụ
 //   - Làm ĐÚNG → tự động đến thẻ đích
-//   - Làm SAI  → toast "Bạn chưa vượt qua test thì không thể đến thẻ tiếp theo"
+//   - Làm SAI  → KHÔNG toast — banner "Hoàn thành bài test để qua thẻ" hiện
+//                cố định trên cùng màn hình test, user phải Làm lại đến khi đúng
 // Thẻ không có câu ví dụ → chuyển thẻ bình thường (không có gì để test).
 // Gate lưu tại window.__studyNavGate (hủy khi CLOSE TEST / đóng modal).
 // ============================================================================
+
+/**
+ * 🟢 Banner yêu cầu "Hoàn thành bài test để qua thẻ" — hiện trên cùng màn hình
+ * test trí nhớ khi test đang chạy là test gate của thẻ hiện tại.
+ * Chỉ áp dụng trong study modal (#studyCardBody); ngữ cảnh khác (bottom sheet,
+ * remedial) giữ nguyên banner hiện có (nếu có).
+ */
+function updateStudyGateBanner(exBlock) {
+    if (!exBlock) return;
+    const cardBody = document.getElementById('studyCardBody');
+    if (!cardBody || !cardBody.contains(exBlock)) return;
+    removeStudyGateBanner();
+    const banner = document.createElement('div');
+    banner.className = 'ex-test-gate-banner';
+    banner.id = 'studyGateBanner';
+    banner.innerHTML = '<span class="material-symbols-outlined">quiz</span><span>Hoàn thành bài test để qua thẻ</span>';
+    exBlock.insertAdjacentElement('beforebegin', banner);
+}
+function removeStudyGateBanner() {
+    const banner = document.getElementById('studyGateBanner');
+    if (banner) banner.remove();
+}
+function setStudyGateBannerPassed(passed) {
+    const banner = document.getElementById('studyGateBanner');
+    if (!banner) return;
+    if (passed) {
+        banner.classList.add('gate-passed');
+        banner.innerHTML = '<span class="material-symbols-outlined">check_circle</span><span>Đã hoàn thành bài test — đang chuyển thẻ...</span>';
+    } else {
+        banner.classList.remove('gate-passed');
+        banner.innerHTML = '<span class="material-symbols-outlined">quiz</span><span>Hoàn thành bài test để qua thẻ</span>';
+    }
+}
 
 /**
  * Yêu cầu điều hướng thẻ — đi qua gate test trí nhớ câu ví dụ.
@@ -36479,6 +36543,9 @@ function requestStudyCardNavigation(targetIndex, opts) {
     if (activeTestBtn) {
         if (window.__studyNavGate && window.__studyNavGate.timer) clearTimeout(window.__studyNavGate.timer);
         window.__studyNavGate = { targetIndex, syncAllCards, cardId: cur.id, timer: null, passed: false };
+        // Test đang chạy nay trở thành test gate → hiện banner yêu cầu phía trên nó
+        const activeZone = document.getElementById(activeTestBtn.getAttribute('data-mt-testZoneId'));
+        updateStudyGateBanner(activeZone ? activeZone.closest('.example-sentence-block') : null);
         const activeInput = document.getElementById(activeTestBtn.getAttribute('data-mt-testZoneId') + '-input');
         if (activeInput && activeInput.style.display !== 'none') activeInput.focus();
         return;
@@ -36511,6 +36578,8 @@ function performStudyNavigation(targetIndex, syncAllCards) {
     if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
     // Xoá nút CLOSE TEST sót lại (nằm cạnh khối ví dụ trong card body)
     document.querySelectorAll('.ex-close-test-outside').forEach(el => el.remove());
+    // Xoá banner gate "Hoàn thành bài test..." sót lại
+    removeStudyGateBanner();
     // Đồng bộ danh sách khi điều hướng từ sidebar list
     if (syncAllCards && studyState.allCards) studyState.cards = studyState.allCards;
     studyState.index = targetIndex;
@@ -37587,6 +37656,13 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId, vnTextId) {
     // Đánh dấu example block đang test
     const exBlock = testZone.closest('.example-sentence-block');
     if (exBlock) exBlock.classList.add('memory-test-block');
+    // 🟢 GATE ĐIỀU HƯỚNG (TIẾP/TRƯỚC/chọn thẻ): test này là test gate của thẻ
+    // hiện tại → hiện banner "Hoàn thành bài test để qua thẻ" trên cùng màn test
+    if (window.__studyNavGate && !window.__studyNavGate.passed && jpTextId && jpTextId.indexOf('jp-text-' + window.__studyNavGate.cardId + '-') === 0) {
+        updateStudyGateBanner(exBlock);
+    } else {
+        removeStudyGateBanner();
+    }
     // Ẩn footer
     const wrapper = document.querySelector('.study-content-wrapper');
     if (wrapper) wrapper.classList.add('has-memory-test');
@@ -37833,6 +37909,8 @@ function checkMemoryTest(jpEncoded, inputEl, jpTextId, testZoneId) {
         const __gate = window.__studyNavGate;
         if (__gate && !__gate.passed && jpTextId && jpTextId.indexOf('jp-text-' + __gate.cardId + '-') === 0) {
             __gate.passed = true;
+            // Banner yêu cầu chuyển sang trạng thái "đã xong" (xanh lá)
+            setStudyGateBannerPassed(true);
             // Chờ 1.2s cho user thấy "Hoàn hảo!" + pháo hoa, rồi tự chuyển thẻ
             __gate.timer = setTimeout(() => {
                 __gate.timer = null;
@@ -37849,11 +37927,8 @@ function checkMemoryTest(jpEncoded, inputEl, jpTextId, testZoneId) {
                 ${diffHTML}
             </div>`;
 
-        // 🟢 GATE ĐIỀU HƯỚNG (modal BẮT ĐẦU HỌC): làm sai test → chặn, không cho đến thẻ tiếp theo
-        const __gate = window.__studyNavGate;
-        if (__gate && !__gate.passed && jpTextId && jpTextId.indexOf('jp-text-' + __gate.cardId + '-') === 0) {
-            showToast('Bạn chưa vượt qua test thì không thể đến thẻ tiếp theo');
-        }
+        // 🟢 GATE ĐIỀU HƯỚNG (modal BẮT ĐẦU HỌC): làm sai → CHỈ chặn, KHÔNG toast
+        // (banner "Hoàn thành bài test để qua thẻ" đã nêu yêu cầu trên cùng màn test)
 
         // Hiện lại JP ngay để user thấy đáp án đúng
         jpEl.style.display = 'block';
@@ -37921,6 +37996,8 @@ function exitMemoryTest(jpTextId, testZoneId) {
         if (window.__studyNavGate.timer) clearTimeout(window.__studyNavGate.timer);
         window.__studyNavGate = null;
     }
+    // Gỡ banner gate khỏi màn hình
+    removeStudyGateBanner();
     const jpEl = document.getElementById(jpTextId);
     const testZone = document.getElementById(testZoneId);
     if (jpEl) jpEl.style.display = 'block';
@@ -37979,6 +38056,10 @@ function restartMemoryTest(jpTextId, testZoneId) {
         clearTimeout(window.__studyNavGate.timer);
         window.__studyNavGate.timer = null;
         window.__studyNavGate.passed = false;
+    }
+    // 🟢 Banner gate quay về trạng thái yêu cầu ban đầu (phải vượt lại mới được qua thẻ)
+    if (window.__studyNavGate && jpTextId && jpTextId.indexOf('jp-text-' + window.__studyNavGate.cardId + '-') === 0) {
+        setStudyGateBannerPassed(false);
     }
     const testZone = document.getElementById(testZoneId);
     const jpEl = document.getElementById(jpTextId);
