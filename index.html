@@ -6621,6 +6621,7 @@ body.pdf-mode #pdfReadState {
 #remedialReviewModal.ai-zone-open #remedialCardBody,
 #remedialReviewModal.ai-zone-open .remedial-toolbar,
 #remedialReviewModal.ai-zone-open .remedial-footer,
+#remedialReviewModal.ai-zone-open #remedialEditPillRow,
 #remedialReviewModal.ai-zone-open #remedialStatusBadge {
     opacity: 0.25;
     pointer-events: none;
@@ -6672,6 +6673,7 @@ body.pdf-mode #pdfReadState {
     /* Ẩn toolbar + footer + status + AI zone + card list */
     #remedialReviewModal.memory-test-fullscreen .remedial-toolbar,
     #remedialReviewModal.memory-test-fullscreen .remedial-footer,
+    #remedialReviewModal.memory-test-fullscreen #remedialEditPillRow,
     #remedialReviewModal.memory-test-fullscreen #remedialCardList,
     #remedialReviewModal.memory-test-fullscreen #remedialAiResultZone,
     #remedialReviewModal.memory-test-fullscreen #remedialStatusBadge {
@@ -6963,8 +6965,8 @@ body.pdf-mode #pdfReadState {
     box-shadow: 0 8px 20px rgba(22, 163, 74, 0.25);
 }
 
-/* 🟢 TASK8: Nút "Tùy chọn sửa" (study modal) — pill không icon, thiết kế y hệt
-   nút "Xóa lịch sử chat" (.hsp-chat-clear) trong search panel */
+/* 🟢 TASK8+14: Nút "Tùy chọn sửa" (study + remedial modal) — pill không icon,
+   thiết kế y hệt nút "Xóa lịch sử chat" (.hsp-chat-clear) trong search panel */
 .study-edit-pill {
     background: transparent;
     border: 1px solid #e2e8f0;
@@ -9983,7 +9985,8 @@ body.grammar-searching #headerGrammarSearch {
 
 /* Body */
 #remedialReviewModal #remedialCardBody {
-    padding: 20px clamp(16px, 4vw, 48px) 30px clamp(16px, 4vw, 48px) !important;
+    /* TASK14: padding-bottom 30px → 12px — đồng bộ nhịp modal BẮT ĐẦU HỌC (hàng pill tĩnh trên footer) */
+    padding: 20px clamp(16px, 4vw, 48px) 12px clamp(16px, 4vw, 48px) !important;
     flex: 1 1 auto !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch;
@@ -12602,9 +12605,9 @@ body.grammar-searching #headerGrammarSearch {
         <!-- CARD LIST DROPDOWN (hidden by default) -->
         <div id="remedialCardList" style="display: none;"></div>
         
-        <!-- BODY (card content) — cuộn được, JS render nội dung + nút "Tùy chọn sửa" ở cuối -->
+        <!-- BODY (card content) — cuộn được, JS render nội dung thẻ (nút "Tùy chọn sửa" đã tĩnh trên footer) -->
         <div id="remedialCardBody">
-            <!-- JS render: nội dung thẻ (định nghĩa + ví dụ) + nút "Tùy chọn sửa" ở cuối -->
+            <!-- JS render: nội dung thẻ (định nghĩa + ví dụ) -->
         </div>
         
         <!-- AI RESULT ZONE (hiện kết quả khi bấm Đổi câu ví dụ / Tạo cách nhớ) -->
@@ -12612,6 +12615,19 @@ body.grammar-searching #headerGrammarSearch {
         
         <!-- STATUS BADGE (Ẩn) -->
         <div id="remedialStatusBadge" style="display: none !important;"></div>
+        
+        <!-- 🟢 TASK14: NÚT "TÙY CHỌN SỬA" — pill không icon (giống modal BẮT ĐẦU HỌC), nằm ngay trên hàng TRƯỚC/TIẾP; dropdown mở lên trên -->
+        <div id="remedialEditPillRow" style="display: flex; justify-content: center; padding: 8px clamp(16px, 4vw, 48px) 8px clamp(16px, 4vw, 48px); flex-shrink: 0; position: relative;">
+            <button class="study-edit-pill" id="btnRemedialEdit" onclick="toggleRemedialEditDropdown(event)" title="Tùy chọn sửa">Tùy chọn sửa</button>
+            <div id="remedialEditDropdown" style="display: none; position: absolute; bottom: calc(100% - 4px); left: 50%; transform: translateX(-50%); min-width: 220px; background: rgba(28, 28, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.15); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.25); padding: 6px; z-index: 13002; flex-direction: column; gap: 2px;">
+                <button onclick="remedialEditAction('direct')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                    <span class="material-symbols-outlined" style="font-size: 18px; color: #60a5fa;">edit_square</span> Sửa thẻ trực tiếp
+                </button>
+                <button onclick="remedialEditAction('mnemonic')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                    <span class="material-symbols-outlined" style="font-size: 18px; color: #a8c0ff;">lightbulb</span> Tạo cách nhớ (AI)
+                </button>
+            </div>
+        </div>
         
         <!-- FOOTER: Prev [icon + text] | 1/15 text-only pill | Next [text + icon] -->
         <div class="remedial-footer">
@@ -32739,11 +32755,21 @@ function renderRemedialCard() {
         document.getElementById('remedialFooterProgress').innerText = '0 / 0';
         document.getElementById('btnRemedialPrev').disabled = true;
         document.getElementById('btnRemedialNext').disabled = true;
+        // TASK14: không còn thẻ → ẩn hàng pill "Tùy chọn sửa" (không có gì để sửa)
+        const __remEditRowEmpty = document.getElementById('remedialEditPillRow');
+        if (__remEditRowEmpty) __remEditRowEmpty.style.display = 'none';
         return;
     }
     
     const c = remedialState.cards[remedialState.index];
     if (!c) return;
+    
+    // 🟢 TASK14: Nút "Tùy chọn sửa" giờ là phần tử tĩnh trên footer —
+    // hiện hàng pill + đóng dropdown khi đổi thẻ (không tự reset như nằm trong innerHTML)
+    const __remEditRow = document.getElementById('remedialEditPillRow');
+    if (__remEditRow) __remEditRow.style.display = 'flex';
+    const __remEditDd = document.getElementById('remedialEditDropdown');
+    if (__remEditDd) __remEditDd.style.display = 'none';
     
     // Sync sessionCards/currentIndex để openQuickEdit/saveQuickEdit hoạt động đúng
     sessionCards = remedialState.cards;
@@ -32822,24 +32848,9 @@ function renderRemedialCard() {
     
     html += '</div>'; // đóng div "display: flex; flex-direction: column"
     
-    // 🟢 THÊM NÚT "TÙY CHỌN SỬA" ở cuối body (cuộn xuống mới thấy)
-    // Nút tròn chỉ icon, dùng class remedial-circle-btn (giống nút search/close ở header)
-    // Dropdown hiện lên trên khi bấm (vì nút ở đáy body)
-    html += `
-        <div style="display: flex; justify-content: center; padding: 24px clamp(16px, 4vw, 48px) 28px; position: relative;">
-            <button class="remedial-circle-btn" id="btnRemedialEdit" onclick="toggleRemedialEditDropdown(event)" title="Tùy chọn sửa">
-                <span class="material-symbols-outlined">edit</span>
-            </button>
-            <div id="remedialEditDropdown" style="display: none; position: absolute; bottom: calc(100% - 4px); left: 50%; transform: translateX(-50%); min-width: 220px; background: rgba(28, 28, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.15); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.25); padding: 6px; z-index: 13002; flex-direction: column; gap: 2px;">
-                <button onclick="remedialEditAction('direct')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
-                    <span class="material-symbols-outlined" style="font-size: 18px; color: #60a5fa;">edit_square</span> Sửa thẻ trực tiếp
-                </button>
-                <button onclick="remedialEditAction('mnemonic')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
-                    <span class="material-symbols-outlined" style="font-size: 18px; color: #a8c0ff;">lightbulb</span> Tạo cách nhớ (AI)
-                </button>
-            </div>
-        </div>
-    `;
+    // 🟢 TASK14: Nút "Tùy chọn sửa" đã chuyển thành phần tử TĨNH (#remedialEditPillRow,
+    // hàng riêng ngay trên footer) — pill không icon giống modal BẮT ĐẦU HỌC (Task 8);
+    // không còn render trong body (trước đây phải cuộn xuống cuối mới thấy)
     
     document.getElementById('remedialCardBody').innerHTML = html;
     document.getElementById('remedialCardBody').scrollTop = 0;
