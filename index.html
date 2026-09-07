@@ -17231,7 +17231,7 @@ async function generateExWithAIOndemand(kanjiChar, index) {
         const aiPrompt = `Hãy tạo thêm đúng ${countToGen} câu ví dụ tiếng Nhật tự nhiên chứa từ "${v.word}" (Đọc: ${v.reading}, Nghĩa: ${v.meaning}).
         BẮT BUỘC chỉ trả về duy nhất một mảng JSON (không bọc trong markdown \`\`\`json hay bất cứ ghi chú nào). Định dạng mảng:
         [
-          {"jp": "Câu JP", "vn": "Dịch VN"}
+          {"jp": "Câu JP", "romaji": "Romaji Hepburn của câu jp (viết thường)", "vn": "Dịch VN"}
         ]`;
 
         const aiEx = await callGeminiAI(aiPrompt);
@@ -18209,7 +18209,7 @@ function renderBoostCard() {
 
                 // 🟢 YÊU CẦU MỚI: Ghép xong → hiện ngay KHỐI VÍ DỤ HOÀN CHỈNH
                 // (dùng lại buildExampleSentenceBlock như modal Remedial: header "Ví dụ 1"
-                // + nút Romaji lazy-fetch Google, câu JP với kanji bấm tra được,
+                // + nút Romaji lazy-fetch AI (Gemini + WanaKana + cache), câu JP với kanji bấm tra được,
                 // romaji, dịch VN, nút Nghe + Romaji + Test trí nhớ xếp cùng hàng nút;
                 // nút Đổi ví dụ bị ẩn trong game)
                 wrap.innerHTML = buildExampleSentenceBlock(
@@ -35860,7 +35860,7 @@ async function executeAiAction(actionType) {
                 const aiPrompt = `Hãy tạo thêm đúng ${countToGen} câu ví dụ tiếng Nhật tự nhiên chứa từ "${p.front}" (${p.reading} - ${p.meaning}). ${avoidStr}
                 BẮT BUỘC chỉ trả về duy nhất một mảng JSON (khó và không bọc trong markdown, không giải thích thêm). Định dạng mảng:
                 [
-                  {"jp": "Câu JP", "vn": "Dịch VN"}
+                  {"jp": "Câu JP", "romaji": "Romaji Hepburn của câu jp (viết thường)", "vn": "Dịch VN"}
                 ]`;
 
                 let aiResponse = "";
@@ -35903,7 +35903,9 @@ async function executeAiAction(actionType) {
             
             window.tempAiData = {
                 jp1: shuffledList[0].jp, vn1: shuffledList[0].vn,
-                jp2: shuffledList[1] ? shuffledList[1].jp : '', vn2: shuffledList[1] ? shuffledList[1].vn : ''
+                romaji1: shuffledList[0].romaji || '',
+                jp2: shuffledList[1] ? shuffledList[1].jp : '', vn2: shuffledList[1] ? shuffledList[1].vn : '',
+                romaji2: shuffledList[1] ? (shuffledList[1].romaji || '') : ''
             };
 
             let htmlPreview = `<b>1.</b> ${window.tempAiData.jp1}<br><span style="color:#666">${window.tempAiData.vn1}</span>`;
@@ -36021,8 +36023,9 @@ async function saveExamplesToCard() {
         // 🟢 Giữ Romaji cũ cho câu AI tạo trùng nội dung; bảo toàn [CT]/[ST]
         const oldEx = p.exList || [];
         const aiList = [];
-        if (window.tempAiData.jp1) aiList.push({ jp: window.tempAiData.jp1, vn: window.tempAiData.vn1 || '', romaji: ((oldEx.find(o => o.jp === window.tempAiData.jp1) || {}).romaji) || '' });
-        if (window.tempAiData.jp2) aiList.push({ jp: window.tempAiData.jp2, vn: window.tempAiData.vn2 || '', romaji: ((oldEx.find(o => o.jp === window.tempAiData.jp2) || {}).romaji) || '' });
+        // Ưu tiên romaji cũ đã lưu; thiếu thì dùng romaji AI sinh kèm
+        if (window.tempAiData.jp1) aiList.push({ jp: window.tempAiData.jp1, vn: window.tempAiData.vn1 || '', romaji: ((oldEx.find(o => o.jp === window.tempAiData.jp1) || {}).romaji) || (window.tempAiData.romaji1 || '') });
+        if (window.tempAiData.jp2) aiList.push({ jp: window.tempAiData.jp2, vn: window.tempAiData.vn2 || '', romaji: ((oldEx.find(o => o.jp === window.tempAiData.jp2) || {}).romaji) || (window.tempAiData.romaji2 || '') });
         let newInfo = buildInfoStringFromList(p.hv, aiList, p);
         await updateCardInfo(c, newInfo);
         dismissAiResult();
@@ -36099,7 +36102,7 @@ async function changeExampleInBlock(frontEncoded, exIndex) {
             ${avoidStr}
             BẮT BUỘC chỉ trả về duy nhất một mảng JSON (không bọc trong markdown, không giải thích):
             [
-              {"jp": "Câu JP", "vn": "Dịch VN"}
+              {"jp": "Câu JP", "romaji": "Romaji Hepburn của câu jp (viết thường)", "vn": "Dịch VN"}
             ]`;
 
             let aiResponse = "";
@@ -36147,7 +36150,7 @@ async function changeExampleInBlock(frontEncoded, exIndex) {
         }
 
         // Bước 4: Render câu vào modal
-        _renderCloudExampleContent(chosen.jp, chosen.vn);
+        _renderCloudExampleContent(chosen.jp, chosen.vn, chosen.romaji);
 
     } catch (err) {
         console.error("[CE] Lỗi đổi ví dụ:", err);
@@ -36176,7 +36179,7 @@ function _getCurrentExampleJp(exIndex) {
  */
 function _openCloudExampleModal(front, exIndex, btnEl) {
     if (btnEl) btnEl.classList.add('is-loading');
-    _cePending = { front, exIndex, jp: null, vn: null, btnEl };
+    _cePending = { front, exIndex, jp: null, vn: null, romaji: null, btnEl };
     // Reset nội dung
     const body = document.getElementById('ceModalBody');
     const okBtn = document.getElementById('ceOkBtn');
@@ -36200,10 +36203,12 @@ function _openCloudExampleModal(front, exIndex, btnEl) {
 /**
  * Render câu ví dụ vào body modal + enable nút OK
  */
-function _renderCloudExampleContent(jp, vn) {
+function _renderCloudExampleContent(jp, vn, romaji) {
     if (!_cePending) return;
     _cePending.jp = jp;
     _cePending.vn = vn || '';
+    // AI sinh kèm romaji (hoặc D1 cache có sẵn) -> giữ lại để lưu vào thẻ
+    _cePending.romaji = (typeof romaji === 'string' && romaji.trim() !== '') ? romaji.trim() : null;
     const body = document.getElementById('ceModalBody');
     if (body) {
         const safeJp = escapeHTML(jp);
@@ -36252,8 +36257,12 @@ async function confirmCloudExample() {
         const exList = (p.exList && p.exList.length) ? p.exList.map(ex => ({ ...ex })) : [];
         const replaceIdx = Math.max(0, (_cePending.exIndex || 1) - 1);
         const oldEntry = exList[replaceIdx];
-        const keepRomaji = (oldEntry && oldEntry.jp === _cePending.jp) ? (oldEntry.romaji || '') : '';
+        // AI sinh kèm romaji -> dùng ngay (trùng câu cũ thì ưu tiên romaji cũ đã lưu)
+        const aiRomaji = (_cePending.romaji && _cePending.romaji.trim()) ? _cePending.romaji.trim() : '';
+        const keepRomaji = (oldEntry && oldEntry.jp === _cePending.jp) ? (oldEntry.romaji || aiRomaji) : aiRomaji;
         const replaced = { jp: _cePending.jp, vn: _cePending.vn, romaji: keepRomaji };
+        // Cache romaji AI vào bộ đệm cục bộ (game/ngữ pháp/kết nối yếu dùng lại)
+        if (aiRomaji) setCachedRomaji(_cePending.jp, aiRomaji);
         if (replaceIdx < exList.length) exList[replaceIdx] = replaced;
         else exList.push(replaced);
 
@@ -37894,22 +37903,189 @@ async function showGrammarPreview(event, grammarId) {
     });
 }
 /**
- * 1. Gọi trực tiếp API Google Translate gtx để lấy Romaji mượt mà
+ * 1. GEMINI ROMAJI ENGINE (thay thế Google Translate gtx không chính thức)
+ *
+ * Lý do bỏ Google gtx:
+ *   - Endpoint translate_a/single là API KHÔNG chính thức, không SLA, dễ bị
+ *     Google chặn theo IP (đã test bị chặn "automated queries" từ IP server).
+ *   - Parse data[0][0][3] chỉ lấy chunk ĐẦU -> câu dài bị cụt romaji.
+ *   - Không có timeout -> nút Romaji kẹt spinner "Đang tải..." vĩnh viễn.
+ *
+ * Thiết kế mới (cache 3 tầng + chống double-fetch):
+ *   Tầng 0: RAM Map + localStorage "minddeck_romaji_cache_v1" (tối đa 600 câu)
+ *           -> romaji đã lấy hiện NGAY không tốn network; NGỮ PHÁP vốn không
+ *             persist lên Supabase (không nằm trong sessionCards) giờ cũng được
+ *             giữ qua F5 nhờ localStorage — fix lỗi refetch mỗi lần mở.
+ *   Tầng 1: Câu THUẦN KANA -> WanaKana toRomaji() offline tức thời (0ms, 0 cost).
+ *           Câu chứa Kanji bỏ qua tầng này (chất lượng convert kém).
+ *   Tầng 2: Worker /api/gemini (key rotation sẵn có) — task 'light', timeout
+ *           RIÊNG 45s, parse TOÀN BỘ chunk SSE (fix cụt romaji), validate output.
+ *   Chống double-click: Map romajiInflight gộp request trùng câu thành 1 Promise.
  */
-async function fetchRomajiFromGoogle(jpText) {
+
+// ===== BỘ CACHE ROMAJI: RAM -> localStorage =====
+const ROMAJI_LS_CACHE_KEY = 'minddeck_romaji_cache_v1';
+const ROMAJI_LS_CACHE_MAX = 600;
+const romajiRAMCache = new Map();   // jp -> romaji (tầng nhanh nhất)
+const romajiInflight = new Map();   // jp -> Promise (gộp request trùng câu)
+
+function _readLSRomajiCache() {
+    try { return JSON.parse(localStorage.getItem(ROMAJI_LS_CACHE_KEY) || '{}'); }
+    catch (e) { return {}; }
+}
+
+// Lấy romaji đã cache (RAM ưu tiên; có ở localStorage thì promote lên RAM)
+function getCachedRomaji(jpText) {
+    if (!jpText) return null;
+    if (romajiRAMCache.has(jpText)) return romajiRAMCache.get(jpText);
+    const ls = _readLSRomajiCache();
+    const v = (typeof ls[jpText] === 'string' && ls[jpText].trim() !== '') ? ls[jpText] : null;
+    if (v !== null) romajiRAMCache.set(jpText, v);
+    return v;
+}
+
+// Ghi romaji vào cache (RAM + localStorage; tự giới hạn 600 mục mới nhất)
+function setCachedRomaji(jpText, romaji) {
+    if (!jpText || !romaji || !romaji.trim()) return;
+    romajiRAMCache.set(jpText, romaji);
     try {
-        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=vi&dt=rm&q=${encodeURIComponent(jpText)}`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error("Không phản hồi từ máy chủ Google");
-        const data = await res.json();
-        if (data && data[0] && data[0][0] && data[0][0][3]) {
-            return data[0][0][3].trim();
+        const ls = _readLSRomajiCache();
+        ls[jpText] = romaji;
+        const keys = Object.keys(ls);
+        if (keys.length > ROMAJI_LS_CACHE_MAX) {
+            // FIFO: bỏ mục cũ nhất (Object.keys giữ insertion order)
+            for (let i = 0; i < keys.length - ROMAJI_LS_CACHE_MAX; i++) delete ls[keys[i]];
         }
-        return null;
-    } catch (err) {
-        console.error("Lỗi Google Romaji API:", err);
-        return null;
+        localStorage.setItem(ROMAJI_LS_CACHE_KEY, JSON.stringify(ls));
+    } catch (e) {
+        // QuotaExceeded -> vẫn còn RAM cache, không chặn luồng chính
+        console.warn('[Romaji] Không ghi được localStorage cache:', e && e.name);
     }
+}
+
+// Câu THUẦN KANA -> convert offline bằng WanaKana (app đã bundle sẵn 5.3.1)
+function tryWanakanaRomaji(jpText) {
+    try {
+        if (typeof wanakana === 'undefined' || !jpText) return null;
+        // Bỏ dấu câu/dấu cách rồi kiểm: phần còn lại phải 100% là kana
+        const core = jpText.replace(/[、。！？.,!?~〜「」『』()（）・：；;\s]/g, '');
+        if (!core || !wanakana.isKana(core)) return null; // có Kanji -> bỏ tầng này
+        return wanakana.toRomaji(jpText).replace(/\s+/g, ' ').trim();
+    } catch (e) { return null; }
+}
+
+// Dọn output model: bỏ markdown fence, dấu ngoặc, prefix "Romaji:", chỉ lấy
+// dòng đầu; validate không chứa ký tự JP và đủ độ dài tương xứng
+function _cleanGeminiRomajiOutput(raw, jpText) {
+    if (!raw) return null;
+    let t = raw.trim()
+        .replace(/```[a-z]*\s*/gi, '')
+        .replace(/```/g, '')
+        .replace(/^[\s"'「『]+/, '')
+        .replace(/[\s"'」』]+$/, '')
+        .trim();
+    // Model lỡ thêm prefix dạng "Romaji:" / "Romaji (Hepburn):"
+    t = t.replace(/^romaji\s*(\((hepburn|kunrei|nihon[-\s]?shiki)\))?\s*[:：\-–]\s*/i, '').trim();
+    // Chỉ lấy dòng đầu (dòng sau nếu có là giải thích thừa)
+    t = t.split(/[\n\r]/)[0].trim().replace(/^[\s"'「『]+|[\s"'」』]+$/g, '');
+    if (!t) return null;
+    // Bảo vệ 1: model trả nguyên văn tiếng Nhật -> coi như thất bại
+    const jpChars = t.match(/[\u3040-\u30ff\u4e00-\u9faf\uff66-\uff9f]/g) || [];
+    if (jpChars.length > 0) return null;
+    // Bảo vệ 2: romaji hợp lệ phải dài tương xứng câu JP (1 kana >= 1 ký tự latin)
+    const coreLen = (jpText || '').replace(/[\s、。！？.,!?~〜「」『』()（）・：；;]/g, '').length;
+    if (t.length < Math.max(2, Math.floor(coreLen * 0.4))) return null;
+    return t;
+}
+
+/**
+ * Fetch romaji: cache -> WanaKana (kana thuần) -> Gemini qua Worker.
+ * Trả về string romaji, hoặc null nếu mọi tầng đều thất bại.
+ */
+async function fetchRomajiFromGemini(jpText) {
+    if (!jpText || !jpText.trim()) return null;
+
+    // Tầng 0: đã từng lấy -> trả ngay, không gọi AI
+    const cached = getCachedRomaji(jpText);
+    if (cached) return cached;
+
+    // Tầng 1: kana thuần -> WanaKana offline tức thời
+    const wk = tryWanakanaRomaji(jpText);
+    if (wk) { setCachedRomaji(jpText, wk); return wk; }
+
+    // Tầng 2: request y hệt đang bay -> dùng chung Promise (chống spam click)
+    if (romajiInflight.has(jpText)) return romajiInflight.get(jpText);
+
+    const fetchPromise = (async () => {
+        // TIMEOUT RIÊNG cho task nhẹ: 45s đủ cho Gemini thinkingLevel "low"
+        // (không mượn timeout 150s của callGeminiAIStream chat). Fetch treo quá
+        // 45s -> abort -> nút Romaji luôn thoát được trạng thái loading.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 45000);
+        try {
+            const prompt = `Chuyển câu tiếng Nhật sau sang Romaji hệ Hepburn (viết thường, giữ nguyên dấu câu và khoảng trắng):
+"${jpText}"
+CHỈ trả về duy nhất chuỗi Romaji, không giải thích, không dấu ngoặc kép.`;
+
+            const res = await fetch(`${DICT_API_URL}/api/gemini`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt, task: 'light' }),
+                signal: controller.signal
+            });
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || `HTTP ${res.status} từ Worker`);
+            }
+
+            // Đọc stream SSE: ghép TOÀN BỘ text chunk (fix lỗi cụt romaji)
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+            let fullText = '';
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // giữ dòng dở dang
+                    for (const line of lines) {
+                        const cleanLine = line.trim();
+                        // Bỏ qua heartbeat ": hb" và dòng rỗng
+                        if (!cleanLine.startsWith('data: ')) continue;
+                        try {
+                            const parsed = JSON.parse(cleanLine.replace(/^data:\s*/, ''));
+                            const chunkText = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+                            if (chunkText) fullText += chunkText;
+                        } catch (e) { /* JSON dở dang — chờ chunk sau */ }
+                    }
+                }
+            } finally {
+                try { await reader.cancel(); } catch (e) { /* stream đã đóng */ }
+            }
+
+            // Dọn + validate output (model có thể thêm giải thích/quote/fence)
+            let romaji = null;
+            try { romaji = _cleanGeminiRomajiOutput(fullText, jpText); } catch (e) { romaji = null; }
+            if (romaji) {
+                setCachedRomaji(jpText, romaji); // persist cho lần sau (kể cả F5)
+                return romaji;
+            }
+            console.warn('[Romaji] Gemini trả output không hợp lệ:', JSON.stringify(fullText).slice(0, 200));
+            return null;
+        } catch (err) {
+            if (err && err.name === 'AbortError') console.warn('[Romaji] Gemini timeout 45s — bỏ request');
+            else console.warn('[Romaji] Gemini lỗi:', err && err.message);
+            return null;
+        } finally {
+            clearTimeout(timer);
+            romajiInflight.delete(jpText); // dọn request đang bay
+        }
+    })();
+
+    romajiInflight.set(jpText, fetchPromise);
+    return fetchPromise;
 }
 
 /**
@@ -38611,59 +38787,84 @@ function diffJapanese(original, userAnswer) {
  * 3. Bộ điều phối xử lý click, loading xoay tròn và toggle mượt mạ
  */
 async function handleRomajiToggle(event, btn, cardId, exIndex, jpText) {
-    if (event) event.stopPropagation(); // Ngăn việc click nút làm lật thẻ khi học
-    
-    // 🟢 THAY THẾ: Tìm kiếm tương đối dựa vào block bao quanh nút hiện tại
+    if (event) event.stopPropagation(); // Ngăn việc click nút làm lạt thẻ khi học
+
+    // THAY THẾ: Tìm kiếm tương đối dựa vào block bao quanh nút hiện tại
     const containerBlock = btn.closest('.example-sentence-block');
     if (!containerBlock) return;
-    
+
     const romajiEl = containerBlock.querySelector('.romaji-sentence');
     if (!romajiEl) return;
-    
+
+    // FIX double-click: đang tải thì bỏ qua click kế tiếp (btn.disabled cần
+    // 1 tick mới chặn được event — gap này từng sinh 2 fetch song song trùng câu)
+    if (btn.dataset.romajiLoading === '1') return;
+
     const isHidden = romajiEl.classList.contains('hidden') || romajiEl.style.display === 'none';
     const btnTextLbl = btn.querySelector('.btn-text-lbl');
     const btnIcon = btn.querySelector('.material-symbols-outlined');
 
     if (isHidden) {
         const currentText = romajiEl.innerText.trim();
-        
-        // LAZY HYDRATION: Nếu chưa có sẵn trong DB -> Gọi Google Translate gtx nạp ngầm
+
+        // LAZY HYDRATION (Gemini): chưa có romaji -> thử cache cục bộ TRƯỚC,
+        // rồi mới gọi AI. Cache hit -> hiện NGAY không spinner, không network.
         if (currentText === "") {
-            btn.disabled = true;
-            btnTextLbl.innerText = "Đang tải...";
-            btnIcon.innerText = "sync";
-            btnIcon.style.animation = "spin 1s linear infinite"; // Xoay tròn loading mượt
-            
-            const resultRomaji = await fetchRomajiFromGoogle(jpText);
-            
-            btn.disabled = false;
-            btnIcon.style.animation = "none";
-            
-            if (!resultRomaji) {
-                showToast("Lỗi kết nối Google. Hãy thử lại!");
-                btnTextLbl.innerText = "Hiện Romaji";
-                btnIcon.innerText = "visibility_off";
-                return;
+            const cachedRomaji = getCachedRomaji(jpText);
+            if (cachedRomaji) {
+                romajiEl.innerText = cachedRomaji;
+                // Âm thầm đồng bộ lên Cloud Supabase + RAM + sessionStorage
+                silentSyncRomajiToCloud(cardId, exIndex, cachedRomaji);
+            } else {
+                btn.dataset.romajiLoading = '1';
+                btn.disabled = true;
+                btnIcon.innerText = "sync";
+                btnIcon.style.animation = "spin 1s linear infinite"; // Xoay tròn loading
+                // FIX: nút icon-only 36px không hiện được text "Đang tải..."
+                // (btn-text-lbl display:none) -> dùng tooltip báo trạng thái
+                btn.title = "Đang tải Romaji (AI)...";
+
+                let resultRomaji = null;
+                try {
+                    resultRomaji = await fetchRomajiFromGemini(jpText);
+                } finally {
+                    // FIX: luôn reset trạng thái nút, kể cả khi fetch throw
+                    // (trước đây fetch treo/lỗi -> nút kẹt spinner vĩnh viễn)
+                    delete btn.dataset.romajiLoading;
+                    btn.disabled = false;
+                    btnIcon.style.animation = "none";
+                }
+
+                if (!resultRomaji) {
+                    showToast("Không tải được Romaji từ AI. Hãy thử lại!");
+                    btnTextLbl.innerText = "Hiện Romaji";
+                    btnIcon.innerText = "visibility_off";
+                    btn.title = "Hiện Romaji";
+                    return;
+                }
+
+                romajiEl.innerText = resultRomaji;
+                btn.title = "Ẩn Romaji";
+
+                // Âm thầm đồng bộ lên Cloud Supabase + RAM Cache + sessionStorage
+                silentSyncRomajiToCloud(cardId, exIndex, resultRomaji);
             }
-            
-            romajiEl.innerText = resultRomaji;
-            
-            // Âm thầm đồng bộ lên Cloud Supabase và RAM Cache
-            silentSyncRomajiToCloud(cardId, exIndex, resultRomaji);
         }
-        
+
         // Trượt hiển thị
         romajiEl.classList.remove('hidden');
         romajiEl.style.display = 'block';
         btnTextLbl.innerText = "Ẩn Romaji";
         btnIcon.innerText = "visibility";
         btn.style.opacity = "1";
+        if (btn.title === "Hiện Romaji") btn.title = "Ẩn Romaji";
     } else {
         // Thu gọn
         romajiEl.classList.add('hidden');
         romajiEl.style.display = 'none';
         btnTextLbl.innerText = "Hiện Romaji";
         btnIcon.innerText = "visibility_off";
+        btn.title = "Hiện Romaji";
     }
 }
 
@@ -38724,6 +38925,29 @@ async function silentSyncRomajiToCloud(cardId, exIndex, romajiText) {
         if (cacheCard) cacheCard.info = newInfoString;
     }
     
+    // FIX GAP F5: đồng bộ thêm sessionStorage (minddeck_deck_cache_*).
+    // Trước đây chỉ cập nhật RAM + Supabase -> F5 ngay sau khi tải Romaji làm
+    // mất hiển thị, user phải bấm tải lại (gọi AI trùng lặp).
+    try {
+        const ssKeys = [];
+        if (typeof currentDeckName !== 'undefined' && currentDeckName) ssKeys.push(currentDeckName);
+        ssKeys.push('GLOBAL_REVIEW');
+        for (const k of ssKeys) {
+            const cacheKey = `minddeck_deck_cache_${k}`;
+            const raw = sessionStorage.getItem(cacheKey);
+            if (!raw) continue;
+            const arr = JSON.parse(raw);
+            if (!Array.isArray(arr)) continue;
+            const idx = arr.findIndex(c => c && c.id === cardId);
+            if (idx !== -1) {
+                arr[idx].info = newInfoString;
+                sessionStorage.setItem(cacheKey, JSON.stringify(arr));
+            }
+        }
+    } catch (e) {
+        console.warn('[Silent Sync] Không đồng bộ được sessionStorage Romaji:', e);
+    }
+
     // Gọi Supabase lưu ngầm lên cơ sở dữ liệu
     try {
         // 🟢 ĐÃ SỬA
@@ -38965,7 +39189,7 @@ window.renderActiveTypingRound = function() {
 
     // Tự động tải trước âm đọc phiên âm (Romaji) câu ví dụ chạy ngầm để hỗ trợ so khớp Hiragana
     if (!ex.romaji) {
-        fetchRomajiFromGoogle(ex.jp).then(r => {
+        fetchRomajiFromGemini(ex.jp).then(r => {
             if (r) ex.romaji = r;
         });
     }
