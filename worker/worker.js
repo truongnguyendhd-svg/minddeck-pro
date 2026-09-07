@@ -15,6 +15,134 @@ function tokenize(text) {
 __name(tokenize, "tokenize");
 __name2(tokenize, "tokenize");
 __name22(tokenize, "tokenize");
+// =========================================================================
+// 🟢 HELPER: ROMAJI ENGINE KHÔNG DÙNG AI — bảng Hepburn + từ điển D1
+// Dùng trong /api/romaji làm phương án XÁC SUẤT khi Google bị chặn 429,
+// TRƯỚC khi tính đến AI. Deterministic, không quota AI, không bên thứ 3.
+// (Chất lượng cao nhất vẫn là engine kuromoji chạy phía client.)
+// =========================================================================
+var KR_BASE = {
+  "ア": "a", "イ": "i", "ウ": "u", "エ": "e", "オ": "o",
+  "カ": "ka", "キ": "ki", "ク": "ku", "ケ": "ke", "コ": "ko",
+  "サ": "sa", "シ": "shi", "ス": "su", "セ": "se", "ソ": "so",
+  "タ": "ta", "チ": "chi", "ツ": "tsu", "テ": "te", "ト": "to",
+  "ナ": "na", "ニ": "ni", "ヌ": "nu", "ネ": "ne", "ノ": "no",
+  "ハ": "ha", "ヒ": "hi", "フ": "fu", "ヘ": "he", "ホ": "ho",
+  "マ": "ma", "ミ": "mi", "ム": "mu", "メ": "me", "モ": "mo",
+  "ヤ": "ya", "ユ": "yu", "ヨ": "yo",
+  "ラ": "ra", "リ": "ri", "ル": "ru", "レ": "re", "ロ": "ro",
+  "ワ": "wa", "ヲ": "wo", "ン": "n", "ヰ": "wi", "ヱ": "we",
+  "ガ": "ga", "ギ": "gi", "グ": "gu", "ゲ": "ge", "ゴ": "go",
+  "ザ": "za", "ジ": "ji", "ズ": "zu", "ゼ": "ze", "ゾ": "zo",
+  "ダ": "da", "ヂ": "ji", "ヅ": "zu", "デ": "de", "ド": "do",
+  "バ": "ba", "ビ": "bi", "ブ": "bu", "ベ": "be", "ボ": "bo",
+  "パ": "pa", "ピ": "pi", "プ": "pu", "ペ": "pe", "ポ": "po",
+  "ヴ": "vu"
+};
+var KR_SMALL_V = { "ャ": "ya", "ュ": "yu", "ョ": "yo", "ァ": "a", "ィ": "i", "ゥ": "u", "ェ": "e", "ォ": "o", "ヮ": "wa" };
+var KR_CONS = { "キ": "k", "サ": "s", "チ": "c", "ニ": "n", "ヒ": "h", "ミ": "m", "リ": "r", "ギ": "g", "ジ": "j", "ビ": "b", "ピ": "p", "フ": "f", "ヴ": "v", "ト": "t", "ド": "d", "テ": "t", "デ": "d", "シ": "s", "ヂ": "j", "ツ": "t" };
+var KR_SPECIAL = { "シャ": "sha", "シュ": "shu", "ショ": "sho", "チャ": "cha", "チュ": "chu", "チョ": "cho", "ジャ": "ja", "ジュ": "ju", "ジョ": "jo", "ティ": "ti", "ディ": "di" };
+var KR_JP_PUNCT = { "、": ",", "。": ".", "！": "!", "？": "?", "・": " ", "（": "(", "）": ")", "：": ":", "；": ";", "「": '"', "」": '"', "『": '"', "』": '"', "〜": "~" };
+function krShift(ch) {
+  var c = ch.charCodeAt(0);
+  if (c >= 0x3041 && c <= 0x3096) return String.fromCharCode(c + 0x60);
+  return ch;
+}
+function krMoraAt(s, i) {
+  var a = s.charAt(i);
+  var b = i + 1 < s.length ? s.charAt(i + 1) : "";
+  if (a === "ッ" || a === "ー" || KR_SMALL_V[a]) return null;
+  if (b && KR_SMALL_V[b] && (KR_SPECIAL[a + b] || KR_CONS[a])) {
+    return [KR_SPECIAL[a + b] || KR_CONS[a] + KR_SMALL_V[b], 2];
+  }
+  if (KR_BASE[a]) return [KR_BASE[a], 1];
+  return null;
+}
+function katakanaToRomaji(input) {
+  if (!input) return "";
+  var s = String(input).split("").map(krShift).join("");
+  var out = "", lastVowel = "", i = 0;
+  while (i < s.length) {
+    var ch = s.charAt(i);
+    if (ch === " " || ch === "　") { out += " "; i++; continue; }
+    if (KR_JP_PUNCT[ch] !== undefined) { out += KR_JP_PUNCT[ch]; i++; continue; }
+    if (ch === "ー") { out += lastVowel || "-"; i++; continue; }
+    if (ch === "ッ") {
+      var mora = krMoraAt(s, i + 1);
+      if (mora) {
+        var fc = mora[0].charAt(0);
+        if (fc === "c" && mora[0].charAt(1) === "h") out += "t";
+        else if (/[bcdfghjklmnpqrstvwxyz]/.test(fc)) out += fc;
+      }
+      i++; continue;
+    }
+    if (ch === "ン") {
+      var nm = krMoraAt(s, i + 1);
+      var rp = nm && /^[bmp]/.test(nm[0]) ? "m" : "n";
+      out += rp; lastVowel = "n"; i++; continue;
+    }
+    var mora2 = krMoraAt(s, i);
+    if (mora2) {
+      out += mora2[0];
+      lastVowel = mora2[0].charAt(mora2[0].length - 1);
+      i += mora2[1];
+      continue;
+    }
+    out += ch; i++;
+  }
+  return out;
+}
+async function romajiViaDictionary(jpText, env) {
+  if (!segmenter || !env.DB) return null;
+  var segs = [];
+  for (const s of segmenter.segment(jpText)) {
+    if (!s || !s.segment || !s.segment.trim()) continue;
+    segs.push({ seg: s.segment, word: !!s.isWordLike });
+  }
+  var lookups = new Set();
+  for (const t of segs) {
+    if (!t.word || !/[一-龯々〆ヶ]/.test(t.seg)) continue;
+    lookups.add(t.seg);
+    var kp = t.seg.match(/^[一-龯々〆ヶ]+/);
+    if (kp && kp[0] !== t.seg) lookups.add(kp[0]);
+  }
+  var readings = {};
+  if (lookups.size > 0) {
+    var words = Array.from(lookups).slice(0, 40);
+    var ph = words.map(function (_, i) { return "?" + (i + 1); }).join(", ");
+    var res = await env.DB.prepare("SELECT word, reading FROM dictionary WHERE word IN (" + ph + ")").bind(...words).all();
+    for (const r of (res && res.results) || []) {
+      if (r && r.reading && String(r.reading).trim() && !readings[r.word]) {
+        readings[r.word] = String(r.reading).trim();
+      }
+    }
+  }
+  var parts = [];
+  for (const t of segs) {
+    if (!t.word) {
+      var p = KR_JP_PUNCT[t.seg];
+      if (p !== undefined) parts.push(p);
+      continue;
+    }
+    var seg = t.seg;
+    var src = null;
+    if (/[一-龯々〆ヶ]/.test(seg)) {
+      var rd = readings[seg];
+      if (rd) src = rd;
+      else {
+        var kp2 = seg.match(/^[一-龯々〆ヶ]+/);
+        if (kp2 && readings[kp2[0]]) src = readings[kp2[0]] + seg.slice(kp2[0].length);
+        else src = "";
+      }
+    } else src = seg;
+    if (!src) continue;
+    if (seg === "は") { parts.push("wa"); continue; }
+    if (seg === "へ") { parts.push("e"); continue; }
+    var rom = katakanaToRomaji(src).trim();
+    if (rom) parts.push(rom);
+  }
+  return parts.join(" ").replace(/\s+([,.!?])/g, "$1").trim();
+}
 // Hàm kiểm tra quyền Admin thông qua Khóa Bảo mật trong Environment Variables
 function checkAdminAuth(request, env) {
   const authHeader = request.headers.get("Authorization");
@@ -273,6 +401,129 @@ var worker_default = {
         return new Response(JSON.stringify(results), {
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
+      }
+
+      // =========================================================================
+      // 🟢 ENDPOINT MỚI: ROMAJI — Proxy lấy Romaji cho câu ví dụ tiếng Nhật
+      // -------------------------------------------------------------------------
+      // VẤN ĐỀ: Frontend cũ gọi THẲNG translate.googleapis.com (client=gtx —
+      // endpoint PHI CHÍNH THỨC, không key) từ trình duyệt. Google giới hạn
+      // theo IP rất chặt (thường trả 429 "Sorry..."), và response 429 KHÔNG
+      // kèm header CORS → fetch() trong browser ném TypeError → frontend
+      // toast "Lỗi kết nối Google". Game gõ câu ngữ pháp còn tự prefetch
+      // Romaji ngầm mỗi vòng → đốt quota IP càng nhanh.
+      //
+      // GIẢI PHÁP (endpoint này):
+      //   1) Cache API 7 ngày — câu trùng lặp không bao giờ đụng Google lần 2.
+      //   2) Gọi Google gtx TỪ PHÍA SERVER Worker (không dính CORS, IP Worker
+      //      khác IP người dùng), timeout 8 giây.
+      //   3) Google chặn 429/timeout → Engine TỪ ĐIỂN D1 (KHÔNG AI,
+      //      deterministic, dùng bảng Hepburn + cột reading của dictionary).
+      //   4) Vẫn rỗng → Groq AI chỉ là PHƯƠNG ÁN CHÓT CÙNG (xoay key,
+      //      prompt bắt buộc chỉ trả chuỗi Romaji Hepburn).
+      //   5) Không cache kết quả rỗng để lần sau có thể thử lại.
+      // Frontend chỉ đổi URL sang: GET /api/romaji?q=<câu JP>
+      // =========================================================================
+      if (path === "/api/romaji") {
+        const q = url.searchParams.get("q");
+        if (!q || !q.trim()) {
+          return new Response(JSON.stringify({ error: "Missing q" }), { status: 400, headers: corsHeaders });
+        }
+        const jpText = q.trim();
+        if (jpText.length > 300) {
+          return new Response(JSON.stringify({ error: "Text too long" }), { status: 400, headers: corsHeaders });
+        }
+
+        // 1) Cache hit → trả ngay, không đụng Google/AI
+        const cacheKey = new Request(`https://alcohol-dict-api.internal/api/romaji?q=${encodeURIComponent(jpText)}`);
+        const cached = await caches.default.match(cacheKey);
+        if (cached) {
+          const cachedHeaders = new Headers(cached.headers);
+          cachedHeaders.set("X-Romaji-Source", "cache");
+          return new Response(cached.body, { headers: cachedHeaders });
+        }
+
+        let romaji = null;
+        let source = "none";
+
+        // 2) Thử Google gtx từ server Worker
+        try {
+          const gtxUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=vi&dt=rm&q=${encodeURIComponent(jpText)}`;
+          const gres = await fetchWithTimeout(gtxUrl, { headers: { "User-Agent": "Mozilla/5.0" } }, 8000);
+          if (gres.ok) {
+            const gdata = await gres.json();
+            // Romaji nằm ở cột [3] của TỪNG segment trong data[0] (câu dài bị
+            // Google cắt segment) → gom hết rồi nối lại, không chỉ lấy đoạn đầu.
+            if (Array.isArray(gdata && gdata[0])) {
+              const parts = [];
+              for (const seg of gdata[0]) {
+                if (Array.isArray(seg) && typeof seg[3] === "string" && seg[3].trim()) {
+                  parts.push(seg[3].trim());
+                }
+              }
+              if (parts.length > 0) {
+                romaji = parts.join(" ");
+                source = "google";
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Romaji gtx error:", (err && err.message) || err);
+        }
+
+        // 3) Engine từ điển D1 — KHÔNG AI, deterministic (client kuromoji là tier 0)
+        if (!romaji) {
+          try {
+            const dictRom = await romajiViaDictionary(jpText, env);
+            if (dictRom && /[A-Za-z]/.test(dictRom)) {
+              romaji = dictRom;
+              source = "dict";
+            }
+          } catch (err) {
+            console.error("Romaji D1 engine error:", (err && err.message) || err);
+          }
+        }
+
+        // 4) Fallback Groq AI — CHỈ là phương án chót cùng khi mọi tier trên rỗng
+        if (!romaji) {
+          try {
+            const prompt = `Chuyển câu tiếng Nhật sau sang phiên âm Romaji (hệ Hepburn, giữ nguyên dấu câu, phân tách từ bằng khoảng cách). CHỈ trả về đúng chuỗi Romaji, không giải thích gì thêm, không đóng ngoặc kép.\nCâu tiếng Nhật: ${jpText}`;
+            const aiRaw = await callGroqAI_NonStream(prompt, env);
+            const cleaned = String(aiRaw || "")
+              .replace(/<think>[\s\S]*?<\/think>/g, "")
+              .replace(/```/g, "")
+              .replace(/^["'`“”]+|["'`“”]+$/g, "")
+              .trim();
+            if (cleaned && /[A-Za-z]/.test(cleaned)) {
+              romaji = cleaned;
+              source = "ai";
+            }
+          } catch (err) {
+            console.error("Romaji AI fallback error:", (err && err.message) || err);
+          }
+        }
+
+        // 4) Vẫn rỗng → 502, KHÔNG cache để client thử lại được lần sau
+        if (!romaji) {
+          return new Response(JSON.stringify({ romaji: null }), {
+            status: 502,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
+
+        const payload = JSON.stringify({ romaji, source });
+        const respToReturn = new Response(payload, {
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+            "X-Romaji-Source": source,
+            "Cache-Control": "public, max-age=604800"
+          }
+        });
+        // Cache 7 ngày (604800s) — Cache API tự dọn khi hết chỗ
+        ctx.waitUntil(caches.default.put(cacheKey, respToReturn.clone()));
+
+        return respToReturn;
       }
 
       // =========================================================================
