@@ -11533,6 +11533,43 @@ body.grammar-searching #headerGrammarSearch {
         font-size: 22px !important;
     }
 }
+/* ================= MODAL SỬA THẺ: NGHĨA ĐA DÒNG & VÍ DỤ ĐA KHỐI (MỚI) ================= */
+.qe-add-btn {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    border: none;
+    border-radius: 50%;
+    background: #0067c0;
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: background 0.15s ease, transform 0.15s ease;
+    box-shadow: 0 2px 6px rgba(0, 103, 192, 0.25);
+}
+.qe-add-btn:hover { background: #005ba1; transform: scale(1.08); }
+.qe-add-btn:active { transform: scale(0.95); }
+.qe-meaning-row { display: flex; align-items: center; gap: 6px; }
+.qe-example-block {
+    border: 1px solid #ebebeb;
+    border-radius: 8px;
+    padding: 10px;
+    background: #fcfcfc;
+    transition: border-color 0.15s ease;
+}
+.qe-example-block:hover { border-color: #dcdcdc; }
+.qe-example-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.qe-example-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #0067c0;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
 </style>
 </head>
 <body>
@@ -13139,36 +13176,28 @@ body.grammar-searching #headerGrammarSearch {
                         <input type="text" id="qeFReading" class="win11-input" placeholder="VD: うちゅう">
                     </div>
                     <div>
-                        <label class="win11-label">Ý NGHĨA</label>
-                        <input type="text" id="qeFMeaning" class="win11-input" placeholder="VD: Vũ trụ">
+                        <label class="win11-label">HÁN VIỆT</label>
+                        <input type="text" id="qeFHv" class="win11-input" placeholder="VD: VŨ TRỤ">
                     </div>
                 </div>
-                
+
+                <!-- 🟢 MỚI: Ý NGHĨA đa dòng — nút [+] cạnh nhãn Ý NGHĨA, bấm thêm 1 dòng nhập nghĩa kế tiếp.
+                     Dòng bỏ trống sẽ TỰ BỊ LOẠI BỎ khi LƯU (qeGetMeanings lọc rỗng) -->
                 <div>
-                    <label class="win11-label">HÁN VIỆT</label>
-                    <input type="text" id="qeFHv" class="win11-input" placeholder="VD: VŨ TRỤ">
-                </div>
-                
-                <!-- Phân cách nhóm Ví dụ (Ép sát margin/padding) -->
-                <div style="border-top: 1px solid #f0f0f0; padding-top: 10px; margin-top: 4px;">
-                    <label class="win11-label" style="color: #0067c0; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
-                        <span class="material-symbols-outlined" style="font-size: 16px;">chat</span> CÂU VÍ DỤ 1
+                    <label class="win11-label" style="display: flex; align-items: center; gap: 6px;">
+                        Ý NGHĨA
+                        <button type="button" class="qe-add-btn" onclick="qeAddMeaningRow()" title="Thêm nghĩa kế tiếp">
+                            <span class="material-symbols-outlined" style="font-size: 15px;">add</span>
+                        </button>
                     </label>
-                    <div class="grid-2-col" style="gap: 12px;">
-                        <textarea id="qeFEx1Jp" class="win11-input" rows="2" placeholder="Tiếng Nhật (VD: 宇宙に行く)"></textarea>
-                        <textarea id="qeFEx1Vn" class="win11-input" rows="2" placeholder="Tiếng Việt (VD: Đi vào vũ trụ)"></textarea>
-                    </div>
+                    <div id="qeMeaningRows" style="display: flex; flex-direction: column; gap: 6px;"></div>
                 </div>
-                
+
+                <!-- 🟢 MỚI: VÍ DỤ đa khối — mặc định 1 khối, nhãn chỉ hiện "VÍ DỤ" (không số thứ tự).
+                     Bấm [+] ở cuối nhãn → nhãn đổi thành "VÍ DỤ 1" và khối "VÍ DỤ 2" xuất hiện (2 dòng JP + VN).
+                     Khối bỏ trống (thiếu câu Nhật) sẽ TỰ HỦY khi LƯU (qeGetExamples lọc rỗng) -->
                 <div style="border-top: 1px solid #f0f0f0; padding-top: 10px; margin-top: 4px;">
-                    <label class="win11-label" style="color: #8c8c8c; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
-                        <span class="material-symbols-outlined" style="font-size: 16px;">chat</span> CÂU VÍ DỤ 2 (Tùy chọn)
-                    </label>
-                    <div class="grid-2-col" style="gap: 12px;">
-                        <!-- Đổi rows="2" thành rows="1" cho VD 2 để tiết kiệm chỗ, khi gõ dài nó vẫn tự cuộn được -->
-                        <textarea id="qeFEx2Jp" class="win11-input" rows="1" placeholder="Tiếng Nhật"></textarea>
-                        <textarea id="qeFEx2Vn" class="win11-input" rows="1" placeholder="Tiếng Việt"></textarea>
-                    </div>
+                    <div id="qeExampleRows" style="display: flex; flex-direction: column; gap: 10px;"></div>
                 </div>
             </div>
 
@@ -16691,7 +16720,8 @@ function renderStudy() {
     } else {
         const answerText = isRev ? c.front : c.back;
         const dynamicSize = getDynamicFontSize(answerText);
-        cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + flipBtnHTML + `<i style="font-size: ${dynamicSize};">${wrapKanjiWithLink(escapeHTML(answerText))}</i>` + infoOverlayHTML + infoBtnHTML;
+        // 🟢 MỚI: back chứa nhiều dòng nghĩa → MỖI NGHĨA MỘT DÒNG khi lật thẻ
+        cardArea.innerHTML = progressHTML + editBtnHTML + starBtnHTML + flipBtnHTML + `<i style="font-size: ${dynamicSize};">${wrapKanjiWithLink(escapeHTML(answerText).replace(/\n/g, '<br>'))}</i>` + infoOverlayHTML + infoBtnHTML;
     }
 
     // 3. ✨ LOGIC NÚT ĐIỀU HƯỚNG REMEDIAL (NỀN TRẮNG, CHỮ ĐEN, VIỀN MẢNH - CHUẨN HEADER)
@@ -17480,12 +17510,49 @@ async function bulkSaveXRayVocab(kanjiChar) {
 
 /* ================= THUẬT TOÁN BOOST MODE (5 IN 1) ================= */
 // ================= SIÊU PARSER: BÓC TÁCH DỮ LIỆU THẺ =================
+// 🟢 MỚI: Tách chuỗi nghĩa thành danh sách dòng — hỗ trợ 2 dạng:
+//   (1) Nghĩa đã xuống dòng sẵn (dạng mới của modal Sửa thẻ)
+//   (2) Nghĩa cũ gộp 1 dòng đánh số "1. Trả/Thanh toán. 2. Phủi/Gạt..." (tự tách thành từng dòng)
+function splitMeaningText(text) {
+    if (!text) return [];
+    const rawLines = String(text).split('\n').map(l => l.trim()).filter(Boolean);
+    const out = [];
+    for (const line of rawLines) {
+        const numbered = splitNumberedMeaningLine(line);
+        if (numbered) out.push(...numbered);
+        else out.push(line);
+    }
+    return out;
+}
+// Tách 1 dòng dạng "1. aaa. 2. bbb. 3. ccc" → ['aaa', 'bbb', 'ccc'].
+// CHỐNG CUT NHẦM: chỉ kích hoạt khi dòng BẮT ĐẦU bằng số thứ tự VÀ có từ 2 mục trở lên.
+function splitNumberedMeaningLine(line) {
+    if (!line) return null;
+    const re = /(\d{1,2})[.)]\s+/g;
+    const hits = [];
+    let m;
+    while ((m = re.exec(line)) !== null) {
+        hits.push({ index: m.index, end: m.index + m[0].length });
+    }
+    if (hits.length < 2 || hits[0].index !== 0) return null;
+    const parts = [];
+    for (let i = 0; i < hits.length; i++) {
+        const start = hits[i].end;
+        const end = (i + 1 < hits.length) ? hits[i + 1].index : line.length;
+        let seg = line.slice(start, end).trim();
+        seg = seg.replace(/[.;。;；]\s*$/, '').trim(); // cắt dấu kết câu thừa cuối mục
+        if (seg) parts.push(seg);
+    }
+    return parts.length >= 2 ? parts : null;
+}
 function parseCardData(card) {
     let result = {
         front: card.front ? card.front.trim() : "",
         reading: "", meaning: "", hv: "",
         exampleJP: "", exampleVN: "", ex2jp: "", ex2vn: "", structure: "", nuance: "",
-        romaji1: "", romaji2: "" // Bổ sung 2 trường Romaji mới
+        romaji1: "", romaji2: "", // Bổ sung 2 trường Romaji mới
+        // 🟢 MỚI: meaningList — mỗi nghĩa 1 dòng; exList — TOÀN BỘ N câu ví dụ [{jp, vn, romaji}]
+        meaningList: [], exList: []
     };
 
     // --- XỬ LÝ BACK (CÁCH ĐỌC & Ý NGHĨA) ---
@@ -17521,6 +17588,9 @@ function parseCardData(card) {
         result.reading = "";
     }
 
+    // 🟢 MỚI: Tách nghĩa thành danh sách dòng (tự tách cả nghĩa cũ gộp 1 dòng dạng "1. ... 2. ...")
+    result.meaningList = splitMeaningText(result.meaning);
+
     // --- XỬ LÝ INFO (HÁN VIỆT, VÍ DỤ & ROMAJI) ---
     const infoStr = card.info ? card.info.trim() : "";
     if (infoStr.includes('[EX1]') || infoStr.includes('[HV]')) {
@@ -17543,6 +17613,24 @@ function parseCardData(card) {
         result.ex2vn = extractVal('VN2');
         result.romaji1 = extractVal('ROM1'); // Bóc tách Romaji câu 1
         result.romaji2 = extractVal('ROM2'); // Bóc tách Romaji câu 2
+
+        // 🟢 MỚI: Quét TOÀN BỘ marker [EXn]/[VNn]/[ROMn] — hỗ trợ KHÔNG GIỚI HẠN số ví dụ
+        const exMap = new Map();
+        const markerScan = /\[(EX|VN|ROM)(\d+)\]\s*([^\[]*)/g;
+        let scanMatch;
+        while ((scanMatch = markerScan.exec(infoStr)) !== null) {
+            const mType = scanMatch[1];
+            const mIdx = parseInt(scanMatch[2], 10);
+            const mVal = scanMatch[3].trim();
+            if (!exMap.has(mIdx)) exMap.set(mIdx, { jp: '', vn: '', romaji: '' });
+            const entry = exMap.get(mIdx);
+            if (mType === 'EX') entry.jp = mVal;
+            else if (mType === 'VN') entry.vn = mVal;
+            else entry.romaji = mVal;
+        }
+        result.exList = Array.from(exMap.keys()).sort((a, b) => a - b)
+            .map(k => exMap.get(k))
+            .filter(ex => ex.jp);
     } else if (infoStr) {
         let cleanInfo = infoStr.replace(/ví dụ[:\s-]*|vd[:\s-]*/gi, '').replace(/\[.*?\]/g, '').trim();
         const parenMatch = cleanInfo.match(/(.*?)[(（](.*?)[)）](.*)/);
@@ -17562,6 +17650,12 @@ function parseCardData(card) {
             result.exampleJP = jpPart.trim();
             result.exampleVN = vnPart.replace(/\s+/g, ' ').trim(); 
         }
+    }
+
+    // 🟢 MỚI: info legacy (không marker) → gom thành exList (duy trì tương thích)
+    if (result.exList.length === 0 && result.exampleJP) {
+        result.exList.push({ jp: result.exampleJP, vn: result.exampleVN, romaji: result.romaji1 });
+        if (result.ex2jp) result.exList.push({ jp: result.ex2jp, vn: result.ex2vn, romaji: result.romaji2 });
     }
 
     if (!result.reading && !result.meaning) result.meaning = backStr;
@@ -17689,6 +17783,10 @@ function renderBoostCard() {
     }
 
     const c = parseCardData(rawCard);
+    // 🟢 Gộp nghĩa thành 1 DÒNG DUY NHẤT cho Game & Sát hạch ("nghĩa 1; nghĩa 2")
+    const gameMeaning = getGameMeaningText(c);
+    // 🟢 Pool TOÀN BỘ ví dụ hoàn chỉnh (JP + VN) — game câu ví dụ bốc ngẫu nhiên từ đây
+    const fullExPool = (c.exList || []).filter(ex => ex.jp && ex.vn);
     const getParsedData = (cardObj) => {
         if (!cardObj.parsedCardDataCache) {
             // Chỉ chạy Regex 1 lần duy nhất trong suốt vòng đời của thẻ
@@ -17775,7 +17873,8 @@ function renderBoostCard() {
         let pool = sessionCards.filter(x => x.id !== rawCard.id && x.isLoaded).map(x => {
             // 🟢 TỐI ƯU HIỆU NĂNG: Sử dụng kết quả đã bọc Cache
             let parsed = getParsedData(x); 
-            return type === 'meaning' ? parsed.meaning : parsed.front;
+            // 🟢 Nghĩa nhiễu gộp 1 dòng cho gọn nút bấm
+            return type === 'meaning' ? getGameMeaningText(parsed) : parsed.front;
         });
         return pool.sort(() => 0.5 - Math.random()).slice(0, 3);
     };
@@ -17801,9 +17900,10 @@ function renderBoostCard() {
             }
         }
         
-        if (c.exampleJP && c.exampleVN) {
+        // 🟢 Xét TOÀN BỘ ví dụ: đủ 1 cặp JP+VN là chơi Game 6; có Kanji ở câu nào là chơi Game 7
+        if (fullExPool.length > 0) {
             availableGames.push(6);
-            if (/[\u4e00-\u9faf]/.test(c.exampleJP)) availableGames.push(7);
+            if ((c.exList || []).some(ex => ex.jp && /[\u4e00-\u9faf]/.test(ex.jp))) availableGames.push(7);
         }
         // --- LOGIC MỚI: XỬ LÝ GAME THEO Ý NGƯỜI DÙNG CHỌN ---
         if (boostState.selectedGame === 'random') {
@@ -17832,11 +17932,11 @@ function renderBoostCard() {
         case 1: // 🎮 WORD MATCH (Trộn 50/50 Front -> Meaning hoặc Meaning -> Front)
             const askFront = Math.random() > 0.5;
             prompt.innerText = "🔍 Chọn đáp án đúng";
-            const textToShow = askFront ? c.front : c.meaning;
+            const textToShow = askFront ? c.front : gameMeaning;
             question.innerHTML = `<span style="font-size: ${getDynamicFontSize(textToShow)}; display: block; padding: 10px 0;">${textToShow}</span>`;
             
             let optsMatch = getDistractors(askFront ? 'meaning' : 'front');
-            optsMatch.push(askFront ? c.meaning : c.front);
+            optsMatch.push(askFront ? gameMeaning : c.front);
             optsMatch.sort(() => 0.5 - Math.random()); // Trộn 4 đáp án
             
             zone.innerHTML = `<div class="tf-grid" id="boostMatchGrid"></div>`;
@@ -17845,7 +17945,7 @@ function renderBoostCard() {
                 let btn = document.createElement('button');
                 btn.className = 'test-option';
                 btn.innerText = opt;
-                btn.onclick = () => handleBoostAnswer(btn, opt === (askFront ? c.meaning : c.front));
+                btn.onclick = () => handleBoostAnswer(btn, opt === (askFront ? gameMeaning : c.front));
                 mGrid.appendChild(btn);
             });
             break;
@@ -17855,7 +17955,7 @@ function renderBoostCard() {
             // Phóng to chữ Kanji bằng hàm tính toán kích thước động
             question.innerHTML = `<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0;">
                 <span style="font-size: ${getDynamicFontSize(c.front)}; line-height: 1.1;">${c.front}</span>
-                <span style="font-size: 14px; font-weight: 600; color: #64748b; text-align: center; line-height: 1.4; max-width: 90%;">${c.meaning || ''}</span>
+                <span style="font-size: 14px; font-weight: 600; color: #64748b; text-align: center; line-height: 1.4; max-width: 90%;">${gameMeaning || ''}</span>
             </div>`;
             document.getElementById('boostGiveUpZone').style.display = 'block';
             
@@ -17918,7 +18018,7 @@ function renderBoostCard() {
         case 4: // 🎮 TRUE / FALSE (REDESIGN)
             prompt.innerHTML = "<span style='color:#f59e0b; font-size: 18px;'>⚡</span> Tốc độ! Nhận định sau đúng hay sai?";
             const isTrue = Math.random() > 0.5;
-            const fakeMeaning = isTrue ? c.meaning : getDistractors('meaning')[0] || "Đáp án giả mạo";
+            const fakeMeaning = isTrue ? gameMeaning : getDistractors('meaning')[0] || "Đáp án giả mạo";
             
             // Xóa nội dung thẻ question mặc định để nhường chỗ cho Thẻ Thẩm Định
             question.innerHTML = ""; 
@@ -17950,7 +18050,7 @@ function renderBoostCard() {
 
         case 5: // 🎮 SCRAMBLE (Ghép chữ thêm nhiễu - Đã Fix UX chống dồn chữ và Lỗi Scope)
             prompt.innerText = "🧱 Sắp xếp cách đọc";
-            question.innerText = c.meaning; 
+            question.innerText = gameMeaning; 
             // 🟢 Task 12: cỡ chữ nghĩa tiếng Việt nhỏ hơn một chút (32px → 26px)
             // + giới hạn độ rộng dòng KHÔNG vượt quá ô xám phía dưới
             // (scramble-zone: max-width 800px, margin auto — khớp nhau, cùng căn giữa)
@@ -18049,11 +18149,15 @@ function renderBoostCard() {
 
         case 6: //☁ SENTENCE BUILDER (Xếp câu - Drag         case 6: // เกม SENTENCE BUILDER (Xếp câu - Drag & Drop + Collapse) Drop + Collapse)
             prompt.innerText = "🧩Xếp thành câu hoàn chỉnh";
-            question.innerText = c.exampleVN; 
+            // 🟢 Bốc NGẪU NHIÊN 1 câu trong TOÀN BỘ ví dụ của thẻ (mỗi lượt chơi 1 câu khác nhau)
+            const g6Pool = fullExPool.length > 0 ? fullExPool : (c.exampleJP ? [{ jp: c.exampleJP, vn: c.exampleVN, romaji: c.romaji1 }] : []);
+            const g6Ex = g6Pool.length > 0 ? g6Pool[Math.floor(Math.random() * g6Pool.length)] : null;
+            const g6ExIndex = g6Ex ? (c.exList || []).indexOf(g6Ex) + 1 : 1; // vị trí thật — để đồng bộ Romaji đúng chỗ
+            question.innerText = g6Ex ? g6Ex.vn : ''; 
             question.style.fontSize = "22px"; 
             question.style.fontWeight = "500"; // 🟢 Câu tiếng Việt không in đậm (yêu cầu user)
             
-            const chunkData = chunkJapaneseSentence(c.exampleJP);
+            const chunkData = chunkJapaneseSentence(g6Ex ? g6Ex.jp : '');
             const targetSentence = chunkData.original;
             let sentenceChunks = chunkData.chunks.sort(() => 0.5 - Math.random());
             
@@ -18109,9 +18213,9 @@ function renderBoostCard() {
                 // romaji, dịch VN, nút Nghe + Romaji + Test trí nhớ xếp cùng hàng nút;
                 // nút Đổi ví dụ bị ẩn trong game)
                 wrap.innerHTML = buildExampleSentenceBlock(
-                    (c.id || 'sentence'), 1,
-                    (c.exampleJP || targetSentence), (c.romaji1 || ''),
-                    c.exampleVN, c.front
+                    (rawCard.id || 'sentence'), Math.max(1, g6ExIndex),
+                    (g6Ex ? g6Ex.jp : targetSentence), (g6Ex ? (g6Ex.romaji || '') : ''),
+                    (g6Ex ? g6Ex.vn : ''), c.front
                 );
                 // 🟢 Task 10: Ẩn nút "Đổi ví dụ (AI)" — chỉ giữ Romaji / Nghe / Test trí nhớ
                 const changeExBtn = wrap.querySelector('.ex-btn-change-example');
@@ -18247,11 +18351,16 @@ function renderBoostCard() {
             // Xóa nội dung mặc định của question để tự build layout bên dưới
             question.innerHTML = ""; 
             
+            // 🟢 Bốc NGẪU NHIÊN 1 câu CÓ Kanji trong TOÀN BỘ ví dụ của thẻ
+            const g7Pool = (c.exList || []).filter(ex => ex.jp && /[\u4e00-\u9faf]/.test(ex.jp));
+            const g7Ex = g7Pool.length > 0 ? g7Pool[Math.floor(Math.random() * g7Pool.length)] : null;
+            const g7Jp = g7Ex ? g7Ex.jp : (c.exampleJP || '');
+            const g7Vn = g7Ex ? g7Ex.vn : (c.exampleVN || '');
             let sentenceHTML = "";
             let targetKanjiSequence = []; // Lưu đúng thứ tự Kanji cần điền
             
             // 1. DUYỆT TỪNG KÝ TỰ ĐỂ ĐỤC LỖ
-            for (let char of c.exampleJP) {
+            for (let char of g7Jp) {
                 if (/[\u4e00-\u9faf]/.test(char)) {
                     // Nếu là Kanji -> Tạo ô trống 40x40px, gắn ID theo thứ tự
                     sentenceHTML += `<span class="kanji-blank" id="kf-blank-${targetKanjiSequence.length}"></span>`;
@@ -18271,13 +18380,15 @@ function renderBoostCard() {
                 
                 if (randomCard.id !== rawCard.id) {
                     let pCard = getParsedData(randomCard);
-                    if (pCard.exampleJP) {
-                        for (let char of pCard.exampleJP) {
+                    // 🟢 Quét Kanji nhiễu từ TOÀN BỘ ví dụ của thẻ khác
+                    const pExs = (pCard.exList && pCard.exList.length) ? pCard.exList : (pCard.exampleJP ? [{ jp: pCard.exampleJP }] : []);
+                    pExs.forEach(pEx => {
+                        for (let char of pEx.jp) {
                             if (/[\u4e00-\u9faf]/.test(char) && !targetKanjiSequence.includes(char)) {
                                 distractorSet.add(char);
                             }
                         }
-                    }
+                    });
                 }
                 attempts++;
             }
@@ -18295,7 +18406,7 @@ function renderBoostCard() {
             // 3. RENDER GIAO DIỆN MỚI
             // Đưa câu Tiếng Việt và câu Tiếng Nhật (có ô trống) lên dính liền nhau ở Top Zone
             question.innerHTML = `
-                <div style="font-size: 20px; color: #1d1d1f; margin-bottom: 20px; font-weight: 800;">${c.exampleVN}</div>
+                <div style="font-size: 20px; color: #1d1d1f; margin-bottom: 20px; font-weight: 800;">${g7Vn}</div>
                 <div class="kf-sentence-container" style="margin-bottom: 0;">${sentenceHTML}</div>
             `;
             
@@ -18373,7 +18484,7 @@ function renderBoostCard() {
             // Hiển thị Nghĩa (và Front nếu có) làm gợi ý
             question.innerHTML = `
                 <div style="font-size: 28px; font-weight: 900; color: #1d1d1f; margin-bottom: 4px;">${c.front}</div>
-                <div style="font-size: 18px; color: #718096; font-weight: 500;">${c.meaning}</div>
+                <div style="font-size: 18px; color: #718096; font-weight: 500;">${gameMeaning}</div>
             `;
             question.style.fontSize = "unset"; // Bỏ size mặc định để dùng size bên trong
             
@@ -18535,7 +18646,7 @@ function renderBoostCard() {
             
             // Lấy 3 đáp án nhiễu (Meaning) + 1 Đáp án đúng
             let audioOpts = getDistractors('meaning');
-            audioOpts.push(c.meaning);
+            audioOpts.push(gameMeaning);
             audioOpts.sort(() => 0.5 - Math.random());
             
             // Dùng hàm phát âm thanh bất tử chống lỗi iOS
@@ -18557,7 +18668,7 @@ function renderBoostCard() {
                 btn.className = 'test-option';
                 btn.style.textAlign = 'center';
                 btn.innerText = opt;
-                btn.onclick = () => handleBoostAnswer(btn, opt === c.meaning);
+                btn.onclick = () => handleBoostAnswer(btn, opt === gameMeaning);
                 aGrid.appendChild(btn);
             });
             
@@ -18577,7 +18688,7 @@ function renderBoostCard() {
             
             zone.innerHTML = `
                 <div class="falling-zone-container">
-                    <div id="fallingItem" class="falling-word">${c.meaning}</div>
+                    <div id="fallingItem" class="falling-word">${gameMeaning}</div>
                     <div class="falling-danger-line"></div>
                 </div>
                 <div style="display: flex; gap: 10px; width: 100%; justify-content: center;">
@@ -18644,7 +18755,7 @@ function renderBoostCard() {
                 // Chốt chặn: nếu không còn Kanji nào để build (tất cả đã build hoặc lỗi dữ liệu)
                 if (remainingKanjiData.length === 0) {
                     prompt.innerText = "⚡ Đã xây tất cả Kanji trong thẻ này. Chọn đáp án đúng nhé!";
-                    question.innerText = c.meaning;
+                    question.innerText = gameMeaning;
                     
                     let optsMatch = getDistractors('front');
                     optsMatch.push(c.front);
@@ -18687,7 +18798,7 @@ function renderBoostCard() {
                         ? `<div style="background: #f8fafc; border: 2px dashed #cbd5e0; padding: 8px 12px; border-radius: 10px; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px;">
                              <span style="font-size: 11px; color: #a0aec0; font-weight: 800; letter-spacing: 0.5px;">TỪ VỰNG:</span>
                              <span style="color: #3182ce; font-size: 18px; font-weight: 900;">${c.reading}</span>
-                             <span style="color: #4a5568; font-size: 14px; font-weight: 600;">(${c.meaning})</span>
+                             <span style="color: #4a5568; font-size: 14px; font-weight: 600;">(${gameMeaning})</span>
                            </div>`
                         : '';
 
@@ -18895,7 +19006,7 @@ function renderBoostCard() {
             question.innerHTML = `
                 <div style="font-size: 14px; color: #718096; font-weight: 600; margin-bottom: 5px;">Hãy nhớ và vẽ chữ Kanji còn thiếu:</div>
                 <div style="font-size: 32px; font-weight: 900; color: #1d1d1f; letter-spacing: 2px;">${maskedFront}</div>
-                <div style="font-size: 16px; font-weight: 700; color: #c50f1f; margin-top: 5px;">${c.meaning}</div>
+                <div style="font-size: 16px; font-weight: 700; color: #c50f1f; margin-top: 5px;">${gameMeaning}</div>
                 
                 <div id="shodoRevealZone" style="display: none; margin-top: 15px; animation: popIn 0.3s ease;">
                     <span style="font-size: 13px; color: #4a5568;">Chữ đúng là: </span>
@@ -19136,7 +19247,8 @@ function endBoostSession() {
         // Bảo mật chống lỗi hiển thị (XSS)
         const safeFront = escapeHTML(parsed.front);
         const safeReading = escapeHTML(parsed.reading);
-        const safeMeaning = escapeHTML(parsed.meaning);
+        // 🟢 Mỗi nghĩa một dòng trong danh sách tổng kết
+        const safeMeaning = renderMeaningLinesHTML(parsed);
 
         // Xử lý thông minh: Nếu Front và Reading giống hệt nhau (từ chỉ có Hiragana),
         // thì ẩn bớt Reading đi cho giao diện đỡ bị lặp chữ.
@@ -20170,9 +20282,9 @@ function showInfoModal(externalCard = null) {
             <!-- 🟢 MỚI: Hán Việt trong ngoặc vuông (giữa kanji và nghĩa tiếng Việt) -->
             ${(parsed.hv && parsed.hv.trim() && parsed.hv.trim().toUpperCase() !== 'N/A') ? `<div style="font-size: 16px; font-weight: 700; color: #c50f1f; margin-bottom: 10px; letter-spacing: 0.5px;">[${escapeHTML(parsed.hv)}]</div>` : ''}
 
-            <!-- Mặt sau (Ý nghĩa) -->
+            <!-- Mặt sau (Ý nghĩa) — MỖI NGHĨA MỘT DÒNG -->
             <div style="font-size: 18px; font-weight: 600; color: #4a5568; line-height: 1.5;">
-                ${escapeHTML(parsed.meaning)}
+                ${renderMeaningLinesHTML(parsed)}
             </div>
         </div>
     `;
@@ -20187,8 +20299,8 @@ function showInfoModal(externalCard = null) {
         // Loại bỏ TẤT CẢ markers đã được parse: [HV], [CT], [ST], [EX1], [VN1], [ROM1], [EX2], [VN2], [ROM2]
         // và nội dung đi kèm, để chỉ còn "ghi chú" thật sự (legacy text không có marker)
         let otherInfo = c.info.trim()
-            .replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '')
-            .replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '')
+            .replace(/\[(HV|CT|ST|EX\d+|VN\d+|ROM\d+)\][^\[]*/g, '')
+            .replace(/\[(HV|CT|ST|EX\d+|VN\d+|ROM\d+)\]/g, '')
             .trim();
         // Gộp [CT] + [ST] + otherInfo thành 1 khối hiển thị
         let displayParts = [];
@@ -20213,21 +20325,17 @@ function showInfoModal(externalCard = null) {
         }
     }
 
-    if (parsed.exampleJP) {
+    // 🟢 Render ĐỦ toàn bộ N câu ví dụ của thẻ
+    (parsed.exList || []).forEach((ex, i) => {
         hasInfo = true;
-        html += buildExampleSentenceBlock(c.id, 1, parsed.exampleJP, parsed.romaji1, parsed.exampleVN, parsed.front);
-    }
-    
-    if (parsed.ex2jp) {
-        hasInfo = true;
-        html += buildExampleSentenceBlock(c.id, 2, parsed.ex2jp, parsed.romaji2, parsed.ex2vn, parsed.front);
-    }
+        html += buildExampleSentenceBlock(c.id, i + 1, ex.jp, ex.romaji, ex.vn, parsed.front);
+    });
 
     if (!hasInfo && c.info && c.info.trim() !== '') {
         // 🟢 FIX: Loại bỏ TẤT CẢ markers khỏi info trước khi hiển thị fallback
         let fallbackInfo = c.info.trim()
-            .replace(/\[(HV|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '')
-            .replace(/\[(HV|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '')
+            .replace(/\[(HV|EX\d+|VN\d+|ROM\d+)\][^\[]*/g, '')
+            .replace(/\[(HV|EX\d+|VN\d+|ROM\d+)\]/g, '')
             .trim();
         if (fallbackInfo) {
             hasInfo = true;
@@ -20565,13 +20673,13 @@ function renderInfoBottomSheetContent() {
     if (parsed.reading) html += '<div style="font-size: 20px; font-weight: 800; color: #4a5568; margin-bottom: 8px;">' + escapeHTML(parsed.reading) + '</div>';
     html += '<div style="font-size: 46px; font-weight: 900; color: #1d1d1f; margin-bottom: 8px; font-family: Noto Sans JP, sans-serif; line-height: 1.2;">' + wrapKanjiWithLink(escapeHTML(parsed.front)) + '</div>';
     if (parsed.hv && parsed.hv.trim() && parsed.hv.trim().toUpperCase() !== 'N/A') html += '<div style="font-size: 16px; font-weight: 700; color: #c50f1f; margin-bottom: 10px;">[' + escapeHTML(parsed.hv) + ']</div>';
-    html += '<div style="font-size: 18px; font-weight: 600; color: #4a5568; line-height: 1.5;">' + escapeHTML(parsed.meaning) + '</div>';
+    html += '<div style="font-size: 18px; font-weight: 600; color: #4a5568; line-height: 1.5;">' + renderMeaningLinesHTML(parsed) + '</div>';
     html += '</div>';
     // KHOI 2: Thong tin phu
     if (c.info && c.info.trim() !== '') {
         let structureText = parsed.structure || '';
         let nuanceText = parsed.nuance || '';
-        let otherInfo = c.info.trim().replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '').replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '').trim();
+        let otherInfo = c.info.trim().replace(/\[(HV|CT|ST|EX\d+|VN\d+|ROM\d+)\][^\[]*/g, '').replace(/\[(HV|CT|ST|EX\d+|VN\d+|ROM\d+)\]/g, '').trim();
         let displayParts = [];
         if (structureText) displayParts.push({ label: 'Cau truc', text: structureText });
         if (nuanceText) displayParts.push({ label: 'Sac thai', text: nuanceText });
@@ -20585,10 +20693,9 @@ function renderInfoBottomSheetContent() {
             html += '<div class="glass-info-card" style="background:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.6);padding:14px;border-radius:20px;box-shadow:0 4px 12px rgba(0,0,0,0.02);"><div style="font-size:12px;font-weight:800;color:#86868b;margin-bottom:8px;display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:0.5px;"><span class="material-symbols-outlined" style="font-size:18px;">edit_note</span> Ghi chu / Cau truc</div><div style="font-size:15px;color:#1d1d1f;line-height:1.6;font-weight:500;">' + cleanInfoText + '</div></div>';
         }
     }
-    if (parsed.exampleJP) { hasInfo = true; html += buildExampleSentenceBlock(c.id, 1, parsed.exampleJP, parsed.romaji1, parsed.exampleVN, parsed.front); }
-    if (parsed.ex2jp) { hasInfo = true; html += buildExampleSentenceBlock(c.id, 2, parsed.ex2jp, parsed.romaji2, parsed.ex2vn, parsed.front); }
+    (parsed.exList || []).forEach(function(ex, i) { hasInfo = true; html += buildExampleSentenceBlock(c.id, i + 1, ex.jp, ex.romaji, ex.vn, parsed.front); });
     if (!hasInfo && c.info && c.info.trim() !== '') {
-        let fallbackInfo = c.info.trim().replace(/\[(HV|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '').replace(/\[(HV|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '').trim();
+        let fallbackInfo = c.info.trim().replace(/\[(HV|EX\d+|VN\d+|ROM\d+)\][^\[]*/g, '').replace(/\[(HV|EX\d+|VN\d+|ROM\d+)\]/g, '').trim();
         if (fallbackInfo) { hasInfo = true; html += '<div style="background:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.6);padding:14px;border-radius:20px;font-size:15px;color:#1d1d1f;line-height:1.6;white-space:pre-wrap;box-shadow:0 4px 12px rgba(0,0,0,0.02);">' + escapeHTML(fallbackInfo) + '</div>'; }
     }
     if (!hasInfo) {
@@ -20599,6 +20706,107 @@ function renderInfoBottomSheetContent() {
     sheet.innerHTML = html;
 }
 // ================= CÁC HÀM SỬA/XÓA THẺ NHANH KHI ĐANG HỌC =================
+
+// ============================================================================
+// 🟢 HỆ THỐNG MỚI: MODAL SỬA THẺ — NGHĨA ĐA DÒNG & VÍ DỤ ĐA KHỐI
+// (1) Ý NGHĨA: nút [+] cạnh nhãn → thêm 1 dòng nhập nghĩa. Dòng trống tự loại bỏ khi lưu.
+// (2) VÍ DỤ: mặc định 1 khối, nhãn "VÍ DỤ" (không số). Bấm [+] ở cuối nhãn → nhãn thành
+//     "VÍ DỤ 1" + xuất hiện khối "VÍ DỤ 2" (2 dòng JP + VN). Khối trống tự hủy khi lưu.
+// ============================================================================
+function qeAddMeaningRow(value = '') {
+    const wrap = document.getElementById('qeMeaningRows');
+    if (!wrap) return;
+    const row = document.createElement('div');
+    row.className = 'qe-meaning-row';
+    row.innerHTML = '<input type="text" class="win11-input" data-qe-meaning placeholder="VD: Vũ trụ">';
+    const input = row.querySelector('input');
+    if (value) input.value = value;
+    wrap.appendChild(row);
+    return input;
+}
+function qeSetMeanings(meaningLines) {
+    const wrap = document.getElementById('qeMeaningRows');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const lines = (Array.isArray(meaningLines) && meaningLines.length) ? meaningLines : [''];
+    lines.forEach(l => qeAddMeaningRow(l));
+}
+function qeGetMeanings() {
+    const wrap = document.getElementById('qeMeaningRows');
+    if (!wrap) return [];
+    // 🟢 Tự hủy: dòng bỏ trống bị loại khỏi kết quả
+    return Array.from(wrap.querySelectorAll('[data-qe-meaning]'))
+        .map(i => i.value.trim()).filter(Boolean);
+}
+function qeAddExampleRow(jp = '', vn = '') {
+    const wrap = document.getElementById('qeExampleRows');
+    if (!wrap) return;
+    const block = document.createElement('div');
+    block.className = 'qe-example-block';
+    block.innerHTML = `
+        <div class="qe-example-header">
+            <span class="material-symbols-outlined" style="font-size: 16px; color: #0067c0;">chat</span>
+            <span class="qe-example-label">VÍ DỤ</span>
+            <button type="button" class="qe-add-btn" onclick="qeAddExampleRow()" title="Thêm câu ví dụ mới">
+                <span class="material-symbols-outlined" style="font-size: 15px;">add</span>
+            </button>
+        </div>
+        <div class="grid-2-col" style="gap: 12px;">
+            <textarea class="win11-input" data-qe-exjp rows="2" placeholder="Tiếng Nhật (VD: 宇宙に行く)"></textarea>
+            <textarea class="win11-input" data-qe-exvn rows="2" placeholder="Tiếng Việt (VD: Đi vào vũ trụ)"></textarea>
+        </div>
+    `;
+    if (jp) block.querySelector('[data-qe-exjp]').value = jp;
+    if (vn) block.querySelector('[data-qe-exvn]').value = vn;
+    wrap.appendChild(block);
+    qeRelabelExamples();
+    return block;
+}
+function qeRelabelExamples() {
+    const wrap = document.getElementById('qeExampleRows');
+    if (!wrap) return;
+    const blocks = wrap.querySelectorAll('.qe-example-block');
+    // 1 khối → "VÍ DỤ" (không số); nhiều khối → "VÍ DỤ 1", "VÍ DỤ 2"...
+    // Nút [+] luôn nằm ở khối CUỐI CÙNG
+    blocks.forEach((b, i) => {
+        const labelEl = b.querySelector('.qe-example-label');
+        if (labelEl) labelEl.innerText = blocks.length > 1 ? `VÍ DỤ ${i + 1}` : 'VÍ DỤ';
+        const addBtn = b.querySelector('.qe-add-btn');
+        if (addBtn) addBtn.style.display = (i === blocks.length - 1) ? '' : 'none';
+    });
+}
+function qeSetExamples(exList) {
+    const wrap = document.getElementById('qeExampleRows');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const list = (Array.isArray(exList) && exList.length) ? exList : [{ jp: '', vn: '' }];
+    list.forEach(ex => qeAddExampleRow(ex.jp || '', ex.vn || ''));
+}
+function qeGetExamples() {
+    const wrap = document.getElementById('qeExampleRows');
+    if (!wrap) return [];
+    // 🟢 Tự hủy: khối không có câu tiếng Nhật bị loại khỏi kết quả
+    return Array.from(wrap.querySelectorAll('.qe-example-block')).map(b => ({
+        jp: b.querySelector('[data-qe-exjp]').value.trim(),
+        vn: b.querySelector('[data-qe-exvn]').value.trim()
+    })).filter(ex => ex.jp);
+}
+
+// 🟢 Render nghĩa: MỖI NGHĨA MỘT DÒNG (dùng chung cho thẻ học + mọi modal hiển thị)
+function renderMeaningLinesHTML(parsed) {
+    const list = (parsed && parsed.meaningList && parsed.meaningList.length)
+        ? parsed.meaningList
+        : (parsed && parsed.meaning ? [parsed.meaning] : []);
+    if (!list.length) return '';
+    return list.map(m => escapeHTML(m)).join('<br>');
+}
+// 🟢 Gộp nghĩa thành 1 dòng duy nhất — dùng cho SÁT HẠCH SRS & các game Boost
+function getGameMeaningText(parsed) {
+    const list = (parsed && parsed.meaningList && parsed.meaningList.length)
+        ? parsed.meaningList
+        : (parsed && parsed.meaning ? [parsed.meaning] : []);
+    return list.join('; ');
+}
 
 let isQuickAddMode = false; // Biến cờ phân biệt Sửa hay Thêm
 
@@ -20627,12 +20835,10 @@ function openQuickAddCardModal() {
     } else {
         document.getElementById('qeFFront').value = '';
         document.getElementById('qeFReading').value = '';
-        document.getElementById('qeFMeaning').value = '';
         document.getElementById('qeFHv').value = '';
-        document.getElementById('qeFEx1Jp').value = '';
-        document.getElementById('qeFEx1Vn').value = '';
-        document.getElementById('qeFEx2Jp').value = '';
-        document.getElementById('qeFEx2Vn').value = '';
+        // 🟢 Reset: nghĩa về 1 dòng trống duy nhất; ví dụ về 1 khối trống duy nhất
+        qeSetMeanings(['']);
+        qeSetExamples([]);
         
         if (typeof wanakana !== 'undefined') wanakana.bind(document.getElementById('qeFReading'));
     }
@@ -20677,12 +20883,11 @@ function openQuickEdit(event) {
         const parsed = parseCardData(c);
         document.getElementById('qeFFront').value = parsed.front;
         document.getElementById('qeFReading').value = parsed.reading;
-        document.getElementById('qeFMeaning').value = parsed.meaning;
         document.getElementById('qeFHv').value = parsed.hv || '';
-        document.getElementById('qeFEx1Jp').value = parsed.exampleJP || '';
-        document.getElementById('qeFEx1Vn').value = parsed.exampleVN || '';
-        document.getElementById('qeFEx2Jp').value = parsed.ex2jp || '';
-        document.getElementById('qeFEx2Vn').value = parsed.ex2vn || '';
+        // 🟢 Nghĩa: nạp TỪNG DÒNG vào ô riêng (tự tách nghĩa cũ "1. ... 2. ...")
+        // 🟢 Ví dụ: nạp ĐỦ N khối — thẻ cũ 2 ví dụ vẫn hiện đúng 2 khối
+        qeSetMeanings(parsed.meaningList && parsed.meaningList.length ? parsed.meaningList : [parsed.meaning || '']);
+        qeSetExamples(parsed.exList || []);
 
         if (typeof wanakana !== 'undefined') wanakana.bind(document.getElementById('qeFReading'));
     }
@@ -20711,27 +20916,36 @@ async function saveQuickEdit() {
     } else {
         newFront = document.getElementById('qeFFront').value.trim();
         const reading = document.getElementById('qeFReading').value.trim();
-        const meaning = document.getElementById('qeFMeaning').value.trim();
-        if (!newFront || (!reading && !meaning)) return customAlert("Dữ liệu không được để trống!", "⚠️");
+        // 🟢 ĐA NGHĨA: mỗi dòng nghĩa lưu thành 1 dòng riêng trong back (dòng trống đã tự hủy)
+        const meanings = qeGetMeanings();
+        if (!newFront || (!reading && meanings.length === 0)) return customAlert("Dữ liệu không được để trống!", "⚠️");
 
+        const meaning = meanings.join('\n');
         newBack = `${reading}\n${meaning}`.trim();
         const hv = document.getElementById('qeFHv').value.trim();
-        const ex1jp = document.getElementById('qeFEx1Jp').value.trim();
-        const ex1vn = document.getElementById('qeFEx1Vn').value.trim();
-        const ex2jp = document.getElementById('qeFEx2Jp').value.trim();
-        const ex2vn = document.getElementById('qeFEx2Vn').value.trim();
 
         let infoArr = [];
         const currentEditingCard = sessionCards[currentIndex];
+        // 🟢 Giữ [CT]/[ST] + Romaji cũ của những câu ví dụ KHÔNG ĐỔI nội dung (khỏi fetch lại)
+        const oldParsed = currentEditingCard ? parseCardData(currentEditingCard) : null;
         if (currentEditingCard && currentEditingCard.info) {
             const matchTag = currentEditingCard.info.match(/\[TAGS\](.*?)\n/);
             if (matchTag) infoArr.push(matchTag[0].trim());
         }
+        if (oldParsed && oldParsed.structure) infoArr.push(`[CT] ${oldParsed.structure}`);
+        if (oldParsed && oldParsed.nuance) infoArr.push(`[ST] ${oldParsed.nuance}`);
         if (hv) infoArr.push(`[HV] ${hv}`);
-        if (ex1jp) infoArr.push(`[EX1] ${ex1jp}`);
-        if (ex1vn) infoArr.push(`[VN1] ${ex1vn}`);
-        if (ex2jp) infoArr.push(`[EX2] ${ex2jp}`);
-        if (ex2vn) infoArr.push(`[VN2] ${ex2vn}`);
+        // 🟢 ĐA VÍ DỤ: khối trống đã tự hủy; ghi [EXn]/[ROMn]/[VNn] theo thứ tự
+        const finalExList = qeGetExamples().map(ex => {
+            const oldMatch = oldParsed && (oldParsed.exList || []).find(o => o.jp === ex.jp && o.romaji);
+            return { jp: ex.jp, vn: ex.vn, romaji: oldMatch ? oldMatch.romaji : '' };
+        });
+        finalExList.forEach((ex, i) => {
+            const n = i + 1;
+            infoArr.push(`[EX${n}] ${ex.jp}`);
+            if (ex.romaji) infoArr.push(`[ROM${n}] ${ex.romaji}`);
+            if (ex.vn) infoArr.push(`[VN${n}] ${ex.vn}`);
+        });
         newInfo = infoArr.join('\n');
     }
 
@@ -21046,7 +21260,7 @@ async function fetchUserVocabForGame(limit) {
     if (!data || data.length === 0) return [];
     const words = data.map(c => {
         const parsed = parseCardData({ front: c.word_text, back: c.back });
-        return { ...c, _wordText: c.word_text, meaning: parsed.meaning, reading: parsed.reading };
+        return { ...c, _wordText: c.word_text, meaning: getGameMeaningText(parsed), reading: parsed.reading };
     }).filter(w => w._wordText && w.meaning);
     for (let i = words.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -32242,8 +32456,8 @@ function generateAspectMatrixForCard(cardObj) {
     }
 
     // CHẶNG 3: Ý nghĩa & Ứng dụng
-    if (parsed.exampleJP && parsed.exampleVN) {
-        // Có câu ví dụ -> 100% Game 6 (Xếp câu)
+    // 🟢 Xét TOÀN BỘ ví dụ — chỉ cần 1 cặp JP+VN hoàn chỉnh là chơi Game 6 (Xếp câu)
+    if ((parsed.exList || []).some(ex => ex.jp && ex.vn) || (parsed.exampleJP && parsed.exampleVN)) {
         // Game 7 (Kanji Filler) đã loại bỏ khỏi Sát hạch
         matrix.push(6);
     } else {
@@ -32948,7 +33162,7 @@ function renderRemedialCard() {
             </div>
             ${(parsed.hv && parsed.hv.trim() && parsed.hv.trim().toUpperCase() !== 'N/A') ? `<div style="font-size: 16px; font-weight: 700; color: #c50f1f; margin-bottom: 10px; letter-spacing: 0.5px;">[${escapeHTML(parsed.hv)}]</div>` : ''}
             <div style="font-size: 18px; font-weight: 600; color: #4a5568; line-height: 1.5;">
-                ${escapeHTML(parsed.meaning)}
+                ${renderMeaningLinesHTML(parsed)}
             </div>
         </div>
     `;
@@ -32958,8 +33172,8 @@ function renderRemedialCard() {
         let structureText = parsed.structure || '';
         let nuanceText = parsed.nuance || '';
         let otherInfo = c.info.trim()
-            .replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '')
-            .replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '')
+            .replace(/\[(HV|CT|ST|EX\d+|VN\d+|ROM\d+)\][^\[]*/g, '')
+            .replace(/\[(HV|CT|ST|EX\d+|VN\d+|ROM\d+)\]/g, '')
             .trim();
         let displayParts = [];
         if (structureText) displayParts.push({ label: 'Cấu trúc', text: structureText });
@@ -32981,17 +33195,13 @@ function renderRemedialCard() {
         }
     }
     
-    // Ví dụ 1
-    if (parsed.exampleJP) {
-        html += buildExampleSentenceBlock(c.id, 1, parsed.exampleJP, parsed.romaji1, parsed.exampleVN, parsed.front);
-    }
-    // Ví dụ 2
-    if (parsed.ex2jp) {
-        html += buildExampleSentenceBlock(c.id, 2, parsed.ex2jp, parsed.romaji2, parsed.ex2vn, parsed.front);
-    }
+    // 🟢 VÍ DỤ: render ĐỦ toàn bộ N câu của thẻ (mỗi câu 1 khối riêng)
+    (parsed.exList || []).forEach((ex, i) => {
+        html += buildExampleSentenceBlock(c.id, i + 1, ex.jp, ex.romaji, ex.vn, parsed.front);
+    });
     
     // Nếu không có info gì
-    if (!parsed.exampleJP && !parsed.ex2jp && (!c.info || c.info.trim() === '')) {
+    if (!(parsed.exList || []).length && (!c.info || c.info.trim() === '')) {
         html += `
             <div style="text-align: center; padding: 25px 10px; color: #86868b; border: 1px dashed rgba(0,0,0,0.1); border-radius: 20px; background: rgba(255,255,255,0.3);">
                 <span class="material-symbols-outlined" style="font-size: 32px; margin-bottom: 10px; opacity: 0.5;">speaker_notes_off</span>
@@ -33552,9 +33762,9 @@ function renderInlineCardBody(bodyEl, c, index) {
     const parsed = parseCardData(c);
     bodyEl.innerHTML = `
         ${parsed.reading ? `<div style="margin-bottom: 8px; font-size: 21px; color: #4a5568;"><b>Cách đọc:</b> ${escapeHTML(parsed.reading)}</div>` : ''}
-        <div style="margin-bottom: 8px; font-size: 21px; color: #4a5568;"><b>Ý nghĩa:</b> ${escapeHTML(parsed.meaning)}</div>
+        <div style="margin-bottom: 8px; font-size: 21px; color: #4a5568;"><b>Ý nghĩa:</b> ${renderMeaningLinesHTML(parsed)}</div>
         ${(parsed.hv && parsed.hv.trim() && parsed.hv.trim().toUpperCase() !== 'N/A') ? `<div style="margin-bottom: 8px; color: #c53030; font-size: 21px;"><b>Hán Việt:</b> [ ${escapeHTML(parsed.hv)} ]</div>` : ''}
-        ${parsed.exampleJP ? buildExampleSentenceBlock(c.id, 1, parsed.exampleJP, parsed.romaji1, parsed.exampleVN, parsed.front) : ''}
+        ${(parsed.exList || []).map((ex, i) => buildExampleSentenceBlock(c.id, i + 1, ex.jp, ex.romaji, ex.vn, parsed.front)).join('')}
         ${editBtnHtml}
     `;
 }
@@ -35808,7 +36018,12 @@ async function saveExamplesToCard() {
     try {
         const c = sessionCards[currentIndex];
         const p = parseCardData(c);
-        let newInfo = buildInfoString(p.hv, window.tempAiData.jp1, window.tempAiData.vn1, window.tempAiData.jp2, window.tempAiData.vn2);
+        // 🟢 Giữ Romaji cũ cho câu AI tạo trùng nội dung; bảo toàn [CT]/[ST]
+        const oldEx = p.exList || [];
+        const aiList = [];
+        if (window.tempAiData.jp1) aiList.push({ jp: window.tempAiData.jp1, vn: window.tempAiData.vn1 || '', romaji: ((oldEx.find(o => o.jp === window.tempAiData.jp1) || {}).romaji) || '' });
+        if (window.tempAiData.jp2) aiList.push({ jp: window.tempAiData.jp2, vn: window.tempAiData.vn2 || '', romaji: ((oldEx.find(o => o.jp === window.tempAiData.jp2) || {}).romaji) || '' });
+        let newInfo = buildInfoStringFromList(p.hv, aiList, p);
         await updateCardInfo(c, newInfo);
         dismissAiResult();
     } catch (e) { customAlert("Lỗi lưu: " + e.message, "❌"); setAiZoneDim(false); }
@@ -35951,7 +36166,8 @@ function _getCurrentExampleJp(exIndex) {
         const c = sessionCards[currentIndex];
         if (!c) return '';
         const p = parseCardData(c);
-        return exIndex === 1 ? (p.exampleJP || '') : (p.ex2jp || '');
+        const pEx = (p.exList || [])[Math.max(0, (exIndex || 1) - 1)];
+        return (pEx && pEx.jp) ? pEx.jp : (exIndex === 1 ? (p.exampleJP || '') : (p.ex2jp || ''));
     } catch (_) { return ''; }
 }
 
@@ -36031,20 +36247,17 @@ async function confirmCloudExample() {
         if (!c) throw new Error("Không tìm thấy thẻ đang học");
         const p = parseCardData(c);
 
-        // Nếu exIndex = 1 → đè ví dụ 1; exIndex = 2 → đè ví dụ 2
-        let jp1 = p.exampleJP || '';
-        let vn1 = p.exampleVN || '';
-        let jp2 = p.ex2jp || '';
-        let vn2 = p.ex2vn || '';
-        if (_cePending.exIndex === 1) {
-            jp1 = _cePending.jp;
-            vn1 = _cePending.vn;
-        } else {
-            jp2 = _cePending.jp;
-            vn2 = _cePending.vn;
-        }
+        // 🟢 Đè ĐÚNG vị trí ví dụ thứ exIndex trong danh sách N ví dụ (tự mở rộng nếu vượt)
+        // Giữ Romaji cũ nếu câu mới TRÙNG câu cũ; đổi câu thì reset Romaji để fetch lại
+        const exList = (p.exList && p.exList.length) ? p.exList.map(ex => ({ ...ex })) : [];
+        const replaceIdx = Math.max(0, (_cePending.exIndex || 1) - 1);
+        const oldEntry = exList[replaceIdx];
+        const keepRomaji = (oldEntry && oldEntry.jp === _cePending.jp) ? (oldEntry.romaji || '') : '';
+        const replaced = { jp: _cePending.jp, vn: _cePending.vn, romaji: keepRomaji };
+        if (replaceIdx < exList.length) exList[replaceIdx] = replaced;
+        else exList.push(replaced);
 
-        const newInfo = buildInfoString(p.hv, jp1, vn1, jp2, vn2);
+        const newInfo = buildInfoStringFromList(p.hv, exList, p);
         await updateCardInfo(c, newInfo);
 
         // Đóng modal Cloud Example
@@ -36080,13 +36293,25 @@ function _closeCloudExampleModal() {
 }
 
 // Hàm phụ trợ đóng gói Info
-function buildInfoString(hv, jp1, vn1, jp2, vn2) {
+// 🟢 Bản nâng cấp: hỗ trợ N ví dụ + giữ Romaji / Cấu trúc [CT] / Sắc thái [ST]
+function buildInfoString(hv, jp1, vn1, jp2, vn2, parsed = null) {
+    const list = [];
+    if (jp1) list.push({ jp: jp1, vn: vn1 || '', romaji: '' });
+    if (jp2) list.push({ jp: jp2, vn: vn2 || '', romaji: '' });
+    return buildInfoStringFromList(hv, list, parsed);
+}
+// 🟢 Đóng gói info từ danh sách ví dụ [{jp, vn, romaji}] — dùng chung cho mọi luồng lưu thẻ
+function buildInfoStringFromList(hv, exList, parsed = null) {
     let arr = [];
     if (hv) arr.push(`[HV] ${hv}`);
-    if (jp1) arr.push(`[EX1] ${jp1}`);
-    if (vn1) arr.push(`[VN1] ${vn1}`);
-    if (jp2) arr.push(`[EX2] ${jp2}`);
-    if (vn2) arr.push(`[VN2] ${vn2}`);
+    if (parsed && parsed.structure) arr.push(`[CT] ${parsed.structure}`);
+    if (parsed && parsed.nuance) arr.push(`[ST] ${parsed.nuance}`);
+    (exList || []).forEach((ex, i) => {
+        const n = i + 1;
+        if (ex.jp) arr.push(`[EX${n}] ${ex.jp}`);
+        if (ex.romaji) arr.push(`[ROM${n}] ${ex.romaji}`);
+        if (ex.vn) arr.push(`[VN${n}] ${ex.vn}`);
+    });
     return arr.join('\n');
 }
 
@@ -36567,7 +36792,7 @@ function renderStudyCard() {
             </div>
             ${(parsed.hv && parsed.hv.trim() && parsed.hv.trim().toUpperCase() !== 'N/A') ? `<div style="font-size: 16px; font-weight: 700; color: #c50f1f; margin-bottom: 10px; letter-spacing: 0.5px;">[${escapeHTML(parsed.hv)}]</div>` : ''}
             <div style="font-size: 18px; font-weight: 600; color: #4a5568; line-height: 1.5; margin-top: 6px;">
-                ${escapeHTML(parsed.meaning)}
+                ${renderMeaningLinesHTML(parsed)}
             </div>
         </div>
     `;
@@ -36576,8 +36801,8 @@ function renderStudyCard() {
         let structureText = parsed.structure || '';
         let nuanceText = parsed.nuance || '';
         let otherInfo = c.info.trim()
-            .replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\][^\[]*/g, '')
-            .replace(/\[(HV|CT|ST|EX1|VN1|ROM1|EX2|VN2|ROM2)\]/g, '')
+            .replace(/\[(HV|CT|ST|EX\d+|VN\d+|ROM\d+)\][^\[]*/g, '')
+            .replace(/\[(HV|CT|ST|EX\d+|VN\d+|ROM\d+)\]/g, '')
             .trim();
         let displayParts = [];
         if (structureText) displayParts.push({ label: 'Cấu trúc', text: structureText });
@@ -36598,16 +36823,12 @@ function renderStudyCard() {
             `;
         }
     }
-    // Ví dụ 1
-    if (parsed.exampleJP) {
-        html += buildExampleSentenceBlock(c.id, 1, parsed.exampleJP, parsed.romaji1, parsed.exampleVN, parsed.front);
-    }
-    // Ví dụ 2
-    if (parsed.ex2jp) {
-        html += buildExampleSentenceBlock(c.id, 2, parsed.ex2jp, parsed.romaji2, parsed.ex2vn, parsed.front);
-    }
+    // 🟢 VÍ DỤ: render ĐỦ toàn bộ N câu của thẻ (mỗi câu 1 khối riêng)
+    (parsed.exList || []).forEach((ex, i) => {
+        html += buildExampleSentenceBlock(c.id, i + 1, ex.jp, ex.romaji, ex.vn, parsed.front);
+    });
     // Nếu không có info gì
-    if (!parsed.exampleJP && !parsed.ex2jp && (!c.info || c.info.trim() === '')) {
+    if (!(parsed.exList || []).length && (!c.info || c.info.trim() === '')) {
         html += `
             <div style="text-align: center; padding: 25px 10px; color: #86868b; border: 1px dashed rgba(0,0,0,0.1); border-radius: 20px; background: rgba(255,255,255,0.3);">
                 <span class="material-symbols-outlined" style="font-size: 32px; margin-bottom: 10px; opacity: 0.5;">speaker_notes_off</span>
@@ -36756,9 +36977,15 @@ function requestStudyCardNavigation(targetIndex, opts) {
     }
 
     const parsed = parseCardData(cur);
-    // Ưu tiên test câu Ví dụ 1; thẻ chỉ có Ví dụ 2 thì test Ví dụ 2
+    // 🟢 Test trí nhớ: bốc NGẪU NHIÊN 1 câu trong TOÀN BỘ ví dụ của thẻ
+    // (fallback cho thẻ dữ liệu cũ: thử ví dụ 1 rồi ví dụ 2)
     let gateExIndex = 1;
-    let gateJP = parsed && parsed.exampleJP ? String(parsed.exampleJP).trim() : '';
+    let gateJP = '';
+    if (parsed && parsed.exList && parsed.exList.length > 0) {
+        gateExIndex = Math.floor(Math.random() * parsed.exList.length) + 1;
+        gateJP = String(parsed.exList[gateExIndex - 1].jp || '').trim();
+    }
+    if (!gateJP && parsed && parsed.exampleJP) { gateJP = String(parsed.exampleJP).trim(); gateExIndex = 1; }
     if (!gateJP && parsed && parsed.ex2jp) { gateJP = String(parsed.ex2jp).trim(); gateExIndex = 2; }
 
     // Thẻ hiện tại KHÔNG có câu ví dụ → không cần test, chuyển thẻ bình thường
@@ -38456,10 +38683,13 @@ async function silentSyncRomajiToCloud(cardId, exIndex, romajiText) {
     
     const parsed = parseCardData(cardObj);
     
-    if (exIndex === 1) parsed.romaji1 = romajiText;
+    // 🟢 Cập nhật Romaji của ĐÚNG vị trí ví dụ thứ exIndex (hỗ trợ N ví dụ)
+    if (parsed.exList && parsed.exList[exIndex - 1]) {
+        parsed.exList[exIndex - 1].romaji = romajiText;
+    } else if (exIndex === 1) parsed.romaji1 = romajiText;
     else if (exIndex === 2) parsed.romaji2 = romajiText;
     
-    // Đóng gói mảng info mới bảo toàn Hashtag
+    // Đóng gói mảng info mới bảo toàn Hashtag + Cấu trúc [CT] + Sắc thái [ST] + TOÀN BỘ N ví dụ
     let infoArr = [];
     if (cardObj.info && cardObj.info.includes('[TAGS]')) {
         const matchTag = cardObj.info.match(/\[TAGS\](.*?)(?:\n|$)/);
@@ -38467,12 +38697,23 @@ async function silentSyncRomajiToCloud(cardId, exIndex, romajiText) {
     }
     
     if (parsed.hv) infoArr.push(`[HV] ${parsed.hv}`);
-    if (parsed.exampleJP) infoArr.push(`[EX1] ${parsed.exampleJP}`);
-    if (parsed.romaji1) infoArr.push(`[ROM1] ${parsed.romaji1}`);
-    if (parsed.exampleVN) infoArr.push(`[VN1] ${parsed.exampleVN}`);
-    if (parsed.ex2jp) infoArr.push(`[EX2] ${parsed.ex2jp}`);
-    if (parsed.romaji2) infoArr.push(`[ROM2] ${parsed.romaji2}`);
-    if (parsed.ex2vn) infoArr.push(`[VN2] ${parsed.ex2vn}`);
+    if (parsed.structure) infoArr.push(`[CT] ${parsed.structure}`);
+    if (parsed.nuance) infoArr.push(`[ST] ${parsed.nuance}`);
+    (parsed.exList || []).forEach((ex, i) => {
+        const n = i + 1;
+        if (ex.jp) infoArr.push(`[EX${n}] ${ex.jp}`);
+        if (ex.romaji) infoArr.push(`[ROM${n}] ${ex.romaji}`);
+        if (ex.vn) infoArr.push(`[VN${n}] ${ex.vn}`);
+    });
+    // 🟢 Fallback an toàn: thẻ dữ liệu cũ chưa có marker → giữ nguyên cách ghi 2 ví dụ cũ
+    if (!(parsed.exList || []).length) {
+        if (parsed.exampleJP) infoArr.push(`[EX1] ${parsed.exampleJP}`);
+        if (parsed.romaji1) infoArr.push(`[ROM1] ${parsed.romaji1}`);
+        if (parsed.exampleVN) infoArr.push(`[VN1] ${parsed.exampleVN}`);
+        if (parsed.ex2jp) infoArr.push(`[EX2] ${parsed.ex2jp}`);
+        if (parsed.romaji2) infoArr.push(`[ROM2] ${parsed.romaji2}`);
+        if (parsed.ex2vn) infoArr.push(`[VN2] ${parsed.ex2vn}`);
+    }
     
     const newInfoString = infoArr.join('\n');
     
