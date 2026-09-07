@@ -6789,6 +6789,13 @@ body.pdf-mode #pdfReadState {
     }
 }
 
+/* ===== CHUNG (mọi kích thước màn): Đang test trí nhớ → ẨN nút Romaji =====
+   (tránh lộ romaji của câu đang gõ — chính là gợi ý đáp án; đồng thời giữ hàng nút
+   2 cụm gọn: Nghe (trái) — Kiểm tra/Làm lại (phải)) */
+.ex-actions-row.memory-test-active-actions .btn-toggle-romaji {
+    display: none !important;
+}
+
 /* ===== NÚT HÀNH ĐỘNG TRONG KHỐI VÍ DỤ (MỚI) ===== */
 /* Nút tròn: Phát âm & Nghe */
 .ex-btn-circle {
@@ -18049,34 +18056,13 @@ function renderBoostCard() {
                 const exBlock = wrap.querySelector('.example-sentence-block');
                 if (exBlock) exBlock.style.borderColor = '#e2e8f0';
 
-                // 🟢 Task 11: chuyển nút Romaji xuống hàng nút, nằm BÊN TRÁI nút Test trí nhớ,
-                // restyle nút tròn nền trắng icon đen không viền bóng nhẹ (giống nút Test)
-                const romajiBtn = wrap.querySelector('.btn-toggle-romaji');
-                const testBtn = wrap.querySelector('.ex-btn-test');
-                if (romajiBtn && testBtn) {
-                    const actionsRow = wrap.querySelector('.ex-actions-row');
-                    // Gom Romaji + Test vào nhóm bên phải hàng nút (2 nút sát nhau,
-                    // space-between giữ nhóm Nghe bên trái)
-                    const rightGroup = document.createElement('div');
-                    rightGroup.style.cssText = 'display:flex; align-items:center; gap:10px;';
-                    actionsRow.insertBefore(rightGroup, testBtn);
-                    rightGroup.appendChild(romajiBtn);
-                    rightGroup.appendChild(testBtn);
-                    // Đổi class: bỏ btn-toggle-romaji (media query mobile cũ theo vị trí header
-                    // có !important sẽ phá nút tròn), thêm ex-btn-circle (hover scale + bóng
-                    // giống hệt nút Test)
-                    romajiBtn.classList.remove('btn-toggle-romaji');
-                    romajiBtn.classList.add('ex-btn-circle');
-                    romajiBtn.title = 'Ẩn/Hiện Romaji';
-                    const keepOpacity = romajiBtn.style.opacity || '';
-                    romajiBtn.style.cssText = 'width:36px; height:36px; border-radius:50%; background:#ffffff; border:none; box-shadow:0 2px 8px rgba(0,0,0,0.1); cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; transition:transform 0.2s ease, box-shadow 0.2s ease;' + (keepOpacity ? ' opacity:' + keepOpacity + ';' : '');
-                    // Icon đen 20px như icon các nút tròn khác
-                    const romajiIcon = romajiBtn.querySelector('.material-symbols-outlined');
-                    if (romajiIcon) { romajiIcon.style.fontSize = '20px'; romajiIcon.style.color = '#1a1a1a'; }
-                    // Giữ node label (handleRomajiToggle vẫn cập nhật text + icon) nhưng ẩn — nút chỉ còn icon
-                    const romajiLbl = romajiBtn.querySelector('.btn-text-lbl');
-                    if (romajiLbl) romajiLbl.style.display = 'none';
-                }
+                // 🟢 Layout hàng nút [Nghe] (trái) — [Romaji][Test trí nhớ] (phải, Test
+                // ngoài cùng) đã được chính template buildExampleSentenceBlock render
+                // sẵn — KHÔNG cần re-group bằng JS. (Block re-group cũ gọi
+                // actionsRow.insertBefore(rightGroup, testBtn) → NotFoundError vì
+                // testBtn nằm trong div nhóm-phải, không phải con trực tiếp của
+                // .ex-actions-row — làm showSentenceCompleteResult crash giữa chừng,
+                // nút TIẾP THEO không hiện, game bị kẹt.)
 
                 // 🟢 Task 10: Ẩn hẳn pool (mảnh ghép đã dùng hết — bỏ khoảng trống)
                 sPool.style.display = 'none';
@@ -37633,7 +37619,7 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn, front) {
         <div class="example-sentence-block" style="background: rgba(255, 255, 255, 0.85); border: 1px solid rgba(255, 255, 255, 0.9); border-radius: 16px; overflow: visible; box-shadow: 0 4px 12px rgba(0,0,0,0.02); text-align: center;">
             
             <!-- ===== HEADER: Dòng ví dụ + nút ĐỔI CÂU VÍ DỤ (AI) — đã đổi chỗ với nút Romaji ===== -->
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; gap: 8px; flex-wrap: wrap;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px 14px; gap: 8px; flex-wrap: wrap;">
                 <div class="example-label" style="font-size: 12px; font-weight: 800; color: #86868b; letter-spacing: 0.5px; text-transform: uppercase; flex-shrink: 0;">Ví dụ ${exIndex}</div>
                 
                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
@@ -37681,10 +37667,17 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn, front) {
                 </div>
             </div>
             
-            <!-- ===== ACTION BUTTONS: Romaji (pill trắng) / Phát âm (trái) — Test trí nhớ (phải) — đã đổi chỗ nút Romaji với nút Đổi ví dụ ===== -->
+            <!-- ===== ACTION BUTTONS: Nghe (trái) — nhóm phải: [Romaji + Test trí nhớ] ===== -->
             <div class="ex-actions-row" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px 14px 14px;">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <!-- 🟢 NÚT ROMAJI — chuyển từ header xuống hàng nút (đổi chỗ với nút Đổi ví dụ): nền TRẮNG, KHÔNG viền, đổ bóng nhẹ, cao 36px đồng bộ nút tròn -->
+                    <button class="ex-btn-circle ex-btn-listen btn-play-example-audio"
+                            onclick="playExampleAudio(this, '${jpForAttr}')"
+                            title="Nghe">
+                        <span class="material-symbols-outlined ex-audio-icon">volume_up</span>
+                    </button>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <!-- 🟢 NÚT ROMAJI — nằm BÊN TRÁI nút Test trí nhớ (Test ngoài cùng bên phải): nền TRẮNG, không viền, bóng nhẹ, tròn 36px icon-only -->
                     <button id="${btnId}" class="btn-toggle-romaji" 
                             style="width: 36px; height: 36px; min-width: 36px; background: #ffffff; border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-radius: 50%; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.2s ease, box-shadow 0.2s ease; ${opacityStyle}"
                             onclick="handleRomajiToggle(event, this, '${cardId}', ${exIndex}, '${escapedJp.replace(/'/g, "\\'")}')"
@@ -37692,18 +37685,13 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn, front) {
                         <span class="material-symbols-outlined" style="font-size: 20px; color: #1a1a1a;">${btnIcon}</span>
                         <span class="btn-text-lbl" style="display: none;">${btnText}</span>
                     </button>
-                    <button class="ex-btn-circle ex-btn-listen btn-play-example-audio"
-                            onclick="playExampleAudio(this, '${jpForAttr}')"
-                            title="Nghe">
-                        <span class="material-symbols-outlined ex-audio-icon">volume_up</span>
+                    <!-- TEST button (ẩn khi đang test, NGOÀI CÙNG BÊN PHẢI) -->
+                    <button id="${testBtnId}" class="ex-btn-circle ex-btn-test"
+                            onclick="if(this.getAttribute('data-mt-active')){exitMemoryTest(this.getAttribute('data-mt-jpTextId'),this.getAttribute('data-mt-testZoneId'));}else{startMemoryTest(this,'${jpForAttr}','${jpTextId}','${testZoneId}','${vnTextId}');}"
+                            title="Test trí nhớ">
+                        <span class="material-symbols-outlined">keyboard</span>
                     </button>
                 </div>
-                <!-- TEST button (ẩn khi đang test) -->
-                <button id="${testBtnId}" class="ex-btn-circle ex-btn-test"
-                        onclick="if(this.getAttribute('data-mt-active')){exitMemoryTest(this.getAttribute('data-mt-jpTextId'),this.getAttribute('data-mt-testZoneId'));}else{startMemoryTest(this,'${jpForAttr}','${jpTextId}','${testZoneId}','${vnTextId}');}"
-                        title="Test trí nhớ">
-                    <span class="material-symbols-outlined">keyboard</span>
-                </button>
                 <!-- Kiểm tra + Làm lại (chỉ hiện khi đang test, cùng hàng với Phát âm/Nghe) -->
                 <div class="ex-test-inline-actions" style="display: none; align-items: center; gap: 8px;">
                     <button id="${testZoneId}-btnCheck" onclick="checkMemoryTest('${jpForAttr}', document.getElementById('${testZoneId}-input'), '${jpTextId}', '${testZoneId}')"
