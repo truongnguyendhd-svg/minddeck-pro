@@ -37893,167 +37893,10 @@ async function showGrammarPreview(event, grammarId) {
         onMainCharClick: onMainCharClickFn
     });
 }
-/* =========================================================================
-   🟢 ROMAJI ENGINE OFFLINE — KHÔNG AI (kuromoji + wanakana, jsDelivr CDN)
-   -------------------------------------------------------------------------
-   - Chất lượng ngang Google Translate (đã test 10/10 câu mẫu), deterministic.
-   - Lần ĐẦU: tải từ điển IPA ~17MB từ jsDelivr (immutable → browser cache
-     vĩnh viễn, các lần sau NHANH + OFFLINE hoàn toàn, không tốn quota gì).
-   - Đứng TRƯỚC Worker/Google trong chuỗi fetchRomajiFromGoogle:
-       [0] Engine offline này → [1] Worker (google-cache → D1 → AI chót)
-       → [2] Google trực tiếp.
-   - Rule đã kiểm chứng: 通っ+て=kayotte, し+ます=shimasu, ない+で=
-     wasurenaide, て+い+ます=futte imasu, です tách riêng, 助詞 は→wa へ→e,
-     日本→ニホン (đè reading IPA ít dùng).
-   ========================================================================= */
-window.RomajiEngine = (function () {
-    const KUROMOJI_JS = 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js';
-    const DICT_PATH = 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/';
-    const WANAKANA_JS = 'https://cdn.jsdelivr.net/npm/wanakana@5.0.0/wanakana.min.js';
-    const PUNCT = { '、': ',', '。': '.', '！': '!', '？': '?', '「': '"', '」': '"', '『': '"', '』': '"', '・': ' ', '（': '(', '）': ')', '：': ':', '；': ';', '〜': '~', '　': ' ' };
-    const READING_OVERRIDES = { '日本': 'ニホン' };
-    const memCache = new Map();
-    let tokenizerPromise = null;
-
-    function loadScript(src) {
-        return new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = src; s.async = true;
-            s.onload = () => resolve(true);
-            s.onerror = () => reject(new Error('Không tải được: ' + src));
-            document.head.appendChild(s);
-        });
-    }
-
-    function ensureTokenizer() {
-        if (!tokenizerPromise) {
-            tokenizerPromise = (async () => {
-                if (typeof kuromoji === 'undefined') await loadScript(KUROMOJI_JS);
-                if (typeof wanakana === 'undefined') await loadScript(WANAKANA_JS);
-                return await new Promise((resolve, reject) => {
-                    kuromoji.builder({ dicPath: DICT_PATH }).build((err, tk) => err ? reject(err) : resolve(tk));
-                });
-            })().catch(err => { tokenizerPromise = null; throw err; }); // lỗi thì cho thử lại lần sau
-        }
-        return tokenizerPromise;
-    }
-
-    function shouldMerge(tok, prev) {
-        if (!prev) return false;
-        const s = tok.surface_form;
-        if (s === 'です') return false; // です luôn tách word riêng (ikitai desu)
-        const pos = String(tok.pos || '');
-        const prevPos = String(prev.pos || '');
-        const prevSurface = prev.surface_form || '';
-        return (
-            prevSurface.endsWith('っ')
-            || (pos === '助動詞' && (prevPos.startsWith('動詞') || prevPos === '助動詞'))
-            || (pos === '動詞' && String(tok.pos_detail_1 || '') === '非自立' && prevPos === '動詞' && String(prev.pos_detail_1 || '') === '非自立')
-            || ((s === 'て' || s === 'で') && (prevPos.startsWith('動詞') || prevPos === '助動詞' || prevPos.startsWith('形容詞')))
-        );
-    }
-
-    function tokenSource(tok) {
-        const surface = tok.surface_form || '';
-        if (/[一-龯々〆ヶ]/.test(surface)) {
-            let rd = (tok.reading || '').trim();
-            if (rd && !/[一-龯々]/.test(rd)) {
-                if (READING_OVERRIDES[surface]) rd = READING_OVERRIDES[surface];
-                return rd;
-            }
-        }
-        return surface;
-    }
-
-    function toRomajiSentence(jpText, tokenizer) {
-        const tokens = tokenizer.tokenize(jpText);
-        const groups = [];
-        let prevTok = null;
-        for (const tok of tokens) {
-            const s = tok.surface_form;
-            if (!s || !s.trim()) continue;
-            if (PUNCT[s] !== undefined) { groups.push([{ punct: PUNCT[s] }]); prevTok = tok; continue; }
-            if (shouldMerge(tok, prevTok) && groups.length && !groups[groups.length - 1][0].punct) {
-                groups[groups.length - 1].push(tok);
-            } else {
-                groups.push([tok]);
-            }
-            prevTok = tok;
-        }
-        const parts = [];
-        for (const g of groups) {
-            if (g[0].punct !== undefined) { parts.push(g[0].punct); continue; }
-            if (g.length === 1 && String(g[0].pos) === '助詞' && g[0].surface_form === 'は') { parts.push('wa'); continue; }
-            if (g.length === 1 && String(g[0].pos) === '助詞' && g[0].surface_form === 'へ') { parts.push('e'); continue; }
-            const src = g.map(tokenSource).join('');
-            const rom = wanakana.toRomaji(src).trim();
-            if (rom) parts.push(rom);
-        }
-        let result = parts.join(' ').replace(/\s+([,.!?])/g, '$1');
-        if (result) result = result.charAt(0).toUpperCase() + result.slice(1);
-        return result;
-    }
-
-    return {
-        ensureTokenizer,
-        toRomaji: async function (jpText) {
-            if (!jpText || !jpText.trim()) return null;
-            const key = jpText.trim();
-            if (memCache.has(key)) return memCache.get(key);
-            try {
-                const tokenizer = await ensureTokenizer();
-                const result = toRomajiSentence(key, tokenizer);
-                if (result) { memCache.set(key, result); return result; }
-            } catch (err) {
-                console.warn('RomajiEngine offline lỗi (chuyển sang Worker/Google):', err && err.message);
-            }
-            return null;
-        }
-    };
-})();
-
-// Prefetch ngầm từ điển khi rảnh (WiFi, không bật saveData) — để lần bấm đầu đã sẵn sàng
-(function romajiIdlePreload() {
-    try {
-        const conn = navigator.connection || {};
-        if (conn.saveData || /2g/i.test(String(conn.effectiveType || ''))) return;
-        const kick = () => { if (window.RomajiEngine) window.RomajiEngine.ensureTokenizer().catch(() => {}); };
-        if ('requestIdleCallback' in window) setTimeout(() => requestIdleCallback(kick), 8000);
-        else setTimeout(kick, 8000);
-    } catch (e) { /* im lặng */ }
-})();
-
 /**
- * 1. 🟢 V3: Chuỗi Romaji KHÔNG ƯU TIÊN AI (engine offline xem window.RomajiEngine ở trên):
- *    [0] Engine offline kuromoji+wanakana (client, không AI, chất lượng cao nhất)
- *    [1] Worker /api/romaji: google-cache → từ điển D1 → AI chỉ là phương án chót
- *    [2] Google trực tiếp (fallback khi Worker chưa deploy)
- *    Giữ nguyên TÊN hàm + contract trả về (string | null) để các nơi đang gọi không sửa.
+ * 1. Gọi trực tiếp API Google Translate gtx để lấy Romaji mượt mà
  */
 async function fetchRomajiFromGoogle(jpText) {
-    // Bước 0: Engine OFFLINE kuromoji+wanakana — KHÔNG AI, KHÔNG mạng (ưu tiên cao nhất)
-    if (window.RomajiEngine) {
-        try {
-            const localRomaji = await window.RomajiEngine.toRomaji(jpText);
-            if (localRomaji) return localRomaji;
-        } catch (e) { /* engine lỗi → rơi xuống Worker bên dưới */ }
-    }
-
-    // Bước 1: Worker proxy (google-cache → từ điển D1 → AI chỉ là phương án chót)
-    try {
-        const resp = await fetch(`${DICT_API_URL}/api/romaji?q=${encodeURIComponent(jpText)}`);
-        if (resp.ok) {
-            const data = await resp.json();
-            if (data && typeof data.romaji === 'string' && data.romaji.trim()) {
-                return data.romaji.trim();
-            }
-            return null; // Worker đã thử cả Google + AI mà vẫn rỗng → thôi
-        }
-    } catch (err) {
-        console.warn("Worker /api/romaji chưa phản hồi (có thể chưa deploy), thử Google trực tiếp...", err);
-    }
-
-    // Bước 2 (fallback): gọi thẳng Google như bản cũ — cho tới khi Worker được deploy
     try {
         const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=vi&dt=rm&q=${encodeURIComponent(jpText)}`;
         const res = await fetch(url);
@@ -38797,7 +38640,7 @@ async function handleRomajiToggle(event, btn, cardId, exIndex, jpText) {
             btnIcon.style.animation = "none";
             
             if (!resultRomaji) {
-                showToast("Không tải được Romaji — thử lại chút nữa nhé!");
+                showToast("Lỗi kết nối Google. Hãy thử lại!");
                 btnTextLbl.innerText = "Hiện Romaji";
                 btnIcon.innerText = "visibility_off";
                 return;
