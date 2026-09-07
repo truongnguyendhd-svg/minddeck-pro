@@ -27910,10 +27910,21 @@ async function openGrammarDetail(grammarId) {
     if (g.isLoaded !== true) {
         showLoading("Đang tải chi tiết ngữ pháp...");
         try {
-            const { data, error } = await sb.from('grammar_dict')
-                .select('id, grammar_point, meaning, level, structure, nuance, ex1_jp, ex1_vn, ex2_jp, ex2_vn, ex3_jp, ex3_vn, ex4_jp, ex4_vn, ex5_jp, ex5_vn, ex6_jp, ex6_vn, ex7_jp, ex7_vn, ex8_jp, ex8_vn, ex9_jp, ex9_vn, ex10_jp, ex10_vn, ex11_jp, ex11_vn, ex12_jp, ex12_vn, ex13_jp, ex13_vn, ex14_jp, ex14_vn, ex15_jp, ex15_vn')
+            // Select kèm cột romaji nếu đã migration (tự phát hiện, retry nếu chưa)
+            const _baseCols = 'id, grammar_point, meaning, level, structure, nuance, ex1_jp, ex1_vn, ex2_jp, ex2_vn, ex3_jp, ex3_vn, ex4_jp, ex4_vn, ex5_jp, ex5_vn, ex6_jp, ex6_vn, ex7_jp, ex7_vn, ex8_jp, ex8_vn, ex9_jp, ex9_vn, ex10_jp, ex10_vn, ex11_jp, ex11_vn, ex12_jp, ex12_vn, ex13_jp, ex13_vn, ex14_jp, ex14_vn, ex15_jp, ex15_vn';
+            const _sel = (window._grammarRomajiSchema === false) ? _baseCols : (_baseCols + ', ' + GRAMMAR_ROMAJI_COLS.join(', '));
+            let { data, error } = await sb.from('grammar_dict')
+                .select(_sel)
                 .eq('id', grammarId)
                 .single();
+            // Chưa chạy SQL migration thêm cột ex*_romaji -> đánh dấu + load lại không kèm cột
+            if (error && window._grammarRomajiSchema !== false && /romaji|column|PGRST204|schema cache/i.test(error.message || '')) {
+                window._grammarRomajiSchema = false;
+                ({ data, error } = await sb.from('grammar_dict')
+                    .select(_baseCols)
+                    .eq('id', grammarId)
+                    .single());
+            }
 
             if (error) throw error;
 
@@ -27951,7 +27962,9 @@ async function openGrammarDetail(grammarId) {
         if (jpText && jpText.trim() !== '') {
             hasExamples = true;
             filledCount++;
-            exContainer.innerHTML += buildExampleSentenceBlock(grammarId, i, jpText, "", vnText);
+            // Romaji đã persist trong grammar_dict -> hiển thị sẵn (nút toggle = cache hit)
+            const _rom = (typeof g[`ex${i}_romaji`] === 'string') ? g[`ex${i}_romaji`] : "";
+            exContainer.innerHTML += buildExampleSentenceBlock(grammarId, i, jpText, _rom, vnText);
         }
     }
     
@@ -28011,7 +28024,7 @@ async function generateMoreGrammarExamples() {
     Đảm bảo câu tự nhiên, đa dạng ngữ cảnh (công sở, đời sống, thi cử...).
     BẮT BUỘC TRẢ VỀ DUY NHẤT 1 MẢNG JSON. Định dạng:
     [
-      {"jp": "Câu tiếng Nhật", "vn": "Nghĩa tiếng Việt"}
+      {"jp": "Câu tiếng Nhật", "romaji": "Romaji Hepburn của câu jp (viết thường)", "vn": "Nghĩa tiếng Việt"}
     ]`;
 
     try {
@@ -28044,12 +28057,20 @@ async function generateMoreGrammarExamples() {
             g[`ex${currentIdx}_jp`] = newEx.jp;
             g[`ex${currentIdx}_vn`] = newEx.vn;
 
+            // Romaji AI sinh kèm -> lưu vào grammar + cache cục bộ (đỡ call AI sau này)
+            const newRomaji = (typeof newEx.romaji === 'string') ? newEx.romaji.trim() : '';
+            if (newRomaji) {
+                g[`ex${currentIdx}_romaji`] = newRomaji;
+                setCachedRomaji(newEx.jp, newRomaji);
+            }
+
             // Chuẩn bị payload cập nhật vào Database
             updatePayload[`ex${currentIdx}_jp`] = newEx.jp;
             updatePayload[`ex${currentIdx}_vn`] = newEx.vn;
+            if (newRomaji) updatePayload[`ex${currentIdx}_romaji`] = newRomaji;
 
             // Tạo khối hiển thị với cấu trúc đồng nhất
-            const exHtml = buildExampleSentenceBlock(g.id, currentIdx, newEx.jp, "", newEx.vn);
+            const exHtml = buildExampleSentenceBlock(g.id, currentIdx, newEx.jp, newRomaji, newEx.vn);
             exContainer.insertAdjacentHTML('beforeend', exHtml);
 
             tempFilledCount++;
@@ -28057,9 +28078,19 @@ async function generateMoreGrammarExamples() {
         }
 
         // 2. Lưu trực tiếp các thay đổi mới lên Supabase
-        const { error: updateErr } = await sb.from('grammar_dict')
+        //    (chưa migration cột ex*_romaji -> tự retry bỏ cột romaji, vẫn lưu jp/vn)
+        let { error: updateErr } = await sb.from('grammar_dict')
             .update(updatePayload)
             .eq('id', g.id);
+
+        if (updateErr && window._grammarRomajiSchema !== false && /romaji|column|PGRST204|schema cache/i.test(updateErr.message || '')) {
+            window._grammarRomajiSchema = false;
+            const stripped = {};
+            Object.keys(updatePayload).forEach(k => { if (!/_romaji$/.test(k)) stripped[k] = updatePayload[k]; });
+            ({ error: updateErr } = await sb.from('grammar_dict')
+                .update(stripped)
+                .eq('id', g.id));
+        }
 
         if (updateErr) throw updateErr;
 
@@ -38039,31 +38070,7 @@ CHỈ trả về duy nhất chuỗi Romaji, không giải thích, không dấu n
             }
 
             // Đọc stream SSE: ghép TOÀN BỘ text chunk (fix lỗi cụt romaji)
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder('utf-8');
-            let buffer = '';
-            let fullText = '';
-            try {
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop(); // giữ dòng dở dang
-                    for (const line of lines) {
-                        const cleanLine = line.trim();
-                        // Bỏ qua heartbeat ": hb" và dòng rỗng
-                        if (!cleanLine.startsWith('data: ')) continue;
-                        try {
-                            const parsed = JSON.parse(cleanLine.replace(/^data:\s*/, ''));
-                            const chunkText = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
-                            if (chunkText) fullText += chunkText;
-                        } catch (e) { /* JSON dở dang — chờ chunk sau */ }
-                    }
-                }
-            } finally {
-                try { await reader.cancel(); } catch (e) { /* stream đã đóng */ }
-            }
+            const fullText = await _readGeminiSSE(res);
 
             // Dọn + validate output (model có thể thêm giải thích/quote/fence)
             let romaji = null;
@@ -38086,6 +38093,388 @@ CHỈ trả về duy nhất chuỗi Romaji, không giải thích, không dấu n
 
     romajiInflight.set(jpText, fetchPromise);
     return fetchPromise;
+}
+
+// ============================================================================
+// BATCH ROMAJI ENGINE — gom nhiều câu ví dụ / 1 call AI (tiết kiệm quota ~80%)
+//   - fetchRomajisBatch(jpList): giải TẬP CÂU qua cache -> WanaKana -> AI chunk
+//     <= ROMAJI_BATCH_MAX câu, prompt đánh số {"i","r"} theo thứ tự, entry hỏng
+//     fallback gọi riêng từng câu (giữ hành vi cũ).
+//   - fetchRomajiDeckAware(jpText, cardId, exIndex): nút "Hiện Romaji" giờ
+//     "deck-aware" — câu vừa bấm + các câu CHƯA có romaji của thẻ SẮP HỌC
+//     trong deck đi chung 1 call; kết quả ghi NGẦM vào thẻ (Supabase) nên
+//     các lần bấm sau cache hit, deck tự "đủ romaji" dần theo từng lần học.
+//   - prefetchGrammarRomajis(g): game/modal ngữ pháp gom romaji TOÀN BỘ ví dụ
+//     của grammar đó + persist lên bảng grammar_dict (cột ex*_romaji — chạy
+//     scripts/grammar_romaji_migration.sql 1 lần; chưa chạy thì app tự phát
+//     hiện và chỉ dùng cache cục bộ, không lỗi).
+// ============================================================================
+
+// Đọc stream SSE /api/gemini: ghép TOÀN BỘ text chunk, bỏ heartbeat ": hb".
+// Tách ra dùng chung cho fetch đơn (fetchRomajiFromGemini) và batch AI.
+async function _readGeminiSSE(res) {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let fullText = '';
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // giữ dòng dở dang
+            for (const line of lines) {
+                const cleanLine = line.trim();
+                // Bỏ qua heartbeat ": hb" và dòng rỗng
+                if (!cleanLine.startsWith('data: ')) continue;
+                try {
+                    const parsed = JSON.parse(cleanLine.replace(/^data:\s*/, ''));
+                    const chunkText = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (chunkText) fullText += chunkText;
+                } catch (e) { /* JSON dở dang — chờ chunk sau */ }
+            }
+        }
+    } finally {
+        try { await reader.cancel(); } catch (e) { /* stream đã đóng */ }
+    }
+    return fullText;
+}
+
+const ROMAJI_BATCH_MAX = 5;             // số câu tối đa / 1 call AI
+const romajiBatchInflight = new Map();  // key = JSON.stringify(câu sorted) -> Promise<Map>
+
+// Gọi AI cho 1 NHÓM câu (đã lọc cache/WanaKana trước): prompt đánh số, trả về
+// Map jp -> romaji (entry thất bại = không có trong Map, caller tự fallback).
+async function _callGeminiRomajiList(jpList) {
+    const out = new Map();
+    if (!jpList || !jpList.length) return out;
+    const numbered = jpList.map((jp, i) => `${i + 1}. ${jp}`).join('\n');
+    const prompt = `Chuyển ${jpList.length} câu tiếng Nhật sau sang Romaji hệ Hepburn (viết thường, giữ nguyên dấu câu và khoảng trắng):
+${numbered}
+BẮT BUỘC chỉ trả về duy nhất một mảng JSON gồm đúng ${jpList.length} phần tử, mỗi phần tử dạng {"i": <số thứ tự câu>, "r": "<romaji Hepburn>"} theo đúng thứ tự câu đã cho. Không giải thích, không markdown.`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45000);
+    try {
+        const res = await fetch(`${DICT_API_URL}/api/gemini`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt, task: 'light' }),
+            signal: controller.signal
+        });
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `HTTP ${res.status} từ Worker`);
+        }
+        const fullText = await _readGeminiSSE(res);
+
+        // Parse mảng JSON (chấp nhận model bọc markdown fence)
+        let arr = null;
+        try {
+            let t = fullText.replace(/```[a-z]*\s*/gi, '').replace(/```/g, '').trim();
+            const s = t.indexOf('[');
+            const e = t.lastIndexOf(']');
+            if (s !== -1 && e > s) arr = JSON.parse(t.slice(s, e + 1));
+        } catch (e) { arr = null; }
+
+        if (Array.isArray(arr)) {
+            const plainStrings = arr.every(x => typeof x === 'string');
+            arr.forEach((item, i) => {
+                let jp = null, rom = null;
+                if (item && typeof item === 'object' && !Array.isArray(item)) {
+                    // {"i": n, "r": "..."}: tin số thứ tự model tự khai báo
+                    // (chống lệch thứ tự khi model lỡ bỏ/hụt 1 câu)
+                    const idx = parseInt(item.i, 10);
+                    jp = (!isNaN(idx) && jpList[idx - 1]) ? jpList[idx - 1] : null;
+                    rom = (typeof item.r === 'string') ? item.r : null;
+                } else if (typeof item === 'string' && plainStrings) {
+                    jp = jpList[i]; // mảng chuỗi thuần -> gán theo thứ tự
+                    rom = item;
+                }
+                if (!jp || !rom) return;
+                const clean = _cleanGeminiRomajiOutput(rom, jp);
+                if (clean) out.set(jp, clean);
+            });
+        }
+    } catch (err) {
+        if (err && err.name === 'AbortError') console.warn('[RomajiBatch] Gemini timeout 45s — bỏ chunk');
+        else console.warn('[RomajiBatch] Gemini lỗi:', err && err.message);
+    } finally {
+        clearTimeout(timer);
+    }
+    return out;
+}
+
+// Giải romaji cho TẬP CÂU (API batch dùng chung deck/grammar):
+// cache -> WanaKana -> câu đơn đang bay (share Promise) -> chunk AI ->
+// entry hỏng gọi riêng. Trả về Map jp -> romaji (thất bại = không có key).
+async function fetchRomajisBatch(jpList) {
+    const result = new Map();
+    const unique = [...new Set((jpList || []).filter(j => j && j.trim()))];
+    if (!unique.length) return result;
+
+    const joinSingles = [];
+    const needAI = [];
+    for (const jp of unique) {
+        const cached = getCachedRomaji(jp);
+        if (cached) { result.set(jp, cached); continue; }
+        const wk = tryWanakanaRomaji(jp);
+        if (wk) { setCachedRomaji(jp, wk); result.set(jp, wk); continue; }
+        if (romajiInflight.has(jp)) {
+            // Câu này đang được fetch riêng ở nơi khác -> đợi, không đưa vào AI
+            joinSingles.push(romajiInflight.get(jp).then(r => { if (r) result.set(jp, r); }));
+            continue;
+        }
+        needAI.push(jp);
+    }
+    if (needAI.length) {
+        const chunks = [];
+        for (let i = 0; i < needAI.length; i += ROMAJI_BATCH_MAX) chunks.push(needAI.slice(i, i + ROMAJI_BATCH_MAX));
+        const maps = await Promise.all(chunks.map(async (chunk) => {
+            // Dedupe batch trùng nội dung đang bay (2 caller gom cùng câu)
+            const key = JSON.stringify([...chunk].sort());
+            if (romajiBatchInflight.has(key)) return romajiBatchInflight.get(key);
+            const p = (async () => {
+                const map = await _callGeminiRomajiList(chunk);
+                // Entry hỏng/hụt -> fallback từng câu riêng (có sẵn cache+inflight)
+                for (const jp of chunk) {
+                    if (map.has(jp)) {
+                        setCachedRomaji(jp, map.get(jp));
+                    } else {
+                        const r = await fetchRomajiFromGemini(jp);
+                        if (r) map.set(jp, r);
+                    }
+                }
+                return map;
+            })();
+            romajiBatchInflight.set(key, p);
+            try { return await p; } finally { romajiBatchInflight.delete(key); }
+        }));
+        maps.forEach(m => m.forEach((v, k) => result.set(k, v)));
+    }
+    if (joinSingles.length) await Promise.all(joinSingles);
+    return result;
+}
+
+// Quét deck đang học gom các câu ví dụ CHƯA có romaji:
+//   - Nguồn: sessionCards theo THỨ TỰ HỌC thật (currentIndex+1, wrap quanh),
+//     chưa đủ thì quét tiếp rawDeckCache[deck] đầy đủ.
+//   - 3 vòng lọc mỗi câu: thẻ chưa có [ROMn]; chưa có cache cục bộ; KHÔNG
+//     thuần kana (kana thuần WanaKana lo offline miễn phí khi cần).
+//   - Câu trùng nhiều thẻ -> kết quả về ghi vào MỌI thẻ chứa nó.
+// Trả về { items: [{jp, cards: [{cardId, exIndex}]}], scanned }.
+function collectDeckRomajiCandidates(mustIncludeJp, limit) {
+    limit = limit || ROMAJI_BATCH_MAX;
+    const byJp = new Map();
+    let scanned = 0;
+    const MAX_SCAN = 150; // chặn deck cực lớn (chỉ regex chuỗi info, ~ms/thẻ)
+
+    const pushItem = (jp, cardId, exIndex) => {
+        if (!jp || !jp.trim()) return;
+        if (byJp.has(jp)) { byJp.get(jp).cards.push({ cardId, exIndex }); return; }
+        if (getCachedRomaji(jp)) return;   // đã có cache cục bộ
+        if (tryWanakanaRomaji(jp)) return; // kana thuần -> offline, khỏi AI
+        byJp.set(jp, { jp, cards: [{ cardId, exIndex }] });
+    };
+
+    const scanCards = (cards) => {
+        for (const c of (cards || [])) {
+            if (!c || !c.id) continue;
+            if (scanned >= MAX_SCAN || byJp.size >= limit) return;
+            scanned++;
+            let p = null;
+            try { p = parseCardData(c); } catch (e) { continue; }
+            if ((p.exList || []).length) {
+                (p.exList || []).forEach((ex, i) => {
+                    if (!ex.jp) return;
+                    if (ex.romaji && String(ex.romaji).trim()) return; // thẻ đã có [ROMn]
+                    pushItem(ex.jp, c.id, i + 1);
+                });
+            } else if (p.exampleJP || p.ex2jp) {
+                // Thẻ dữ liệu cũ (chưa có marker): 2 ví dụ dạng trường riêng
+                if (p.exampleJP && !p.romaji1) pushItem(p.exampleJP, c.id, 1);
+                if (p.ex2jp && !p.romaji2) pushItem(p.ex2jp, c.id, 2);
+            }
+        }
+    };
+
+    // Ưu tiên thẻ SẮP HỌC: currentIndex+1 -> hết deck -> wrap từ thẻ 0
+    if (typeof sessionCards !== 'undefined' && Array.isArray(sessionCards) && sessionCards.length) {
+        const n = sessionCards.length;
+        const start = (typeof currentIndex !== 'undefined' && currentIndex >= 0 && currentIndex < n) ? (currentIndex + 1) : 0;
+        const order = [];
+        for (let k = 0; k < n; k++) order.push(sessionCards[(start + k) % n]);
+        scanCards(order);
+    }
+    if (byJp.size < limit && typeof currentDeckName !== 'undefined' && currentDeckName
+        && window.rawDeckCache && Array.isArray(window.rawDeckCache[currentDeckName])) {
+        scanCards(window.rawDeckCache[currentDeckName]);
+    }
+
+    let items = [...byJp.values()];
+    // Câu user vừa bấm (chưa có romaji) đứng ĐẦU — trả trước cho nút đang chờ
+    if (mustIncludeJp && mustIncludeJp.trim() && !getCachedRomaji(mustIncludeJp) && !tryWanakanaRomaji(mustIncludeJp)) {
+        const idx = items.findIndex(it => it.jp === mustIncludeJp);
+        const cards = idx !== -1 ? items[idx].cards : [];
+        if (idx !== -1) items.splice(idx, 1);
+        items.unshift({ jp: mustIncludeJp, cards });
+    }
+    return { items: items.slice(0, limit), scanned };
+}
+
+// Fetch romaji "hiểu ngữ cảnh" cho nút Hiện Romaji:
+//   - Grammar modal (cardId = id dòng grammar_dict): gom romaji ví dụ của
+//     grammar đó (focus câu vừa bấm) + persist; trả romaji câu bấm.
+//   - Session học deck: câu vừa bấm + câu thẻ sắp học -> 1 call AI; các câu
+//     kia ghi ngầm vào thẻ, lần bấm sau cache hit hiện NGAY.
+//   - Ngữ cảnh khác: fetch đơn như cũ (fetchRomajiFromGemini).
+async function fetchRomajiDeckAware(jpText, cardId, exIndex) {
+    if (!jpText || !jpText.trim()) return null;
+
+    // 1) Ngữ cảnh NGỮ PHÁP
+    if (cardId && typeof globalGrammarData !== 'undefined' && Array.isArray(globalGrammarData)) {
+        const gObj = globalGrammarData.find(x => x && x.id === cardId);
+        if (gObj) {
+            const map = await prefetchGrammarRomajis(gObj, jpText);
+            if (map && map.has(jpText)) return map.get(jpText);
+            return fetchRomajiFromGemini(jpText);
+        }
+    }
+
+    // 2) Ngữ cảnh học DECK
+    const inDeckSession = (typeof sessionCards !== 'undefined' && Array.isArray(sessionCards) && sessionCards.length > 0);
+    if (!inDeckSession || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+        return fetchRomajiFromGemini(jpText);
+    }
+
+    const { items } = collectDeckRomajiCandidates(jpText, ROMAJI_BATCH_MAX);
+    if (!items.length) return fetchRomajiFromGemini(jpText);
+
+    const map = await fetchRomajisBatch(items.map(it => it.jp));
+
+    // Ghi ngầm kết quả vào các thẻ tương ứng (không chặn nút đang chờ)
+    (async () => {
+        for (const it of items) {
+            const r = map.get(it.jp);
+            if (!r) continue;
+            for (const holder of it.cards) {
+                try { await silentSyncRomajiToCloud(holder.cardId, holder.exIndex, r); }
+                catch (e) { /* ngầm — lỗi 1 thẻ không chặn thẻ khác */ }
+            }
+        }
+    })();
+
+    return map.has(jpText) ? map.get(jpText) : fetchRomajiFromGemini(jpText);
+}
+
+// Top-up nền cho deck: bấm nút trúng cache vẫn lấp đầy pipeline romaji cho
+// các thẻ sắp học (không spinner, không chặn UI, 1 batch / 1 thời điểm).
+let _deckRomajiTopupBusy = false;
+function triggerDeckRomajiTopup() {
+    if (_deckRomajiTopupBusy) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    if (!(typeof sessionCards !== 'undefined' && Array.isArray(sessionCards) && sessionCards.length)) return;
+    _deckRomajiTopupBusy = true;
+    (async () => {
+        try {
+            const { items } = collectDeckRomajiCandidates(null, ROMAJI_BATCH_MAX);
+            if (!items.length) return;
+            const map = await fetchRomajisBatch(items.map(it => it.jp));
+            for (const it of items) {
+                const r = map.get(it.jp);
+                if (!r) continue;
+                for (const holder of it.cards) {
+                    try { await silentSyncRomajiToCloud(holder.cardId, holder.exIndex, r); }
+                    catch (e) { /* ngầm */ }
+                }
+            }
+        } finally {
+            _deckRomajiTopupBusy = false;
+        }
+    })();
+}
+
+// Điều phối top-up theo ngữ cảnh (nút bấm trúng cache -> vẫn prefetch nền)
+function triggerRomajiTopup(cardId) {
+    if (cardId && typeof globalGrammarData !== 'undefined' && Array.isArray(globalGrammarData)) {
+        const gObj = globalGrammarData.find(x => x && x.id === cardId);
+        if (gObj) { prefetchGrammarRomajis(gObj); return; }
+    }
+    triggerDeckRomajiTopup();
+}
+
+// ================== ROMAJI NGỮ PHÁP: batch + persist Supabase ==================
+// grammar_dict cần 15 cột ex1_romaji..ex15_romaji (scripts/grammar_romaji_migration.sql).
+// CHƯA migration? App vẫn chạy: tự phát hiện lỗi cột ở lần update đầu ->
+// window._grammarRomajiSchema = false -> từ đó chỉ dùng cache cục bộ.
+const GRAMMAR_ROMAJI_COLS = Array.from({ length: 15 }, (_, i) => `ex${i + 1}_romaji`);
+window._grammarRomajiSchema = null; // null = chưa biết, true = đã có cột, false = chưa migration
+const _grammarRomajiTopupBusy = new Set(); // grammar id đang top-up romaji
+
+// Gom romaji TOÀN BỘ ví dụ còn thiếu của 1 grammar (chunk 5 câu / call AI).
+// focusJp (nếu có) được đẩy lên ĐẦU danh sách để nút đang chờ không phải đợi.
+// Trả về Map jp -> romaji khi có focusJp, ngược lại undefined.
+async function prefetchGrammarRomajis(gObj, focusJp) {
+    if (!gObj || !gObj.id) return null;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
+    if (_grammarRomajiTopupBusy.has(gObj.id)) return null;
+    _grammarRomajiTopupBusy.add(gObj.id);
+    try {
+        const targets = []; // {index, jp} — index 0 = câu focus ngoài ex1..15
+        for (let i = 1; i <= 15; i++) {
+            const jp = (gObj[`ex${i}_jp`] || '').trim();
+            if (!jp) continue;
+            if (gObj[`ex${i}_romaji`] && String(gObj[`ex${i}_romaji`]).trim()) continue; // DB đã có
+            if (getCachedRomaji(jp)) continue;   // cache cục bộ đã có
+            if (tryWanakanaRomaji(jp)) continue; // kana thuần -> offline
+            targets.push({ index: i, jp });
+        }
+        if (focusJp && focusJp.trim()) {
+            const fi = targets.findIndex(t => t.jp === focusJp);
+            if (fi > 0) targets.unshift(...targets.splice(fi, 1));
+            else if (fi === -1 && !getCachedRomaji(focusJp) && !tryWanakanaRomaji(focusJp)) targets.unshift({ index: 0, jp: focusJp });
+        }
+        if (!targets.length) return null;
+        const slice = targets.slice(0, ROMAJI_BATCH_MAX);
+        const map = await fetchRomajisBatch(slice.map(t => t.jp));
+        for (const t of slice) {
+            if (!t.index) continue; // câu focus không thuộc ex1..15 -> chỉ cache
+            const r = map.get(t.jp);
+            if (!r) continue;
+            silentSyncGrammarRomajiToCloud(gObj, t.index, r);
+        }
+        return (focusJp) ? map : undefined;
+    } finally {
+        _grammarRomajiTopupBusy.delete(gObj.id);
+    }
+}
+
+// Ghi romaji ví dụ thứ exIndex của grammar: RAM (globalGrammarData) +
+// localStorage minddeck_grammar_dict + Supabase grammar_dict.exN_romaji.
+async function silentSyncGrammarRomajiToCloud(gObj, exIndex, romajiText) {
+    if (!gObj || !gObj.id || !romajiText || !romajiText.trim()) return;
+    if (!currentUser) return;
+    const key = `ex${exIndex}_romaji`;
+    if (String(gObj[key] || '') === romajiText) return; // không đổi -> bỏ qua
+    gObj[key] = romajiText;
+    try { localStorage.setItem('minddeck_grammar_dict', JSON.stringify(globalGrammarData)); } catch (e) { /* đầy */ }
+    if (window._grammarRomajiSchema === false) return; // chưa migration -> chỉ cache cục bộ
+    try {
+        const { error } = await sb.from('grammar_dict').update({ [key]: romajiText }).eq('id', gObj.id);
+        if (error) {
+            const msg = `${error.message || ''} ${error.details || ''} ${error.hint || ''}`;
+            if (/romaji|column|PGRST204|schema cache|does not exist/i.test(msg)) {
+                window._grammarRomajiSchema = false;
+                console.warn('[GrammarRomaji] grammar_dict chưa có cột ex*_romaji — hãy chạy scripts/grammar_romaji_migration.sql (hiện chỉ cache cục bộ).');
+            } else {
+                console.warn('[GrammarRomaji] Lỗi update Supabase:', error.message);
+            }
+        } else {
+            window._grammarRomajiSchema = true; // đã migration
+        }
+    } catch (e) {
+        console.warn('[GrammarRomaji] Lỗi update:', e && e.message);
+    }
 }
 
 /**
@@ -38815,6 +39204,8 @@ async function handleRomajiToggle(event, btn, cardId, exIndex, jpText) {
                 romajiEl.innerText = cachedRomaji;
                 // Âm thầm đồng bộ lên Cloud Supabase + RAM + sessionStorage
                 silentSyncRomajiToCloud(cardId, exIndex, cachedRomaji);
+                // Cache-hit vẫn lấp đầy pipeline: top-up nền theo ngữ cảnh deck/grammar
+                triggerRomajiTopup(cardId);
             } else {
                 btn.dataset.romajiLoading = '1';
                 btn.disabled = true;
@@ -38826,7 +39217,8 @@ async function handleRomajiToggle(event, btn, cardId, exIndex, jpText) {
 
                 let resultRomaji = null;
                 try {
-                    resultRomaji = await fetchRomajiFromGemini(jpText);
+                    // Deck-aware: gom câu sắp học / ví dụ ngữ pháp chung 1 call AI
+                    resultRomaji = await fetchRomajiDeckAware(jpText, cardId, exIndex);
                 } finally {
                     // FIX: luôn reset trạng thái nút, kể cả khi fetch throw
                     // (trước đây fetch treo/lỗi -> nút kẹt spinner vĩnh viễn)
@@ -38880,7 +39272,14 @@ async function silentSyncRomajiToCloud(cardId, exIndex, romajiText) {
         cardObj = sessionCards.find(c => c.id === cardId);
     }
     
-    if (!cardObj) return; // Bỏ qua nếu là thẻ phụ đề video hoặc ngữ pháp thuần không lưu trong cards
+    if (!cardObj) {
+        // Thẻ NGỮ PHÁP (id dòng grammar_dict, không nằm trong sessionCards):
+        // persist romaji qua bảng grammar_dict (cột ex*_romaji) thay vì bỏ quên.
+        const gObj = (typeof globalGrammarData !== 'undefined' && Array.isArray(globalGrammarData))
+            ? globalGrammarData.find(x => x && x.id === cardId) : null;
+        if (gObj) silentSyncGrammarRomajiToCloud(gObj, exIndex, romajiText);
+        return; // thẻ phụ đề video / không xác định -> bỏ qua như cũ
+    }
     
     const parsed = parseCardData(cardObj);
     
@@ -39000,7 +39399,10 @@ window.startGrammarGame = function(type) {
         const jp = currentGrammarObj[`ex${i}_jp`];
         const vn = currentGrammarObj[`ex${i}_vn`];
         if (jp && jp.trim() !== '') {
-            examples.push({ index: i, jp: jp.trim(), vn: vn.trim() });
+            // Romaji đã persist trong grammar_dict -> seed vào game + cache cục bộ
+            const rom = String(currentGrammarObj[`ex${i}_romaji`] || '').trim();
+            if (rom) setCachedRomaji(jp.trim(), rom);
+            examples.push({ index: i, jp: jp.trim(), vn: vn.trim(), romaji: rom });
         }
     }
 
@@ -39018,6 +39420,10 @@ window.startGrammarGame = function(type) {
         matchedIndices: [],
         selectedFirst: null
     };
+
+    // Gom romaji TOÀN BỘ ví dụ còn thiếu của grammar này ngay khi vào game
+    // (1 call AI / 5 câu) + persist lên grammar_dict -> lần chơi sau 0 AI
+    prefetchGrammarRomajis(currentGrammarObj);
 
     // Ẩn vùng ví dụ gốc, hiện khung chơi game
     document.getElementById('gdExamplesWrapper').style.display = 'none';
@@ -39188,10 +39594,16 @@ window.renderActiveTypingRound = function() {
     window.imeCandidates = [];
 
     // Tự động tải trước âm đọc phiên âm (Romaji) câu ví dụ chạy ngầm để hỗ trợ so khớp Hiragana
+    // (startGrammarGame đã prefetch batch lúc vào game -> hầu hết trúng cache)
     if (!ex.romaji) {
-        fetchRomajiFromGemini(ex.jp).then(r => {
-            if (r) ex.romaji = r;
-        });
+        const hit = getCachedRomaji(ex.jp);
+        if (hit) {
+            ex.romaji = hit;
+        } else {
+            fetchRomajiFromGemini(ex.jp).then(r => {
+                if (r) ex.romaji = r;
+            });
+        }
     }
 
     let promptText = state.typingMode === 'audio' ? "🎧 Hãy nghe âm thanh và gõ lại câu Tiếng Nhật" : "🇻🇳 Xem nghĩa Tiếng Việt và gõ lại câu Tiếng Nhật";
@@ -39883,7 +40295,7 @@ window.revealMatchedExample = function(exIndex) {
 
     const revealArea = document.getElementById('gameRevealArea');
     if (revealArea) {
-        const exHtml = buildExampleSentenceBlock(currentGrammarObj.id, exIndex, ex.jp, "", ex.vn);
+        const exHtml = buildExampleSentenceBlock(currentGrammarObj.id, exIndex, ex.jp, ex.romaji || "", ex.vn);
         revealArea.insertAdjacentHTML('beforeend', exHtml);
         
         setTimeout(() => {
@@ -39902,7 +40314,7 @@ window.renderGameRevealedItems = function() {
         revealArea.innerHTML = `<p style="font-size: 13px; color: #10b981; font-weight: 800; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined">verified</span> ĐÃ HOÀN THÀNH:</p>`;
         for (let i = 0; i < state.currentIndex; i++) {
             const ex = state.examples[i];
-            const exHtml = buildExampleSentenceBlock(currentGrammarObj.id, ex.index, ex.jp, "", ex.vn);
+            const exHtml = buildExampleSentenceBlock(currentGrammarObj.id, ex.index, ex.jp, ex.romaji || "", ex.vn);
             revealArea.insertAdjacentHTML('beforeend', exHtml);
         }
     }
