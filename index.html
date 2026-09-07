@@ -37894,9 +37894,29 @@ async function showGrammarPreview(event, grammarId) {
     });
 }
 /**
- * 1. Gọi trực tiếp API Google Translate gtx để lấy Romaji mượt mà
+ * 1. 🟢 V2: Lấy Romaji QUA WORKER (/api/romaji) thay vì gọi thẳng Google.
+ *    - Worker gọi Google từ phía server (né CORS + né IP user bị Google
+ *      chặn 429), cache 7 ngày, tự fallback Groq AI khi Google chặn.
+ *    - Giữ nguyên TÊN hàm + contract trả về (string | null) để 2 nơi đang
+ *      gọi (handleRomajiToggle + prefetch game ngữ pháp) không phải sửa gì.
+ *    - Nếu Worker chưa deploy → tự rơi về đường gọi Google trực tiếp kiểu cũ.
  */
 async function fetchRomajiFromGoogle(jpText) {
+    // Bước 1: Ưu tiên Worker proxy (cache 7 ngày + fallback AI Groq trong worker)
+    try {
+        const resp = await fetch(`${DICT_API_URL}/api/romaji?q=${encodeURIComponent(jpText)}`);
+        if (resp.ok) {
+            const data = await resp.json();
+            if (data && typeof data.romaji === 'string' && data.romaji.trim()) {
+                return data.romaji.trim();
+            }
+            return null; // Worker đã thử cả Google + AI mà vẫn rỗng → thôi
+        }
+    } catch (err) {
+        console.warn("Worker /api/romaji chưa phản hồi (có thể chưa deploy), thử Google trực tiếp...", err);
+    }
+
+    // Bước 2 (fallback): gọi thẳng Google như bản cũ — cho tới khi Worker được deploy
     try {
         const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=vi&dt=rm&q=${encodeURIComponent(jpText)}`;
         const res = await fetch(url);
@@ -38640,7 +38660,7 @@ async function handleRomajiToggle(event, btn, cardId, exIndex, jpText) {
             btnIcon.style.animation = "none";
             
             if (!resultRomaji) {
-                showToast("Lỗi kết nối Google. Hãy thử lại!");
+                showToast("Không tải được Romaji — thử lại chút nữa nhé!");
                 btnTextLbl.innerText = "Hiện Romaji";
                 btnIcon.innerText = "visibility_off";
                 return;
