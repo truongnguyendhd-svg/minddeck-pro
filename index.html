@@ -38265,6 +38265,64 @@ async function fetchRomajisBatch(jpList) {
     return result;
 }
 
+// HYDRATE SKELETON TRƯỚC KHI GOM BATCH: nhiều luồng (boost/virtual/resume)
+// nạp sessionCards/rawDeckCache dạng skeleton (isLoaded=false, info rỗng) —
+// collector quét thấy 0 ví dụ của thẻ sắp học -> batch luôn gom đúng 1 câu
+// (câu bấm) dù thiết kế là 5. Hàm tự tải back/info/tags của tối đa 15 thẻ
+// SẮP QUÉT (cùng thứ tự wrap như collector) bằng 1 truy vấn .in() duy nhất;
+// lỗi/timeout 6s thì bỏ ngầm — không bao giờ chặn vĩnh viễn nút romaji.
+let _romajiHydrateBusy = null;
+async function ensureCardsHydratedForRomaji(maxLookahead) {
+    maxLookahead = maxLookahead || 15;
+    try {
+        if (typeof sb === 'undefined' || !sb) return;
+        if (!(typeof sessionCards !== 'undefined' && Array.isArray(sessionCards) && sessionCards.length)) return;
+        if (_romajiHydrateBusy) { try { await _romajiHydrateBusy; } catch (e) { /* ngầm */ } }
+
+        const n = sessionCards.length;
+        const start = (typeof currentIndex !== 'undefined' && currentIndex >= 0 && currentIndex < n) ? (currentIndex + 1) : 0;
+        const need = [];
+        for (let k = 0; k < n && need.length < maxLookahead; k++) {
+            const idx = (start + k) % n;
+            const c = sessionCards[idx];
+            if (c && c.isLoaded === false && c.id) need.push({ idx, id: c.id });
+        }
+        if (!need.length) return;
+
+        const job = (async () => {
+            const { data, error } = await sb.from('user_vocabulary_mastery')
+                .select('id, back, info, tags')
+                .in('id', need.map(x => x.id));
+            if (error || !Array.isArray(data)) return;
+            const dataMap = new Map(data.map(item => [item.id, item]));
+            let mergedCount = 0;
+            need.forEach(({ idx, id }) => {
+                const d = dataMap.get(id);
+                if (!d) return; // không có dòng mastery -> giữ skeleton, collector tự bỏ qua
+                const merged = { ...sessionCards[idx], ...d, isLoaded: true };
+                sessionCards[idx] = merged;
+                mergedCount++;
+                if (window.rawDeckCache && typeof currentDeckName !== 'undefined' && currentDeckName
+                    && Array.isArray(window.rawDeckCache[currentDeckName])) {
+                    const ci = window.rawDeckCache[currentDeckName].findIndex(x => x && x.id === id);
+                    if (ci !== -1) window.rawDeckCache[currentDeckName][ci] = merged;
+                }
+            });
+            if (mergedCount) {
+                console.log('[RomajiBatch] Đã hydrate ' + mergedCount + '/' + need.length + ' thẻ sắp học (skeleton) để gom batch đủ câu.');
+                if (window.rawDeckCache && typeof currentDeckName !== 'undefined' && currentDeckName
+                    && Array.isArray(window.rawDeckCache[currentDeckName])
+                    && typeof syncDeckToSessionStorage === 'function') {
+                    syncDeckToSessionStorage(currentDeckName, window.rawDeckCache[currentDeckName]);
+                }
+            }
+        })();
+        _romajiHydrateBusy = job;
+        try { await Promise.race([job, new Promise(r => setTimeout(r, 6000))]); }
+        finally { if (_romajiHydrateBusy === job) _romajiHydrateBusy = null; }
+    } catch (e) { /* ngầm — hydration thất bại không chặn romaji */ }
+}
+
 // Quét deck đang học gom các câu ví dụ CHƯA có romaji:
 //   - Nguồn: sessionCards theo THỨ TỰ HỌC thật (currentIndex+1, wrap quanh),
 //     chưa đủ thì quét tiếp rawDeckCache[deck] đầy đủ.
@@ -38277,12 +38335,13 @@ function collectDeckRomajiCandidates(mustIncludeJp, limit) {
     const byJp = new Map();
     let scanned = 0;
     const MAX_SCAN = 150; // chặn deck cực lớn (chỉ regex chuỗi info, ~ms/thẻ)
+    const skip = { skeleton: 0, hasRom: 0, cached: 0, kana: 0, noEx: 0 }; // chẩn đoán lý do bỏ qua
 
     const pushItem = (jp, cardId, exIndex) => {
         if (!jp || !jp.trim()) return;
         if (byJp.has(jp)) { byJp.get(jp).cards.push({ cardId, exIndex }); return; }
-        if (getCachedRomaji(jp)) return;   // đã có cache cục bộ
-        if (tryWanakanaRomaji(jp)) return; // kana thuần -> offline, khỏi AI
+        if (getCachedRomaji(jp)) { skip.cached++; return; }   // đã có cache cục bộ
+        if (tryWanakanaRomaji(jp)) { skip.kana++; return; } // kana thuần -> offline, khỏi AI
         byJp.set(jp, { jp, cards: [{ cardId, exIndex }] });
     };
 
@@ -38291,18 +38350,21 @@ function collectDeckRomajiCandidates(mustIncludeJp, limit) {
             if (!c || !c.id) continue;
             if (scanned >= MAX_SCAN || byJp.size >= limit) return;
             scanned++;
+            if (c.isLoaded === false) { skip.skeleton++; continue; } // skeleton: info rỗng -> hydrate chưa chạy/xịt
             let p = null;
             try { p = parseCardData(c); } catch (e) { continue; }
             if ((p.exList || []).length) {
                 (p.exList || []).forEach((ex, i) => {
                     if (!ex.jp) return;
-                    if (ex.romaji && String(ex.romaji).trim()) return; // thẻ đã có [ROMn]
+                    if (ex.romaji && String(ex.romaji).trim()) { skip.hasRom++; return; } // thẻ đã có [ROMn]
                     pushItem(ex.jp, c.id, i + 1);
                 });
             } else if (p.exampleJP || p.ex2jp) {
                 // Thẻ dữ liệu cũ (chưa có marker): 2 ví dụ dạng trường riêng
                 if (p.exampleJP && !p.romaji1) pushItem(p.exampleJP, c.id, 1);
                 if (p.ex2jp && !p.romaji2) pushItem(p.ex2jp, c.id, 2);
+            } else {
+                skip.noEx++; // thẻ đã hydrate nhưng không có câu ví dụ nào
             }
         }
     };
@@ -38328,6 +38390,9 @@ function collectDeckRomajiCandidates(mustIncludeJp, limit) {
         if (idx !== -1) items.splice(idx, 1);
         items.unshift({ jp: mustIncludeJp, cards });
     }
+    console.log('[RomajiBatch] Collector: gom ' + items.length + ' câu | quét ' + scanned + ' thẻ | bỏ qua: '
+        + skip.skeleton + ' thẻ skeleton, ' + skip.hasRom + ' câu đã có [ROM], ' + skip.cached + ' câu có cache, '
+        + skip.kana + ' câu kana thuần, ' + skip.noEx + ' thẻ không ví dụ');
     return { items: items.slice(0, limit), scanned };
 }
 
@@ -38355,6 +38420,10 @@ async function fetchRomajiDeckAware(jpText, cardId, exIndex) {
     if (!inDeckSession || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
         return fetchRomajiFromGemini(jpText);
     }
+
+    // Thẻ sắp quét còn skeleton (info rỗng) -> hydrate NGAY bằng 1 query rồi
+    // mới gom: không thì collector không thấy ví dụ, batch mãi mãi 1 câu.
+    await ensureCardsHydratedForRomaji();
 
     const { items } = collectDeckRomajiCandidates(jpText, ROMAJI_BATCH_MAX);
     if (!items.length) {
@@ -38390,6 +38459,7 @@ function triggerDeckRomajiTopup() {
     _deckRomajiTopupBusy = true;
     (async () => {
         try {
+            await ensureCardsHydratedForRomaji(); // top-up nền cũng cần thấy thẻ skeleton
             const { items } = collectDeckRomajiCandidates(null, ROMAJI_BATCH_MAX);
             if (!items.length) return;
             const map = await fetchRomajisBatch(items.map(it => it.jp));
