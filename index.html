@@ -38104,8 +38104,9 @@ CHỈ trả về duy nhất chuỗi Romaji, không giải thích, không dấu n
 // ============================================================================
 // BATCH ROMAJI ENGINE — gom nhiều câu ví dụ / 1 call AI (tiết kiệm quota ~80%)
 //   - fetchRomajisBatch(jpList): giải TẬP CÂU qua cache -> WanaKana -> AI chunk
-//     <= ROMAJI_BATCH_MAX câu, prompt đánh số {"i","r"} theo thứ tự, entry hỏng
-//     fallback gọi riêng từng câu (giữ hành vi cũ).
+//     <= ROMAJI_BATCH_MAX câu, prompt đánh số {"i","r"} theo thứ tự; entry hỏng
+//     KHÔNG gọi riêng tại đây (chống spam call) — caller tự fetch đúng 1 câu
+//     nó đang chờ (xem fetchRomajiDeckAware: staged wait + fetch đơn).
 //   - fetchRomajiDeckAware(jpText, cardId, exIndex): nút "Hiện Romaji" giờ
 //     "deck-aware" — câu vừa bấm + các câu CHƯA có romaji của thẻ SẮP HỌC
 //     trong deck đi chung 1 call; kết quả ghi NGẦM vào thẻ (Supabase) nên
@@ -38148,8 +38149,12 @@ async function _readGeminiSSE(res) {
 }
 
 const ROMAJI_BATCH_MAX = 5;             // số câu tối đa / 1 call AI
+const ROMAJI_BATCH_TIMEOUT_MS = 120000; // timeout RIÊNG cho call batch: output gấp ~5x câu đơn (câu đơn 45s, batch cần 120s)
+const ROMAJI_BUTTON_PATIENCE_MS = 12000;// nút Hiện Romaji chỉ chờ batch chừng này; quá thì fetch riêng câu bấm (batch vẫn chạy nền)
+const ROMAJI_BATCH_COOLDOWN_MS = 60000; // batch lỗi thật (timeout/HTTP) -> 60s tới mọi nút đi fetch đơn, không gom batch
+let _romajiBatchCooldownUntil = 0;      // mốc ms hết cooldown — 0 = chưa từng lỗi
 const romajiBatchInflight = new Map();  // key = JSON.stringify(câu sorted) -> Promise<Map>
-console.log('[Romaji] Batch engine đã nạp — gom tối đa ' + ROMAJI_BATCH_MAX + ' câu / 1 call AI (deck + grammar). Nếu thấy dòng này = file mới đã chạy.');
+console.log('[Romaji] Batch engine v2 đã nạp — 1 call / ' + ROMAJI_BATCH_MAX + ' câu; nút chỉ chờ batch tối đa ' + Math.round(ROMAJI_BUTTON_PATIENCE_MS / 1000) + 's; batch lỗi -> cooldown ' + Math.round(ROMAJI_BATCH_COOLDOWN_MS / 1000) + 's fetch đơn. Nếu thấy dòng này = file mới đã chạy.');
 
 // Gọi AI cho 1 NHÓM câu (đã lọc cache/WanaKana trước): prompt đánh số, trả về
 // Map jp -> romaji (entry thất bại = không có trong Map, caller tự fallback).
@@ -38160,9 +38165,9 @@ async function _callGeminiRomajiList(jpList) {
     const prompt = `Chuyển ${jpList.length} câu tiếng Nhật sau sang Romaji hệ Hepburn (viết thường, giữ nguyên dấu câu và khoảng trắng):
 ${numbered}
 BẮT BUỘC chỉ trả về duy nhất một mảng JSON gồm đúng ${jpList.length} phần tử, mỗi phần tử dạng {"i": <số thứ tự câu>, "r": "<romaji Hepburn>"} theo đúng thứ tự câu đã cho. Không giải thích, không markdown.`;
-    console.log('[RomajiBatch] POST /api/gemini — gửi ' + jpList.length + ' câu...');
+    console.log('[RomajiBatch] POST /api/gemini — gửi ' + jpList.length + ' câu (timeout riêng ' + Math.round(ROMAJI_BATCH_TIMEOUT_MS / 1000) + 's vì output gấp ~5x câu đơn)...');
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 45000);
+    const timer = setTimeout(() => controller.abort(), ROMAJI_BATCH_TIMEOUT_MS);
     try {
         const res = await fetch(`${DICT_API_URL}/api/gemini`, {
             method: 'POST',
@@ -38205,8 +38210,12 @@ BẮT BUỘC chỉ trả về duy nhất một mảng JSON gồm đúng ${jpList
             });
         }
     } catch (err) {
-        if (err && err.name === 'AbortError') console.warn('[RomajiBatch] Gemini timeout 45s — bỏ chunk');
+        if (err && err.name === 'AbortError') console.warn('[RomajiBatch] Gemini timeout ' + Math.round(ROMAJI_BATCH_TIMEOUT_MS / 1000) + 's — bỏ chunk.');
         else console.warn('[RomajiBatch] Gemini lỗi:', err && err.message);
+        // Batch lỗi thật (timeout/HTTP/mạng) -> bật cooldown 60s: các lần bấm
+        // kế tiếp đi fetch đơn thay vì gom batch (chống xoắn 2 call / 1 lần bấm
+        // khi mạng chậm mãn tính).
+        _romajiBatchCooldownUntil = Date.now() + ROMAJI_BATCH_COOLDOWN_MS;
     } finally {
         clearTimeout(timer);
     }
@@ -38214,8 +38223,10 @@ BẮT BUỘC chỉ trả về duy nhất một mảng JSON gồm đúng ${jpList
 }
 
 // Giải romaji cho TẬP CÂU (API batch dùng chung deck/grammar):
-// cache -> WanaKana -> câu đơn đang bay (share Promise) -> chunk AI ->
-// entry hỏng gọi riêng. Trả về Map jp -> romaji (thất bại = không có key).
+// cache -> WanaKana -> câu đơn đang bay (share Promise) -> chunk AI.
+// Entry hỏng KHÔNG gọi riêng tại đây (trước đây fallback tuần tự từng câu
+// từng sinh 5 call phụ, mỗi call chờ tới 45s trên mạng chậm) — caller tự
+// fetch đúng câu nó đang cần. Trả về Map jp -> romaji (thất bại = không có key).
 async function fetchRomajisBatch(jpList) {
     const result = new Map();
     const unique = [...new Set((jpList || []).filter(j => j && j.trim()))];
@@ -38244,15 +38255,11 @@ async function fetchRomajisBatch(jpList) {
             if (romajiBatchInflight.has(key)) return romajiBatchInflight.get(key);
             const p = (async () => {
                 const map = await _callGeminiRomajiList(chunk);
-                // Entry hỏng/hụt -> fallback từng câu riêng (có sẵn cache+inflight)
-                for (const jp of chunk) {
-                    if (map.has(jp)) {
-                        setCachedRomaji(jp, map.get(jp));
-                    } else {
-                        const r = await fetchRomajiFromGemini(jp);
-                        if (r) map.set(jp, r);
-                    }
-                }
+                // Entry thành công -> lưu cache ngay (lần bấm sau cache hit).
+                // Entry hụt KHÔNG fallback gọi riêng tại đây nữa: caller sẽ fetch
+                // đúng 1 câu nó đang chờ nếu cần (xem fetchRomajiDeckAware) —
+                // fallback tuần tự kiểu cũ từng sinh 5 call phụ trên mạng chậm.
+                map.forEach((rom, jp) => setCachedRomaji(jp, rom));
                 return map;
             })();
             romajiBatchInflight.set(key, p);
@@ -38409,15 +38416,23 @@ async function fetchRomajiDeckAware(jpText, cardId, exIndex) {
     if (cardId && typeof globalGrammarData !== 'undefined' && Array.isArray(globalGrammarData)) {
         const gObj = globalGrammarData.find(x => x && x.id === cardId);
         if (gObj) {
-            const map = await prefetchGrammarRomajis(gObj, jpText);
-            if (map && map.has(jpText)) return map.get(jpText);
-            return fetchRomajiFromGemini(jpText);
+            const r = await prefetchGrammarRomajis(gObj, jpText);
+            // Hợp đồng mới: có focusJp -> STRING romaji của câu đó (null nếu
+            // hụt). String = nút nhận ngay; null = rơi xuống fetch đơn 1 câu.
+            return (typeof r === 'string' && r) ? r : fetchRomajiFromGemini(jpText);
         }
     }
 
     // 2) Ngữ cảnh học DECK
     const inDeckSession = (typeof sessionCards !== 'undefined' && Array.isArray(sessionCards) && sessionCards.length > 0);
     if (!inDeckSession || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+        return fetchRomajiFromGemini(jpText);
+    }
+
+    // Cooldown: batch vừa lỗi thật (timeout/HTTP) -> tạm KHÔNG gom batch —
+    // fetch đơn câu bấm như thời kỳ trước-batch (1 call, nhanh, không spam).
+    if (Date.now() < _romajiBatchCooldownUntil) {
+        console.log('[RomajiBatch] Cooldown (batch vừa lỗi) — fetch đơn câu bấm, tạm không gom batch.');
         return fetchRomajiFromGemini(jpText);
     }
 
@@ -38432,21 +38447,44 @@ async function fetchRomajiDeckAware(jpText, cardId, exIndex) {
     }
     console.log('[RomajiBatch] Gom ' + items.length + ' câu của deck gửi AI 1 call (câu bấm đứng đầu):', items.map(it => it.jp));
 
-    const map = await fetchRomajisBatch(items.map(it => it.jp));
+    // STAGED WAIT (v2): batch chạy, nút chỉ chờ nó tối đa ROMAJI_BUTTON_PATIENCE_MS.
+    //   - Batch nhanh (mạng tốt) : 1 call xong cả 5 câu, trả romaji câu bấm ngay.
+    //   - Batch chậm (mạng yếu)  : fetch RIÊNG câu bấm (~2-5s) cho user đỡ chờ —
+    //     batch vẫn chạy nền, xong đâu ghi ngầm vào thẻ đó (harvest bên dưới).
+    // (Trước đây: chờ trọn batch 45s, timeout rồi fallback gọi riêng TỪNG câu
+    // tuần tự -> 1 lần bấm sinh tới 7 call AI + chờ >2 phút trên mạng chậm.)
+    const batchPromise = fetchRomajisBatch(items.map(it => it.jp)).catch(() => new Map());
 
-    // Ghi ngầm kết quả vào các thẻ tương ứng (không chặn nút đang chờ)
-    (async () => {
-        for (const it of items) {
-            const r = map.get(it.jp);
-            if (!r) continue;
-            for (const holder of it.cards) {
-                try { await silentSyncRomajiToCloud(holder.cardId, holder.exIndex, r); }
-                catch (e) { /* ngầm — lỗi 1 thẻ không chặn thẻ khác */ }
+    // Harvest ngầm khi batch xong (kể cả sau khi nút đã hiện romaji từ đường đơn)
+    batchPromise.then(map => {
+        (async () => {
+            for (const it of items) {
+                const r = map.get(it.jp);
+                if (!r) continue;
+                for (const holder of it.cards) {
+                    try { await silentSyncRomajiToCloud(holder.cardId, holder.exIndex, r); }
+                    catch (e) { /* ngầm — lỗi 1 thẻ không chặn thẻ khác */ }
+                }
             }
-        }
-    })();
+        })();
+    }).catch(() => { /* ngầm */ });
 
-    return map.has(jpText) ? map.get(jpText) : fetchRomajiFromGemini(jpText);
+    let early = null;
+    try {
+        early = await Promise.race([
+            batchPromise.then(m => m.get(jpText) || null),
+            new Promise(r => setTimeout(r, ROMAJI_BUTTON_PATIENCE_MS))
+        ]);
+    } catch (e) { /* ngầm */ }
+    if (early) return early;
+
+    console.log('[RomajiBatch] Batch chưa kịp trả câu bấm sau ' + Math.round(ROMAJI_BUTTON_PATIENCE_MS / 1000) + 's — fetch riêng câu bấm, batch vẫn chạy nền.');
+    const single = await fetchRomajiFromGemini(jpText);
+    if (single) return single;
+
+    // Đường đơn cũng lỗi (mạng rung) -> chờ nốt batch tới khi hết timeout riêng.
+    const finalMap = await batchPromise;
+    return finalMap.get(jpText) || null;
 }
 
 // Top-up nền cho deck: bấm nút trúng cache vẫn lấp đầy pipeline romaji cho
@@ -38455,6 +38493,7 @@ let _deckRomajiTopupBusy = false;
 function triggerDeckRomajiTopup() {
     if (_deckRomajiTopupBusy) return;
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    if (Date.now() < _romajiBatchCooldownUntil) return; // batch vừa lỗi -> nghỉ, khỏi gom thêm
     if (!(typeof sessionCards !== 'undefined' && Array.isArray(sessionCards) && sessionCards.length)) return;
     _deckRomajiTopupBusy = true;
     (async () => {
@@ -38495,11 +38534,14 @@ window._grammarRomajiSchema = null; // null = chưa biết, true = đã có cộ
 const _grammarRomajiTopupBusy = new Set(); // grammar id đang top-up romaji
 
 // Gom romaji TOÀN BỘ ví dụ còn thiếu của 1 grammar (chunk 5 câu / call AI).
-// focusJp (nếu có) được đẩy lên ĐẦU danh sách để nút đang chờ không phải đợi.
-// Trả về Map jp -> romaji khi có focusJp, ngược lại undefined.
+// focusJp (nếu có) được đẩy lên ĐẦU danh sách; nút đang chờ chỉ chờ batch tối
+// đa ROMAJI_BUTTON_PATIENCE_MS rồi fetch riêng câu focus (batch vẫn chạy nền
+// và tự persist lên grammar_dict khi xong). Có focusJp -> trả về STRING romaji
+// của câu đó (hoặc null); không focusJp -> undefined (chạy nền thuần).
 async function prefetchGrammarRomajis(gObj, focusJp) {
     if (!gObj || !gObj.id) return null;
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
+    if (Date.now() < _romajiBatchCooldownUntil) return null; // batch vừa lỗi -> nghỉ, caller tự fetch đơn
     if (_grammarRomajiTopupBusy.has(gObj.id)) return null;
     _grammarRomajiTopupBusy.add(gObj.id);
     try {
@@ -38520,14 +38562,42 @@ async function prefetchGrammarRomajis(gObj, focusJp) {
         if (!targets.length) return null;
         console.log('[RomajiBatch] Grammar "' + (gObj.grammar_point || gObj.id) + '": gom ' + Math.min(targets.length, ROMAJI_BATCH_MAX) + ' ví dụ thiếu romaji gửi AI.');
         const slice = targets.slice(0, ROMAJI_BATCH_MAX);
-        const map = await fetchRomajisBatch(slice.map(t => t.jp));
-        for (const t of slice) {
-            if (!t.index) continue; // câu focus không thuộc ex1..15 -> chỉ cache
-            const r = map.get(t.jp);
-            if (!r) continue;
-            silentSyncGrammarRomajiToCloud(gObj, t.index, r);
+        const batchPromise = fetchRomajisBatch(slice.map(t => t.jp)).catch(() => new Map());
+        // Persist ngầm kết quả batch lên grammar_dict khi xong (không bắt ai chờ)
+        const persistMap = (m) => {
+            for (const t of slice) {
+                if (!t.index) continue; // câu focus không thuộc ex1..15 -> chỉ cache
+                const r = m.get(t.jp);
+                if (r) silentSyncGrammarRomajiToCloud(gObj, t.index, r);
+            }
+        };
+        if (!focusJp) {
+            // Nền thuần (top-up / seed game): chờ batch xong rồi persist
+            const m = await batchPromise;
+            persistMap(m);
+            return undefined;
         }
-        return (focusJp) ? map : undefined;
+        // Nút đang chờ: chờ batch tối đa patience — nhanh thì 1 call xong cả
+        // nhóm; chậm thì fetch riêng câu focus, batch vẫn chạy nền + tự persist.
+        let early = null;
+        try {
+            early = await Promise.race([
+                batchPromise.then(m => m.get(focusJp) || null),
+                new Promise(r => setTimeout(r, ROMAJI_BUTTON_PATIENCE_MS))
+            ]);
+        } catch (e) { /* ngầm */ }
+        if (early) {
+            batchPromise.then(persistMap).catch(() => { /* ngầm */ });
+            return early;
+        }
+        const single = await fetchRomajiFromGemini(focusJp);
+        if (single) {
+            batchPromise.then(persistMap).catch(() => { /* ngầm */ });
+            return single;
+        }
+        const m = await batchPromise;
+        persistMap(m);
+        return m.get(focusJp) || null;
     } finally {
         _grammarRomajiTopupBusy.delete(gObj.id);
     }
