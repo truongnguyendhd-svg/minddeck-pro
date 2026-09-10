@@ -8566,6 +8566,40 @@ body.modal-open-lock {
     display: none; /* Chrome, Safari, Opera, iOS, Android */
 }
 /* Hết================= ẨN THANH CUỘN MÀN HÌNH TỔNG KẾT ================= */
+/* ================= FOOTER CỐ ĐỊNH MÀN KẾT QUẢ SÁT HẠCH ================= */
+/* 🟢 TASK: 2 hàng nút (XEM LẠI TOÀN BỘ + THOÁT VỀ TRANG CHỦ) ghim cố định đáy màn hình.
+   Footer KHÔNG nền, KHÔNG viền — trong suốt trên gradient xanh của màn tổng kết.
+   Footer LUÔN HIỆN và luôn bấm được (KHÔNG mờ khi cuộn). Chỉ khi nội dung body DÀI
+   (danh sách tràn khỏi màn hình) footer mới có thêm ĐỔ BÓNG hắt lên trên để
+   ngăn cách với phần nội dung cuộn bên dưới. */
+#summaryFooterBar {
+    position: fixed;         /* Ghim cố định đáy màn hình (viewport) */
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10510;          /* Nằm trên nội dung, trong stacking context của #boostSummaryPage */
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+    background: transparent; /* 🟢 KHÔNG nền theo yêu cầu */
+    border: none;            /* 🟢 KHÔNG viền theo yêu cầu */
+    box-sizing: border-box;
+    transition: box-shadow 0.3s ease; /* Bóng bật/tắt mượt khi đổi tab hoặc danh sách thay đổi */
+    pointer-events: none;    /* Footer trong suốt → click vùng trống XUYÊN xuống thẻ bên dưới */
+}
+/* Chỉ 2 nút trong footer nhận click; vùng trống xung quanh xuyên qua cho nội dung */
+#summaryFooterBar button { pointer-events: auto; }
+/* 🟢 Body DÀI (cuộn được) → footer có bóng hắt LÊN TRÊN, ngăn cách với danh sách
+   đang cuộn dưới chân footer. Body ngắn → không bóng (footer nổi tự do, sạch). */
+#summaryFooterBar.summary-footer-shadow {
+    box-shadow: 0 -12px 28px rgba(0, 0, 0, 0.2);
+}
+/* 🟢 Đệm đáy cho nội dung cuộn: màn tổng kết SÁT HẠCH (class do JS gắn khi render)
+   tăng padding-bottom để thẻ CUỐI danh sách cuộn được lên TRÊN footer — không bị
+   2 hàng nút che khuất/mất click. Màn tổng kết BOOST không gắn class này. */
+#boostSummaryPage.summary-footer-mode { padding-bottom: 170px; }
+/* Hết================= FOOTER CỐ ĐỊNH MÀN KẾT QUẢ SÁT HẠCH ================= */
 /* ================= FIX LỖI KHAY GẠCH GAME 11 ================= */
 /* 1. Ép khay chứa thành hình chữ nhật nằm ngang ôm sát nội dung */
 #kb-target-box {
@@ -19296,6 +19330,11 @@ function endBoostSession() {
     // 1. Ẩn khu vực chơi, hiện màn hình Tổng kết
     document.getElementById('boostArea').classList.add('hidden');
     document.getElementById('boostSummaryPage').classList.remove('hidden');
+    // 🟢 FOOTER CỐ ĐỊNH: màn tổng kết BOOST không dùng footer cố định — dọn class
+    // đệm đáy và footer sát hạch nếu còn sót trong DOM (tránh nút cũ nổi lên màn BOOST)
+    document.getElementById('boostSummaryPage').classList.remove('summary-footer-mode');
+    const _oldSumBar = document.getElementById('summaryFooterBar');
+    if (_oldSumBar) _oldSumBar.remove();
     
     // 2. Cập nhật Điểm số
     document.getElementById('sumCorrect').innerText = boostState.correct;
@@ -33123,22 +33162,44 @@ function endAssessmentSession() {
     `;
 
 
-    // ĐÃ CHỈNH SỬA YÊU CẦU 3: Bo góc 16px, text THOÁT VỀ TRANG CHỦ in đậm, to hơn
+    // 🟢 FOOTER CỐ ĐỊNH: 2 hàng nút (XEM LẠI TOÀN BỘ + THOÁT VỀ TRANG CHỦ) chuyển từ
+    // cuối nội dung cuộn xuống footer ghim cố định đáy màn hình. Footer KHÔNG nền,
+    // KHÔNG viền, LUÔN hiện (không mờ khi cuộn). Body DÀI → footer có thêm đổ bóng
+    // ngăn cách với nội dung (updateSummaryFooterShadow bật/tắt bóng theo độ dài).
     html += `
-        <button onclick="startRemedialReview()" class="win11-btn-primary" style="margin-top: 20px; width: 100%; padding: 18px; font-size: 16px; border-radius: 16px; background: #0067c0;">
-            XEM LẠI TOÀN BỘ
-        </button>
-        <button onclick="exitStudySession()" style="margin-top: 15px; width: 100%; padding: 14px; background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: 15px; cursor: pointer; text-transform: uppercase;">
-            Thoát về trang chủ
-        </button>
+        <div id="summaryFooterBar">
+            <button onclick="startRemedialReview()" class="win11-btn-primary" style="width: 100%; padding: 18px; font-size: 16px; border-radius: 16px; background: #0067c0;">
+                XEM LẠI TOÀN BỘ
+            </button>
+            <button onclick="exitStudySession()" style="width: 100%; padding: 14px; background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: 15px; cursor: pointer; text-transform: uppercase;">
+                Thoát về trang chủ
+            </button>
+        </div>
     `;
 
     summaryPage.innerHTML = html;
+    summaryPage.scrollTop = 0; // Màn tổng kết vừa mở → về đỉnh
+    // 🟢 Bật chế độ footer cố định: tăng padding-bottom trang tổng kết để thẻ CUỐI
+    // danh sách cuộn được lên trên footer (không bị 2 hàng nút che khuất)
+    summaryPage.classList.add('summary-footer-mode');
 
     // 🟢 Mặc định active ô "Hổng kiến thức" → hiện "Danh sách cần lưu ý"
     // (Nếu phiên không có thẻ hổng nào → active ô "Thuộc bài" → hiện "Danh sách đã thuộc")
     switchSummaryTab(remedial > 0 ? 'failed' : 'passed');
 }
+
+// 🟢 FOOTER CỐ ĐỊNH — bật/tắt ĐỔ BÓNG ngăn cách theo độ dài nội dung body:
+// body DÀI (nội dung tràn khỏi màn hình, cuộn được) → footer có bóng phía trên;
+// body NGẮN → không bóng. Footer LUÔN hiện, luôn bấm được — KHÔNG mờ khi cuộn.
+// Được gọi cuối switchSummaryTab() mỗi khi danh sách render lại
+// (mở màn tổng kết / đổi tab Thuộc bài-Hổng kiến thức / đóng modal Remedial).
+window.updateSummaryFooterShadow = function () {
+    const page = document.getElementById('boostSummaryPage');
+    const bar = document.getElementById('summaryFooterBar');
+    if (!page || !bar || page.classList.contains('hidden')) return;
+    const isLong = page.scrollHeight > page.clientHeight + 8; // +8 dung sai sub-pixel
+    bar.classList.toggle('summary-footer-shadow', isLong);
+};
 
 // Tab đang được chọn trên màn tổng kết sát hạch ('failed' | 'passed')
 let currentSummaryTab = 'failed';
@@ -33185,6 +33246,9 @@ window.switchSummaryTab = function(tab) {
         listHtml += `</ul>`;
     }
     container.innerHTML = listHtml;
+    // 🟢 FOOTER CỐ ĐỊNH: danh sách vừa render xong → cập nhật bóng ngăn cách
+    // (body dài → footer có bóng; body ngắn → không bóng)
+    if (typeof updateSummaryFooterShadow === 'function') updateSummaryFooterShadow();
 };
 
 // BẮT ĐẦU PHASE 3: REMEDIAL (KHẮC PHỤC) - Hiển thị toàn bộ thẻ qua MODAL FULLSCREEN
@@ -33553,6 +33617,8 @@ function closeRemedialModal() {
     // 🟢 FIX: Show lại màn hình tổng kết (KẾT QUẢ SÁT HẠCH)
     // vì startRemedialReview() đã ẩn boostSummaryPage
     document.getElementById('boostSummaryPage').classList.remove('hidden');
+    // 🟢 FOOTER CỐ ĐỊNH: bóng ngăn cách tự cập nhật trong switchSummaryTab() bên dưới
+    // (danh sách có thể vừa thay đổi sau khi sửa thẻ trong modal)
     // 🟢 Refresh danh sách theo tab đang mở trên trang tổng kết
     // (thẻ có thể vừa được sửa qua "Sửa thẻ trực tiếp" trong modal)
     if (typeof switchSummaryTab === 'function' && typeof currentSummaryTab !== 'undefined') {
