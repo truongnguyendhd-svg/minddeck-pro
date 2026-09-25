@@ -1186,55 +1186,6 @@ END;
 
 
 -- ==========================================
--- HÀM (FUNCTION): sync_user_daily_snapshot
--- Tham số: 
--- Trả về: trigger
--- ==========================================
- DECLARE
-    current_date_str TEXT;
-    last_date_str TEXT;
-    user_profile RECORD;
-    vocab_total INT;
-    grammar_total INT;
-    kanji_total INT;
-BEGIN
-    current_date_str := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date::text;
-
-    SELECT * INTO user_profile FROM profiles WHERE id = NEW.user_id;
-    IF user_profile IS NULL THEN RETURN NEW; END IF;
-
-    IF user_profile.daily_stats IS NULL THEN
-        user_profile.daily_stats := '{}'::jsonb;
-    END IF;
-
-    last_date_str := user_profile.daily_stats->>'last_snapshot_date';
-
-    IF last_date_str IS NULL OR last_date_str != current_date_str THEN
-        SELECT COUNT(*) INTO vocab_total 
-        FROM public.user_vocabulary_mastery
-        WHERE user_id = NEW.user_id;
-
-        SELECT COALESCE(COUNT(*), 0) INTO grammar_total 
-        FROM jsonb_object_keys(user_profile.grammar_mastery);
-
-        SELECT COALESCE(COUNT(*), 0) INTO kanji_total 
-        FROM jsonb_object_keys(user_profile.kanji_mastery);
-
-        UPDATE profiles 
-        SET daily_stats = jsonb_build_object(
-            'last_snapshot_date', current_date_str,
-            'vocab_snapshot', vocab_total,
-            'grammar_snapshot', grammar_total,
-            'kanji_snapshot', kanji_total
-        )
-        WHERE id = NEW.user_id;
-    END IF;
-
-    RETURN NEW;
-END;
- 
-
--- ==========================================
 -- HÀM (FUNCTION): sync_mastery_from_progress
 -- Tham số: 
 -- Trả về: trigger
@@ -1684,10 +1635,9 @@ END;
 -- ==========================================
 -- HÀM (FUNCTION): get_dashboard_init_data
 -- Tham số: p_user_id uuid, p_last_sync_time timestamp with time zone
--- Trả về: json
+-- Trả về: jsonb
 -- ==========================================
-
-DECLARE
+ DECLARE
     v_server_now TIMESTAMPTZ;
     v_due_count INT;
     v_studied_count INT;
@@ -1696,12 +1646,54 @@ DECLARE
     v_mastery_changes JSONB;
     v_deck_stats JSONB;
     v_deck_structure_updated_at TIMESTAMPTZ;
+    v_today_str TEXT;
+    v_last_snap TEXT;
+    v_vocab_total INT;
+    v_grammar_total INT;
+    v_kanji_total INT;
+    v_grammar_map JSONB;
+    v_kanji_map JSONB;
+    v_new_stats JSONB;
 BEGIN
     IF p_user_id IS DISTINCT FROM auth.uid() THEN
         RAISE EXCEPTION 'Unauthorized: p_user_id khong khop auth.uid()';
     END IF;
 
     v_server_now := now();
+
+    SELECT study_goal, daily_stats, deck_structure_updated_at
+      INTO v_study_goal, v_daily_stats, v_deck_structure_updated_at
+    FROM profiles WHERE id = p_user_id;
+
+    -- [FIX CHỐT SỔ ĐẦU NGÀY] Sang ngày mới (giờ VN) → chốt snapshot = tổng hiện tại
+    v_today_str := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date::text;
+    v_last_snap := v_daily_stats->>'last_snapshot_date';
+
+    IF v_daily_stats IS NULL OR v_last_snap IS DISTINCT FROM v_today_str THEN
+        SELECT COUNT(*) INTO v_vocab_total
+        FROM user_vocabulary_mastery
+        WHERE user_id = p_user_id AND ""interval"" > 0;
+
+        SELECT grammar_mastery, kanji_mastery
+          INTO v_grammar_map, v_kanji_map
+        FROM profiles WHERE id = p_user_id;
+
+        SELECT COALESCE(COUNT(*), 0) INTO v_grammar_total
+        FROM jsonb_object_keys(COALESCE(v_grammar_map, '{}'::jsonb));
+
+        SELECT COALESCE(COUNT(*), 0) INTO v_kanji_total
+        FROM jsonb_object_keys(COALESCE(v_kanji_map, '{}'::jsonb));
+
+        v_new_stats := jsonb_build_object(
+            'last_snapshot_date', v_today_str,
+            'vocab_snapshot',    v_vocab_total,
+            'grammar_snapshot',  v_grammar_total,
+            'kanji_snapshot',    v_kanji_total
+        );
+
+        UPDATE profiles SET daily_stats = v_new_stats WHERE id = p_user_id;
+        v_daily_stats := v_new_stats;
+    END IF;
 
     SELECT COUNT(*) INTO v_due_count
     FROM user_vocabulary_mastery
@@ -1714,10 +1706,6 @@ BEGIN
     WHERE user_id = p_user_id
       AND ""interval"" > 0;
 
-    SELECT study_goal, daily_stats, deck_structure_updated_at
-      INTO v_study_goal, v_daily_stats, v_deck_structure_updated_at
-    FROM profiles WHERE id = p_user_id;
-
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
         'type', type, 'key', key,
         'current_val', current_val, 'peak_val', peak_val,
@@ -1726,9 +1714,6 @@ BEGIN
     FROM user_mastery_changes
     WHERE user_id = p_user_id AND updated_at > p_last_sync_time;
 
-    -- ============================================================
-    -- KEY FIX: studied chỉ đếm interval > 0, thêm due_now và status
-    -- ============================================================
     SELECT COALESCE(jsonb_agg(
         jsonb_build_object(
             'id', d.id,
@@ -1771,4 +1756,54 @@ BEGIN
         COALESCE(v_deck_structure_updated_at, '2020-01-01T00:00:00Z'::timestamptz)
     );
 END;
-"
+ 
+
+-- ==========================================
+-- HÀM (FUNCTION): sync_user_daily_snapshot
+-- Tham số: 
+-- Trả về: trigger
+-- ==========================================
+ DECLARE
+    current_date_str TEXT;
+    last_date_str TEXT;
+    user_profile RECORD;
+    vocab_total INT;
+    grammar_total INT;
+    kanji_total INT;
+BEGIN
+    current_date_str := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date::text;
+
+    SELECT * INTO user_profile FROM profiles WHERE id = NEW.user_id;
+    IF user_profile IS NULL THEN RETURN NEW; END IF;
+
+    IF user_profile.daily_stats IS NULL THEN
+        user_profile.daily_stats := '{}'::jsonb;
+    END IF;
+
+    last_date_str := user_profile.daily_stats->>'last_snapshot_date';
+
+    IF last_date_str IS NULL OR last_date_str != current_date_str THEN
+        SELECT COUNT(*) INTO vocab_total
+        FROM public.user_vocabulary_mastery
+        WHERE user_id = NEW.user_id
+          AND ""interval"" > 0;
+
+        SELECT COALESCE(COUNT(*), 0) INTO grammar_total
+        FROM jsonb_object_keys(COALESCE(user_profile.grammar_mastery, '{}'::jsonb));
+
+        SELECT COALESCE(COUNT(*), 0) INTO kanji_total
+        FROM jsonb_object_keys(COALESCE(user_profile.kanji_mastery, '{}'::jsonb));
+
+        UPDATE profiles
+        SET daily_stats = jsonb_build_object(
+            'last_snapshot_date', current_date_str,
+            'vocab_snapshot', vocab_total,
+            'grammar_snapshot', grammar_total,
+            'kanji_snapshot', kanji_total
+        )
+        WHERE id = NEW.user_id;
+    END IF;
+
+    RETURN NEW;
+END;
+ "
