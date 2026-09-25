@@ -35295,7 +35295,16 @@ let currentGeneratedStoryData = null;
 async function generateDailyStoryWithAI() {
     if (!currentUser) return customAlert("Vui lòng đăng nhập!", "⚠️");
 
-    showLoading(`Đang lấy bản tin thời sự Nhật Bản mới nhất và dịch bằng Mistral AI...\nVui lòng đợi 15-20 giây ☕`);
+    /* 🟢 [TASK 11] MỞ MODAL NGAY LẬP TỨC — loading hiển thị TRONG modal, bỏ kiểu
+       overlay toàn màn hình "loading xong mới hiện modal". Dùng chung cho nút
+       "BÀI HỌC HÔM NAY" (dashboard), nút "ĐỔI BÀI KHÁC" và nút hướng dẫn lộ trình:
+       modal bật tức thì với dòng "Đang lấy bài đọc", tải xong mới đổ nội dung vào. */
+    const storyModal = document.getElementById('aiStoryModal');
+    const storyReader = storyModal.querySelector('.dokkai-reader-container');
+    const storyLoadingZone = document.getElementById('storyLoadingZone');
+    storyReader.style.display = 'none';
+    storyLoadingZone.style.display = 'flex';
+    storyModal.style.display = 'flex';
 
     try {
         // Gọi đến API daily-news của Worker để bốc bản tin thời sự thực tế
@@ -35389,11 +35398,24 @@ async function generateDailyStoryWithAI() {
         const dateStr = `${now.getDate()}/${now.getMonth() + 1}`;
         document.getElementById('storyDeckNameInput').value = `Bài đọc Dokkai (${dateStr})`;
 
-        hideLoading();
-        document.getElementById('aiStoryModal').style.display = 'flex';
+        /* 🟢 [TASK 11] Người dùng có thể đã đóng modal trong lúc đang tải → KHÔNG tự
+           mở lại. Ngược lại: tắt vùng loading trong modal, phục hồi nội dung reader. */
+        if (storyModal.style.display !== 'flex') {
+            storyLoadingZone.style.display = 'none';
+            storyReader.style.display = '';
+            return;
+        }
+        storyLoadingZone.style.display = 'none';
+        storyReader.style.display = '';
+        // Cuộn về đầu để bài mới (đặc biệt qua nút "ĐỔI BÀI KHÁC") luôn đọc từ trên xuống
+        storyModal.querySelector('.win11-modal-body').scrollTop = 0;
 
     } catch (err) {
-        hideLoading();
+        /* 🟢 [TASK 11] Lỗi tải → khôi phục trạng thái reader, đóng modal và báo lỗi
+           (không để modal kẹt mãi ở màn hình "Đang lấy bài đọc"). */
+        storyLoadingZone.style.display = 'none';
+        storyReader.style.display = '';
+        closeModal('aiStoryModal');
         console.error("Lỗi khi bốc và phân dịch bài báo:", err);
         customAlert("Không thể thiết lập bài đọc vào lúc này. Vui lòng thử lại sau!", "❌");
     }
@@ -43319,6 +43341,12 @@ function startMiniAssessment(card) {
         
         <!-- Phần nội dung có thể cuộn -->
         <div class="win11-modal-body" style="padding: 0; background: #ffffff; overflow-y: auto; flex: 1; -ms-overflow-style: none; scrollbar-width: none;">
+            <!-- 🟢 [TASK 11] Vùng loading NGAY TRONG MODAL — modal mở tức thì khi bấm
+                 "BÀI HỌC HÔM NAY", hiển thị "Đang lấy bài đọc" cho tới khi tải xong -->
+            <div id="storyLoadingZone" style="display: none; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 90px 20px; min-height: 320px;">
+                <div class="spinner"></div>
+                <div style="font-size: 15px; font-weight: 700; color: #4a5568;">Đang lấy bài đọc</div>
+            </div>
             <div class="dokkai-reader-container" style="padding: 30px 20px;">
                 
                 <!-- 1. Tiêu đề và Văn bản Tiếng Nhật -->
