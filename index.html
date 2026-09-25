@@ -8004,6 +8004,171 @@ body.pdf-mode #pdfReadState {
     color: #718096;
 }
 
+/* ================= VISUAL ZONE: CAY TU VUNG / VONG CUNG NGU PHAP / THANH JLPT KANJI ================= */
+/* The nhiem vu co minh hoa (tree/arcs/bars) xep doc: visual o tren, noi dung checklist o duoi */
+.checklist-item.with-visual {
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+}
+.cl-visual {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+}
+.cl-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    width: 100%;
+    min-width: 0;
+}
+.checklist-item.with-visual .checklist-text { padding-right: 26px; }
+/* Chevron neo day cho the cao co visual (top:50% se la giua bieu do) */
+.checklist-item.with-visual .checklist-action-icon { top: auto !important; bottom: 14px; }
+.checklist-item.with-visual:hover .checklist-action-icon {
+    color: #0067c0 !important;
+    transform: translateX(4px) !important;
+}
+/* --- CAY TU VUNG 5 cap do --- */
+.cl-tree-count {
+    font-size: 16px;
+    font-weight: 900;
+    color: #059669;
+    line-height: 1.15;
+    text-align: center;
+    letter-spacing: 0.2px;
+}
+.cl-tree-count small {
+    display: block;
+    font-size: 9px;
+    font-weight: 700;
+    color: #94a3b8;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    margin-top: 1px;
+}
+.cl-tree {
+    height: 82px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    margin-top: 4px;
+}
+.cl-tree svg {
+    height: 100%;
+    width: auto;
+    overflow: visible;
+    animation: clTreeSway 6s ease-in-out infinite;
+    transform-origin: 50% 95%;
+    filter: drop-shadow(0 3px 4px rgba(0,0,0,0.12));
+}
+@keyframes clTreeSway {
+    0%, 100% { transform: rotate(-1.2deg); }
+    50% { transform: rotate(1.2deg); }
+}
+/* --- VONG CUNG tien do thu thap ngu phap (N5 trong cung -> N1 ngoai cung) --- */
+.cl-arcs {
+    width: 100%;
+    max-width: 185px;
+    margin: 0 auto;
+}
+.cl-arcs svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+.cl-arcs-legend {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 3px 9px;
+    margin-top: 6px;
+}
+.cl-arcs-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #64748b;
+    white-space: nowrap;
+}
+.cl-arcs-legend i {
+    width: 8px;
+    height: 8px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    display: inline-block;
+}
+/* --- THANH TIEN DO JLPT (ban compact cua widget, gan vao module Kanji) --- */
+.cl-kanji-jlpt {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 2px;
+}
+.kj-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.kj-lvl {
+    font-size: 10px;
+    font-weight: 900;
+    width: 24px;
+    flex-shrink: 0;
+}
+.kj-bar {
+    flex: 1;
+    min-width: 0;
+    height: 8px;
+    background: #ede6d9;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+}
+.kj-bar div {
+    height: 100%;
+    transition: width 1s ease;
+}
+.kj-pct {
+    font-size: 9px;
+    font-weight: 800;
+    color: #64748b;
+    width: 32px;
+    text-align: right;
+    flex-shrink: 0;
+}
+.cl-klegend {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 3px 8px;
+    margin-top: 3px;
+    padding: 0 22px 0 0;
+}
+.cl-klegend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    color: #8a8f98;
+    white-space: nowrap;
+}
+.cl-klegend i {
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    flex-shrink: 0;
+    display: inline-block;
+}
+
 .roadmap-empty-state {
     text-align: center;
     padding: 20px;
@@ -34655,19 +34820,151 @@ async function renderRoadmapWidget() {
         const doneGrammarToday = Math.max(0, grammarCount - snapshotGrammar);
         const doneKanjiToday = Math.max(0, kanjiCount - snapshotKanji);
 
-        // 7. HÀM PHỤ TRỢ DỰNG CARD CHECKLIST
-        const buildChecklistItem = (label, targetToday, doneToday, currentTotal, quotaTotal, type, targetLevel) => {
+        // ================= VISUAL MINH HOA CHO 3 THE NHIEM VU =================
+
+        // 7a. CAY TU VUNG — 5 cap do, cang nhieu tu da hoc cay cang lon
+        const buildVocabTreeVisual = (learnedCount, quotaTotal) => {
+            const pct = quotaTotal > 0 ? (learnedCount / quotaTotal) * 100 : 0;
+            let stage = 1;
+            if (pct >= 80) stage = 5;
+            else if (pct >= 60) stage = 4;
+            else if (pct >= 40) stage = 3;
+            else if (pct >= 20) stage = 2;
+            const STAGES = {
+                1: { scale: 0.52, ground: 13, body: '<path d="M60 90 Q59 82 60 74" stroke="#8b5e3c" stroke-width="3" fill="none" stroke-linecap="round"/><ellipse cx="49" cy="72" rx="9.5" ry="4.5" fill="#34d399" transform="rotate(-28 49 72)"/><ellipse cx="71" cy="70" rx="9.5" ry="4.5" fill="#10b981" transform="rotate(28 71 70)"/>' },
+                2: { scale: 0.68, ground: 15, body: '<path d="M60 90 L60 58" stroke="#8b5e3c" stroke-width="4.5" stroke-linecap="round"/><circle cx="60" cy="46" r="15" fill="#10b981"/><circle cx="53" cy="41" r="6" fill="#34d399" opacity="0.85"/>' },
+                3: { scale: 0.82, ground: 17, body: '<path d="M60 90 L60 52" stroke="#8b5e3c" stroke-width="5.5" stroke-linecap="round"/><circle cx="60" cy="37" r="17" fill="#059669"/><circle cx="45" cy="48" r="11" fill="#10b981"/><circle cx="75" cy="48" r="11" fill="#10b981"/><circle cx="54" cy="31" r="6" fill="#34d399" opacity="0.8"/>' },
+                4: { scale: 0.96, ground: 19, body: '<path d="M60 90 L60 44 M60 62 L47 54 M60 62 L73 54" stroke="#8b5e3c" stroke-width="6.5" stroke-linecap="round" fill="none"/><circle cx="60" cy="30" r="19" fill="#059669"/><circle cx="42" cy="42" r="13" fill="#10b981"/><circle cx="78" cy="42" r="13" fill="#10b981"/><circle cx="51" cy="24" r="7" fill="#34d399" opacity="0.8"/>' },
+                5: { scale: 1.08, ground: 21, body: '<path d="M60 90 L60 40 M60 60 L44 50 M60 60 L76 50 M60 48 L51 40" stroke="#7c4f2c" stroke-width="8" stroke-linecap="round" fill="none"/><circle cx="60" cy="27" r="21" fill="#059669"/><circle cx="39" cy="38" r="15" fill="#10b981"/><circle cx="81" cy="38" r="15" fill="#10b981"/><circle cx="49" cy="17" r="7" fill="#34d399" opacity="0.85"/><circle cx="52" cy="33" r="3.2" fill="#ef4444"/><circle cx="68" cy="28" r="3.2" fill="#ef4444"/><circle cx="60" cy="40" r="3.2" fill="#ef4444"/><circle cx="43" cy="42" r="3" fill="#ef4444"/><circle cx="77" cy="44" r="3" fill="#ef4444"/>' }
+            }[stage];
+            return `
+                <div class="cl-tree-count">${(learnedCount || 0).toLocaleString('vi-VN')}<small>Từ đã học</small></div>
+                <div class="cl-tree">
+                    <svg viewBox="0 0 120 100" role="img" aria-label="Cây từ vựng cấp ${stage}/5">
+                        <g transform="translate(60 90) scale(${STAGES.scale}) translate(-60 -90)">
+                            <ellipse cx="60" cy="90" rx="${STAGES.ground}" ry="4.5" fill="#e8dcc3"/>
+                            ${STAGES.body}
+                        </g>
+                    </svg>
+                </div>
+            `;
+        };
+
+        // 7b. VONG CUNG NGU PHAP — tien do thu thap theo cap N5 (trong cung) -> N1 (ngoai cung)
+        const buildGrammarArcsVisual = () => {
+            const ARC_COLORS = { N5: '#10b981', N4: '#f59e0b', N3: '#ea580c', N2: '#3b82f6', N1: '#ef4444' };
+            const ARC_LEVELS = ['N5', 'N4', 'N3', 'N2', 'N1'];
+            const perLevel = {};
+            ARC_LEVELS.forEach(l => perLevel[l] = { collected: 0, total: 0 });
+            (globalGrammarData || []).forEach(g => { if (perLevel[g.level]) perLevel[g.level].total++; });
+            Object.keys(userGrammarMasteryMap || {}).forEach(gp => {
+                const lvl = grammarLevelMap[gp];
+                if (lvl && perLevel[lvl]) perLevel[lvl].collected++;
+            });
+            let totalCollected = 0;
+            let tracks = '', fills = '';
+            ARC_LEVELS.forEach((lvl, i) => {
+                const r = 24 + i * 13.5;
+                const d = `M ${100 - r} 96 A ${r} ${r} 0 0 1 ${100 + r} 96`;
+                tracks += `<path d="${d}" fill="none" stroke="#eae4d8" stroke-width="9"/>`;
+                const L = perLevel[lvl];
+                totalCollected += L.collected;
+                const pct = L.total > 0 ? Math.min(100, (L.collected / L.total) * 100) : 0;
+                fills += `<path d="${d}" fill="none" stroke="${ARC_COLORS[lvl]}" stroke-width="9" stroke-linecap="round" pathLength="100" stroke-dasharray="${pct.toFixed(1)} 100"><title>${lvl}: ${L.collected}/${L.total} ngữ pháp</title></path>`;
+            });
+            const legend = ARC_LEVELS.map(l =>
+                `<span><i style="background:${ARC_COLORS[l]}"></i>${l} ${perLevel[l].collected}/${perLevel[l].total}</span>`
+            ).join('');
+            return `
+                <div class="cl-arcs">
+                    <svg viewBox="0 0 200 100" role="img" aria-label="Tiến độ thu thập ngữ pháp theo cấp JLPT">
+                        ${tracks}
+                        ${fills}
+                        <text x="100" y="88" text-anchor="middle" font-size="13" font-weight="800" fill="#1a1a1a">${totalCollected}</text>
+                        <text x="100" y="95" text-anchor="middle" font-size="7" font-weight="700" fill="#94a3b8" letter-spacing="0.5">THU THẬP</text>
+                    </svg>
+                    <div class="cl-arcs-legend">${legend}</div>
+                </div>
+            `;
+        };
+
+        // 7c. THANH TIEN DO JLPT (ban compact cua widget — gan vao module Kanji)
+        const buildKanjiJLPTVisual = () => {
+            const KJ_COLORS = { N5: '#10b981', N4: '#f59e0b', N3: '#ea580c', N2: '#3b82f6', N1: '#ef4444' };
+            const KJ_LEVELS = ['N5', 'N4', 'N3', 'N2', 'N1'];
+            const raw = {};
+            KJ_LEVELS.forEach(l => raw[l] = { total: 0, sNew: 0, sLearn: 0, sFam: 0, sMaster: 0 });
+            (allKanjiData || []).forEach(k => {
+                const L = raw[k.level];
+                if (!L) return;
+                L.total++;
+                const m = (userKanjiMasteryMap || {})[k.kanji] || 0;
+                if (m > 0) {
+                    if (m <= 6) L.sNew++;
+                    else if (m <= 20) L.sLearn++;
+                    else if (m <= 45) L.sFam++;
+                    else L.sMaster++;
+                }
+            });
+            // Tich luy chuan JLPT: N4 gom N5, N3 gom N5+N4, ... (giong widget Tiến độ JLPT)
+            let acc = { total: 0, sNew: 0, sLearn: 0, sFam: 0, sMaster: 0 };
+            const rows = [];
+            KJ_LEVELS.forEach(l => {
+                acc = {
+                    total: acc.total + raw[l].total,
+                    sNew: acc.sNew + raw[l].sNew,
+                    sLearn: acc.sLearn + raw[l].sLearn,
+                    sFam: acc.sFam + raw[l].sFam,
+                    sMaster: acc.sMaster + raw[l].sMaster
+                };
+                if (acc.total === 0) return;
+                const learned = acc.sNew + acc.sLearn + acc.sFam + acc.sMaster;
+                const pct = Math.round((learned / acc.total) * 100);
+                const pM = (acc.sMaster / acc.total) * 100;
+                const pF = (acc.sFam / acc.total) * 100;
+                const pL = (acc.sLearn / acc.total) * 100;
+                const pN = (acc.sNew / acc.total) * 100;
+                rows.push(`
+                    <div class="kj-row" title="${l}: ${learned} / ${acc.total} chữ kanji">
+                        <span class="kj-lvl" style="color:${KJ_COLORS[l]}">${l}</span>
+                        <div class="kj-bar">
+                            <div style="width:${pM}%; background:#10b981;" title="Thuộc lòng: ${acc.sMaster} chữ"></div>
+                            <div style="width:${pF}%; background:#3b82f6;" title="Khá thuộc: ${acc.sFam} chữ"></div>
+                            <div style="width:${pL}%; background:#f59e0b;" title="Đang nhớ: ${acc.sLearn} chữ"></div>
+                            <div style="width:${pN}%; background:#ef4444;" title="Mới học: ${acc.sNew} chữ"></div>
+                        </div>
+                        <span class="kj-pct">${pct}%</span>
+                    </div>`);
+            });
+            return `
+                <div class="cl-kanji-jlpt">
+                    ${rows.join('')}
+                    <div class="cl-klegend">
+                        <span><i style="background:#10b981"></i>Thuộc lòng</span>
+                        <span><i style="background:#3b82f6"></i>Khá thuộc</span>
+                        <span><i style="background:#f59e0b"></i>Đang nhớ</span>
+                        <span><i style="background:#ef4444"></i>Mới học</span>
+                    </div>
+                </div>
+            `;
+        };
+
+        // 7. HÀM PHỤ TRỢ DỰNG CARD CHECKLIST (thêm vùng visual minh họa phía trên chữ)
+        const buildChecklistItem = (label, targetToday, doneToday, currentTotal, quotaTotal, type, targetLevel, visualHTML = '') => {
             const isDone = (targetToday > 0 && doneToday >= targetToday) || (currentTotal >= quotaTotal);
             return `
-                <div class="checklist-item ${isDone ? 'done' : ''}" onclick="navigateFromRoadmap('${type}', '${targetLevel}')">
-                    <div class="check-icon-box"><span class="material-symbols-outlined" style="font-size: 16px;">check</span></div>
-                    <div class="checklist-text">
-                        <h4>${isDone ? `Hoàn thành mục tiêu ${label}` : `Cần học mới ${targetToday} ${label}`}</h4>
-                        <p style="font-size: 12px; margin-bottom: 2px;">Hôm nay đã nạp: <b style="color: ${isDone ? '#10b981' : '#d97706'};">${doneToday} / ${targetToday}</b></p>
-                        <p style="font-size: 11px; opacity: 0.7;">Tổng kết: ${currentTotal || 0} / ${quotaTotal}</p>
+                <div class="checklist-item ${isDone ? 'done' : ''} ${visualHTML ? 'with-visual' : ''}" onclick="navigateFromRoadmap('${type}', '${targetLevel}')">
+                    ${visualHTML ? `<div class="cl-visual">${visualHTML}</div>` : ''}
+                    <div class="cl-body">
+                        <div class="check-icon-box"><span class="material-symbols-outlined" style="font-size: 16px;">check</span></div>
+                        <div class="checklist-text">
+                            <h4>${isDone ? `Hoàn thành mục tiêu ${label}` : `Cần học mới ${targetToday} ${label}`}</h4>
+                            <p style="font-size: 12px; margin-bottom: 2px;">Hôm nay đã nạp: <b style="color: ${isDone ? '#10b981' : '#d97706'};">${doneToday} / ${targetToday}</b></p>
+                            <p style="font-size: 11px; opacity: 0.7;">Tổng kết: ${currentTotal || 0} / ${quotaTotal}</p>
+                        </div>
                     </div>
                     <!-- Mũi tên chỉ hướng điều hướng của Apple -->
-                    <span class="material-symbols-outlined checklist-action-icon" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: #cbd5e0; transition: 0.2s; font-size: 24px;">chevron_right</span>
+                    <span class="material-symbols-outlined checklist-action-icon" style="position: absolute; right: 12px; ${visualHTML ? 'top: auto; bottom: 14px;' : 'top: 50%; transform: translateY(-50%);'} color: #cbd5e0; transition: 0.2s; font-size: 24px;">chevron_right</span>
                 </div>
             `;
         };
@@ -34702,9 +34999,9 @@ async function renderRoadmapWidget() {
                 <!-- 🟢 Task 14: 3 thẻ nhiệm vụ + card "BÀI HỌC HÔM NAY" nằm CÙNG HÀNG trong grid
                      (grid 4 cột khi có nút; ≤1024px 2 cột 2x2; ≤480px 1 cột) -->
                 <div class="checklist-grid ${hasTodayMission ? 'with-action' : ''}">
-                    ${buildChecklistItem('Từ vựng', targetVocabToday, doneVocabToday, vocabStudiedCount, quota.vocab, 'vocab', goal.level)}
-                    ${buildChecklistItem('Ngữ pháp', targetGrammarToday, doneGrammarToday, grammarCount, quota.grammar, 'grammar', goal.level)}
-                    ${buildChecklistItem('Chữ Kanji', targetKanjiToday, doneKanjiToday, kanjiCount, quota.kanji, 'kanji', goal.level)}
+                    ${buildChecklistItem('Từ vựng', targetVocabToday, doneVocabToday, vocabStudiedCount, quota.vocab, 'vocab', goal.level, buildVocabTreeVisual(vocabStudiedCount, quota.vocab))}
+                    ${buildChecklistItem('Ngữ pháp', targetGrammarToday, doneGrammarToday, grammarCount, quota.grammar, 'grammar', goal.level, buildGrammarArcsVisual())}
+                    ${buildChecklistItem('Chữ Kanji', targetKanjiToday, doneKanjiToday, kanjiCount, quota.kanji, 'kanji', goal.level, buildKanjiJLPTVisual())}
                     ${hasTodayMission ? `
                     <!-- Card nút bài học đọc hiểu Dokkai AI (Daily Story) -->
                     <button onclick="generateDailyStoryWithAI()" class="checklist-action-card" title="Bài học đọc hiểu AI (Daily Story)">
