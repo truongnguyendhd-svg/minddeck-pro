@@ -18830,6 +18830,7 @@ window.startBoostFromSidebar = function() {
     // Lưu lại chế độ đang học
     previousStudyMode = mode;
     sessionStorage.setItem('minddeck_prev_mode', mode);
+    sessionStorage.setItem('minddeck_boost_origin', 'modal'); // [N16] Kết thúc sẽ quay lại modal bẮA đầu học
     // Mở bảng chọn Game (boostIntroModal)
     document.getElementById('boostIntroModal').style.display = 'flex';
 };
@@ -20418,58 +20419,9 @@ function endBoostSession() {
     document.getElementById('boostArea').classList.add('hidden');
     document.getElementById('boostSummaryPage').classList.remove('hidden');
     
-    // 2. Cập nhật Điểm số
-    document.getElementById('sumCorrect').innerText = boostState.correct;
-    document.getElementById('sumWrong').innerText = boostState.wrong;
-    
-    // 3. Render danh sách lịch sử (Đã qua xử lý Parser)
-    const listEl = document.getElementById('boostSummaryList');
-    listEl.innerHTML = '';
-    
-    boostState.history.forEach(item => {
-        // Dùng hàm Parser để bóc tách lại dữ liệu gốc cho sạch đẹp
-        const parsed = parseCardData({
-            front: item.front || "",
-            back: item.back || "",
-            info: item.info || "" // Phòng hờ nếu bạn có push thêm info vào history
-        });
-
-        // Bảo mật chống lỗi hiển thị (XSS)
-        const safeFront = escapeHTML(parsed.front);
-        const safeReading = escapeHTML(parsed.reading);
-        // 🟢 Mỗi nghĩa một dòng trong danh sách tổng kết
-        const safeMeaning = renderMeaningLinesHTML(parsed);
-
-        // Xử lý thông minh: Nếu Front và Reading giống hệt nhau (từ chỉ có Hiragana),
-        // thì ẩn bớt Reading đi cho giao diện đỡ bị lặp chữ.
-        const readingHTML = (safeReading && safeReading !== safeFront) 
-            ? `<span style="background: #edf2f7; color: #4a5568; padding: 3px 6px; border-radius: 6px; font-size: 11px; margin-left: 6px; font-weight: 800; letter-spacing: 0.5px;">${safeReading}</span>` 
-            : '';
-
-        let li = document.createElement('li');
-        // CSS tinh chỉnh để nội dung dài tự động rớt dòng đẹp mắt, icon ✓/✗ luôn cố định bên phải
-        li.style.display = 'flex';
-        li.style.justifyContent = 'space-between';
-        li.style.alignItems = 'center';
-        li.style.gap = '15px';
-
-        li.innerHTML = `
-            <div style="flex: 1; text-align: left; overflow: hidden;">
-                <div style="display: flex; align-items: center; flex-wrap: wrap; margin-bottom: 4px;">
-                    <b style="font-size:17px; color:#1a202c;">${safeFront}</b>
-                    ${readingHTML}
-                </div>
-                <div style="color:#718096; font-size:14px; line-height: 1.4; word-break: break-word;">
-                    ${safeMeaning}
-                </div>
-            </div>
-            
-            <div style="flex-shrink: 0; font-size: 20px; font-weight: 900; color:${item.status === 'correct' ? '#38a169' : '#e53e3e'}; background: ${item.status === 'correct' ? '#f0fff4' : '#fff5f5'}; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 50%;">
-                ${item.status === 'correct' ? '✓' : '✗'}
-            </div>
-        `;
-        listEl.appendChild(li);
-    });
+    // [N16] Trang tổng kết Boost theo đúng thiết kế trang KẾT QUẢ SÁT HẠCH:
+    // 2 khối Đúng/Sai (bấm chuyển tab) + danh sách thẻ + 2 nút Kết thúc / Xem lại toàn bộ
+    renderBoostSummaryPage();
 
     // 4. Bắn pháo hoa chúc mừng
     confetti({ 
@@ -20479,6 +20431,142 @@ function endBoostSession() {
         zIndex: 10000 
     });
 }
+
+// ===== [N16] TRANG TỔNG KẾT BOOST — thiết kế đồng bộ với trang KẾT QUẢ SÁT HẠCH =====
+window.renderBoostSummaryPage = function() {
+    const summaryPage = document.getElementById('boostSummaryPage');
+    if (!summaryPage) return;
+    const correct = boostState.correct || 0;
+    const wrong = boostState.wrong || 0;
+    const total = (boostState.history || []).length;
+
+    let html = `
+        <div class="summary-title" style="color: #15803d;">KẾT QUẢ PHIÊN BOOST</div>
+        <p style="color: #4a5568; font-weight: 600;">Bạn đã hoàn thành phiên Boost ${total} thẻ.</p>
+
+        <div style="display: flex; justify-content: space-between; gap: 15px; margin-top: 20px; margin-bottom: 30px; width: 100%;">
+            <div id="boostTabCorrect" onclick="switchBoostSummaryTab('correct')" style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #c6f6d5; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: transform 0.15s ease;">
+                <h3 style="margin:0; color:#38a169; font-size:28px;">${correct}</h3>
+                <small style="color: #718096; font-weight: 700; text-align: center;">Trả lời đúng</small>
+            </div>
+            <div id="boostTabWrong" onclick="switchBoostSummaryTab('wrong')" style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #fed7d7; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: transform 0.15s ease;">
+                <h3 style="margin:0; color:#e53e3e; font-size:28px;">${wrong}</h3>
+                <small style="color: #718096; font-weight: 700; text-align: center;">Trả lời sai</small>
+            </div>
+        </div>
+        <div id="boostSummaryListContainer"></div>
+    `;
+
+    html += `
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 20px; width: 100%;">
+            <button onclick="exitBoostSummary()" style="background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: clamp(12.5px, 3.6vw, 15px); cursor: pointer; text-transform: uppercase; white-space: nowrap; padding: 14px 5px;">
+                Kết thúc
+            </button>
+            <button onclick="startBoostReview()" style="background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: clamp(12.5px, 3.6vw, 15px); cursor: pointer; text-transform: uppercase; white-space: nowrap; padding: 14px 5px;">
+                Xem lại toàn bộ
+            </button>
+        </div>
+    `;
+
+    summaryPage.innerHTML = html;
+    // Mặc định mở tab Sai (ôn cái sai trước); phiên không sai thẻ nào thì mở tab Đúng
+    switchBoostSummaryTab(wrong > 0 ? 'wrong' : 'correct');
+};
+
+window.switchBoostSummaryTab = function(tab) {
+    const correctTab = document.getElementById('boostTabCorrect');
+    const wrongTab = document.getElementById('boostTabWrong');
+    const container = document.getElementById('boostSummaryListContainer');
+    if (!correctTab || !wrongTab || !container) return;
+
+    const isWrong = (tab === 'wrong');
+    window.currentBoostSummaryTab = isWrong ? 'wrong' : 'correct';
+
+    // Highlight ô đang active: chỉ nhãn chữ đổi màu (giống tab Sát hạch)
+    correctTab.querySelector('small').style.color = isWrong ? '#718096' : '#38a169';
+    wrongTab.querySelector('small').style.color = isWrong ? '#e53e3e' : '#718096';
+
+    const history = boostState.history || [];
+    const wrongCards = history.filter(h => h.status === 'wrong');
+    const correctCards = history.filter(h => h.status === 'correct');
+    // Mảng gộp [Sai..., Đúng...] giống Sát hạch (thẻ sai lên trước) — offset cho click mở đúng thẻ
+    const offset = isWrong ? 0 : wrongCards.length;
+    const cards = isWrong ? wrongCards : correctCards;
+    const borderColor = isWrong ? '#e53e3e' : '#38a169';
+
+    let listHtml = `<div style="text-align:left; font-size:14px; font-weight:800; color:${isWrong ? '#c50f1f' : '#15803d'}; margin-bottom:10px; text-transform:uppercase;">${isWrong ? 'Danh sách trả lời sai:' : 'Danh sách trả lời đúng:'}</div>`;
+
+    if (!cards || cards.length === 0) {
+        listHtml += `<div style="text-align:center; padding: 25px 15px; color:#86868b; background:#fff; border:1px dashed rgba(0,0,0,0.12); border-radius:12px; font-size:14px; font-weight:500;">Không có thẻ nào trong danh sách này.</div>`;
+    } else {
+        listHtml += `<ul class="summary-list assessment-card-list" style="margin-top:0;">`;
+        cards.forEach((c, i) => {
+            listHtml += `
+            <li onclick="startBoostReview(${offset + i})" style="border: 1px solid ${borderColor}; padding: 12px 16px; cursor: pointer;">
+                <div>
+                    <div style="font-weight:800; font-size:16px; color:#1a1a1a;">${escapeHTML(c.front)}</div>
+                    <div style="font-size:13px; color:#718096;">${escapeHTML(c.back).replace(/\n/g, ' - ')}</div>
+                </div>
+            </li>`;
+        });
+        listHtml += `</ul>`;
+    }
+    container.innerHTML = listHtml;
+};
+
+// [N16] "Xem lại toàn bộ" thẻ của phiên Boost qua modal Remedial (giống Sát hạch: thẻ sai lên trước)
+window.startBoostReview = function(startIdx) {
+    const history = boostState.history || [];
+    const wrongCards = history.filter(h => h.status === 'wrong');
+    const correctCards = history.filter(h => h.status === 'correct');
+    const combined = [...wrongCards, ...correctCards]; // Thẻ sai lên trước
+
+    remedialState.allCards = combined;
+    remedialState.cards = combined;
+    remedialState.passedIds = new Set(correctCards.map(c => c.front));
+    remedialState.failedIds = new Set(wrongCards.map(c => c.front));
+    remedialState.index = (typeof startIdx === 'number' && startIdx >= 0 && startIdx < combined.length) ? startIdx : 0;
+    remedialState.filter = 'all';
+    // Cờ [N16]: thẻ history không có id → ẩn "Tùy chọn sửa", không đè sessionCards, không lưu đè file Sát hạch
+    window.__isBoostSummaryReview = true;
+
+    // Ẩn trang tổng kết, mở modal
+    document.getElementById('boostSummaryPage').classList.add('hidden');
+    document.getElementById('boostArea').classList.add('hidden');
+
+    document.getElementById('remedialCardList').style.display = 'none';
+    document.getElementById('btnRemedialProgress').classList.remove('active');
+
+    renderRemedialCard();
+
+    document.body.classList.add('modal-open-lock');
+    document.getElementById('remedialReviewModal').style.display = 'flex';
+};
+
+// [N16] Nút "Kết thúc" trang tổng kết Boost:
+// - Vào boost từ THẶ GAME trên dashboard → quay về DASHBOARD
+// - Vào boost từ MODAL BẮA ĐẦU HỌC → quay lại modal đó (hành vi cũ)
+window.exitBoostSummary = function() {
+    const _origin = sessionStorage.getItem('minddeck_boost_origin');
+    sessionStorage.removeItem('minddeck_boost_origin');
+    if (_origin === 'dashboard') {
+        document.getElementById('boostSummaryPage').classList.add('hidden');
+        document.body.classList.remove('game-fullscreen-mode');
+        const _boostArea = document.getElementById('boostArea');
+        const _studyArea = document.getElementById('studyArea');
+        if (_boostArea) _boostArea.classList.add('hidden');
+        if (_studyArea) _studyArea.classList.remove('hidden');
+        // Restore chế độ học trước đó (đồng bộ returnFromBoostToBasic)
+        mode = sessionStorage.getItem('minddeck_prev_mode') || 'cram';
+        if (mode === 'cram') targetCramLevel = 1;
+        // Giống thoát Sát hạch: xoá currentDeckName để không kích hoạt dọn dụp nháp ngầm khi đổi hash
+        currentDeckName = "";
+        showDashboard();
+        return;
+    }
+    // Mặc định (vào boost từ modal bẮA đầu học / trong mán hình học) → quay lại modal như hành vi cũ
+    returnFromBoostToBasic();
+};
 // ================= CÁC HÀM ĐIỀU KHIỂN TRẮC NGHIỆM =================
 
 
@@ -34448,13 +34536,19 @@ function renderRemedialCard() {
     // 🟢 TASK14: Nút "Tùy chọn sửa" giờ là phần tử tĩnh trên footer —
     // hiện hàng pill + đóng dropdown khi đổi thẻ (không tự reset như nằm trong innerHTML)
     const __remEditRow = document.getElementById('remedialEditPillRow');
-    if (__remEditRow) __remEditRow.style.display = 'flex';
+    // [N16] Xem lại từ tổng kết Boost: ẩn pill "Tùy chọn sửa" (thẻ history không có id để sửa)
+    if (__remEditRow) __remEditRow.style.display = window.__isBoostSummaryReview ? 'none' : 'flex';
     const __remEditDd = document.getElementById('remedialEditDropdown');
     if (__remEditDd) __remEditDd.style.display = 'none';
     
     // Sync sessionCards/currentIndex để openQuickEdit/saveQuickEdit hoạt động đúng
-    sessionCards = remedialState.cards;
-    currentIndex = remedialState.index;
+    // [N16] Đang "Xem lại toàn bộ" từ trang tổng kết Boost → KHÔNG đè sessionCards thật
+    if (window.__isBoostSummaryReview) {
+        // Giữ nguyên sessionCards/currentIndex của phiên để "Kết thúc" quay lại modal đúng dữ liệu
+    } else {
+        sessionCards = remedialState.cards;
+        currentIndex = remedialState.index;
+    }
     
     const parsed = parseCardData(c);
     const cardId = c.id || c.front;
@@ -34735,6 +34829,7 @@ saveQuickEdit = async function() {
 
 // Hàm đóng modal remedial
 function closeRemedialModal() {
+    window.__isBoostSummaryReview = false; // [N16] thoát chế độ "Xem lại toàn bộ" của trang tổng kết Boost
     document.getElementById('remedialReviewModal').style.display = 'none';
     document.getElementById('remedialCardList').style.display = 'none';
     document.getElementById('btnRemedialProgress').classList.remove('active');
@@ -38272,6 +38367,7 @@ window.openStudyOptionsModal = function(deckId, deckName, type) {
         sessionStorage.removeItem('minddeck_pending_boost_game');
         sessionStorage.removeItem('minddeck_pending_boost_name');
         window.hideBoostPendingPill(); // [N14] đã vào game — ẩn pill chờ
+        sessionStorage.setItem('minddeck_boost_origin', 'dashboard'); // [N16] Kết thúc sẽ về dashboard
         if (typeof clearBoostStateFromLocal === 'function') clearBoostStateFromLocal();
         deckToStudyId = deckId;
         pendingModalReturn = { id: deckId, name: deckName, type: type };
