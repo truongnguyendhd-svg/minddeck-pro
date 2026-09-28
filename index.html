@@ -9047,7 +9047,7 @@ body.modal-open-lock {
     position: fixed !important;
     width: 100% !important;
     height: 100dvh !important;
-    top: 0 !important;
+    top: 0; /* [N22] bỏ !important — JS ghim top âm để nền đứng yên khi modal mở */
     left: 0 !important;
 }
 /* ================= TĂNG CỠ CHỮ CHO CÁC VIÊN GẠCH TRONG GAME ================= */
@@ -16635,6 +16635,31 @@ window.__mdRestorePreLockScroll = function() {
     if (y > 0) window.scrollTo(0, y);
 };
 /* ============ HẾT [N21] GIỮ VỊ TRÍ CUỘN TRANG KHI ĐÓNG MODAL ============ */
+
+/* ================= [N22] NỀN SAU MODAL ĐỨNG YÊN KHI MODAL MỞ ================= */
+// Bổ sung cho [N21]: trước đây body.modal-open-lock (position:fixed, top:0) kéo
+// nền mờ sau modal lên đầu trang NGAY LÚC MỞ. Giờ CSS top đã bỏ !important; ta
+// ghim body bằng top âm đúng vị trí cuộn cũ trong microtask MutationObserver
+// (chạy trước paint — không có frame nào kịp hiển thị trạng thái nhảy lên đầu).
+// Khi gỡ khóa chỉ cần dọn top; việc cuộn trả vị trí đã do __mdRestorePreLockScroll
+// (đồng bộ trong closeModal, [N21]) lo, mọi lệnh cuộn chủ đích phía sau vẫn thắng.
+(function() {
+    if (window.__mdFreezeBackground) return; // chống gắn observer 2 lần
+    window.__mdFreezeBackground = true;
+    var mo = new MutationObserver(function() {
+        var locked = document.body.classList.contains('modal-open-lock');
+        var cur = document.body.style.top || '';
+        if (locked) {
+            var y = window.__mdPreLockScrollY || 0;
+            var want = y > 0 ? ('-' + y + 'px') : '';
+            if (cur !== want) document.body.style.top = want;
+        } else if (cur) {
+            document.body.style.top = '';
+        }
+    });
+    mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+})();
+/* ============ HẾT [N22] NỀN SAU MODAL ĐỨNG YÊN KHI MODAL MỞ ============ */
 
 function closeModal(id) { 
     document.getElementById(id).style.display = 'none'; 
