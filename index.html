@@ -16611,6 +16611,31 @@ function showToast(msg) {
         setTimeout(() => t.remove(), 300);
     }, 3000); 
 }
+/* ================= [N21] GIỮ VỊ TRÍ CUỘN TRANG KHI ĐÓNG MODAL ================= */
+// Nguyên nhân: body.modal-open-lock dùng position:fixed nên ngay khi mở modal,
+// trang nền mất vị trí cuộn (documentElement bị kẹp về đầu trang) — đóng modal
+// xong trang đứng ở đầu thay vì chỗ người dùng vừa xem. Cách sửa: ghi nhớ liên
+// tục vị trí cuộn gần nhất khi trang CHƯA bị khóa; ngay khi gỡ khóa (đóng modal
+// cuối cùng) thì cuộn trả về đúng vị trí đó. Việc trả vị trí chạy ĐỒNG BỘ trong
+// closeModal nên các bước điều hướng phía sau của nút bấm (showPage cuộn lên đầu
+// trang mới, hashchange...) vẫn được thực hiện sau cùng và thắng như cũ.
+window.__mdPreLockScrollY = 0;
+window.addEventListener('scroll', function() {
+    // Chỉ ghi nhớ khi trang đang mở khóa. Khi body bị khóa thì scrollY luôn = 0,
+    // tuyệt đối không được ghi đè giá trị đã lưu.
+    if (!document.body.classList.contains('modal-open-lock')) {
+        window.__mdPreLockScrollY = Math.max(0, window.pageYOffset || document.documentElement.scrollTop || 0);
+    }
+}, { passive: true });
+
+// closeModal() gọi hàm này NGAY SAU khi gỡ modal-open-lock (đồng bộ, cùng tác vụ
+// JS) — trước khi kịp có bất kỳ cú cuộn chủ đích nào phía sau chạy tiếp.
+window.__mdRestorePreLockScroll = function() {
+    var y = window.__mdPreLockScrollY || 0;
+    if (y > 0) window.scrollTo(0, y);
+};
+/* ============ HẾT [N21] GIỮ VỊ TRÍ CUỘN TRANG KHI ĐÓNG MODAL ============ */
+
 function closeModal(id) { 
     document.getElementById(id).style.display = 'none'; 
     
@@ -16628,6 +16653,8 @@ function closeModal(id) {
     const isAnyModalOpen = Array.from(document.querySelectorAll('.modal')).some(m => window.getComputedStyle(m).display !== 'none');
     if (!isAnyModalOpen) {
         document.body.classList.remove('modal-open-lock');
+        // 🟢 [N21] Gỡ khóa xong → trả trang về đúng vị trí cuộn trước khi mở modal
+        if (window.__mdRestorePreLockScroll) window.__mdRestorePreLockScroll();
     }
 }
 function customAlert(msg, title = "Thông báo", type = "info", onCloseCallback = null) {
