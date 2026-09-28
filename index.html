@@ -6930,6 +6930,49 @@ body.guest-mode .dash-boost-zone { display: none; }
         line-height: 1.15;
     }
 }
+/* ===== [N14] PILL CHỜ BOOST — vàng nổi đỉnh màn hình khi đang chờ chọn bộ bài ===== */
+#boostPendingPill {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 11000; /* trên nội dung, dưới side-menu (11500) và modal (12000) */
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: calc(100vw - 24px);
+    padding: 9px 10px 9px 16px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    color: #78350f;
+    font-weight: 800;
+    font-size: 13.5px;
+    line-height: 1.2;
+    box-shadow: 0 8px 22px rgba(245, 158, 11, 0.45), 0 2px 6px rgba(0, 0, 0, 0.18);
+    border: 1.5px solid rgba(255, 255, 255, 0.55);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+#boostPendingPill.bpp-hidden { opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(-16px); }
+#boostPendingPill .bpp-spin { font-size: 20px; animation: bppSpin 1.1s linear infinite; }
+@keyframes bppSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+#boostPendingPill .bpp-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#boostPendingPill .bpp-cancel {
+    display: flex; align-items: center; gap: 4px;
+    border: none; cursor: pointer;
+    background: #78350f; color: #fde68a;
+    border-radius: 999px; padding: 5px 12px;
+    font-weight: 800; font-size: 12px;
+    font-family: inherit;
+    transition: background 0.15s ease;
+}
+#boostPendingPill .bpp-cancel:hover { background: #92400e; }
+#boostPendingPill .bpp-cancel .material-symbols-outlined { font-size: 14px; }
+@media (max-width: 480px) {
+    #boostPendingPill { top: 10px; font-size: 12px; gap: 8px; padding: 7px 7px 7px 12px; }
+    #boostPendingPill .bpp-spin { font-size: 17px; }
+    #boostPendingPill .bpp-cancel-label { display: none; } /* mobile: chỉ icon X cho gọn */
+    #boostPendingPill .bpp-cancel { padding: 5px 7px; }
+}
 /* ================= CSS CHO GAMIFIED SRS ================= */
 /* Khung hiển thị điểm vi phạm (Penalty) */
 .penalty-tracker {
@@ -13859,6 +13902,16 @@ body.grammar-searching #headerGrammarSearch {
 </div>
 
 
+<!-- [N14] PILL CHỜ BOOST: hiện khi user đã bấm thẻ game trên dashboard, đang chờ chọn bộ bài -->
+<div id="boostPendingPill" class="bpp-hidden">
+    <span class="material-symbols-outlined bpp-spin">progress_activity</span>
+    <span class="bpp-text" id="boostPendingText">Chờ chọn bộ bài</span>
+    <button class="bpp-cancel" onclick="cancelBoostPending()" title="Hủy — không mở Boost nữa">
+        <span class="material-symbols-outlined">close</span>
+        <span class="bpp-cancel-label">Hủy</span>
+    </button>
+</div>
+
 <!-- MODAL GIỚI THIỆU BOOST MODE (APPLE GLASSMORPHISM & CARD GRID) -->
 <div id="boostIntroModal" class="modal" style="z-index: 12000;">
     <div class="modal-content glass-modal-container" style="max-width: 550px; width: 92%; overflow: hidden;">
@@ -18802,9 +18855,34 @@ window.dashBoostLaunch = function(gameId, gameName) {
     // B. NHỚ GAME, DẪN USER CHỌN BỘ BÀI — áp dụng MỖI LẦN bấm thẻ game trên dashboard
     sessionStorage.setItem('minddeck_pending_boost_game', gameId);
     sessionStorage.setItem('minddeck_pending_boost_name', gameName || 'Boost');
+    window.showBoostPendingPill(gameName || 'Boost'); // [N14] pill vàng chờ chọn bộ bài
     showToast('📂 Chọn bộ bài để chơi ' + (gameName || 'game') + ' nhé!');
     showHome();
 };
+
+// ===== [N14] PILL CHỜ BOOST — hiện/hủy pill vàng trên đỉnh màn hình =====
+window.showBoostPendingPill = function(gameName) {
+    const pill = document.getElementById('boostPendingPill');
+    if (!pill) return;
+    document.getElementById('boostPendingText').textContent = 'Đang chờ chọn bộ bài: ' + (gameName || 'Boost');
+    pill.classList.remove('bpp-hidden');
+};
+window.hideBoostPendingPill = function() {
+    const pill = document.getElementById('boostPendingPill');
+    if (pill) pill.classList.add('bpp-hidden');
+};
+window.cancelBoostPending = function() {
+    sessionStorage.removeItem('minddeck_pending_boost_game');
+    sessionStorage.removeItem('minddeck_pending_boost_name');
+    window.hideBoostPendingPill();
+    showToast('Đã hủy Boost — bộ bài mở ra sẽ học bình thường');
+};
+// F5 trong lúc chờ → hiện lại pill (sessionStorage còn game chờ)
+document.addEventListener('DOMContentLoaded', () => {
+    if (sessionStorage.getItem('minddeck_pending_boost_game')) {
+        window.showBoostPendingPill(sessionStorage.getItem('minddeck_pending_boost_name'));
+    }
+});
 
 // 🟢 Hàm bridge: Nút Liên hoàn từ sidebar → đóng modal, vào cram mode
 window.startRemedialFromSidebar = function() {
@@ -38191,6 +38269,7 @@ window.openStudyOptionsModal = function(deckId, deckName, type) {
     if (_pendingGame) {
         sessionStorage.removeItem('minddeck_pending_boost_game');
         sessionStorage.removeItem('minddeck_pending_boost_name');
+        window.hideBoostPendingPill(); // [N14] đã vào game — ẩn pill chờ
         if (typeof clearBoostStateFromLocal === 'function') clearBoostStateFromLocal();
         deckToStudyId = deckId;
         pendingModalReturn = { id: deckId, name: deckName, type: type };
