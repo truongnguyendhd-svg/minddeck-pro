@@ -9687,6 +9687,17 @@ body.modal-open-lock {
 #roadmapGuideModal .rg-btn-outline:hover { background: #f3f4f6; }
 /* [N30] Hết modal lộ trình thiết kế vuông */
 
+/* ================= [N32] VÒNG SÁNG DẪN ĐƯỜNG — KHỐI HỌC THEO CHỦ ĐỀ ================= */
+/* Nút "HỌC THEO CHỦ ĐỀ" (Cách 2) trong modal Mục tiêu Từ vựng trên widget Lộ trình:
+   app mở trang Kho học phần, cuộn tới khối "Học theo chủ đề" và phát vòng sáng xanh
+   2 nhịp giúp học viên định vị khối ngay. Chỉ kích hoạt khi class rg-theme-focus
+   được gắn tạm thời (3.2s) — không đụng trạng thái tĩnh của khối. */
+@keyframes rgThemeFocusPulse {
+    0%, 100% { box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 0 rgba(59, 130, 246, 0); }
+    50% { box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 8px rgba(59, 130, 246, 0.55); }
+}
+.apple-store-ai-card.rg-theme-focus { animation: rgThemeFocusPulse 1.6s ease-in-out 2; }
+
 /* Khối Hero (Trộn ngẫu nhiên) - Đổi sang Đen nhám Apple Pro */
 .glass-hero-card {
     background: linear-gradient(135deg, #1d1d1f 0%, #333336 100%); /* Đen nhám Apple */
@@ -36815,10 +36826,11 @@ window.navigateFromRoadmap = function(type, level) {
            tự áp filter cấp level khi mở trang. */
         contentHtml = `
             <div style="margin-bottom: 15px;">
-                Để hoàn thành <b>Mục tiêu Từ vựng</b> hôm nay, bạn có thể thực hiện theo cách sau để tích lũy thêm từ mới:
+                Để hoàn thành <b>Mục tiêu Từ vựng</b> hôm nay, bạn có thể thực hiện theo một trong hai cách sau để tích lũy thêm từ mới:
             </div>
             <ul style="padding-left: 20px; margin: 0 0 20px 0;">
                 <li style="margin-bottom: 10px;"><b>Cách 1:</b> Vào <b>Bộ sưu tập Kanji</b> (đã lọc sẵn cấp <b>${level}</b>), chọn một chữ Kanji bất kỳ, nhấn <b>Phân tích Kanji (X-Ray)</b> để mở bảng phân tích chi tiết, sau đó dùng nút lưu trong bảng X-Ray để đưa bộ từ ghép và câu ví dụ vào học phần cá nhân của bạn.</li>
+                <li style="margin-bottom: 10px;"><b>Cách 2:</b> Vào <b>Kho học phần</b>, mục <b>Học theo chủ đề</b> (giáo trình đã lọc sẵn cấp <b>${level}</b>), chọn một chủ đề hoặc bộ giáo trình, nhấn <b>LƯU</b> để nạp bộ bài vào kho của bạn, sau đó học bộ bài đó bằng <b>Học cơ bản</b> hoặc <b>Ôn tập SRS</b>.</li>
             </ul>
             <div style="background: #fdf3f4; border-left: 3px solid #ef4444; padding: 12px; border-radius: 0; font-size: 13px; color: #991b1b; font-weight: 600; line-height: 1.5;">
                 💡 Lưu ý: Sau khi nạp thẻ mới, bạn cần học các thẻ đó ít nhất 1 lần (bằng Học cơ bản hoặc Ôn tập SRS) để hệ thống ghi nhận tiến trình vào chỉ tiêu hôm nay.
@@ -36828,6 +36840,9 @@ window.navigateFromRoadmap = function(type, level) {
         actionsHtml = `
             <button onclick="closeModal('roadmapGuideModal'); showKanjiCollectionWithLevel('${level}')" class="rg-btn rg-btn-outline">
                 <span class="material-symbols-outlined" style="font-size: 20px; color: #f59e0b;">workspace_premium</span> BỘ SƯU TẬP KANJI (${level})
+            </button>
+            <button onclick="closeModal('roadmapGuideModal'); showHomeThematicSection('${level}')" class="rg-btn rg-btn-green">
+                <span class="material-symbols-outlined">bolt</span> HỌC THEO CHỦ ĐỀ (${level})
             </button>
         `;
     } else if (type === 'grammar') {
@@ -36928,6 +36943,29 @@ window.showGrammarVaultWithLevel = function(level) {
     setTimeout(() => {
         loadGrammarData(level);
     }, 400);
+};
+
+window.showHomeThematicSection = function(level) {
+    /* [N32] Deep-link "Cách 2" của modal Mục tiêu Từ vựng trên widget Lộ trình:
+       mở trang Kho học phần, áp sẵn bộ lọc giáo trình đúng cấp JLPT của mục tiêu
+       (renderThematicTagCloud đọc window.currentCurriculumFilter ngay khi vẽ đám
+       mây chủ đề), cuộn tới khối "Học theo chủ đề" và phát vòng sáng dẫn đường
+       rg-theme-focus trong 3.2s để học viên định vị khối ngay lập tức. */
+    const lv = String(level || 'ALL').toUpperCase().trim();
+    if (/^N[1-5]$/.test(lv)) window.currentCurriculumFilter = lv;
+    if (window.location.hash === '#home') {
+        /* Đang ở Kho học phần → chỉ áp bộ lọc giáo trình rồi vẽ lại đám mây chủ đề */
+        if (window.renderThematicTagCloud) renderThematicTagCloud();
+    } else {
+        showHome();
+    }
+    setTimeout(() => {
+        const card = document.querySelector('#learnMenu .apple-store-ai-card');
+        if (!card) return;
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.add('rg-theme-focus');
+        setTimeout(() => card.classList.remove('rg-theme-focus'), 3200);
+    }, 700);
 };
 /*Hết ================= HÀM ĐIỀU HƯỚNG NHIỆM VỤ JLPT (DEEP LINKS) ================= */
 /* ================= HÀM XỬ LÝ SỬA/XÓA TOÀN BỘ KANJI (DÀNH CHO ADMIN) ================= */
