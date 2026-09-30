@@ -36439,15 +36439,57 @@ function exitStudySession() {
         // Goi server lay stats moi nhat truoc khi ve trang chu
         try {
             if (currentUser) {
+                /* [N43] LỖI CŨ: RPC gọi với mốc 2020 (kéo TOÀN BỘ mastery_changes mỗi
+                   lần thoát học) nhưng chỉ áp deck_stats rồi tắt forceDashboardRefresh
+                   — vứt mastery_changes → về dashboard, cửa sync 15 phút + cờ đã tắt
+                   → bỏ qua delta sync → userGrammarMasteryMap trong RAM CŨ → widget
+                   Lộ trình KHÔNG tính ngữ pháp vừa ôn (phải chờ 15 phút / F5 / login
+                   lại mới hết). Giờ: truyền mốc delta THẬT + áp mastery_changes + 2
+                   số liệu nhanh + cache xuống ổ (đủ ý như loadDashboardData) →
+                   widgets cập nhật NGAY sau khi ôn xong. */
+                let _exitSyncTime = localStorage.getItem(`minddeck_delta_sync_time_${currentUser.id}`);
+                if (_exitSyncTime) {
+                    let _safeDate = _exitSyncTime.trim().replace(' ', 'T');
+                    if (_safeDate.endsWith('+00')) _safeDate = _safeDate.replace('+00', 'Z');
+                    const _parsedDate = new Date(_safeDate);
+                    _exitSyncTime = isNaN(_parsedDate.getTime()) ? '2020-01-01T00:00:00.000Z' : _parsedDate.toISOString();
+                }
+                if (!_exitSyncTime) _exitSyncTime = '2020-01-01T00:00:00.000Z';
                 const { data } = await sb.rpc('get_dashboard_init_data', {
                     p_user_id: currentUser.id,
-                    p_last_sync_time: '2020-01-01T00:00:00.000Z'
+                    p_last_sync_time: _exitSyncTime
                 });
-                if (data && data.deck_stats) {
-                    globalDeckStatsMap = {};
-                    data.deck_stats.forEach(stat => {
-                        globalDeckStatsMap[stat.id] = stat;
-                    });
+                if (data) {
+                    const _deltas = data.mastery_changes;
+                    if (_deltas && _deltas.length > 0) {
+                        if (!currentUser.kanji_peaks) currentUser.kanji_peaks = {};
+                        if (!currentUser.grammar_peaks) currentUser.grammar_peaks = {};
+                        _deltas.forEach(d => {
+                            if (d.type === 'kanji') {
+                                if (d.current_val === 0) delete userKanjiMasteryMap[d.key];
+                                else userKanjiMasteryMap[d.key] = d.current_val;
+                                currentUser.kanji_peaks[d.key] = d.peak_val;
+                            } else if (d.type === 'grammar') {
+                                if (d.current_val === 0) delete userGrammarMasteryMap[d.key];
+                                else userGrammarMasteryMap[d.key] = d.current_val;
+                                currentUser.grammar_peaks[d.key] = d.peak_val;
+                            }
+                        });
+                    }
+                    currentUser.study_goal = data.study_goal;
+                    currentUser.daily_stats = data.daily_stats;
+                    if (data.deck_stats) {
+                        globalDeckStatsMap = {};
+                        data.deck_stats.forEach(stat => {
+                            globalDeckStatsMap[stat.id] = stat;
+                        });
+                    }
+                    cachedDueCount = data.due_count || 0;
+                    cachedVocabStudiedCount = data.studied_count || 0;
+                    try { localStorage.setItem(`minddeck_dash_counts_${currentUser.id}`, JSON.stringify({ due: cachedDueCount, studied: cachedVocabStudiedCount })); } catch (e) {}
+                    try { saveAllToLocalStorage(currentUser.id); } catch (e) {}
+                    localStorage.setItem(`minddeck_delta_sync_time_${currentUser.id}`, data.server_now);
+                    sessionStorage.setItem(`minddeck_dash_sync_${currentUser.id}`, Date.now().toString());
                     forceDashboardRefresh = false;
                 }
             }
@@ -36687,13 +36729,20 @@ function showDuplicateAlert(dupeCheckResult) {
 }
 /* ================= HỆ THỐNG LỘ TRÌNH ĐẾM NGƯỢC JLPT ================= */
 
-// Quota tiêu chuẩn (Hạn mức lượng kiến thức cần đạt của từng level)
+/* [N43] QUOTA THEO TỪ ĐIỂN THẬT CỦA APP (fallback khi dict chưa nạp — runtime
+   renderRoadmapWidget còn tính lại ĐỘNG): grammar_dict hiện 802 cấu trúc
+   (N5 136 + N4 123 + N3 117 + N2 184 + N1 242 → lũy kế 136/259/376/560/802),
+   kanji_builder 1000 chữ (51/119/282/187/360 → lũy kế 51/170/452/639/999).
+   Quota curriculum cũ (ngữ pháp 60→300, kanji 100→2000) lệch hoàn toàn với
+   Bộ sưu tập app nên widget Lộ trình không bao giờ khớp tổng N5+N4+N3+N2+N1
+   mà người dùng đối chiếu. Từ vựng giữ quota curriculum JLPT (vocab không có
+   tổng bộ sưu tập cố định — đếm từ người dùng tự học qua SRS). */
 const JLPT_QUOTA = {
-    'N5': { vocab: 800, grammar: 60, kanji: 100 },
-    'N4': { vocab: 1500, grammar: 100, kanji: 300 },
-    'N3': { vocab: 3000, grammar: 150, kanji: 650 },
-    'N2': { vocab: 6000, grammar: 200, kanji: 1000 },
-    'N1': { vocab: 10000, grammar: 300, kanji: 2000 }
+    'N5': { vocab: 800, grammar: 136, kanji: 51 },
+    'N4': { vocab: 1500, grammar: 259, kanji: 170 },
+    'N3': { vocab: 3000, grammar: 376, kanji: 452 },
+    'N2': { vocab: 6000, grammar: 560, kanji: 639 },
+    'N1': { vocab: 10000, grammar: 802, kanji: 999 }
 };
 
 // Hàm tính ngày thi JLPT (Chủ nhật đầu tiên của tháng 7 hoặc 12)
@@ -36874,6 +36923,17 @@ async function renderRoadmapWidget() {
             if (lvl && validLevels.has(lvl)) kanjiCount++;
         });
 
+        /* [N43] QUOTA ĐỘNG = tổng cấu trúc/chữ THẬT N5→goal.level trong từ điển đã nạp:
+           mục tiêu N1 phải bằng N5+N4+N3+N2+N1 đúng như Bộ sưu tập đang xem (khớp
+           vòng cung + BST); từ điển chưa nạp (dashboard lần đầu, offline) → fallback
+           JLPT_QUOTA đã cập nhật số thật ở trên. Từ vựng giữ quota curriculum. */
+        const grammarQuota = (globalGrammarData && globalGrammarData.length > 0)
+            ? globalGrammarData.filter(g => validLevels.has(g.level)).length
+            : quota.grammar;
+        const kanjiQuota = (allKanjiData && allKanjiData.length > 0)
+            ? allKanjiData.filter(k => validLevels.has(k.level)).length
+            : quota.kanji;
+
         // 4. XỬ LÝ QUY HOẠCH CHỐT SỔ TỪ CLOUD (daily_stats)
         const stats = currentUser.daily_stats || {};
         
@@ -36910,13 +36970,29 @@ async function renderRoadmapWidget() {
         // Đọc snapshot (server đã chốt sổ ở trên hoặc từ lần gọi trước)
         const _s = currentUser.daily_stats || {};
         let snapshotVocab = _s.vocab_snapshot || 0;
-        let snapshotGrammar = _s.grammar_snapshot || 0;
-        let snapshotKanji = _s.kanji_snapshot || 0;
+        /* [N43] SNAPSHOT THEO ĐÚNG BỘ LỌC CẤP MỤC TIÊU (client-side): server chốt
+           grammar_snapshot/kanji_snapshot bằng đếm THÔ mọi key của mastery, trong
+           khi grammarCount/kanjiCount phía trên chỉ đếm N5→goal.level (và bỏ key
+           không tra được level) → chỉ cần có ngữ pháp trên cấp mục tiêu là
+           done = max(0, lọc − thô) bị kẹt 0 vĩnh viễn dù có học mới trong ngày.
+           Chốt mốc MỚI theo đúng bộ lọc: đầu ngày mới HOẶC đổi cấp mục tiêu →
+           snapshot = tổng hiện tại (RAM đã sync); các lần render sau trong ngày
+           giữ nguyên mốc → "Hôm nay đã nạp" phản ánh đúng số mới kích hoạt. */
+        const goalSnapKey = `minddeck_goal_snap_${currentUser.id}`;
+        let goalSnap = null;
+        try { goalSnap = JSON.parse(localStorage.getItem(goalSnapKey) || 'null'); } catch (e) { goalSnap = null; }
+        if (!goalSnap || goalSnap.date !== todayStr || goalSnap.level !== goal.level) {
+            goalSnap = { date: todayStr, level: goal.level, grammar: grammarCount, kanji: kanjiCount };
+            try { localStorage.setItem(goalSnapKey, JSON.stringify(goalSnap)); } catch (e) {}
+        }
+        let snapshotGrammar = goalSnap.grammar;
+        let snapshotKanji = goalSnap.kanji;
 
         // 5. TÍNH MỤC TIÊU HÔM NAY (Mục tiêu = Lượng còn thiếu / Số ngày còn lại)
         const targetVocabToday = Math.max(0, Math.ceil((quota.vocab - snapshotVocab) / daysLeft));
-        const targetGrammarToday = Math.max(0, Math.ceil((quota.grammar - snapshotGrammar) / daysLeft));
-        const targetKanjiToday = Math.max(0, Math.ceil((quota.kanji - snapshotKanji) / daysLeft));
+        // [N43] grammar/kanji dùng quota ĐỘNG theo dict thật (xem khối [N43] phía trên)
+        const targetGrammarToday = Math.max(0, Math.ceil((grammarQuota - snapshotGrammar) / daysLeft));
+        const targetKanjiToday = Math.max(0, Math.ceil((kanjiQuota - snapshotKanji) / daysLeft));
 
         // 6. TÍNH SỐ LƯỢNG ĐÃ HOÀN THÀNH TRONG NGÀY (Thực tế hiện tại - Mốc chốt sổ)
         const doneVocabToday = Math.max(0, (vocabStudiedCount || 0) - snapshotVocab);
@@ -37095,8 +37171,8 @@ async function renderRoadmapWidget() {
                      (grid 4 cột khi có nút; ≤1024px 2 cột 2x2; ≤480px 1 cột) -->
                 <div class="checklist-grid ${hasTodayMission ? 'with-action' : ''}">
                     ${buildChecklistItem('Từ vựng', targetVocabToday, doneVocabToday, vocabStudiedCount, quota.vocab, 'vocab', goal.level, buildVocabTreeVisual(vocabStudiedCount, quota.vocab))}
-                    ${buildChecklistItem('Ngữ pháp', targetGrammarToday, doneGrammarToday, grammarCount, quota.grammar, 'grammar', goal.level, buildGrammarArcsVisual())}
-                    ${buildChecklistItem('Chữ Kanji', targetKanjiToday, doneKanjiToday, kanjiCount, quota.kanji, 'kanji', goal.level, buildKanjiJLPTVisual())}
+                    ${buildChecklistItem('Ngữ pháp', targetGrammarToday, doneGrammarToday, grammarCount, grammarQuota, 'grammar', goal.level, buildGrammarArcsVisual())}
+                    ${buildChecklistItem('Chữ Kanji', targetKanjiToday, doneKanjiToday, kanjiCount, kanjiQuota, 'kanji', goal.level, buildKanjiJLPTVisual())}
                     ${hasTodayMission ? `
                     <!-- Card nút bài học đọc hiểu Dokkai AI (Daily Story) -->
                     <button onclick="generateDailyStoryWithAI()" class="checklist-action-card" title="Bài học đọc hiểu AI (Daily Story)">
@@ -37597,11 +37673,11 @@ window.navigateFromRoadmap = function(type, level) {
                 Để hoàn thành <b>Mục tiêu Ngữ pháp</b> hôm nay, bạn hãy tích lũy thêm các cấu trúc ngữ pháp thuộc trình độ <b>${level}</b>:
             </div>
             <ul style="padding-left: 20px; margin: 0 0 20px 0;">
-                <li style="margin-bottom: 10px;"><b>Cách 1:</b> Vào trang <b>Bộ sưu tập Ngữ pháp</b> (đã lọc sẵn <b>${level}</b>), chọn một cấu trúc và nhấn <b>"Tạo Flashcard"</b> để đưa cấu trúc đó cùng câu ví dụ vào học phần của bạn.</li>
+                <li style="margin-bottom: 10px;"><b>Cách 1:</b> Vào trang <b>Bộ sưu tập Ngữ pháp</b> (đã lọc sẵn <b>${level}</b>), chọn một cấu trúc và nhấn <b>"Tạo Flashcard"</b> để đưa cấu trúc đó cùng câu ví dụ vào học phần của bạn. Sau đó vào học phần và ôn thẻ bằng chế độ <b>SRS Review</b> — lần ôn đầu tiên sẽ kích hoạt điểm mục tiêu cho cấu trúc đó.</li>
                 <li style="margin-bottom: 10px;"><b>Cách 2:</b> Nhấn thẻ <b>"BÀI HỌC HÔM NAY (Đọc hiểu AI Dokkai)"</b> ngay trong khối <b>Nhiệm vụ hôm nay</b> của widget Lộ trình, vượt qua thử thách đọc hiểu để hệ thống tự động bóc tách và lưu các mẫu ngữ pháp trong bài.</li>
             </ul>
             <div style="background: #fdf3f4; border-left: 3px solid #ef4444; padding: 12px; border-radius: 0; font-size: 13px; color: #991b1b; font-weight: 600; line-height: 1.5;">
-                💡 Lưu ý: Hệ thống tính điểm dựa trên số lượng ngữ pháp mới mà bạn thu thập và lưu vào kho thẻ học cá nhân của mình trong ngày hôm nay.
+                💡 [N43] Lưu ý: Hệ thống tính điểm cho các cấu trúc được KÍCH HOẠT trong ngày hôm nay — cấu trúc phải có thẻ trong học phần và bạn ôn thẻ ở chế độ SRS lần đầu (Interval SRS chuyển từ 0 lên lớn hơn 0, giống logic Chữ Kanji). Chỉ tạo thẻ mà chưa ôn SRS thì CHƯA tính điểm; ôn lại cấu trúc đã thuộc từ hôm trước cũng không tính lại điểm trong ngày.
             </div>
         `;
         actionsHtml = `
