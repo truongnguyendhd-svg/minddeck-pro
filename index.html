@@ -8033,6 +8033,71 @@ body.guest-mode .dash-games-split { grid-template-columns: minmax(0, 1fr); }
 .info-bottom-sheet .ex-btn-test:hover {
     color: #ca8a04 !important;
 }
+/* ===== 🧩 TEST XẾP MẢNH GHÉP (scramble) TRONG KHỐI VÍ DỤ ===== */
+/* Khung xếp (drop zone): nền xám nhạt, viền nét đứt — cần nhìn rõ mục tiêu
+   ngay cả khi rỗng (min-height 56px) */
+.ex-scramble-zone {
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    min-height: 56px; padding: 10px 12px; margin-bottom: 10px;
+    background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: 12px;
+    box-sizing: border-box; transition: background 0.2s ease, border-color 0.2s ease;
+}
+.ex-scramble-zone:empty { opacity: 0.65; }
+.ex-scramble-zone.drag-over { background: #eef4ff; border-color: #93b8f8; }
+/* Rổ mảnh ghép (pool) */
+.ex-scramble-pool {
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    padding: 2px 0 4px 0; min-height: 44px;
+}
+.ex-scramble-pool:empty { display: none; }
+/* Mảnh ghép: đồng bộ cỡ chữ với câu JP của khối test (24px / 22px mobile) */
+.ex-scramble-piece {
+    padding: 8px 14px; background: #ffffff; border: 1px solid #cbd5e0; border-radius: 10px;
+    font-family: 'Noto Sans JP', sans-serif; font-weight: 500; font-size: 24px; line-height: 1.3;
+    cursor: grab; user-select: none; -webkit-user-select: none;
+    transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, color 0.2s ease;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+.ex-scramble-piece:hover { border-color: #3498db; box-shadow: 0 3px 10px rgba(52, 152, 219, 0.18); }
+.ex-scramble-piece:active { transform: scale(0.96); }
+.ex-scramble-piece.dragging { opacity: 0.4; transform: scale(0.95); }
+/* Mảnh khi hoàn thành đúng: xanh lá, khoá */
+.ex-scramble-piece.scramble-solved {
+    background: #f0fdf4; border-color: #86efac; color: #166534;
+    cursor: default; box-shadow: none;
+}
+/* Mảnh sai vị trí: đỏ + rung nhẹ */
+.ex-scramble-piece.wrong-pos {
+    background: #fef2f2; border-color: #dc2626; color: #dc2626;
+    animation: exScrambleShake 0.4s ease;
+}
+@keyframes exScrambleShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-4px); }
+    50% { transform: translateX(4px); }
+    75% { transform: translateX(-3px); }
+}
+/* Dòng hướng dẫn dưới rổ mảnh */
+.ex-scramble-note {
+    font-size: 12px; color: #86868b; text-align: center; margin-top: 2px; font-weight: 500;
+}
+/* Hàng nút Gợi ý + Làm lại — cùng layout .ex-test-inline-actions */
+.ex-scramble-actions { display: flex; align-items: center; gap: 8px; }
+/* Mobile: co mảnh ghép + nút giống rule .ex-test-inline-actions của test gõ */
+@media (max-width: 600px) {
+    .example-sentence-block .ex-scramble-piece { font-size: 22px !important; padding: 6px 12px !important; }
+}
+.memory-test-block .ex-scramble-actions { gap: 6px !important; }
+.memory-test-block .ex-scramble-actions button { padding: 6px 10px !important; font-size: 11px !important; }
+.memory-test-block .ex-scramble-actions button .material-symbols-outlined { font-size: 14px !important; }
+/* Dark mode (thẻ tối) */
+.main-card-display.dark-card-mode .ex-scramble-zone { background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.25); }
+.main-card-display.dark-card-mode .ex-scramble-piece { background: #334155; border-color: #475569; color: #f1f5f9; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }
+.main-card-display.dark-card-mode .ex-scramble-piece:hover { border-color: #60a5fa; }
+.main-card-display.dark-card-mode .ex-scramble-piece.scramble-solved { background: rgba(34, 197, 94, 0.15); border-color: #22c55e; color: #86efac; }
+.main-card-display.dark-card-mode .ex-scramble-piece.wrong-pos { background: rgba(239, 68, 68, 0.15); border-color: #ef4444; color: #fca5a5; }
+.main-card-display.dark-card-mode .ex-scramble-note { color: #94a3b8; }
+
 /* CLOSE TEST ngoài khối ví dụ: chữ đen gạch chân */
 .ex-close-test-outside {
     background: transparent;
@@ -40055,13 +40120,25 @@ function requestStudyCardNavigation(targetIndex, opts) {
 
     // Lưu mục tiêu điều hướng + TỰ ĐỘNG vào màn hình test trí nhớ câu ví dụ
     window.__studyNavGate = { targetIndex, syncAllCards, cardId: cur.id, timer: null, passed: false };
-    startMemoryTest(
-        document.getElementById('btn-test-' + cur.id + '-' + gateExIndex),
-        encodeURIComponent(gateJP),
-        'jp-text-' + cur.id + '-' + gateExIndex,
-        'test-zone-' + cur.id + '-' + gateExIndex,
-        'vn-text-' + cur.id + '-' + gateExIndex
-    );
+    // 🧩 Chế độ test gate: CHỌN NGẪU NHIÊN giữa gõ câu (typing) và xếp mảnh ghép (scramble)
+    const gateScrambleBtn = document.getElementById('btn-test-scramble-' + cur.id + '-' + gateExIndex);
+    if (gateScrambleBtn && Math.random() < 0.5) {
+        startScrambleTest(
+            gateScrambleBtn,
+            encodeURIComponent(gateJP),
+            'jp-text-' + cur.id + '-' + gateExIndex,
+            'test-zone-' + cur.id + '-' + gateExIndex,
+            'vn-text-' + cur.id + '-' + gateExIndex
+        );
+    } else {
+        startMemoryTest(
+            document.getElementById('btn-test-' + cur.id + '-' + gateExIndex),
+            encodeURIComponent(gateJP),
+            'jp-text-' + cur.id + '-' + gateExIndex,
+            'test-zone-' + cur.id + '-' + gateExIndex,
+            'vn-text-' + cur.id + '-' + gateExIndex
+        );
+    }
 }
 
 /**
@@ -41811,6 +41888,8 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn, front) {
 
     // 🟢 MỚI: ID cho test mode
     const testBtnId = `btn-test-${cardId}-${exIndex}`;
+    // 🧩 ID nút test xếp mảnh ghép (tiền tố btn-test- để gate detection nhận biết)
+    const scrambleBtnId = `btn-test-scramble-${cardId}-${exIndex}`;
     const jpTextId = `jp-text-${cardId}-${exIndex}`;
     const testZoneId = `test-zone-${cardId}-${exIndex}`;
     const vnTextId = `vn-text-${cardId}-${exIndex}`;
@@ -41851,6 +41930,12 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn, front) {
                            autocomplete="off" spellcheck="false"
                            style="width: 100%; margin: 0; padding: 10px 0; border: none; border-bottom: 1px solid rgba(0,0,0,0.1); border-radius: 0; font-size: 24px; font-family: 'Noto Sans JP', sans-serif; outline: none; box-sizing: border-box; background: transparent; text-align: center;"
                            onkeypress="if(event.key === 'Enter') checkMemoryTest('${jpForAttr}', this, '${jpTextId}', '${testZoneId}')">
+                    <!-- 🧩 KHU VỰC TEST XẾP MẢNH GHÉP (ẩn mặc định) -->
+                    <div id="${testZoneId}-scrambleWrap" style="display: none;">
+                        <div id="${testZoneId}-scrambleDrop" class="ex-scramble-zone"></div>
+                        <div id="${testZoneId}-scramblePool" class="ex-scramble-pool"></div>
+                        <div class="ex-scramble-note">Chạm hoặc kéo mảnh lên khung phía trên — xếp đủ mảnh sẽ tự kiểm tra</div>
+                    </div>
                     <!-- Feedback -->
                     <div id="${testZoneId}-feedback" class="mt-feedback" style="margin-top: 8px; font-size: 15px; line-height: 1.5; text-align: center;"></div>
                 </div>
@@ -41884,6 +41969,12 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn, front) {
                         <span class="material-symbols-outlined" style="font-size: 20px; color: #1a1a1a;">${btnIcon}</span>
                         <span class="btn-text-lbl" style="display: none;">${btnText}</span>
                     </button>
+                    <!-- 🧩 SCRAMBLE TEST button (xếp mảnh ghép — nằm trái nút Test gõ) -->
+                    <button id="${scrambleBtnId}" class="ex-btn-circle ex-btn-test ex-btn-scramble"
+                            onclick="if(this.getAttribute('data-mt-active')){exitScrambleTest(this.getAttribute('data-mt-jpTextId'),this.getAttribute('data-mt-testZoneId'));}else{startScrambleTest(this,'${jpForAttr}','${jpTextId}','${testZoneId}','${vnTextId}');}"
+                            title="Test xếp mảnh ghép">
+                        <span class="material-symbols-outlined">extension</span>
+                    </button>
                     <!-- TEST button (ẩn khi đang test, NGOÀI CÙNG BÊN PHẢI) -->
                     <button id="${testBtnId}" class="ex-btn-circle ex-btn-test"
                             onclick="if(this.getAttribute('data-mt-active')){exitMemoryTest(this.getAttribute('data-mt-jpTextId'),this.getAttribute('data-mt-testZoneId'));}else{startMemoryTest(this,'${jpForAttr}','${jpTextId}','${testZoneId}','${vnTextId}');}"
@@ -41899,6 +41990,17 @@ function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn, front) {
                     </button>
                     <button onclick="restartMemoryTest('${jpTextId}', '${testZoneId}')"
                             style="padding: 7px 14px; background: #ffffff; color: #1a1a1a; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; transition: 0.15s; display: flex; align-items: center; justify-content: center; gap: 4px; height: 36px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">replay</span> Làm lại
+                    </button>
+                </div>
+                <!-- 🧩 Gợi ý + Làm lại (chỉ hiện khi test xếp mảnh, cùng hàng với Phát âm/Nghe) -->
+                <div class="ex-scramble-actions" id="${testZoneId}-scrambleActions" style="display: none; align-items: center; gap: 8px;">
+                    <button onclick="scrambleHint('${jpTextId}', '${testZoneId}')"
+                            style="padding: 7px 14px; background: #ffffff; color: #1a1a1a; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; transition: 0.15s; height: 36px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">lightbulb</span> Gợi ý
+                    </button>
+                    <button onclick="restartScrambleTest('${jpTextId}', '${testZoneId}')"
+                            style="padding: 7px 14px; background: #ffffff; color: #1a1a1a; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; transition: 0.15s; height: 36px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);">
                         <span class="material-symbols-outlined" style="font-size: 16px;">replay</span> Làm lại
                     </button>
                 </div>
@@ -41924,6 +42026,13 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId, vnTextId) {
     const testZone = document.getElementById(testZoneId);
     const vnEl = document.getElementById(vnTextId);
     if (!jpEl || !testZone) return;
+
+    // 🧩 Đóng test xếp mảnh ghép (nếu đang chạy trên cùng khối) — tránh 2 test chồng nhau
+    const exBlockEarly = testZone.closest('.example-sentence-block');
+    const activeScrambleBtn = exBlockEarly ? exBlockEarly.querySelector('.ex-btn-scramble[data-mt-active="1"]') : null;
+    if (activeScrambleBtn) {
+        exitScrambleTest(activeScrambleBtn.getAttribute('data-mt-jpTextId'), activeScrambleBtn.getAttribute('data-mt-testZoneId'));
+    }
 
     // 🟢 Ẩn toàn bộ card body content, chỉ giữ lại example block đang test
     const cardBody = document.getElementById('studyCardBody');
@@ -42014,6 +42123,11 @@ function startMemoryTest(btn, jpEncoded, jpTextId, testZoneId, vnTextId) {
         checkBtn.style.display = '';
         checkBtn.removeAttribute('data-mt-hidden');
     }
+    // 🧩 Ẩn khu vực xếp mảnh + hàng nút scramble (nếu sót từ lần test trước)
+    const scWrap = document.getElementById(testZoneId + '-scrambleWrap');
+    if (scWrap) scWrap.style.display = 'none';
+    const scActions = exBlock ? exBlock.querySelector('.ex-scramble-actions') : null;
+    if (scActions) scActions.style.display = 'none';
 
     // [FIX] Auto-scroll: day cac nut (Phat am/Nghe/Test) len cao hon de user thay day du
     // Hoat dong cho ca #infoBottomSheetContent (bottom sheet) va #studyCardBody (study modal)
@@ -42284,6 +42398,14 @@ function exitMemoryTest(jpTextId, testZoneId) {
         if (inlineActions) inlineActions.style.display = 'none';
     }
 
+    // 🧩 Ẩn cả hàng nút + khung xếp mảnh ghép (an toàn khi thoát test gõ)
+    if (exBlock) {
+        const scrambleActions = exBlock.querySelector('.ex-scramble-actions');
+        if (scrambleActions) scrambleActions.style.display = 'none';
+    }
+    const scWrapExit = document.getElementById(testZoneId + '-scrambleWrap');
+    if (scWrapExit) scWrapExit.style.display = 'none';
+
     // Xoá nút CLOSE TEST bên ngoài khối
     if (exBlock) {
         const closeBtn = exBlock.parentElement?.querySelector('.ex-close-test-outside');
@@ -42307,7 +42429,7 @@ function exitMemoryTest(jpTextId, testZoneId) {
     if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
 
     // Reset nút Test về trạng thái ban đầu (nút nằm bên trong .example-sentence-block)
-    const testBtn = exBlock ? exBlock.querySelector('[id^="btn-test-"]') : null;
+    const testBtn = exBlock ? exBlock.querySelector('button[id^="btn-test-"]:not(.ex-btn-scramble)') : null;
     if (testBtn) {
         testBtn.removeAttribute('data-mt-active');
         testBtn.removeAttribute('data-mt-jpTextId');
@@ -42419,6 +42541,513 @@ function diffJapanese(original, userAnswer) {
         }
     }
     return html;
+}
+
+// ============================================================================
+// 🧩 TEST XẾP MẢNH GHÉP — Ẩn câu JP, yêu cầu user xếp các mảnh lại đúng thứ tự
+// (tái sử dụng pattern game Boost "Xếp thành câu" nhưng chạy ngay trong khối
+//  ví dụ như test gõ — có gate điều hướng, gợi ý, làm lại, CLOSE TEST)
+// ============================================================================
+
+/**
+ * Tách câu tiếng Nhật thành các mảnh ghép hợp lý:
+ * - Dùng Intl.Segmenter('ja') để cắt theo từ (nếu trình duyệt hỗ trợ)
+ * - Gộp token 1 ký tự (trợ từ は/を/に...) vào mảnh liền kề
+ * - Giới hạn tối đa 9 mảnh (gộp cặp ngắn nhất nếu vượt)
+ * - Fallback: cắt cụm 2-3 ký tự ngẫu nhiên (như game Boost)
+ * @param {string} jp - câu tiếng Nhật gốc
+ * @returns {string[]} danh sách mảnh (theo đúng thứ tự gốc)
+ */
+function splitJpChunksForScramble(jp) {
+    const clean = String(jp || '').replace(/[。、！？\s,.!?；;：:・~～]/g, '');
+    if (!clean) return [];
+    let raw = [];
+    if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+        try {
+            const seg = new Intl.Segmenter('ja', { granularity: 'word' });
+            raw = Array.from(seg.segment(clean)).map(s => s.segment).filter(t => t && t.trim() !== '');
+        } catch (err) { raw = []; }
+    }
+    if (!raw || raw.length < 2) {
+        // Fallback: cắt cụm 2-3 ký tự ngẫu nhiên
+        const chunks = [];
+        let i = 0;
+        while (i < clean.length) {
+            const len = 2 + (Math.random() < 0.5 ? 0 : 1);
+            chunks.push(clean.substring(i, i + len));
+            i += len;
+        }
+        if (chunks.length === 1 && chunks[0].length >= 2) return chunks[0].split('');
+        return chunks;
+    }
+    // Gộp token quá ngắn (1 ký tự) vào mảnh trước để giảm số mảnh vụn
+    const merged = [];
+    for (const tok of raw) {
+        const prev = merged[merged.length - 1];
+        if (prev !== undefined && (tok.length === 1 || prev.length === 1)) {
+            merged[merged.length - 1] = prev + tok;
+        } else {
+            merged.push(tok);
+        }
+    }
+    // Vẫn còn quá nhiều mảnh (> 9) → gộp cặp liền kề ngắn nhất cho tới khi đủ
+    let out = merged;
+    let guard = 0;
+    while (out.length > 9 && guard < 60) {
+        let best = -1, bestLen = Infinity;
+        for (let i = 0; i < out.length - 1; i++) {
+            const l = out[i].length + out[i + 1].length;
+            if (l < bestLen) { bestLen = l; best = i; }
+        }
+        if (best < 0) break;
+        out = out.slice(0, best).concat([out[best] + out[best + 1]]).concat(out.slice(best + 2));
+        guard++;
+    }
+    if (out.length === 1 && out[0].length >= 2) out = out[0].split('');
+    return out;
+}
+
+/**
+ * Xây puzzle: shuffle mảnh (Fisher-Yates, tránh trùng thứ tự gốc), render vào rổ.
+ * Lưu target/chunks vào dataset của drop zone để check + hint dùng lại.
+ */
+function buildScramblePuzzle(jpEncoded, jpTextId, testZoneId) {
+    const drop = document.getElementById(testZoneId + '-scrambleDrop');
+    const pool = document.getElementById(testZoneId + '-scramblePool');
+    if (!drop || !pool) return;
+    const jp = decodeURIComponent(jpEncoded || '');
+    const chunks = splitJpChunksForScramble(jp);
+    if (!chunks.length) return;
+
+    // Shuffle Fisher-Yates — nếu trùng thứ tự gốc thì xáo lại (tối đa 12 lần)
+    let order = chunks.map((_, i) => i);
+    let attempts = 0;
+    do {
+        for (let i = order.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+        }
+        attempts++;
+    } while (order.length > 1 && order.every((v, i) => v === i) && attempts < 12);
+
+    drop.innerHTML = '';
+    pool.innerHTML = '';
+    drop.removeAttribute('data-solved');
+    drop.setAttribute('data-chunks', JSON.stringify(chunks));
+    drop.setAttribute('data-target', chunks.join(''));
+    drop.setAttribute('data-jptextid', jpTextId || '');
+
+    order.forEach(oi => {
+        const piece = document.createElement('div');
+        piece.className = 'ex-scramble-piece';
+        piece.textContent = chunks[oi];
+        piece.draggable = true;
+        setupScramblePieceEvents(piece, testZoneId);
+        pool.appendChild(piece);
+    });
+}
+
+/** Gắn sự kiện cho 1 mảnh: kéo (dragstart/dragend) + chạm (click đặt/return). */
+function setupScramblePieceEvents(piece, testZoneId) {
+    const drop = document.getElementById(testZoneId + '-scrambleDrop');
+    const pool = document.getElementById(testZoneId + '-scramblePool');
+    if (!drop || !pool) return;
+    piece.addEventListener('dragstart', function(e) {
+        if (drop.getAttribute('data-solved') === '1') { e.preventDefault(); return; }
+        e.dataTransfer.setData('text/plain', '');
+        e.dataTransfer.effectAllowed = 'move';
+        setTimeout(() => this.classList.add('dragging'), 0);
+    });
+    piece.addEventListener('dragend', function() {
+        this.classList.remove('dragging');
+        drop.classList.remove('drag-over');
+    });
+    piece.addEventListener('click', function() {
+        if (drop.getAttribute('data-solved') === '1') return;
+        if (this.parentElement === pool) {
+            drop.appendChild(this);
+            checkScrambleAnswer(drop.getAttribute('data-jptextid') || '', testZoneId);
+        } else if (this.parentElement === drop) {
+            // Trả mảnh về rổ — chưa đủ mảnh nên KHÔNG tự kiểm tra
+            pool.appendChild(this);
+        }
+    });
+}
+
+/** Tìm vị trí chèn khi kéo thả (mirror getDragAfterElement của game Boost). */
+function getScrambleAfterElement(container, x, y) {
+    const pieces = Array.from(container.querySelectorAll('.ex-scramble-piece:not(.dragging)'));
+    let closest = null;
+    let closestOffset = Number.NEGATIVE_INFINITY;
+    pieces.forEach(child => {
+        const box = child.getBoundingClientRect();
+        const offsetX = x - (box.left + box.width / 2);
+        const offsetY = Math.abs(y - (box.top + box.height / 2));
+        if (offsetY < box.height * 0.8) {
+            if (offsetX < 0 && offsetX > closestOffset) {
+                closestOffset = offsetX;
+                closest = child;
+            }
+        }
+    });
+    return closest;
+}
+
+/** Gắn drag & drop cho khung xếp + rổ (chỉ 1 lần per test zone, dùng data flag). */
+function wireScrambleZones(testZoneId) {
+    const drop = document.getElementById(testZoneId + '-scrambleDrop');
+    const pool = document.getElementById(testZoneId + '-scramblePool');
+    if (!drop || !pool) return;
+    if (drop.getAttribute('data-scramble-wired') === '1') return;
+    drop.setAttribute('data-scramble-wired', '1');
+
+    drop.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        this.classList.add('drag-over');
+    });
+    drop.addEventListener('dragleave', function(e) {
+        if (!this.contains(e.relatedTarget)) this.classList.remove('drag-over');
+    });
+    drop.addEventListener('drop', function(e) {
+        e.preventDefault();
+        this.classList.remove('drag-over');
+        const dragged = document.querySelector('.ex-scramble-piece.dragging');
+        if (!dragged || drop.getAttribute('data-solved') === '1') return;
+        dragged.classList.remove('dragging');
+        const afterElement = getScrambleAfterElement(drop, e.clientX, e.clientY);
+        if (afterElement) drop.insertBefore(dragged, afterElement);
+        else drop.appendChild(dragged);
+        checkScrambleAnswer(drop.getAttribute('data-jptextid') || '', testZoneId);
+    });
+    pool.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    });
+    pool.addEventListener('drop', function(e) {
+        e.preventDefault();
+        const dragged = document.querySelector('.ex-scramble-piece.dragging');
+        if (!dragged) return;
+        dragged.classList.remove('dragging');
+        if (dragged.parentElement === drop && drop.getAttribute('data-solved') !== '1') {
+            pool.appendChild(dragged); // kéo về rổ = trả mảnh
+        }
+    });
+}
+
+/**
+ * Tự động kiểm tra khi user xếp ĐỦ mảnh vào khung:
+ * - Đúng → "Hoàn hảo!", mảnh khoá xanh, hiện lại JP, gate pass (nếu là test gate)
+ * - Sai → mảnh sai vị trí bôi đỏ + rung, KHÔNG lộ đáp án (được xếp lại)
+ */
+function checkScrambleAnswer(jpTextId, testZoneId) {
+    const drop = document.getElementById(testZoneId + '-scrambleDrop');
+    const pool = document.getElementById(testZoneId + '-scramblePool');
+    const feedback = document.getElementById(testZoneId + '-feedback');
+    if (!drop || !pool || !feedback) return;
+    if (drop.getAttribute('data-solved') === '1') return;
+    let chunks = [];
+    try { chunks = JSON.parse(drop.getAttribute('data-chunks') || '[]'); } catch (err) { chunks = []; }
+    if (!chunks.length) return;
+    const pieces = Array.from(drop.querySelectorAll('.ex-scramble-piece'));
+    if (pieces.length < chunks.length) return; // chưa xếp đủ mảnh
+
+    const target = drop.getAttribute('data-target') || chunks.join('');
+    const current = pieces.map(p => p.textContent).join('');
+    const jpEl = document.getElementById(jpTextId);
+
+    if (current === target) {
+        // ✅ ĐÚNG
+        drop.setAttribute('data-solved', '1');
+        feedback.innerHTML = `<div style="color: #16a34a; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <span class="material-symbols-outlined" style="font-size: 18px;">celebration</span> Hoàn hảo! Bạn đã xếp đúng câu! ✨
+        </div>`;
+        pieces.forEach(p => { p.classList.add('scramble-solved'); p.style.pointerEvents = 'none'; });
+        pool.style.display = 'none';
+        // Hiện lại câu JP gốc để user đối chiếu
+        if (jpEl) jpEl.style.display = 'block';
+
+        // 🟢 GATE ĐIỀU HƯỚNG (mirror checkMemoryTest): xếp đúng → tự động qua thẻ
+        const __gate = window.__studyNavGate;
+        if (__gate && !__gate.passed && jpTextId && jpTextId.indexOf('jp-text-' + __gate.cardId + '-') === 0) {
+            __gate.passed = true;
+            setStudyGateBannerPassed(true);
+            __gate.timer = setTimeout(() => {
+                __gate.timer = null;
+                if (window.__studyNavGate === __gate) {
+                    performStudyNavigation(__gate.targetIndex, __gate.syncAllCards);
+                }
+            }, 1200);
+        }
+    } else {
+        // ❌ SAI — xác định mảnh sai vị trí (so từng mảnh với chuỗi đích)
+        let pos = 0;
+        const wrongPieces = [];
+        pieces.forEach(p => {
+            const len = (p.textContent || '').length;
+            if (p.textContent !== target.substring(pos, pos + len)) wrongPieces.push(p);
+            pos += len;
+        });
+        wrongPieces.forEach(p => p.classList.add('wrong-pos'));
+        setTimeout(() => wrongPieces.forEach(p => p.classList.remove('wrong-pos')), 1800);
+        feedback.innerHTML = `<div style="color: #dc2626; font-weight: 700;">Chưa đúng — <b>${wrongPieces.length}</b> mảnh (màu đỏ) đang sai vị trí. Chạm/kéo để xếp lại!</div>`;
+    }
+}
+
+/**
+ * Gợi ý: trả các mảnh xếp SAI về rổ, rồi tự đặt mảng ĐÚNG kế tiếp xuống khung.
+ * (mỗi lần bấm chỉ tiến 1 mảnh — phần còn lại vẫn phải tự xếp)
+ */
+function scrambleHint(jpTextId, testZoneId) {
+    const drop = document.getElementById(testZoneId + '-scrambleDrop');
+    const pool = document.getElementById(testZoneId + '-scramblePool');
+    if (!drop || !pool || drop.getAttribute('data-solved') === '1') return;
+    let chunks = [];
+    try { chunks = JSON.parse(drop.getAttribute('data-chunks') || '[]'); } catch (err) { chunks = []; }
+    if (!chunks.length) return;
+
+    const pieces = Array.from(drop.querySelectorAll('.ex-scramble-piece'));
+    const placedStr = pieces.map(p => p.textContent).join('');
+
+    // k = số mảnh ĐÚNG liên tiếp từ đầu (theo ranh giới mảnh gốc)
+    let k = 0, acc = '';
+    while (k < chunks.length) {
+        const next = acc + chunks[k];
+        if (next.length <= placedStr.length && next === placedStr.substring(0, next.length)) {
+            acc = next; k++;
+        } else break;
+    }
+
+    // Trả các mảnh xếp SAU prefix đúng về rổ
+    let consumed = acc.length;
+    pieces.forEach(p => {
+        if (consumed <= 0) { pool.appendChild(p); }
+        else { consumed -= (p.textContent || '').length; }
+    });
+
+    // Đặt mảnh đúng tiếp theo (chunks[k]) từ rổ xuống cuối khung
+    if (k < chunks.length) {
+        const want = chunks[k];
+        const poolPiece = Array.from(pool.querySelectorAll('.ex-scramble-piece')).find(p => p.textContent === want);
+        if (poolPiece) drop.appendChild(poolPiece);
+    }
+
+    checkScrambleAnswer(jpTextId, testZoneId);
+}
+
+/**
+ * Bắt đầu test xếp mảnh ghép cho 1 khối ví dụ (mirror startMemoryTest):
+ * ẩn toàn bộ card, chỉ giữ khối ví dụ + khu vực puzzle + nghĩa VN làm gợi ý.
+ */
+function startScrambleTest(btn, jpEncoded, jpTextId, testZoneId, vnTextId) {
+    const jpEl = document.getElementById(jpTextId);
+    const testZone = document.getElementById(testZoneId);
+    const vnEl = document.getElementById(vnTextId);
+    if (!jpEl || !testZone) return;
+
+    // 🧩 Đóng test gõ (nếu đang chạy trên cùng khối) — tránh 2 test chồng nhau
+    const exBlock = testZone.closest('.example-sentence-block');
+    const typingBtn = exBlock ? exBlock.querySelector('button[id^="btn-test-"]:not(.ex-btn-scramble)') : null;
+    if (typingBtn && typingBtn.getAttribute('data-mt-active') === '1') {
+        exitMemoryTest(jpTextId, testZoneId);
+    }
+
+    // Ẩn toàn bộ card body content, chỉ giữ lại example block đang test
+    const cardBody = document.getElementById('studyCardBody');
+    if (cardBody) cardBody.classList.add('memory-test-active');
+    if (exBlock) exBlock.classList.add('memory-test-block');
+    // GATE ĐIỀU HƯỚNG: hiện banner "Hoàn thành bài test để qua thẻ" nếu là test gate
+    if (window.__studyNavGate && !window.__studyNavGate.passed && jpTextId && jpTextId.indexOf('jp-text-' + window.__studyNavGate.cardId + '-') === 0) {
+        updateStudyGateBanner(exBlock);
+    } else {
+        removeStudyGateBanner();
+    }
+    const wrapper = document.querySelector('.study-content-wrapper');
+    if (wrapper) wrapper.classList.add('has-memory-test');
+    const studyModal = document.getElementById('studyOptionsModal');
+    if (studyModal) studyModal.classList.add('memory-test-fullscreen');
+    const bsSheet = document.getElementById('infoBottomSheetContent');
+    if (bsSheet) bsSheet.classList.add('memory-test-active');
+    const remedialBody = document.getElementById('remedialCardBody');
+    if (remedialBody) remedialBody.classList.add('memory-test-active');
+    const remedialModal = document.getElementById('remedialReviewModal');
+    if (remedialModal) remedialModal.classList.add('memory-test-fullscreen');
+    const studyContainer = document.querySelector('.unified-study-container');
+    if (studyContainer) studyContainer.classList.add('bs-memory-test');
+    if (exBlock) {
+        const actionsRow = exBlock.querySelector('.ex-actions-row');
+        if (actionsRow) actionsRow.classList.add('memory-test-active-actions');
+    }
+
+    // Ẩn câu JP + đưa nghĩa tiếng Việt lên khu vực test (giống test gõ)
+    jpEl.style.display = 'none';
+    if (vnEl) {
+        vnEl.style.display = 'none';
+        const vnhint = document.getElementById(testZoneId + '-vnhint');
+        if (vnhint) {
+            vnhint.removeAttribute('data-mt-hidden');
+            vnhint.style.display = 'block';
+            vnhint.innerHTML = vnEl.innerHTML;
+        }
+    }
+
+    // Hiện khu vực test ở chế độ xếp mảnh
+    testZone.style.display = 'block';
+    const input = document.getElementById(testZoneId + '-input');
+    if (input) { input.style.display = 'none'; input.setAttribute('data-mt-hidden', '1'); }
+    const scrambleWrap = document.getElementById(testZoneId + '-scrambleWrap');
+    if (scrambleWrap) scrambleWrap.style.display = 'block';
+    const scramblePool = document.getElementById(testZoneId + '-scramblePool');
+    if (scramblePool) scramblePool.style.display = '';
+    const feedback = document.getElementById(testZoneId + '-feedback');
+    if (feedback) { feedback.style.display = ''; feedback.innerHTML = ''; }
+
+    // Ẩn hàng nút test gõ + hiện hàng nút Gợi ý/Làm lại của xếp mảnh
+    if (exBlock) {
+        const typingActions = exBlock.querySelector('.ex-test-inline-actions');
+        if (typingActions) typingActions.style.display = 'none';
+        const scrambleActions = exBlock.querySelector('.ex-scramble-actions');
+        if (scrambleActions) scrambleActions.style.display = 'flex';
+    }
+
+    // Ẩn 2 nút test (gõ + xếp mảnh) — thoát bằng CLOSE TEST bên ngoài khối
+    if (typingBtn) typingBtn.style.display = 'none';
+    if (btn) btn.style.display = 'none';
+
+    // Ẩn candidates bar + IME (nếu sót từ test gõ lần trước)
+    const mtBar = document.getElementById('memoryTestCandidatesBar');
+    if (mtBar) mtBar.style.display = 'none';
+    if (window.__memoryTestIme) window.__memoryTestIme.clearCandidates();
+
+    // Xây puzzle + gắn drag & drop
+    buildScramblePuzzle(jpEncoded, jpTextId, testZoneId);
+    wireScrambleZones(testZoneId);
+
+    // Đánh dấu nút scramble đang active — dùng ĐÚNG data attribute như test gõ
+    // để gate detection [id^="btn-test-"] nhận biết được cả 2 chế độ
+    if (btn) {
+        btn.setAttribute('data-mt-active', '1');
+        btn.setAttribute('data-mt-jpTextId', jpTextId);
+        btn.setAttribute('data-mt-testZoneId', testZoneId);
+        btn.setAttribute('data-mt-jp', jpEncoded || '');
+    }
+
+    // Tạo nút CLOSE TEST bên ngoài khối ví dụ (chữ đen gạch chân)
+    if (exBlock) {
+        const oldClose = exBlock.parentElement?.querySelector('.ex-close-test-outside');
+        if (oldClose) oldClose.remove();
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'ex-close-test-outside';
+        closeBtn.textContent = 'CLOSE TEST';
+        closeBtn.onclick = () => exitScrambleTest(jpTextId, testZoneId);
+        exBlock.insertAdjacentElement('afterend', closeBtn);
+    }
+
+    // Auto-scroll xuống khu vực test (mirror startMemoryTest)
+    setTimeout(() => {
+        const bsSheet2 = document.getElementById('infoBottomSheetContent');
+        const studyBody = document.getElementById('studyCardBody');
+        if (bsSheet2 && bsSheet2.closest('.info-bottom-sheet-overlay.open')) {
+            void bsSheet2.offsetHeight;
+            bsSheet2.scrollTo({ top: bsSheet2.scrollHeight, behavior: 'smooth' });
+        }
+        if (studyBody && studyBody.offsetParent !== null) {
+            void studyBody.offsetHeight;
+            studyBody.scrollTo({ top: studyBody.scrollHeight, behavior: 'smooth' });
+        }
+    }, 200);
+}
+
+/**
+ * Làm lại test xếp mảnh từ đầu (shuffle mới, ẩn JP lại).
+ */
+function restartScrambleTest(jpTextId, testZoneId) {
+    // GATE: bấm "Làm lại" sau khi đã đúng → hủy auto-chuyển, phải vượt lại test
+    if (window.__studyNavGate && window.__studyNavGate.timer) {
+        clearTimeout(window.__studyNavGate.timer);
+        window.__studyNavGate.timer = null;
+        window.__studyNavGate.passed = false;
+    }
+    if (window.__studyNavGate && jpTextId && jpTextId.indexOf('jp-text-' + window.__studyNavGate.cardId + '-') === 0) {
+        setStudyGateBannerPassed(false);
+    }
+    const testZone = document.getElementById(testZoneId);
+    const jpEl = document.getElementById(jpTextId);
+    if (!testZone || !jpEl) return;
+
+    // Lấy jpEncoded từ nút scramble đang active
+    const exBlock = testZone.closest('.example-sentence-block');
+    const scrambleBtn = exBlock ? exBlock.querySelector('.ex-btn-scramble') : null;
+    const jpEncoded = scrambleBtn ? (scrambleBtn.getAttribute('data-mt-jp') || '') : '';
+
+    // Reset feedback + hiện lại vnhint + rổ mảnh
+    const feedback = document.getElementById(testZoneId + '-feedback');
+    if (feedback) { feedback.innerHTML = ''; feedback.style.display = ''; }
+    const vnhint = document.getElementById(testZoneId + '-vnhint');
+    if (vnhint) { vnhint.removeAttribute('data-mt-hidden'); vnhint.style.display = 'block'; }
+    const scramblePool = document.getElementById(testZoneId + '-scramblePool');
+    if (scramblePool) scramblePool.style.display = '';
+
+    // Ẩn câu JP lại + xây lại puzzle (shuffle mới)
+    jpEl.style.display = 'none';
+    buildScramblePuzzle(jpEncoded, jpTextId, testZoneId);
+}
+
+/**
+ * Thoát test xếp mảnh, khôi phục toàn bộ card (mirror exitMemoryTest).
+ */
+function exitScrambleTest(jpTextId, testZoneId) {
+    // GATE: user tự thoát test khi chưa vượt → hủy điều hướng đang chờ
+    if (window.__studyNavGate) {
+        if (window.__studyNavGate.timer) clearTimeout(window.__studyNavGate.timer);
+        window.__studyNavGate = null;
+    }
+    removeStudyGateBanner();
+    const jpEl = document.getElementById(jpTextId);
+    const testZone = document.getElementById(testZoneId);
+    if (jpEl) jpEl.style.display = 'block';
+    if (testZone) testZone.style.display = 'none';
+
+    const exBlock = testZone ? testZone.closest('.example-sentence-block') : null;
+    if (exBlock) {
+        // Ẩn hàng nút scramble + hàng nút test gõ (nếu sót)
+        const scrambleActions = exBlock.querySelector('.ex-scramble-actions');
+        if (scrambleActions) scrambleActions.style.display = 'none';
+        const typingActions = exBlock.querySelector('.ex-test-inline-actions');
+        if (typingActions) typingActions.style.display = 'none';
+        // Xoá nút CLOSE TEST bên ngoài khối
+        const closeBtn = exBlock.parentElement?.querySelector('.ex-close-test-outside');
+        if (closeBtn) closeBtn.remove();
+    }
+
+    // Khôi phục nghĩa VN về vị trí gốc
+    const vnhint = document.getElementById(testZoneId + '-vnhint');
+    if (vnhint) { vnhint.style.display = 'none'; vnhint.innerHTML = ''; }
+    if (exBlock) {
+        const vnEl = exBlock.querySelector('.example-vn-text');
+        if (vnEl) vnEl.style.display = '';
+    }
+
+    // Ẩn khung xếp mảnh
+    const scrambleWrap = document.getElementById(testZoneId + '-scrambleWrap');
+    if (scrambleWrap) scrambleWrap.style.display = 'none';
+
+    // Reset nút scramble + hiện lại nút test gõ
+    if (exBlock) {
+        const scrambleBtn = exBlock.querySelector('.ex-btn-scramble');
+        if (scrambleBtn) {
+            scrambleBtn.removeAttribute('data-mt-active');
+            scrambleBtn.removeAttribute('data-mt-jpTextId');
+            scrambleBtn.removeAttribute('data-mt-testZoneId');
+            scrambleBtn.style.display = '';
+            scrambleBtn.innerHTML = '<span class="material-symbols-outlined">extension</span>';
+        }
+        const typingBtn = exBlock.querySelector('button[id^="btn-test-"]:not(.ex-btn-scramble)');
+        if (typingBtn) typingBtn.style.display = '';
+    }
+
+    // Hiện lại toàn bộ card
+    restoreCardAfterTest(testZoneId);
 }
 
 /**
