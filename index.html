@@ -4317,7 +4317,8 @@ body.game-fullscreen-mode #boostCardDisplay {
 /* Footer mỏng: row padding 6px dọc, nút 9px dọc. TRÁI NGOÀI CÙNG: avatar user 28px
    (Google OAuth, fallback 👤 — boostFooterAvatarHTML). Tiếp: emoji biểu cảm (😄 đúng /
    😅 sai / 🔥×N đúng liên tiếp / 😢×N sai liên tiếp). GIỮA: bộ đếm giờ thẻ hiện tại
-   (icon timer + m:ss) — CHỈ HIỆN khi SKIP hiển thị. SKIP / TIẾP THEO / TIẾP TỤC GHÉP
+   (icon timer + m:ss) — CHẠY khi SKIP hiển thị; khi TIẾP THEO hiện (hoàn thành câu
+   hỏi) thì DỪNG ở thời điểm hoàn thành, vẫn hiện mờ nhẹ để nhìn lại. SKIP / TIẾP THEO / TIẾP TỤC GHÉP
    CHỮ: ICON arrow_forward BÊN PHẢI chữ — SKIP ĐEN hover VÀNG, 2 nút kia xanh lá /
    xanh dương. Bộ đếm giờ position:absolute left:50% + translate(-50%,-50%) → cụm
    icon+số cân giữa CHÍNH XÁC (flex:1 hai bên KHÔNG đủ: avatar 28px cố định trái +
@@ -4371,7 +4372,8 @@ body.game-fullscreen-mode #boostCardDisplay {
     100% { transform: scale(1); opacity: 1; }
 }
 .boost-feedback-emoji.pop { animation: boostFeedbackPop 0.45s ease; }
-/* Bộ đếm giờ GIỮA footer — thời gian làm thẻ hiện tại, chỉ hiện khi SKIP hiển thị.
+/* Bộ đếm giờ GIỮA footer — thời gian làm thẻ hiện tại: CHẠY khi SKIP hiển thị;
+   DỪNG (đóng băng .bft-stopped mờ nhẹ) khi TIẾP THEO hiện — hoàn thành câu hỏi.
    CĂN GIỮA CHÍNH XÁC CẢ CỤM icon+số: position:absolute left:50% + translate(-50%,-50%)
    (flex:1 hai bên KHÔNG đủ — avatar 28px trái + nút min-width 150px phải lệch tâm).
    pointer-events:none để không chặn click nút phải trên màn hình hẹp. */
@@ -4393,6 +4395,8 @@ body.game-fullscreen-mode #boostCardDisplay {
     user-select: none;
 }
 .boost-footer-timer .material-symbols-outlined { font-size: 18px; }
+/* Đã DỪNG (TIẾP THEO — câu hỏi hoàn thành): mờ nhẹ, giữ nguyên khoảng cách icon+số */
+.boost-footer-timer .bft-stopped { display: flex; align-items: center; gap: 4px; opacity: 0.65; }
 /* Avatar user — góc trái ngoài cùng footer (28px tròn, nhỏ hơn avatar menu 35px) */
 .boost-footer-avatar {
     width: 28px;
@@ -20277,21 +20281,39 @@ function renderBoostCard() {
     document.getElementById('boostTimerContainer').style.display = 'none';
 
     // 🟢 BỘ ĐẾM GIỜ GIỮA FOOTER — đếm thời gian làm thẻ hiện tại:
-    // reset mốc mỗi thẻ; interval tick 500ms; CHỈ HIỆN khi footer còn nút SKIP (đang chơi),
-    // rỗng khi footer đổi thành TIẾP THEO / TIẾP TỤC GHÉP CHỮ. HTML lưu vào
-    // window.__boostFooterTimerHTML để re-render footer không mất (giống emoji).
+    // reset mốc mỗi thẻ; interval tick 500ms; CHẠY khi footer còn nút SKIP (đang chơi);
+    // khi TIẾP THEO hiện (hoàn thành câu hỏi) → DỪNG ở giây chạy cuối, vẫn hiện mờ
+    // nhẹ (.bft-stopped) để nhìn lại; TIẾP TỤC GHÉP CHỮ (game 11 giữa 2 bước) → rỗng.
+    // HTML lưu vào window.__boostFooterTimerHTML để re-render footer không mất (giống emoji).
     // Cụm icon+số căn giữa CHÍNH XÁC bằng CSS absolute (left:50% + translate -50%).
     window.__boostCardStartTime = Date.now();
+    // 🟢 Thẻ mới: xóa đóng băng + html timer của thẻ trước (tránh flash giá trị cũ)
+    window.__boostTimerFrozenSec = null;
+    window.__boostTimerLastSec = null;
+    window.__boostFooterTimerHTML = '';
     if (!window.__boostFooterTimerInterval) {
         window.__boostFooterTimerInterval = setInterval(() => {
             const el = document.getElementById('boostFooterTimer');
             if (!el) return;
             const skipBtn = document.querySelector('#boostGiveUpZone .boost-footer-skip');
+            const nextBtn = document.querySelector('#boostGiveUpZone .boost-footer-next');
             let html = '';
-            if (skipBtn && window.__boostCardStartTime) {
+            if (window.__boostCardStartTime) {
                 const sec = Math.max(0, Math.floor((Date.now() - window.__boostCardStartTime) / 1000));
-                html = '<span class="material-symbols-outlined" style="font-size: 18px;">timer</span>' +
-                    Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+                if (skipBtn) {
+                    // ĐANG CHƠI: đếm tiếp, xóa đóng băng, nhớ giây chạy cuối
+                    window.__boostTimerFrozenSec = null;
+                    window.__boostTimerLastSec = sec;
+                    html = '<span class="material-symbols-outlined" style="font-size: 18px;">timer</span>' +
+                        Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+                } else if (nextBtn) {
+                    // HOÀN THÀNH (TIẾP THEO): DỪNG ở giây chạy cuối — vẫn hiện mờ nhẹ để nhìn lại
+                    if (window.__boostTimerFrozenSec == null) {
+                        window.__boostTimerFrozenSec = (window.__boostTimerLastSec != null) ? window.__boostTimerLastSec : sec;
+                    }
+                    html = '<span class="bft-stopped"><span class="material-symbols-outlined" style="font-size: 18px;">timer</span>' +
+                        Math.floor(window.__boostTimerFrozenSec / 60) + ':' + String(window.__boostTimerFrozenSec % 60).padStart(2, '0') + '</span>';
+                }
             }
             window.__boostFooterTimerHTML = html;
             el.innerHTML = html;
