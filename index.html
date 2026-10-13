@@ -12369,7 +12369,10 @@ body.grammar-searching #headerGrammarSearch {
     border-radius: 20px;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
     padding: 14px 16px 16px 16px;
-    width: fit-content;
+    /* 🟢 TASK 29: chiều rộng XÁC ĐỊNH (bỏ fit-content — % intrinsic làm card co quắt
+       trên điện thoại nhỏ, viên gạch bé 21px): min(94vw, 760px) → 320px card 300 /
+       desktop card 760 — viên gạch luôn to rõ, nội dung căn giữa */
+    width: min(94vw, 760px);
     max-width: min(94vw, 1600px);
     max-height: 86vh;
     overflow-y: auto;
@@ -12418,6 +12421,36 @@ body.grammar-searching #headerGrammarSearch {
 }
 /* Rổ gạch nằm trong overlay: bỏ padding 2 bên (card đã có padding riêng) */
 #kbFloatingPoolOverlay #kb-pool { padding: 0 !important; }
+
+/* ================= TASK 29: KHAY ĐÍCH NỔI CÙNG RỔ GẠCH TRONG FLOATING PANEL ================= */
+/* Màn thấp mở panel: KHAY ĐÍCH nằm TRÊN, RỔ GẠCH nằm DƯỚI trong cùng 1 card — trực quan
+   đặt gạch / trả gạch ngay một chỗ. Khay đích trong panel bỏ margin lớn (inline style có
+   margin 20/25px — cần !important mới thắng inline); ô vuông co theo --kb-target-n
+   (số ô của Kanji hiện tại, JS ghi khi render bước) để luôn vừa bề rộng card
+   trên điện thoại nhỏ nhất (320px) kể cả Kanji nhiều thành phần */
+#kbFloatingTargetMount .kb-target-box {
+    margin: 2px auto 12px auto !important;
+    padding: 10px !important;
+}
+#kbFloatingTargetMount .kb-slot {
+    width: clamp(34px, calc((94vw - 110px) / var(--kb-target-n, 4)), 95px) !important;
+    height: clamp(34px, calc((94vw - 110px) / var(--kb-target-n, 4)), 95px) !important;
+}
+/* Gạch đã đặt trong ô (trong panel): chữ theo tỉ lệ 74% cạnh ô thay vì 42px cứng —
+   ô trên điện thoại nhỏ có thể chỉ 34-47px */
+#kbFloatingTargetMount .kb-slot .kb-piece {
+    font-size: calc(0.74 * clamp(34px, calc((94vw - 110px) / var(--kb-target-n, 4)), 95px)) !important;
+}
+/* Rổ gạch trong panel: viewport hẹp (< 481px — điện thoại DỌC nhỏ) giữ 6 cột 2 hàng như dock;
+   viewport RỘNG ≥ 481px (điện thoại NGANG) → đủ 12 cột 1 HÀNG, panel gọn chiều cao;
+   max 720px chống viên gạch phình to trên desktop cửa sổ thấp */
+#kbFloatingPoolMount #kb-pool { max-width: 100% !important; }
+@media (min-width: 481px) {
+    #kbFloatingPoolMount #kb-pool {
+        --kb-cols: min(12, var(--kb-pool-n, 12)) !important;
+        max-width: 720px !important;
+    }
+}
 
 /* ===== KANJI HEBI GAME STYLES ===== */
 /* ================= Kanji Defense Game ==================== */
@@ -20237,10 +20270,12 @@ window.kbEnsureFloatingPoolOverlay = function() {
     ov.innerHTML = `
         <div class="kb-fp-card">
             <div class="kb-fp-head">
-                <div class="kb-fp-title"><span class="material-symbols-outlined">construction</span> RỔ GẠCH</div>
-                <button class="kb-fp-close" type="button" title="Đóng rổ gạch" aria-label="Đóng rổ gạch"><span class="material-symbols-outlined">close</span></button>
+                <div class="kb-fp-title"><span class="material-symbols-outlined">construction</span> GHÉP KANJI</div>
+                <button class="kb-fp-close" type="button" title="Đóng bảng ghép" aria-label="Đóng bảng ghép"><span class="material-symbols-outlined">close</span></button>
             </div>
             <div class="kb-fp-hint">Chạm viên gạch để đặt vào ô trống — gạch đã đặt có thể bấm để trả lại rổ</div>
+            <!-- 🟢 TASK 29: khay đích (JS di chuyển vào) nằm TRÊN rổ gạch trong cùng card -->
+            <div id="kbFloatingTargetMount"></div>
             <div id="kbFloatingPoolMount"></div>
         </div>`;
     ov.addEventListener('click', function(e) { if (e.target === ov) window.kbCloseFloatingPool(); });
@@ -20252,6 +20287,13 @@ window.kbOpenFloatingPool = function() {
     const pool = document.getElementById('kb-pool');
     if (!pool) return;
     const ov = window.kbEnsureFloatingPoolOverlay();
+    // 🟢 TASK 29: đưa CẢ KHAY ĐÍCH lên nổi cùng rổ gạch — trực quan đặt/trả gạch 1 chỗ.
+    // Query scoped #boostQuestion: chỉ lấy khay đang dock (khay trong panel không match)
+    const tMount = document.getElementById('kbFloatingTargetMount');
+    if (tMount) {
+        const targetBox = document.querySelector('#boostQuestion .kb-target-box');
+        if (targetBox && targetBox.parentElement !== tMount) tMount.appendChild(targetBox);
+    }
     const mount = document.getElementById('kbFloatingPoolMount');
     if (pool.parentElement !== mount) mount.appendChild(pool);
     ov.classList.add('kb-open');
@@ -20268,7 +20310,26 @@ window.kbCloseFloatingPool = function() {
         const gz = document.getElementById('boostGiveUpZone');
         if (gz) gz.insertBefore(pool, gz.firstChild);
     }
+    // 🟢 TASK 29: trả KHAY ĐÍCH về #boostQuestion (vị trí đầu — trên hint/dòng GHÉP CHỮ).
+    // Nếu question ĐÃ render khay mới (đổi bước/thành công/thẻ mới trong lúc panel mở)
+    // → khay trong panel là bản lỗi thời: XOÁ hẳn, giữ đúng 1 khay duy nhất (chống trùng ID)
+    const tMount = document.getElementById('kbFloatingTargetMount');
+    const floatingTarget = tMount ? tMount.querySelector('.kb-target-box') : null;
+    if (floatingTarget) {
+        const q = document.getElementById('boostQuestion');
+        if (q && !q.querySelector('.kb-target-box')) {
+            q.insertBefore(floatingTarget, q.firstChild);
+        } else {
+            floatingTarget.remove();
+        }
+    }
 };
+
+// 🟢 TASK 29: xoay máy / resize cửa sổ từ màn thấp lên màn cao (≥ 600px) → tự đóng bảng
+// ghép nổi: khay đích + rổ gạch về vị trí dock, CSS media query hiện rổ như bình thường
+window.addEventListener('resize', function() {
+    if (window.innerHeight >= 600) window.kbCloseFloatingPool();
+});
 
 function startBoostSession(gameId) {
     unlockIOSAudio();
@@ -21450,7 +21511,7 @@ function renderBoostCard() {
                     }
 
                     question.innerHTML = `
-                        <div class="kb-target-box" id="kb-target-box" style="margin: 20px auto 25px auto;">
+                        <div class="kb-target-box" id="kb-target-box" style="margin: 20px auto 25px auto; --kb-target-n: ${gameData.correctSequence.length};">
                             ${slotsHTML}
                         </div>
 
@@ -37092,6 +37153,9 @@ function openChangeGameModal() {
 // Xử lý khi chọn "Thoát luôn"
 async function executeExitBoost() {
     closeModal('boostExitModal');
+    // 🟢 TASK 29: đóng bảng ghép nổi (nếu đang mở) — overlay nằm trên body,
+    // không đóng sẽ đè lên màn hình sau khi thoát game
+    if (window.kbCloseFloatingPool) window.kbCloseFloatingPool();
     if (mode === 'assessment') {
         showLoading("Đang lưu tạm tiến trình sát hạch...");
         
