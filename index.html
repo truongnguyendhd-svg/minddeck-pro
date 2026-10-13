@@ -12311,6 +12311,114 @@ body.grammar-searching #headerGrammarSearch {
     transform: translateY(0);
 }
 
+/* ================= TASK 28: RỔ GẠCH GAME 11 RESPONSIVE THEO ĐỘ RỘNG ================= */
+/* Scoped #kb-pool (game Xây chữ Kanji) — game 7 (#kf-pool) dùng chung class .kb-pool-grid
+   nên KHÔNG sửa rule .kb-pool-grid chung. JS chỉ ghi --kb-pool-n (tổng số viên, thường 12);
+   CSS media query tự chọn số cột + độ rộng theo ĐỘ RỘNG màn hình (resize tự re-layout):
+   - Rộng ≤ 1200px : 6 cột → 12 viên = 2 HÀNG, max-width 600px
+   - Rộng > 1200px : đủ 12 cột → 12 viên = 1 HÀNG, max-width 1600px */
+#kb-pool {
+    --kb-cols: min(6, var(--kb-pool-n, 12));
+    max-width: 600px !important;
+}
+@media (min-width: 1201px) {
+    #kb-pool {
+        --kb-cols: min(12, var(--kb-pool-n, 12));
+        max-width: 1600px !important;
+    }
+}
+
+/* ================= TASK 28: MÀN HÌNH THẤP (cao < 600px) — RỔ GẠCH FLOATING ================= */
+/* Chiều cao < 600px: ẨN rổ gạch dock dưới footer + hiện hint; chạm ô vuông trên khay đích
+   (JS gắn listener) sẽ chuyển rổ gạch thành FLOATING PANEL nổi giữa màn hình */
+@media not all and (min-height: 600px) {
+    #boostGiveUpZone > #kb-pool { display: none !important; }
+    .kb-compact-hint { display: flex !important; }
+    .kb-slot { cursor: pointer !important; }
+}
+.kb-compact-hint {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 0 auto 18px auto;
+    font-size: 12px;
+    font-weight: 700;
+    color: #718096;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e0;
+    border-radius: 10px;
+    padding: 7px 14px;
+    width: fit-content;
+}
+.kb-compact-hint .material-symbols-outlined { font-size: 16px; color: #3182ce; }
+
+/* Overlay rổ gạch nổi: backdrop mờ che màn + card trắng giữa (JS tạo khi cần) */
+#kbFloatingPoolOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 14800;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.55);
+}
+#kbFloatingPoolOverlay.kb-open { display: flex; }
+.kb-fp-card {
+    background: #ffffff;
+    border-radius: 20px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+    padding: 14px 16px 16px 16px;
+    width: fit-content;
+    max-width: min(94vw, 1600px);
+    max-height: 86vh;
+    overflow-y: auto;
+    box-sizing: border-box;
+    animation: popIn 0.25s ease;
+}
+.kb-fp-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 4px;
+}
+.kb-fp-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: #4a5568;
+}
+.kb-fp-title .material-symbols-outlined { font-size: 18px; color: #b45309; }
+.kb-fp-close {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: none;
+    background: #edf2f7;
+    color: #1d1d1f;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s;
+}
+.kb-fp-close:hover { background: #f59e0b; color: #ffffff; }
+.kb-fp-close .material-symbols-outlined { font-size: 18px; }
+.kb-fp-hint {
+    font-size: 11px;
+    font-weight: 600;
+    color: #a0aec0;
+    margin-bottom: 10px;
+}
+/* Rổ gạch nằm trong overlay: bỏ padding 2 bên (card đã có padding riêng) */
+#kbFloatingPoolOverlay #kb-pool { padding: 0 !important; }
+
 /* ===== KANJI HEBI GAME STYLES ===== */
 /* ================= Kanji Defense Game ==================== */
 .kd-game-wrapper {
@@ -20117,6 +20225,51 @@ window.startRemedialFromSidebar = function() {
     window.location.hash = `study/${encodeURIComponent(deckToStudyId)}/cram`;
 };
 
+// ===== [TASK 28] RỔ GẠCH FLOATING — game Xây chữ Kanji (màn hình thấp, cao < 600px) =====
+// Màn thấp: rổ gạch dock bị ẩn (CSS media query max-height), chạm ô vuông trên khay đích
+// sẽ mở rổ gạch như floating panel; chạm backdrop / nút X để đóng (rổ về lại vị trí dock).
+window.kbIsCompactHeight = function() { return window.innerHeight < 600; };
+window.kbEnsureFloatingPoolOverlay = function() {
+    let ov = document.getElementById('kbFloatingPoolOverlay');
+    if (ov) return ov;
+    ov = document.createElement('div');
+    ov.id = 'kbFloatingPoolOverlay';
+    ov.innerHTML = `
+        <div class="kb-fp-card">
+            <div class="kb-fp-head">
+                <div class="kb-fp-title"><span class="material-symbols-outlined">construction</span> RỔ GẠCH</div>
+                <button class="kb-fp-close" type="button" title="Đóng rổ gạch" aria-label="Đóng rổ gạch"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div class="kb-fp-hint">Chạm viên gạch để đặt vào ô trống — gạch đã đặt có thể bấm để trả lại rổ</div>
+            <div id="kbFloatingPoolMount"></div>
+        </div>`;
+    ov.addEventListener('click', function(e) { if (e.target === ov) window.kbCloseFloatingPool(); });
+    ov.querySelector('.kb-fp-close').addEventListener('click', function() { window.kbCloseFloatingPool(); });
+    document.body.appendChild(ov);
+    return ov;
+};
+window.kbOpenFloatingPool = function() {
+    const pool = document.getElementById('kb-pool');
+    if (!pool) return;
+    const ov = window.kbEnsureFloatingPoolOverlay();
+    const mount = document.getElementById('kbFloatingPoolMount');
+    if (pool.parentElement !== mount) mount.appendChild(pool);
+    ov.classList.add('kb-open');
+};
+window.kbCloseFloatingPool = function() {
+    const ov = document.getElementById('kbFloatingPoolOverlay');
+    if (!ov || !ov.classList.contains('kb-open')) return;
+    ov.classList.remove('kb-open');
+    // Trả rổ gạch về vị trí dock (đầu giveUpZone, trên hàng footer) — CSS media query
+    // quyết định nó hiển thị (màn cao) hay ẩn (màn thấp chờ chạm ô vuông mở lại)
+    const mount = document.getElementById('kbFloatingPoolMount');
+    const pool = mount ? mount.querySelector('#kb-pool') : null;
+    if (pool) {
+        const gz = document.getElementById('boostGiveUpZone');
+        if (gz) gz.insertBefore(pool, gz.firstChild);
+    }
+};
+
 function startBoostSession(gameId) {
     unlockIOSAudio();
 
@@ -20349,6 +20502,7 @@ function renderBoostCard() {
     // Footer LUÔN hiện trong game vì nút Thoát đã rời header xuống footer —
     // đồng thời dọn state inline của game 7/11 (flex column + gap) từ thẻ trước.
     const giveUpZone = document.getElementById('boostGiveUpZone');
+    if (window.kbCloseFloatingPool) window.kbCloseFloatingPool(); // 🟢 TASK 28: dọn rổ gạch nổi game 11 (thẻ trước)
     giveUpZone.innerHTML = boostFooterRowHTML(boostSkipBtnHTML());
     giveUpZone.style.display = 'block';
     giveUpZone.style.flexDirection = '';
@@ -21300,6 +21454,8 @@ function renderBoostCard() {
                             ${slotsHTML}
                         </div>
 
+                        <div class="kb-compact-hint"><span class="material-symbols-outlined">touch_app</span> Nhấn ô vuông để mở rổ gạch</div>
+
                         <div style="display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; margin-bottom: 20px;">
                             <span style="color:#718096; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;">GHÉP CHỮ:</span>
                             ${hvText}
@@ -21311,14 +21467,10 @@ function renderBoostCard() {
 
                     zone.innerHTML = ``;
 
-                    // 🟢 TÍNH SỐ CỘT TRƯỚC KHI RENDER để set inline ngay trong template
-                    // Quy tắc:
-                    //   - N ≤ 12: 6 cột cố định → hàng dưới 6 viên đầy, hàng trên (N-6) viên lẻ căn giữa
-                    //   - N > 12: tự chia đôi = ceil(N/2) → 2 hàng đều đầy, viên gạch tự co lại
+                    // 🟢 TASK 28: Chỉ ghi TỔNG SỐ VIÊN (--kb-pool-n) — CSS media query tự chọn
+                    // số cột + max-width theo độ rộng màn hình: ≤1200px → 6 cột (2 hàng) / 600px,
+                    // >1200px → đủ 12 cột (1 hàng) / 1600px; resize tự re-layout không cần render lại
                     const poolSize = gameData.pool.length;
-                    const dynamicCols = poolSize <= 12
-                        ? 6
-                        : Math.max(2, Math.ceil(poolSize / 2));
 
                     let poolHTML = gameData.pool.map((piece, idx) =>
                         `<div class="kb-piece" id="kb-piece-${currentStep}-${idx}">${piece}</div>`
@@ -21329,9 +21481,11 @@ function renderBoostCard() {
                     giveUpZone.style.flexDirection = 'column';
                     giveUpZone.style.gap = '15px'; 
                     
-                    // 🟢 Set --kb-cols NGAY trong inline style để CSS calc tính đúng ngay từ đầu
+                    // 🟢 TASK 28: đóng floating pool còn mở từ bước trước + chỉ ghi --kb-pool-n
+                    // (tổng số viên) — số cột do CSS media query quyết định theo độ rộng màn hình
+                    window.kbCloseFloatingPool();
                     giveUpZone.innerHTML = `
-                        <div class="kb-pool-grid" id="kb-pool" style="--kb-cols: ${dynamicCols};">
+                        <div class="kb-pool-grid" id="kb-pool" style="--kb-pool-n: ${poolSize};">
                             ${poolHTML}
                         </div>
                         ${boostFooterRowHTML(boostSkipBtnHTML())}
@@ -21339,13 +21493,13 @@ function renderBoostCard() {
 
                     const targetBox = document.getElementById('kb-target-box');
                     const poolBox = document.getElementById('kb-pool');
-                    // 🟢 BACKUP: Ép width trực tiếp bằng JS cho từng .kb-piece để đảm bảo re-layout
-                    // (đề phòng CSS var/calc không re-evaluate trên 1 số trình duyệt)
-                    const gap = 6;
-                    const pieceWidthCalc = `calc((100% - ${gap * (dynamicCols - 1)}px) / ${dynamicCols})`;
-                    poolBox.querySelectorAll('.kb-piece').forEach(p => {
-                        p.style.width = pieceWidthCalc;
-                        p.style.flexBasis = pieceWidthCalc;
+                    // 🟢 TASK 28: BỎ ép width từng viên bằng JS — inline width đã cản trở media query
+                    // re-layout khi resize; .kb-piece giờ tự tính width qua --kb-cols (CSS thuần)
+                    // 🟢 TASK 28: Màn thấp (cao < 600px) — chạm ô vuông trên khay đích mở RỔ GẠCH NỔI
+                    targetBox.querySelectorAll('.kb-slot').forEach(function(slotEl) {
+                        slotEl.addEventListener('click', function() {
+                            if (window.kbIsCompactHeight()) window.kbOpenFloatingPool();
+                        });
                     });
                     let currentAnswer = new Array(gameData.correctSequence.length).fill(null);
                 
@@ -21396,6 +21550,8 @@ function renderBoostCard() {
                                 }
             
                                 setTimeout(() => {
+                                    // 🟢 TASK 28: đóng rổ gạch nổi (nếu đang mở) trước màn thành công
+                                    window.kbCloseFloatingPool();
                                     const hvTextSuccess = gameData.hv ? `<span style="color:#e53e3e; font-weight: 900;">[${gameData.hv}]</span>` : '';
                                     
                                     question.innerHTML = `
