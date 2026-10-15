@@ -13745,8 +13745,12 @@ body.fc-3part-mode .fc3-notch {
     padding: 0 12px;
     box-sizing: border-box;
 }
-/* TAI THỎ: trong suốt (nền trang), flex 0 1 auto + sàn 64px (mobile 56px) -> review/cram
-       cấp 1 hai tai bằng nhau (notch cân đối); cram nhiều cấp tai trái tự giãn cho (Cấp x/y) */
+/* TAI THỎ: trong suốt (nền trang), flex 0 1 auto + sàn 64px (mobile 56px) -> TASK 42:
+       syncFc3EarWidths() (cuối showCard, chỉ chạy review/cram) bỏ width cũ, đo chiều rộng
+       tự nhiên của 2 tai rồi áp chiều rộng LỚN HƠN cho cả hai -> hai tai LUÔN bằng nhau:
+       review ngắn hay cram đa cấp có "(Cấp x/y)" dài thì tai trái/phải vẫn đối xứng,
+       notch nằm chính giữa (phải dùng JS vì CSS không thể bằng nhau hóa chiều rộng
+       của 2 flex item độc lập theo nội dung) */
 body.fc-3part-mode .fc3-ear {
     display: flex;
     align-items: center;
@@ -19173,6 +19177,36 @@ function switchToBoostMode() {
     // Chỉ mở bảng chọn Game
     document.getElementById('boostIntroModal').style.display = 'flex';
 }
+
+// TASK 42 (NOTCH IPHONE): CÂN BẰNG KÍCH THƯỚC HAI TAI THỎ — tai trái (progress
+// 1/n, cram đa cấp có thêm "(Cấp x/y)" nên tự giãn dài hơn) và tai phải (chỉ nút
+// sửa 32px) phải LUÔN bằng nhau: bỏ width cũ -> đo chiều rộng tự nhiên của 2 tai
+// -> áp chiều rộng LỚN HƠN cho cả hai (phải dùng JS vì CSS không thể bằng nhau hóa
+// 2 flex item độc lập theo nội dung); kết quả: notch luôn nằm chính giữa, hai tai
+// đối xứng như tai thỏ iPhone thật — chạy lại sau mỗi showCard và khi resize/xoay.
+let __fc3EarResizeBound = false; // resize listener chỉ gắn 1 lần cho cả app
+function syncFc3EarWidths() {
+    const earL = document.getElementById('fc3EarLeft');
+    const earR = document.getElementById('fc3EarRight');
+    if (!earL || !earR) return;
+    if (!document.body.classList.contains('fc-3part-mode')) return; // chỉ trang lật review/cram
+    if (!earL.innerHTML.trim() || !earR.innerHTML.trim()) return;   // 2 tai phải đang có nội dung
+    earL.style.width = '';
+    earR.style.width = '';              // bỏ width cũ để đo kích thước tự nhiên (không kẹt số cũ)
+    const wL = earL.getBoundingClientRect().width; // ép layout, đo tai trái (đã gồm min-width 64/56 + padding)
+    const wR = earR.getBoundingClientRect().width; // ép layout, đo tai phải
+    const w = Math.max(wL, wR);         // chiều rộng lớn hơn -> hai tai bằng nhau tại kích thước lớn
+    if (w > 0) {
+        const wpx = w + 'px';           // giữ nguyên số lẻ sub-pixel để 2 tai khớp nhau từng pixel
+        earL.style.width = wpx;         // áp CHIỀU RỘNG BẰNG NHAU cho cả hai tai
+        earR.style.width = wpx;
+    }
+    if (!__fc3EarResizeBound) {         // xoay ngang/dọc hoặc kéo giãn khung: đo lại để vẫn bằng nhau
+        __fc3EarResizeBound = true;
+        window.addEventListener('resize', () => syncFc3EarWidths());
+    }
+}
+
 async function showCard() {
     // 🟢 ĐỒNG BỘ INDEX THEO HÀNG ĐỢI NGAY TỪ ĐẦU ĐỂ TRÁNH LỖI OUT OF BOUNDS
     if (mode === 'assessment') {
@@ -19473,6 +19507,7 @@ function renderStudy() {
         const earR = document.getElementById('fc3EarRight');
         if (earL) earL.innerHTML = progressHTML;
         if (earR) earR.innerHTML = editBtnHTML;
+        syncFc3EarWidths(); // TASK 42: cân bằng chiều rộng 2 tai (cram "(Cấp x/y)" không còn làm tai trái dài hơn)
         onCardProgressHTML = '';
         onCardEditHTML = '';
     }
