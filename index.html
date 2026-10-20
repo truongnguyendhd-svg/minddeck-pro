@@ -12413,19 +12413,11 @@ body.grammar-searching #headerGrammarSearch {
     }
 }
 
-/* ================= TASK 49: RỔ GẠCH DOCK LÊN ĐẦU TRANG (DƯỚI KHỐI TỪ VỰNG) ================= */
-/* Game 11: rổ gạch chuyển từ giveUpZone (đáy, cạnh footer) lên CUỐI #boostQuestion —
-   ngay dưới khối TỪ VỰNG (từ đơn: dưới dòng GHÉP CHỮ). Rule .kb-pool-grid cũ có
-   margin: 0 auto !important → rule scoped này thêm margin-top tạo khoảng thở với
-   khối phía trên (specificity (0,2,0,0) thắng .kb-pool-grid (0,1,0,0)). */
-#boostQuestion > #kb-pool { margin-top: 16px !important; }
-
 /* ================= TASK 28: MÀN HÌNH THẤP (cao < 600px) — RỔ GẠCH FLOATING ================= */
-/* Chiều cao < 600px: ẨN rổ gạch dock (🟢 TASK 49: dock = cuối #boostQuestion, dưới khối
-   TỪ VỰNG) + hiện hint; chạm ô vuông trên khay đích (JS gắn listener) sẽ chuyển rổ gạch
-   thành FLOATING PANEL nổi giữa màn hình */
+/* Chiều cao < 600px: ẨN rổ gạch dock dưới footer + hiện hint; chạm ô vuông trên khay đích
+   (JS gắn listener) sẽ chuyển rổ gạch thành FLOATING PANEL nổi giữa màn hình */
 @media not all and (min-height: 600px) {
-    #boostQuestion > #kb-pool { display: none !important; }
+    #boostGiveUpZone > #kb-pool { display: none !important; }
     .kb-compact-hint { display: flex !important; }
     .kb-slot { cursor: pointer !important; }
 }
@@ -20771,21 +20763,13 @@ window.kbCloseFloatingPool = function() {
     const ov = document.getElementById('kbFloatingPoolOverlay');
     if (!ov || !ov.classList.contains('kb-open')) return;
     ov.classList.remove('kb-open');
-    // 🟢 TASK 49: trả rổ gạch về dock MỚI — CUỐI #boostQuestion, ngay dưới khối TỪ VỰNG
-    // (trước đây: đầu giveUpZone cạnh footer) — CSS media query quyết định nó hiển thị
-    // (màn cao) hay ẩn (màn thấp chờ chạm ô vuông mở lại)
+    // Trả rổ gạch về vị trí dock (đầu giveUpZone, trên hàng footer) — CSS media query
+    // quyết định nó hiển thị (màn cao) hay ẩn (màn thấp chờ chạm ô vuông mở lại)
     const mount = document.getElementById('kbFloatingPoolMount');
     const pool = mount ? mount.querySelector('#kb-pool') : null;
     if (pool) {
-        // Nếu question ĐÃ render rổ gạch mới (đổi bước/thành công/thẻ mới trong lúc
-        // panel mở) → rổ trong panel là bản lỗi thời: XOÁ hẳn, giữ đúng 1 rổ duy nhất
-        // (chống trùng #kb-pool — cùng logic khay đích TASK 29 bên dưới)
-        const q = document.getElementById('boostQuestion');
-        if (q && !q.querySelector('#kb-pool')) {
-            q.appendChild(pool);
-        } else {
-            pool.remove();
-        }
+        const gz = document.getElementById('boostGiveUpZone');
+        if (gz) gz.insertBefore(pool, gz.firstChild);
     }
     // 🟢 TASK 29: trả KHAY ĐÍCH về #boostQuestion (vị trí đầu — trên hint/dòng GHÉP CHỮ).
     // Nếu question ĐÃ render khay mới (đổi bước/thành công/thẻ mới trong lúc panel mở)
@@ -22066,21 +22050,19 @@ function renderBoostCard() {
                     ).join('');
                     
                     const giveUpZone = document.getElementById('boostGiveUpZone');
-                    giveUpZone.style.display = 'block';
+                    giveUpZone.style.display = 'flex';
+                    giveUpZone.style.flexDirection = 'column';
+                    giveUpZone.style.gap = '15px'; 
                     
                     // 🟢 TASK 28: đóng floating pool còn mở từ bước trước + chỉ ghi --kb-pool-n
                     // (tổng số viên) — số cột do CSS media query quyết định theo độ rộng màn hình
                     window.kbCloseFloatingPool();
-                    // 🟢 TASK 49: RỔ GẠCH CHUYỂN LÊN ĐẦU TRANG — dock mới là CUỐI #boostQuestion,
-                    // ngay DƯỚI khối TỪ VỰNG (từ đơn: dưới dòng GHÉP CHỮ) — trước đây nằm đáy
-                    // trang trong giveUpZone cạnh footer. Footer (THOÁT + SKIP) giữ nguyên
-                    // ở giveUpZone dưới đáy như mọi game khác.
-                    question.insertAdjacentHTML('beforeend', `
+                    giveUpZone.innerHTML = `
                         <div class="kb-pool-grid" id="kb-pool" style="--kb-pool-n: ${poolSize};">
                             ${poolHTML}
                         </div>
-                    `);
-                    giveUpZone.innerHTML = boostFooterRowHTML(boostSkipBtnHTML());
+                        ${boostFooterRowHTML(boostSkipBtnHTML())}
+                    `;
 
                     const targetBox = document.getElementById('kb-target-box');
                     const poolBox = document.getElementById('kb-pool');
