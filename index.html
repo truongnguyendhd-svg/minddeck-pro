@@ -7209,7 +7209,13 @@ body.pdf-mode #pdfReadState {
 /* ================= GLOBAL SELECTION POPOVER (APPLE GLASSMORPHISM) ================= */
 #selectionPopover {
     display: flex;
-    position: absolute;
+    /* 🟢 [FIX POPOVER MODAL] absolute → fixed: khi mở modal, body.modal-open-lock
+       (position:fixed + [N22] ghim top âm bằng preLockScrollY) thành containing
+       block của popover absolute → popover bị đẩy lên đúng số px trang đã cuộn
+       trước khi mở modal, bay khỏi màn hình → user không thấy popover tra từ/AI.
+       fixed luôn neo theo viewport — đúng ở mọi trạng thái (modal mở/đóng, trang
+       cuộn sâu hay không cuộn). Toạ độ JS kèm theo đã bỏ scrollX/scrollY. */
+    position: fixed;
     z-index: 15000;
     background: rgba(29, 29, 31, 0.85); /* Đen nhám Apple + Kính mờ */
     backdrop-filter: saturate(180%) blur(20px);
@@ -32225,21 +32231,26 @@ function handleSelectionEnd(e) {
             const range = selection.getRangeAt(0);
             const rect = range.getBoundingClientRect();
             
-            // Chiều rộng Popover (4 nút * 38px + padding/gap = ~184px)
-            const popoverWidth = 184; 
+            // Chiều rộng Popover — ĐO THẬT qua offsetWidth thay vì hằng 184 cứng (4 nút 38px + 3 gap 8px + padding 20px + border 2px ≈ 199px; hằng cũ làm popover tràn mép phải ~15px khi bị chặn biên)
+            const popoverWidth = popover.offsetWidth || 184; 
             
+            // 🟢 [FIX POPOVER MODAL] Popover đã chuyển sang position:fixed → toạ độ luôn theo VIEWPORT.
+            // getBoundingClientRect() cũng trả toạ độ viewport → KHÔNG cộng scrollX/scrollY nữa.
+            // (Code cũ cộng scroll cho absolute — sai khi body.modal-open-lock biến body thành
+            // containing block: scrollY bị kẹp về 0 trong khi body bị [N22] ghim top âm,
+            // làm popover trượt lên đúng số px trang đã cuộn và bay khỏi màn hình.)
             // Tính toán Trục X (Căn giữa vùng bôi đen)
-            let left = rect.left + window.scrollX + (rect.width / 2) - (popoverWidth / 2);
+            let left = rect.left + (rect.width / 2) - (popoverWidth / 2);
             
             // Tính toán Trục Y (LUÔN ÉP XUỐNG DƯỚI ĐỂ NÉ NATIVE MENU CỦA OS)
-            let top = rect.bottom + window.scrollY + 12;
+            let top = rect.bottom + 12;
 
             // Chống tràn màn hình Trục X
-            if (left + popoverWidth > window.innerWidth + window.scrollX) {
-                left = window.innerWidth + window.scrollX - popoverWidth - 10;
+            if (left + popoverWidth > window.innerWidth) {
+                left = window.innerWidth - popoverWidth - 10;
             }
-            if (left < window.scrollX + 10) { 
-                left = window.scrollX + 10; 
+            if (left < 10) { 
+                left = 10; 
             }
 
             // Áp dụng CSS và Show
