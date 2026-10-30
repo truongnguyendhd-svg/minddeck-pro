@@ -12,7 +12,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&family=Noto+Serif+JP:wght@400;600;700&display=swap" rel="stylesheet">
 <!-- TẢI THƯ VIỆN SUPABASE -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- TẢI CÁC THƯ VIỆN NẶNG (Thêm DEFER để trình duyệt vẽ UI trước, tải script ngầm) -->
@@ -15376,6 +15376,269 @@ body.jlpt-mode .main-content { padding: 0 !important; }
     .jlpt-result-ring .rr-num b { font-size: 28px; }
 }
 
+/* ============================================================ */
+/* [T81] TRANG "TRUYỆN ĐỌC" — đọc truyện Nhật kèm furigana      */
+/* Nguồn: 青空文庫 (Aozora Bunko) — public domain: 8 truyện của  */
+/* 新美南吉 / 芥川竜之介 / 宮沢賢治. Ghi công 底本・入力・校正    */
+/* hiển thị cuối mỗi truyện theo quy tắc tái sử dụng Aozora.    */
+/* Thiết kế: cùng ngôn ngữ trang JLPT Test [T73] (navy đậm,     */
+/* thẻ slate, root full-screen 100dvh, tab cấp độ đáy màn như   */
+/* Scaffold Flutter [T74]) — accent TEAL #14B8A6 phân biệt      */
+/* trang; reader dùng Noto Serif JP + ruby furigana bật/tắt.    */
+/* ============================================================ */
+body.story-mode { background: #0b1220; }
+
+/* [T81] Ẩn header app (mirror [T75] jlpt-mode): root full-screen,
+   thoát trang → gỡ story-mode → header hiện lại nguyên vẹn.
+   Nút HOME (về dashboard) + SEARCH (mở floating search panel) đặt
+   trong .story-home-head; nút SEARCH thêm trong .story-appbar. */
+body.story-mode .app-header { display: none !important; }
+
+#storyPage {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 0;
+    font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+body.story-mode .main-content { padding: 0 !important; }
+
+/* Nền navy + họa tiết vòng tròn (mirror .jlpt-root [T74]/[T76]) */
+.story-root {
+    position: relative;
+    border-radius: 0;
+    background:
+        radial-gradient(circle at 88% -5%, rgba(20, 184, 166, 0.08), transparent 34%),
+        radial-gradient(circle at 4% 104%, rgba(245, 158, 11, 0.05), transparent 36%),
+        linear-gradient(180deg, #0f172a 0%, #131c31 55%, #1e293b 100%);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    box-sizing: border-box;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+}
+.story-deco { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; }
+.story-deco::before, .story-deco::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid rgba(148, 163, 184, 0.08);
+}
+.story-deco::before { width: 420px; height: 420px; top: -210px; right: -140px; box-shadow: 0 0 0 70px rgba(148,163,184,0.035), 0 0 0 150px rgba(148,163,184,0.02); }
+.story-deco::after { width: 340px; height: 340px; bottom: -180px; left: -120px; box-shadow: 0 0 0 60px rgba(148,163,184,0.03); }
+
+/* Khung cuộn nội bộ (app-screen mirror .jlpt-view [T74]) */
+.story-view { position: relative; z-index: 1; display: flex; flex-direction: column; flex: 1; overflow-y: auto; overflow-x: hidden; }
+.story-view { scrollbar-width: none; -ms-overflow-style: none; }
+.story-view::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* ---------- MÀN DANH SÁCH ---------- */
+.story-home-head { display: flex; align-items: center; justify-content: space-between; padding: 22px 22px 14px 22px; }
+.story-home-head h1 { margin: 0; font-size: 24px; font-weight: 800; color: #f8fafc; letter-spacing: -0.4px; display: flex; align-items: center; gap: 10px; }
+.story-head-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.story-head-btn {
+    width: 38px; height: 38px; border-radius: 12px; flex-shrink: 0;
+    background: rgba(148, 163, 184, 0.1); border: 1px solid rgba(148, 163, 184, 0.16);
+    color: #e2e8f0; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: 0.2s;
+}
+.story-head-btn:hover { background: rgba(148, 163, 184, 0.2); }
+.story-head-btn .material-symbols-outlined { font-size: 21px; color: #e2e8f0; }
+.story-head-btn:hover .material-symbols-outlined { color: #2dd4bf; }
+.story-count-chip {
+    font-size: 12px; font-weight: 800; color: #2dd4bf;
+    background: rgba(20, 184, 166, 0.12); border: 1px solid rgba(45, 212, 191, 0.35);
+    padding: 3px 10px; border-radius: 50px; letter-spacing: 0.5px;
+}
+
+/* Banner teal (mirror .jlpt-banner [T76]: khóa cao 108px border-box) */
+.story-banner {
+    display: flex; align-items: center; gap: 16px;
+    margin: 0 22px 22px 22px; padding: 16px 18px;
+    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 60%, #2dd4bf 100%);
+    border-radius: 18px; border: 1px solid rgba(45, 212, 191, 0.45);
+    box-shadow: 0 10px 30px rgba(20, 184, 166, 0.22);
+    position: relative; overflow: hidden;
+    box-sizing: border-box;
+    height: 108px; min-height: 108px; flex-shrink: 0;
+}
+.story-banner::after {
+    content: ''; position: absolute; right: -30px; top: -40px; width: 150px; height: 150px;
+    border-radius: 50%; border: 22px solid rgba(255, 255, 255, 0.09); pointer-events: none;
+}
+.story-banner-icon {
+    width: 74px; height: 74px; border-radius: 18px; flex-shrink: 0;
+    background: rgba(4, 48, 44, 0.28); border: 1px solid rgba(4, 48, 44, 0.4);
+    display: flex; align-items: center; justify-content: center; color: #04302c;
+}
+.story-banner-icon .material-symbols-outlined { font-size: 42px; }
+.story-banner-text { flex: 1; min-width: 0; position: relative; z-index: 1; }
+.story-banner-label { font-size: 10.5px; font-weight: 800; letter-spacing: 1.6px; color: #04302c; text-transform: uppercase; margin-bottom: 4px; }
+.story-banner-text p { margin: 0; font-size: 13px; line-height: 1.55; font-weight: 600; color: #062f2b; }
+
+/* Nhãn section */
+.story-sec-label {
+    font-size: 11px; font-weight: 800; letter-spacing: 1.8px; text-transform: uppercase;
+    color: #14b8a6; padding: 0 22px; margin: 2px 0 10px 0;
+}
+
+/* Danh sách truyện (mirror .jlpt-practice-list [T78]: dọc, icon + body + phải) */
+.story-list { display: flex; flex-direction: column; gap: 10px; padding: 0 22px; margin-bottom: 24px; }
+.story-card {
+    display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+    background: #1e293b; border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 16px;
+    padding: 14px 16px; cursor: pointer; transition: 0.22s; color: inherit; font-family: inherit;
+}
+.story-card:hover { border-color: rgba(45, 212, 191, 0.5); transform: translateX(4px); background: #243247; }
+.story-card-icon {
+    width: 44px; height: 44px; border-radius: 13px; flex-shrink: 0;
+    background: rgba(20, 184, 166, 0.12); border: 1px solid rgba(45, 212, 191, 0.3);
+    display: flex; align-items: center; justify-content: center; color: #2dd4bf;
+}
+.story-card-icon .material-symbols-outlined { font-size: 24px; }
+.story-card-body { flex: 1; min-width: 0; }
+.story-card-title { font-size: 15px; font-weight: 800; color: #f1f5f9; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.story-card-title .story-vi { font-size: 11.5px; font-weight: 700; color: #94a3b8; }
+.story-lv-chip {
+    font-size: 10px; font-weight: 800; letter-spacing: 0.4px;
+    padding: 2px 8px; border-radius: 50px; flex-shrink: 0;
+}
+.story-lv-chip.lv-n4 { color: #fbbf24; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); }
+.story-lv-chip.lv-n3 { color: #2dd4bf; background: rgba(20, 184, 166, 0.12); border: 1px solid rgba(45, 212, 191, 0.35); }
+.story-card-sub { font-size: 11.5px; font-weight: 600; color: #94a3b8; margin-top: 3px; }
+.story-card-sum { font-size: 11.5px; color: #64748b; margin-top: 5px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.story-read-badge {
+    flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(16, 185, 129, 0.14); border: 1px solid rgba(16, 185, 129, 0.4);
+    color: #34d399; display: flex; align-items: center; justify-content: center;
+}
+.story-read-badge .material-symbols-outlined { font-size: 17px; }
+.story-card .material-symbols-outlined.story-chev { color: #14b8a6; font-size: 22px; flex-shrink: 0; }
+.story-read-tag {
+    font-size: 10px; font-weight: 800; color: #34d399;
+    background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.4);
+    padding: 2px 8px; border-radius: 50px;
+}
+.story-empty { padding: 40px 20px; text-align: center; color: #64748b; font-size: 13px; font-weight: 600; }
+
+/* Tab cấp độ đáy màn (mirror .jlpt-levelbar [T77]: nền solid #0f172a) */
+.story-levelbar {
+    position: sticky; bottom: 0; z-index: 5;
+    display: flex; gap: 6px; padding: 10px 14px 12px 14px; margin-top: auto;
+    background: #0f172a;
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+.story-level-tab {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 8px 4px 7px 4px; border-radius: 13px; border: 1px solid transparent;
+    background: transparent; color: #64748b; cursor: pointer; transition: 0.2s; font-family: inherit;
+}
+.story-level-tab .material-symbols-outlined { font-size: 21px; }
+.story-level-tab span.story-lv-name { font-size: 12px; font-weight: 800; letter-spacing: 0.4px; }
+.story-level-tab:hover { color: #94a3b8; background: rgba(148, 163, 184, 0.08); }
+.story-level-tab.active {
+    color: #2dd4bf; background: rgba(20, 184, 166, 0.1); border-color: rgba(45, 212, 191, 0.4);
+    box-shadow: 0 4px 16px rgba(20, 184, 166, 0.15);
+}
+
+/* ---------- MÀN ĐỌC ---------- */
+.story-appbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 18px 10px 18px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+.story-appbar .story-back {
+    width: 38px; height: 38px; border-radius: 12px; flex-shrink: 0;
+    background: rgba(148, 163, 184, 0.1); border: 1px solid rgba(148, 163, 184, 0.16);
+    color: #e2e8f0; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: 0.2s;
+}
+.story-appbar .story-back:hover { background: rgba(148, 163, 184, 0.2); }
+.story-appbar .story-appbar-title { flex: 1; min-width: 0; }
+.story-appbar .story-appbar-title h2 { margin: 0; font-size: 16px; font-weight: 800; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.2px; }
+.story-appbar .story-appbar-title span { font-size: 11.5px; font-weight: 600; color: #94a3b8; }
+.story-furi-btn {
+    flex-shrink: 0; height: 38px; padding: 0 12px; border-radius: 12px;
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(148, 163, 184, 0.1); border: 1px solid rgba(148, 163, 184, 0.16);
+    color: #94a3b8; font-size: 12px; font-weight: 800; cursor: pointer; transition: 0.2s; font-family: inherit;
+}
+.story-furi-btn .material-symbols-outlined { font-size: 18px; }
+.story-furi-btn:hover { background: rgba(148, 163, 184, 0.2); }
+.story-furi-btn.on { background: rgba(45, 212, 191, 0.12); border-color: rgba(45, 212, 191, 0.45); color: #2dd4bf; }
+
+.story-reader-scroll { flex: 1; overflow-y: auto; padding: 0; }
+.story-reader { max-width: 720px; margin: 0 auto; padding: 26px 24px 30px; }
+.story-r-title { margin: 0 0 8px 0; font-family: 'Noto Serif JP', 'Noto Sans JP', serif; font-size: 26px; font-weight: 700; color: #f8fafc; letter-spacing: 0.5px; line-height: 1.4; }
+.story-r-meta { font-size: 12px; font-weight: 700; color: #94a3b8; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.story-r-sum {
+    background: rgba(20, 184, 166, 0.08); border: 1px dashed rgba(45, 212, 191, 0.35);
+    color: #99f6e4; font-size: 12.5px; font-weight: 600; line-height: 1.6;
+    padding: 10px 14px; border-radius: 12px; margin-bottom: 20px;
+}
+.story-r-para {
+    font-family: 'Noto Serif JP', 'Noto Sans JP', serif;
+    font-size: 17px; line-height: 2.2; color: #e2e8f0;
+    margin: 0 0 1.15em; text-align: justify;
+    word-break: normal; overflow-wrap: break-word;
+}
+.story-r-para ruby { ruby-align: center; }
+.story-r-para ruby rt {
+    font-size: 10px; color: #5eead4; font-family: 'Noto Sans JP', sans-serif;
+    font-weight: 600; letter-spacing: 0; transform: translateY(-2px);
+}
+.story-reader.nofuri .story-r-para ruby rt { display: none; }
+.story-credit {
+    margin-top: 26px; padding: 14px 16px;
+    border: 1px dashed rgba(148, 163, 184, 0.3); border-radius: 12px;
+    font-size: 11.5px; color: #94a3b8; line-height: 1.8;
+    background: rgba(15, 23, 42, 0.5);
+}
+.story-credit-title { font-weight: 800; color: #cbd5e1; margin-bottom: 6px; letter-spacing: 0.4px; }
+.story-credit a { color: #fbbf24; text-decoration: none; font-weight: 700; }
+.story-credit a:hover { text-decoration: underline; }
+
+/* Chân reader: thanh tiến độ cuộn */
+.story-reader-foot {
+    flex-shrink: 0; display: flex; align-items: center; gap: 12px;
+    padding: 10px 18px 12px 18px; background: #0f172a;
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+.story-prog-label { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 800; color: #94a3b8; flex-shrink: 0; }
+.story-prog-label .material-symbols-outlined { color: #14b8a6; }
+.story-prog-track { flex: 1; height: 6px; border-radius: 3px; background: rgba(148, 163, 184, 0.18); overflow: hidden; }
+.story-prog-fill { height: 100%; width: 0%; border-radius: 3px; background: linear-gradient(90deg, #14b8a6, #2dd4bf); transition: width 0.15s ease-out; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 768px) {
+    .story-home-head { padding: 18px 16px 12px 16px; }
+    .story-home-head h1 { font-size: 20px; }
+    .story-banner { margin: 0 16px 18px 16px; padding: 13px 14px; gap: 12px; }
+    .story-banner-icon { width: 60px; height: 60px; border-radius: 15px; }
+    .story-banner-icon .material-symbols-outlined { font-size: 34px; }
+    .story-banner-text p { font-size: 12px; }
+    .story-sec-label { padding: 0 16px; }
+    .story-list { padding: 0 16px; }
+    .story-reader { padding: 20px 18px 24px; }
+    .story-r-title { font-size: 22px; }
+    .story-appbar { padding: 13px 14px 9px 14px; }
+    .story-furi-btn { padding: 0 10px; }
+}
+@media (max-width: 480px) {
+    .story-home-head h1 { font-size: 18px; }
+    .story-banner { flex-direction: row; }
+    .story-banner-icon { width: 54px; height: 54px; }
+    .story-banner-icon .material-symbols-outlined { font-size: 30px; }
+    .story-card { padding: 12px 13px; gap: 11px; }
+    .story-card-icon { width: 40px; height: 40px; }
+    .story-card-sum { -webkit-line-clamp: 2; }
+    .story-level-tab { padding: 7px 2px 6px 2px; border-radius: 11px; }
+    .story-level-tab .material-symbols-outlined { font-size: 19px; }
+    .story-level-tab span.story-lv-name { font-size: 11px; }
+    .story-r-para { font-size: 15.5px; line-height: 2.05; }
+    .story-furi-btn span#storyFuriLabel { display: none; }
+    .story-furi-btn { padding: 0 10px; }
+}
 </style>
 </head>
 <body>
@@ -15537,6 +15800,10 @@ body.jlpt-mode .main-content { padding: 0 !important; }
         <!-- [T73] Nút JLPT Test — nằm dưới "Bộ sưu tập Ngữ pháp" theo yêu cầu user -->
         <button class="side-menu-btn" onclick="closeSideMenu(); showJlptTest()">
             <span class="material-symbols-outlined">quiz</span> JLPT Test
+        </button>
+        <!-- [T81] Nút Truyện đọc — nằm dưới "JLPT Test" -->
+        <button class="side-menu-btn" onclick="closeSideMenu(); showStoriesPage()">
+            <span class="material-symbols-outlined">auto_stories</span> Truyện đọc
         </button>
         <div style="height: 1px; background: #edf2f7; margin: 15px 0;"></div>
         <!-- CHỈ HIỂN THỊ NÚT NÀY CHO TÀI KHOẢN ADMIN -->
@@ -16840,6 +17107,71 @@ body.jlpt-mode .main-content { padding: 0 !important; }
     </div>
 </div>
 
+<!-- ================= [T81] TRANG TRUYỆN ĐỌC — Aozora Bunko (public domain) =================
+     Nút truy cập: side menu, dưới "JLPT Test" (showStoriesPage), route #stories.
+     Dữ liệu: STORY_DB — 8 truyện 新美南吉/芥川竜之介/宮沢賢治 parse từ text 青空文庫
+     (ruby 《》 -> <ruby> HTML, furigana bật/tắt khi đọc).
+     Tiến độ đọc (cuộn ≥98% = đã đọc) lưu localStorage minddeck_story_prog_<uid>.
+     Header app ẨN (body.story-mode .app-header display:none — mirror [T75]):
+     nút HOME + SEARCH trong .story-home-head, nút SEARCH trong .story-appbar.
+     Ghi công 底本・入力・校正 hiển thị cuối truyện theo quy tắc tái sử dụng Aozora. -->
+<div id="storyPage" class="hidden">
+    <div class="story-root">
+        <!-- Lớp họa tiết vòng tròn đồng tâm (riêng để không phá sticky — mirror .jlpt-deco) -->
+        <div class="story-deco" aria-hidden="true"></div>
+
+        <!-- ===== MÀN DANH SÁCH: banner + bộ sưu tập + tab cấp độ đáy ===== -->
+        <div id="storyList" class="story-view">
+            <div class="story-home-head">
+                <h1><span class="material-symbols-outlined" style="color:#14b8a6;">auto_stories</span> Truyện đọc <span class="story-count-chip" id="storyCountChip">0 truyện</span></h1>
+                <!-- [T81] Header app đã ẨN trên trang Truyện đọc (mirror JLPT T75) -->
+                <div class="story-head-actions">
+                    <button type="button" class="story-head-btn" onclick="showDashboard()" title="Về Tổng quan hôm nay" aria-label="Về trang dashboard"><span class="material-symbols-outlined">home</span></button>
+                    <button type="button" class="story-head-btn" onclick="remedialOpenSearchPanel(event)" title="Tra từ điển &amp; Chat AI" aria-label="Mở panel tìm kiếm"><span class="material-symbols-outlined">search</span></button>
+                </div>
+            </div>
+
+            <div class="story-banner">
+                <div class="story-banner-icon"><span class="material-symbols-outlined">menu_book</span></div>
+                <div class="story-banner-text">
+                    <div class="story-banner-label">Đọc kèm furigana</div>
+                    <p>Truyện cổ Nhật chọn lọc từ 青空文庫 — ẩn/hiện phiên âm kanji ngay khi đọc, tiến độ lưu tự động.</p>
+                </div>
+            </div>
+
+            <div class="story-sec-label">Bộ sưu tập · 青空文庫</div>
+            <div class="story-list" id="storyListBody"></div>
+
+            <!-- Tab chọn truyện theo cấp độ (đáy màn — mirror .jlpt-levelbar) -->
+            <div class="story-levelbar" id="storyLevelBar"></div>
+        </div>
+
+        <!-- ===== MÀN ĐỌC ===== -->
+        <div id="storyReader" class="story-view hidden">
+            <div class="story-appbar">
+                <button type="button" class="story-back" onclick="storyBack()" aria-label="Về danh sách truyện"><span class="material-symbols-outlined">arrow_back</span></button>
+                <div class="story-appbar-title">
+                    <h2 id="storyRTitle">ごん狐</h2>
+                    <span id="storyRSub">新美南吉</span>
+                </div>
+                <!-- [T81] Nút SEARCH mở floating search panel (header app đã ẩn) -->
+                <button type="button" class="story-back" onclick="remedialOpenSearchPanel(event)" title="Tra từ điển &amp; Chat AI" aria-label="Mở panel tìm kiếm"><span class="material-symbols-outlined">search</span></button>
+                <!-- Nút bật/tắt furigana -->
+                <button type="button" id="storyFuriBtn" class="story-furi-btn on" onclick="storyToggleFuri()" title="Ẩn/hiện furigana (phiên âm kanji)" aria-label="Bật tắt furigana"><span class="material-symbols-outlined">abc</span><span id="storyFuriLabel">かな ON</span></button>
+            </div>
+            <div class="story-reader-scroll" id="storyReaderScroll" onscroll="storyOnScroll()">
+                <div class="story-reader" id="storyReaderBody"></div>
+            </div>
+            <!-- Chân: thanh tiến độ cuộn — chạm đáy ≥98% tự đánh dấu ĐÃ ĐỌC -->
+            <div class="story-reader-foot">
+                <div class="story-prog-label"><span class="material-symbols-outlined">bookmark</span><span id="storyProgText">Đã đọc 0%</span></div>
+                <div class="story-prog-track"><div class="story-prog-fill" id="storyProgFill"></div></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
 <div id="kanjiPage" class="hidden" style="max-width: 1000px; margin: 0 auto; padding-top: 10px;">
     
     <!-- BANNER GIỚI THIỆU -->
@@ -18132,7 +18464,7 @@ async function handleRoute() {
     const hash = window.location.hash.substring(1);
     
     // 🟢 GUEST MODE: Khách chỉ được phép ở Dashboard. Mọi route khác → về dashboard.
-    if (currentUser && currentUser.isGuest && hash && hash !== 'dashboard' && hash !== 'landing' && hash !== 'jlpt') { // [T73] khách được dùng JLPT Test
+    if (currentUser && currentUser.isGuest && hash && hash !== 'dashboard' && hash !== 'landing' && hash !== 'jlpt' && hash !== 'stories') { // [T73] khách được dùng JLPT Test; [T81] khách được dùng Truyện đọc (dữ liệu tĩnh)
         console.log('MindDeck: 👤 Phiên khách — chuyển hướng về Dashboard.');
         window.location.hash = 'dashboard';
         return;
@@ -18251,6 +18583,9 @@ async function handleRoute() {
         }
         else if (route === 'jlpt') { 
             showJlptTest(true); 
+        }
+        else if (route === 'stories') {
+            showStoriesPage(true);
         }
         else if (route === 'alphabet') {
             showAlphabetPage(true);
@@ -18625,7 +18960,7 @@ function escapeHTML(str) {
 }
 
 function showPage(p) {
-    const allPages = ['loginPage', 'homePage', 'dashboardPage', 'alphabetPage', 'reviewPage', 'searchResultPage', 'dictionaryPage', 'grammarPage', 'jlptPage', 'kanjiPage', 'pdfReaderPage', 'adminPage'];    
+    const allPages = ['loginPage', 'homePage', 'dashboardPage', 'alphabetPage', 'reviewPage', 'searchResultPage', 'dictionaryPage', 'grammarPage', 'jlptPage', 'storyPage', 'kanjiPage', 'pdfReaderPage', 'adminPage'];        
     
     allPages.forEach(id => {
         const el = document.getElementById(id);
@@ -18663,7 +18998,7 @@ function showPage(p) {
         if (headerMenuBlock) headerMenuBlock.classList.add('hidden');
         if (headerSearch) headerSearch.classList.add('hidden');
         if (headerGrammarSearch) headerGrammarSearch.classList.add('hidden');
-    } else if (p === 'grammarPage' || p === 'jlptPage') {
+    } else if (p === 'grammarPage' || p === 'jlptPage' || p === 'storyPage') {
         if (headerLogo) headerLogo.classList.add('hidden');
         if (headerMenuBlock) headerMenuBlock.classList.remove('hidden');
         if (headerSearch) headerSearch.classList.add('hidden');
@@ -18687,6 +19022,7 @@ function showPage(p) {
     document.body.classList.remove('dashboard-mode'); // 🟢 TASK FULL-WIDTH: Xóa trạng thái dashboard toàn màn
     document.body.classList.remove('library-mode'); // 🟢 TASK 27: Xóa trạng thái Kho dữ liệu full-width
     document.body.classList.remove('jlpt-mode'); // [T73] Xóa nền tối trang JLPT Test
+    document.body.classList.remove('story-mode'); // [T81] Xóa nền tối trang Truyện đọc
 
     // 🟢 GẮN LẠI CLASS ĐẶC BIỆT TÙY THEO TRANG ĐÍCH
     if (p === 'reviewPage') {
@@ -18709,6 +19045,10 @@ function showPage(p) {
     } else if (p === 'jlptPage') {
         // [T73] trang JLPT Test dùng nền tối riêng (soi app gốc ludo.studio)
         document.body.classList.add('jlpt-mode');
+        if (bc) bc.style.marginBottom = '20px';
+    } else if (p === 'storyPage') {
+        // [T81] trang Truyện đọc dùng nền tối riêng (cùng họ thiết kế JLPT Test)
+        document.body.classList.add('story-mode');
         if (bc) bc.style.marginBottom = '20px';
     } else if (p === 'dashboardPage') {
         // 🟢 TASK FULL-WIDTH: Dashboard trải hết chiều ngang trên màn hình rộng
@@ -31513,6 +31853,149 @@ function jlptRetest() {
 function jlptBackToTests() {
     jlptShowView('jlptTests');
     jlptRenderTests();
+}
+
+/* ================= [T81] TRUYỆN ĐỌC — STORY_DB (Aozora Bunko) + logic trang =================
+   Dữ liệu parse từ text 青空文庫 (ruby 《》 -> <ruby><rt>), 8 truyện public domain:
+   新美南吉 (d.1943) / 芥川竜之介 (d.1927) / 宮沢賢治 (d.1933).
+   Quy tắc Aozora: giữ ghi công 底本・入力・校正 khi tái sử dụng — hiển thị cuối truyện. */
+const STORY_DB = [{"id":"ごん狐","title":"ごん狐","title_vi":"Cáo Gon","author":"新美南吉","level":"N4","chars":4726,"summary":"Cáo mồ côi Gon chuyên nghịch phá làng xóm; sau khi trộm mất cá chình của anh lính Hyōjū, nó âm thầm đền ơn bằng hạt dẻ mỗi đêm — câu chuyện đền ơn và sự hối hận đến muộn.","card_url":"https://www.aozora.gr.jp/cards/000121/card628.html","credit":"底本：「新美南吉童話集」岩波文庫、岩波書店\n　　　1996（平成8）年7月16日発行第1刷\n　　　1997（平成9）年7月15日発行第2刷\n初出：「赤い鳥　復刊第三巻第一号」\n　　　1932（昭和7）年1月号\n※入力時に使われた底本が不明とのことなので、表記は岩波文庫版に合わせた。\n入力：林裕司\n校正：浜野智\n1998年10月23日公開\n2012年5月8日修正\n青空文庫作成ファイル：\nこのファイルは、インターネットの図書館、青空文庫（http://www.aozora.gr.jp/）で作られました。入力、校正、制作にあたったのは、ボランティアの皆さんです。","paras":["これは、<ruby>私<rt>わたし</rt></ruby>が小さいときに、村の<ruby>茂平<rt>もへい</rt></ruby>というおじいさんからきいたお話です。","むかしは、私たちの村のちかくの、<ruby>中山<rt>なかやま</rt></ruby>というところに小さなお城があって、中山さまというおとのさまが、おられたそうです。","その中山から、少しはなれた山の中に、「ごん<ruby>狐<rt>ぎつね</rt></ruby>」という狐がいました。ごんは、<ruby>一人<rt>ひとり</rt></ruby>ぼっちの小狐で、しだの一ぱいしげった森の中に穴をほって住んでいました。そして、夜でも昼でも、あたりの村へ出てきて、いたずらばかりしました。はたけへ入って芋をほりちらしたり、<ruby>菜種<rt>なたね</rt></ruby>がらの、ほしてあるのへ火をつけたり、<ruby>百姓家<rt>ひゃくしょうや</rt></ruby>の裏手につるしてあるとんがらしをむしりとって、いったり、いろんなことをしました。","<ruby>或<rt>ある</rt></ruby><ruby>秋<rt>あき</rt></ruby>のことでした。二、三日雨がふりつづいたその<ruby>間<rt>あいだ</rt></ruby>、ごんは、外へも出られなくて穴の中にしゃがんでいました。","雨があがると、ごんは、ほっとして穴からはい出ました。空はからっと晴れていて、<ruby>百舌鳥<rt>もず</rt></ruby>の声がきんきん、ひびいていました。","ごんは、村の<ruby>小川<rt>おがわ</rt></ruby>の<ruby>堤<rt>つつみ</rt></ruby>まで出て来ました。あたりの、すすきの穂には、まだ雨のしずくが光っていました。川は、いつもは水が<ruby>少<rt>すくな</rt></ruby>いのですが、三日もの雨で、水が、どっとましていました。ただのときは水につかることのない、川べりのすすきや、<ruby>萩<rt>はぎ</rt></ruby>の株が、黄いろくにごった水に横だおしになって、もまれています。ごんは<ruby>川下<rt>かわしも</rt></ruby>の方へと、ぬかるみみちを歩いていきました。","ふと見ると、川の中に人がいて、何かやっています。ごんは、見つからないように、そうっと草の深いところへ歩きよって、そこからじっとのぞいてみました。","「<ruby>兵十<rt>ひょうじゅう</rt></ruby>だな」と、ごんは思いました。兵十はぼろぼろの黒いきものをまくし上げて、腰のところまで水にひたりながら、魚をとる、はりきりという、網をゆすぶっていました。はちまきをした顔の横っちょうに、まるい萩の葉が一まい、大きな<ruby>黒子<rt>ほくろ</rt></ruby>みたいにへばりついていました。","しばらくすると、兵十は、はりきり網の一ばんうしろの、袋のようになったところを、水の中からもちあげました。その中には、芝の根や、草の葉や、くさった木ぎれなどが、ごちゃごちゃはいっていましたが、でもところどころ、白いものがきらきら光っています。それは、ふというなぎの腹や、大きなきすの腹でした。兵十は、びくの中へ、そのうなぎやきすを、ごみと一しょにぶちこみました。そして、また、袋の口をしばって、水の中へ入れました。","兵十はそれから、びくをもって川から<ruby>上<rt>あが</rt></ruby>りびくを<ruby>土手<rt>どて</rt></ruby>においといて、何をさがしにか、<ruby>川上<rt>かわかみ</rt></ruby>の方へかけていきました。","兵十がいなくなると、ごんは、ぴょいと草の中からとび出して、びくのそばへかけつけました。ちょいと、いたずらがしたくなったのです。ごんはびくの中の魚をつかみ出しては、はりきり網のかかっているところより<ruby>下手<rt>しもて</rt></ruby>の川の中を目がけて、ぽんぽんなげこみました。どの魚も、「とぼん」と音を立てながら、にごった水の中へもぐりこみました。","一ばんしまいに、太いうなぎをつかみにかかりましたが、何しろぬるぬるとすべりぬけるので、手ではつかめません。ごんはじれったくなって、頭をびくの中につッこんで、うなぎの頭を口にくわえました。うなぎは、キュッと言ってごんの首へまきつきました。そのとたんに兵十が、向うから、","「うわアぬすと狐め」と、どなりたてました。ごんは、びっくりしてとびあがりました。うなぎをふりすててにげようとしましたが、うなぎは、ごんの首にまきついたままはなれません。ごんはそのまま横っとびにとび出して一しょうけんめいに、にげていきました。","ほら穴の近くの、はんの木の下でふりかえって見ましたが、兵十は追っかけては来ませんでした。","ごんは、ほっとして、うなぎの頭をかみくだき、やっとはずして穴のそとの、草の葉の上にのせておきました。","<ruby>十日<rt>とおか</rt></ruby>ほどたって、ごんが、<ruby>弥助<rt>やすけ</rt></ruby>というお百姓の家の裏を通りかかりますと、そこの、いちじくの木のかげで、弥助の<ruby>家内<rt>かない</rt></ruby>が、おはぐろをつけていました。<ruby>鍛冶屋<rt>かじや</rt></ruby>の<ruby>新兵衛<rt>しんべえ</rt></ruby>の家のうらを通ると、新兵衛の家内が髪をすいていました。ごんは、","「ふふん、村に何かあるんだな」と、思いました。","「<ruby>何<rt>なん</rt></ruby>だろう、秋祭かな。祭なら、太鼓や笛の音がしそうなものだ。それに第一、お宮にのぼりが立つはずだが」","こんなことを考えながらやって来ますと、いつの<ruby>間<rt>ま</rt></ruby>にか、表に赤い井戸のある、兵十の家の前へ来ました。その小さな、こわれかけた家の中には、<ruby>大勢<rt>おおぜい</rt></ruby>の人があつまっていました。よそいきの着物を着て、腰に<ruby>手拭<rt>てぬぐい</rt></ruby>をさげたりした女たちが、表のかまどで火をたいています。大きな<ruby>鍋<rt>なべ</rt></ruby>の中では、何かぐずぐず煮えていました。","「ああ、葬式だ」と、ごんは思いました。","「兵十の家のだれが死んだんだろう」","お<ruby>午<rt>ひる</rt></ruby>がすぎると、ごんは、村の墓地へ行って、<ruby>六地蔵<rt>ろくじぞう</rt></ruby>さんのかげにかくれていました。いいお天気で、遠く向うには、お城の<ruby>屋根瓦<rt>やねがわら</rt></ruby>が光っています。墓地には、ひがん<ruby>花<rt>ばな</rt></ruby>が、赤い<ruby>布<rt>きれ</rt></ruby>のようにさきつづいていました。と、村の方から、カーン、カーン、と、<ruby>鐘<rt>かね</rt></ruby>が鳴って来ました。葬式の出る<ruby>合図<rt>あいず</rt></ruby>です。","やがて、白い着物を着た葬列のものたちがやって来るのがちらちら見えはじめました。<ruby>話声<rt>はなしごえ</rt></ruby>も近くなりました。葬列は墓地へはいって来ました。人々が通ったあとには、ひがん花が、ふみおられていました。","ごんはのびあがって見ました。兵十が、白いかみしもをつけて、<ruby>位牌<rt>いはい</rt></ruby>をささげています。いつもは、赤いさつま<ruby>芋<rt>いも</rt></ruby>みたいな元気のいい顔が、きょうは何だかしおれていました。","「ははん、死んだのは兵十のおっ<ruby>母<rt>かあ</rt></ruby>だ」","ごんはそう思いながら、頭をひっこめました。","その晩、ごんは、穴の中で考えました。","「兵十のおっ母は、<ruby>床<rt>とこ</rt></ruby>についていて、うなぎが食べたいと言ったにちがいない。それで兵十がはりきり網をもち出したんだ。ところが、わしがいたずらをして、うなぎをとって来てしまった。だから兵十は、おっ母にうなぎを食べさせることができなかった。そのままおっ母は、死んじゃったにちがいない。ああ、うなぎが食べたい、うなぎが食べたいとおもいながら、死んだんだろう。ちょッ、あんないたずらをしなけりゃよかった。」","兵十が、赤い井戸のところで、麦をといでいました。","兵十は今まで、おっ母と<ruby>二人<rt>ふたり</rt></ruby>きりで、貧しいくらしをしていたもので、おっ母が死んでしまっては、もう一人ぼっちでした。","「おれと同じ一人ぼっちの兵十か」","こちらの<ruby>物置<rt>ものおき</rt></ruby>の<ruby>後<rt>うしろ</rt></ruby>から見ていたごんは、そう思いました。","ごんは物置のそばをはなれて、向うへいきかけますと、どこかで、いわしを売る声がします。","「いわしのやすうりだアい。いきのいいいわしだアい」","ごんは、その、いせいのいい声のする方へ走っていきました。と、<ruby>弥助<rt>やすけ</rt></ruby>のおかみさんが、裏戸口から、","「いわしをおくれ。」と言いました。いわし<ruby>売<rt>うり</rt></ruby>は、いわしのかごをつんだ車を、道ばたにおいて、ぴかぴか光るいわしを両手でつかんで、弥助の家の中へもってはいりました。ごんはそのすきまに、かごの中から、五、六ぴきのいわしをつかみ出して、もと来た方へかけだしました。そして、兵十の家の裏口から、家の中へいわしを投げこんで、穴へ<ruby>向<rt>むか</rt></ruby>ってかけもどりました。途中の坂の上でふりかえって見ますと、兵十がまだ、井戸のところで麦をといでいるのが小さく見えました。","ごんは、うなぎのつぐないに、まず一つ、いいことをしたと思いました。","つぎの日には、ごんは山で<ruby>栗<rt>くり</rt></ruby>をどっさりひろって、それをかかえて、兵十の家へいきました。裏口からのぞいて見ますと、兵十は、<ruby>午飯<rt>ひるめし</rt></ruby>をたべかけて、<ruby>茶椀<rt>ちゃわん</rt></ruby>をもったまま、ぼんやりと考えこんでいました。へんなことには兵十の<ruby>頬<rt>ほっ</rt></ruby>ぺたに、かすり傷がついています。どうしたんだろうと、ごんが思っていますと、兵十がひとりごとをいいました。","「一たいだれが、いわしなんかをおれの家へほうりこんでいったんだろう。おかげでおれは、<ruby>盗人<rt>ぬすびと</rt></ruby>と思われて、いわし屋のやつに、ひどい目にあわされた」と、ぶつぶつ言っています。","ごんは、これはしまったと思いました。かわいそうに兵十は、いわし屋にぶんなぐられて、あんな傷までつけられたのか。","ごんはこうおもいながら、そっと物置の方へまわってその入口に、栗をおいてかえりました。","つぎの日も、そのつぎの日もごんは、栗をひろっては、兵十の家へもって来てやりました。そのつぎの日には、栗ばかりでなく、まつたけも二、三ぼんもっていきました。","月のいい晩でした。ごんは、ぶらぶらあそびに出かけました。中山さまのお城の下を通ってすこしいくと、細い道の向うから、だれか来るようです。話声が聞えます。チンチロリン、チンチロリンと松虫が鳴いています。","ごんは、道の片がわにかくれて、じっとしていました。話声はだんだん近くなりました。それは、兵十と<ruby>加助<rt>かすけ</rt></ruby>というお百姓でした。","「そうそう、なあ加助」と、兵十がいいました。","「ああん？」","「おれあ、このごろ、とてもふしぎなことがあるんだ」","「何が？」","「おっ母が死んでからは、だれだか知らんが、おれに栗やまつたけなんかを、まいにちまいにちくれるんだよ」","「ふうん、だれが？」","「それがわからんのだよ。おれの知らんうちに、おいていくんだ」","ごんは、ふたりのあとをつけていきました。","「ほんとかい？」","「ほんとだとも。うそと思うなら、あした見に<ruby>来<rt>こ</rt></ruby>いよ。その栗を見せてやるよ」","「へえ、へんなこともあるもんだなア」","それなり、二人はだまって歩いていきました。","加助がひょいと、<ruby>後<rt>うしろ</rt></ruby>を見ました。ごんはびくっとして、小さくなってたちどまりました。加助は、ごんには気がつかないで、そのままさっさとあるきました。<ruby>吉兵衛<rt>きちべえ</rt></ruby>というお百姓の家まで来ると、二人はそこへはいっていきました。ポンポンポンポンと<ruby>木魚<rt>もくぎょ</rt></ruby>の音がしています。窓の<ruby>障子<rt>しょうじ</rt></ruby>にあかりがさしていて、大きな<ruby>坊主頭<rt>ぼうずあたま</rt></ruby>がうつって動いていました。ごんは、","「おねんぶつがあるんだな」と思いながら井戸のそばにしゃがんでいました。しばらくすると、また三人ほど、人がつれだって吉兵衛の家へはいっていきました。お経を読む声がきこえて来ました。","ごんは、おねんぶつがすむまで、井戸のそばにしゃがんでいました。兵十と加助は、また一しょにかえっていきます。ごんは、二人の話をきこうと思って、ついていきました。兵十の<ruby>影法師<rt>かげぼうし</rt></ruby>をふみふみいきました。","お城の前まで来たとき、加助が言い出しました。","「さっきの話は、きっと、そりゃあ、神さまのしわざだぞ」","「えっ？」と、兵十はびっくりして、加助の顔を見ました。","「おれは、あれからずっと考えていたが、どうも、そりゃ、人間じゃない、神さまだ、神さまが、お前がたった一人になったのをあわれに思わっしゃって、いろんなものをめぐんで下さるんだよ」","「そうかなあ」","「そうだとも。だから、まいにち神さまにお礼を言うがいいよ」","「うん」","ごんは、へえ、こいつはつまらないなと思いました。おれが、栗や松たけを持っていってやるのに、そのおれにはお礼をいわないで、神さまにお礼をいうんじゃア、おれは、引き合わないなあ。","そのあくる日もごんは、栗をもって、兵十の家へ出かけました。兵十は物置で<ruby>縄<rt>なわ</rt></ruby>をなっていました。それでごんは家の裏口から、こっそり中へはいりました。","そのとき兵十は、ふと顔をあげました。と狐が家の中へはいったではありませんか。こないだうなぎをぬすみやがったあのごん狐めが、またいたずらをしに来たな。","「ようし。」","兵十は立ちあがって、<ruby>納屋<rt>なや</rt></ruby>にかけてある<ruby>火縄銃<rt>ひなわじゅう</rt></ruby>をとって、火薬をつめました。","そして足音をしのばせてちかよって、今戸口を出ようとするごんを、ドンと、うちました。ごんは、ばたりとたおれました。兵十はかけよって来ました。家の中を見ると、<ruby>土間<rt>どま</rt></ruby>に栗が、かためておいてあるのが目につきました。","「おや」と兵十は、びっくりしてごんに目を落しました。","「ごん、お<ruby>前<rt>まい</rt></ruby>だったのか。いつも栗をくれたのは」","ごんは、ぐったりと目をつぶったまま、うなずきました。","兵十は火縄銃をばたりと、とり落しました。青い煙が、まだ<ruby>筒口<rt>つつぐち</rt></ruby>から細く出ていました。"]},{"id":"手袋を買いに","title":"手袋を買いに","title_vi":"Mua găng tay","author":"新美南吉","level":"N4","chars":3482,"summary":"Mẹ cáo đưa chú cáo con xuống phố lần đầu để mua găng tay — chuyến đi giữa bão tuyết và bài học về lòng tốt của con người.","card_url":"https://www.aozora.gr.jp/cards/000121/card637.html","credit":"底本：「新美南吉童話集」岩波文庫、岩波書店\n　　　1996（平成8）年7月16日第1刷発行\n　　　1997（平成9）年7月15日第2刷発行\n入力：大野晋\n校正：伊藤祥\n1999年3月2日公開\n2011年4月27日修正\n青空文庫作成ファイル：\nこのファイルは、インターネットの図書館、青空文庫（http://www.aozora.gr.jp/）で作られました。入力、校正、制作にあたったのは、ボランティアの皆さんです。","paras":["寒い冬が北方から、<ruby>狐<rt>きつね</rt></ruby>の親子の<ruby>棲<rt>す</rt></ruby>んでいる森へもやって来ました。","<ruby>或朝<rt>あるあさ</rt></ruby><ruby>洞穴<rt>ほらあな</rt></ruby>から子供の狐が出ようとしましたが、","「あっ」と叫んで<ruby>眼<rt>め</rt></ruby>を<ruby>抑<rt>おさ</rt></ruby>えながら母さん狐のところへころげて来ました。","「母ちゃん、眼に何か刺さった、ぬいて<ruby>頂戴<rt>ちょうだい</rt></ruby>早く早く」と言いました。","母さん狐がびっくりして、あわてふためきながら、眼を抑えている子供の手を恐る恐るとりのけて見ましたが、何も刺さってはいませんでした。母さん狐は洞穴の入口から外へ出て始めてわけが<ruby>解<rt>わか</rt></ruby>りました。昨夜のうちに、真白な雪がどっさり降ったのです。その雪の上からお<ruby>陽<rt>ひ</rt></ruby>さまがキラキラと<ruby>照<rt>てら</rt></ruby>していたので、雪は<ruby>眩<rt>まぶ</rt></ruby>しいほど反射していたのです。雪を知らなかった子供の狐は、あまり強い反射をうけたので、眼に何か刺さったと思ったのでした。","子供の狐は遊びに行きました。<ruby>真綿<rt>まわた</rt></ruby>のように<ruby>柔<rt>やわら</rt></ruby>かい雪の上を<ruby>駈<rt>か</rt></ruby>け<ruby>廻<rt>まわ</rt></ruby>ると、雪の<ruby>粉<rt>こ</rt></ruby>が、しぶきのように飛び散って小さい<ruby>虹<rt>にじ</rt></ruby>がすっと映るのでした。","すると突然、うしろで、","「どたどた、ざーっ」と<ruby>物凄<rt>ものすご</rt></ruby>い音がして、パン粉のような<ruby>粉雪<rt>こなゆき</rt></ruby>が、ふわーっと子狐におっかぶさって来ました。子狐はびっくりして、雪の中にころがるようにして十<ruby>米<rt>メートル</rt></ruby>も向こうへ逃げました。何だろうと思ってふり返って見ましたが何もいませんでした。それは<ruby>樅<rt>もみ</rt></ruby>の枝から雪がなだれ落ちたのでした。まだ枝と枝の間から白い絹糸のように雪がこぼれていました。","間もなく洞穴へ帰って来た子狐は、","「お母ちゃん、お手々が冷たい、お手々がちんちんする」と言って、<ruby>濡<rt>ぬ</rt></ruby>れて<ruby>牡丹色<rt>ぼたんいろ</rt></ruby>になった両手を母さん狐の前にさしだしました。母さん狐は、その手に、は――っと息をふっかけて、ぬくとい母さんの手でやんわり包んでやりながら、","「もうすぐ<ruby>暖<rt>あたたか</rt></ruby>くなるよ、雪をさわると、すぐ暖くなるもんだよ」といいましたが、かあいい坊やの手に<ruby>霜焼<rt>しもやけ</rt></ruby>ができてはかわいそうだから、夜になったら、町まで行って、<ruby>坊<rt>ぼう</rt></ruby>やのお手々にあうような毛糸の手袋を買ってやろうと思いました。","暗い暗い夜が<ruby>風呂敷<rt>ふろしき</rt></ruby>のような影をひろげて野原や森を包みにやって来ましたが、雪はあまり白いので、包んでも包んでも白く浮びあがっていました。","親子の銀狐は洞穴から出ました。子供の方はお母さんのお<ruby>腹<rt>なか</rt></ruby>の下へはいりこんで、そこからまんまるな眼をぱちぱちさせながら、あっちやこっちを見ながら歩いて行きました。","やがて、<ruby>行手<rt>ゆくて</rt></ruby>にぽっつりあかりが一つ見え始めました。それを子供の狐が見つけて、","「母ちゃん、お星さまは、あんな低いところにも落ちてるのねえ」とききました。","「あれはお星さまじゃないのよ」と言って、その時母さん狐の足はすくんでしまいました。","「あれは町の<ruby>灯<rt>ひ</rt></ruby>なんだよ」","その町の灯を見た時、母さん狐は、ある時町へお友達と出かけて行って、とんだめにあったことを<ruby>思出<rt>おもいだ</rt></ruby>しました。およしなさいっていうのもきかないで、お友達の狐が、<ruby>或<rt>あ</rt></ruby>る家の<ruby>家鴨<rt>あひる</rt></ruby>を盗もうとしたので、お<ruby>百姓<rt>ひゃくしょう</rt></ruby>に見つかって、さんざ追いまくられて、命からがら逃げたことでした。","「母ちゃん何してんの、早く行こうよ」と子供の狐がお腹の下から言うのでしたが、母さん狐はどうしても足がすすまないのでした。そこで、しかたがないので、<ruby>坊<rt>ぼう</rt></ruby>やだけを一人で町まで行かせることになりました。","「坊やお手々を片方お出し」とお母さん狐がいいました。その手を、母さん狐はしばらく握っている間に、可愛いい人間の子供の手にしてしまいました。坊やの狐はその手をひろげたり握ったり、<ruby>抓<rt>つね</rt></ruby>って見たり、<ruby>嗅<rt>か</rt></ruby>いで見たりしました。","「何だか変だな母ちゃん、これなあに？」と言って、雪あかりに、またその、人間の手に変えられてしまった自分の手をしげしげと見つめました。","「それは人間の手よ。いいかい坊や、町へ行ったらね、たくさん人間の家があるからね、まず表に<ruby>円<rt>まる</rt></ruby>いシャッポの看板のかかっている家を<ruby>探<rt>さが</rt></ruby>すんだよ。それが見つかったらね、トントンと戸を<ruby>叩<rt>たた</rt></ruby>いて、今晩はって言うんだよ。そうするとね、中から人間が、すこうし戸をあけるからね、その戸の<ruby>隙間<rt>すきま</rt></ruby>から、こっちの手、ほらこの人間の手をさし入れてね、この手にちょうどいい手袋頂戴って言うんだよ、わかったね、決して、こっちのお手々を出しちゃ<ruby>駄目<rt>だめ</rt></ruby>よ」と母さん狐は言いきかせました。","「どうして？」と坊やの狐はききかえしました。","「人間はね、相手が狐だと解ると、手袋を売ってくれないんだよ、それどころか、<ruby>掴<rt>つか</rt></ruby>まえて<ruby>檻<rt>おり</rt></ruby>の中へ入れちゃうんだよ、人間ってほんとに<ruby>恐<rt>こわ</rt></ruby>いものなんだよ」","「ふーん」","「決して、こっちの手を出しちゃいけないよ、こっちの方、ほら人間の手の方をさしだすんだよ」と言って、母さんの狐は、持って来た二つの<ruby>白銅貨<rt>はくどうか</rt></ruby>を、人間の手の方へ握らせてやりました。","子供の狐は、町の<ruby>灯<rt>ひ</rt></ruby>を目あてに、雪あかりの野原をよちよちやって行きました。始めのうちは一つきりだった灯が二つになり三つになり、はては十にもふえました。狐の子供はそれを見て、灯には、星と同じように、赤いのや黄いのや青いのがあるんだなと思いました。やがて町にはいりましたが通りの家々はもうみんな戸を<ruby>閉<rt>し</rt></ruby>めてしまって、高い窓から暖かそうな光が、道の雪の上に落ちているばかりでした。","けれど表の看板の上には大てい小さな電燈がともっていましたので、狐の子は、それを見ながら、帽子屋を探して行きました。自転車の看板や、<ruby>眼鏡<rt>めがね</rt></ruby>の看板やその他いろんな看板が、あるものは、新しいペンキで<ruby>画<rt>か</rt></ruby>かれ、<ruby>或<rt>あ</rt></ruby>るものは、古い壁のようにはげていましたが、町に始めて出て来た子狐にはそれらのものがいったい何であるか分らないのでした。","とうとう帽子屋がみつかりました。お母さんが道々よく教えてくれた、黒い大きなシルクハットの帽子の看板が、青い電燈に<ruby>照<rt>てら</rt></ruby>されてかかっていました。","子狐は教えられた通り、トントンと戸を叩きました。","「今晩は」","すると、中では何かことこと音がしていましたがやがて、戸が一寸ほどゴロリとあいて、光の帯が道の白い雪の上に長く伸びました。","子狐はその光がまばゆかったので、めんくらって、まちがった方の手を、――お母さまが出しちゃいけないと言ってよく聞かせた方の手をすきまからさしこんでしまいました。","「このお手々にちょうどいい手袋下さい」","すると帽子屋さんは、おやおやと思いました。狐の手です。狐の手が手袋をくれと言うのです。これはきっと<ruby>木<rt>こ</rt></ruby>の<ruby>葉<rt>は</rt></ruby>で買いに来たんだなと思いました。そこで、","「先にお金を下さい」と言いました。子狐はすなおに、握って来た白銅貨を二つ帽子屋さんに渡しました。帽子屋さんはそれを<ruby>人差指<rt>ひとさしゆび</rt></ruby>のさきにのっけて、カチ合せて見ると、チンチンとよい音がしましたので、これは木の葉じゃない、ほんとのお金だと思いましたので、<ruby>棚<rt>たな</rt></ruby>から子供用の毛糸の手袋をとり出して来て子狐の手に持たせてやりました。子狐は、お礼を言ってまた、もと来た道を帰り始めました。","「お母さんは、人間は恐ろしいものだって<ruby>仰有<rt>おっしゃ</rt></ruby>ったがちっとも恐ろしくないや。だって僕の手を見てもどうもしなかったもの」と思いました。けれど子狐はいったい人間なんてどんなものか見たいと思いました。","ある窓の下を通りかかると、人間の声がしていました。何というやさしい、何という美しい、何と言うおっとりした声なんでしょう。","「ねむれ　ねむれ","母の胸に、","ねむれ　ねむれ","母の手に――」","子狐はその<ruby>唄声<rt>うたごえ</rt></ruby>は、きっと人間のお母さんの声にちがいないと思いました。だって、子狐が眠る時にも、やっぱり母さん狐は、あんなやさしい声でゆすぶってくれるからです。","するとこんどは、子供の声がしました。","「母ちゃん、こんな寒い夜は、森の子狐は寒い寒いって<ruby>啼<rt>な</rt></ruby>いてるでしょうね」","すると母さんの声が、","「森の子狐もお母さん狐のお唄をきいて、<ruby>洞穴<rt>ほらあな</rt></ruby>の中で眠ろうとしているでしょうね。さあ坊やも早くねんねしなさい。森の子狐と坊やとどっちが早くねんねするか、きっと坊やの方が早くねんねしますよ」","それをきくと子狐は急にお母さんが恋しくなって、お母さん狐の待っている方へ<ruby>跳<rt>と</rt></ruby>んで行きました。","お母さん狐は、心配しながら、坊やの狐の帰って来るのを、今か今かとふるえながら待っていましたので、坊やが来ると、<ruby>暖<rt>あたたか</rt></ruby>い胸に抱きしめて泣きたいほどよろこびました。","二匹の狐は森の方へ帰って行きました。月が出たので、狐の毛なみが銀色に光り、その足あとには、コバルトの影がたまりました。","「母ちゃん、人間ってちっとも<ruby>恐<rt>こわ</rt></ruby>かないや」","「どうして？」","「坊、間違えてほんとうのお手々出しちゃったの。でも帽子屋さん、<ruby>掴<rt>つか</rt></ruby>まえやしなかったもの。ちゃんとこんないい暖い手袋くれたもの」","と言って手袋のはまった両手をパンパンやって見せました。お母さん狐は、","「まあ！」とあきれましたが、「ほんとうに人間はいいものかしら。ほんとうに人間はいいものかしら」とつぶやきました。"]},{"id":"赤い蝋燭","title":"赤い蝋燭","title_vi":"Ngọn nến đỏ","author":"新美南吉","level":"N4","chars":1076,"summary":"Chú khỉ nhặt được một cây nến đỏ và tin đó là pháo hoa; cả núi rùng mình chờ đợi \"tiếng nổ\" của ngọn nến đầu tiên từng có.","card_url":"https://www.aozora.gr.jp/cards/000121/card627.html","credit":"底本：「新美南吉童話集」岩波文庫、岩波書店\n　　　1996（平成8）年7月16日第1刷発行\n　　　1997（平成9）年7月15日第2刷発行\n底本の親本：「校定　新美南吉全集第三巻」大日本図書\n　　　1980（昭和55）年7月31日初版第1刷発行\n初出：「幼稚園と家庭　毎日のお話」育英書院\n　　　1936（昭和11）年11月15日\n入力：浜野　智\n校正：浜野　智\n1999年3月1日公開\n2012年5月8日修正\n青空文庫作成ファイル：\nこのファイルは、インターネットの図書館、青空文庫（http://www.aozora.gr.jp/）で作られました。入力、校正、制作にあたったのは、ボランティアの皆さんです。","paras":["山から里の方へ遊びにいった<ruby>猿<rt>さる</rt></ruby>が一本の赤い<ruby>蝋燭<rt>ろうそく</rt></ruby>を拾いました。赤い蝋燭は<ruby>沢山<rt>たくさん</rt></ruby>あるものではありません。それで猿は赤い蝋燭を花火だと思い込んでしまいました。","猿は拾った赤い蝋燭を大事に山へ持って帰りました。","山では大へんな<ruby>騒<rt>さわぎ</rt></ruby>になりました。何しろ花火などというものは、<ruby>鹿<rt>しか</rt></ruby>にしても<ruby>猪<rt>しし</rt></ruby>にしても<ruby>兎<rt>うさぎ</rt></ruby>にしても、<ruby>亀<rt>かめ</rt></ruby>にしても、<ruby>鼬<rt>いたち</rt></ruby>にしても、<ruby>狸<rt>たぬき</rt></ruby>にしても、<ruby>狐<rt>きつね</rt></ruby>にしても、まだ一度も見たことがありません。その花火を猿が拾って来たというのであります。","「ほう、すばらしい」","「これは、すてきなものだ」","鹿や猪や兎や亀や鼬や狸や狐が押合いへしあいして赤い蝋燭を<ruby>覗<rt>のぞ</rt></ruby>きました。すると猿が、","「<ruby>危<rt>あぶな</rt></ruby>い危い。そんなに近よってはいけない。爆発するから」といいました。","みんなは驚いて<ruby>後込<rt>しりごみ</rt></ruby>しました。","そこで猿は花火というものが、どんなに大きな音をして<ruby>飛出<rt>とびだ</rt></ruby>すか、そしてどんなに美しく空にひろがるか、みんなに話して聞かせました。そんなに美しいものなら見たいものだとみんなは思いました。","「それなら、今晩山の<ruby>頂上<rt>てっぺん</rt></ruby>に行ってあそこで打上げて見よう」と猿がいいました。みんなは大へん喜びました。夜の空に星をふりまくようにぱあっとひろがる花火を<ruby>眼<rt>め</rt></ruby>に浮べてみんなはうっとりしました。","さて夜になりました。みんなは胸をおどらせて山の<ruby>頂上<rt>てっぺん</rt></ruby>にやって行きました。猿はもう赤い蝋燭を木の枝にくくりつけてみんなの来るのを待っていました。","いよいよこれから花火を打上げることになりました。しかし困ったことが出来ました。と<ruby>申<rt>もう</rt></ruby>しますのは、誰も花火に火をつけようとしなかったからです。みんな花火を見ることは好きでしたが火をつけにいくことは、好きでなかったのであります。","これでは花火はあがりません。そこでくじをひいて、火をつけに行くものを決めることになりました。第一にあたったものは亀でありました。","亀は元気を出して花火の方へやって行きました。だがうまく火をつけることが出来たでしょうか。いえ、いえ。亀は花火のそばまで来ると首が自然に<ruby>引込<rt>ひっこ</rt></ruby>んでしまって出て来なかったのでありました。","そこでくじがまたひかれて、こんどは鼬が行くことになりました。鼬は亀よりは幾分ましでした。というのは首を引込めてしまわなかったからであります。しかし鼬はひどい<ruby>近眼<rt>きんがん</rt></ruby>でありました。だから蝋燭のまわりをきょろきょろとうろついているばかりでありました。","<ruby>遂々<rt>とうとう</rt></ruby>猪が飛出しました。猪は<ruby>全<rt>まった</rt></ruby>く<ruby>勇<rt>いさま</rt></ruby>しい<ruby>獣<rt>けだもの</rt></ruby>でした。猪はほんとうにやっていって火をつけてしまいました。","みんなはびっくりして草むらに飛込み耳を固くふさぎました。耳ばかりでなく眼もふさいでしまいました。","しかし蝋燭はぽんともいわずに静かに燃えているばかりでした。"]},{"id":"蜘蛛の糸","title":"蜘蛛の糸","title_vi":"Sợi tơ nhện","author":"芥川竜之介","level":"N4","chars":2835,"summary":"Đức Phật buông một sợi tơ nhện xuống địa ngục để cứu kẻ trộm Kandatta — nhưng một khoảnh khắc ích kỷ đã tự đánh mất ơn cứu rỗi.","card_url":"https://www.aozora.gr.jp/cards/000879/card92.html","credit":"底本：「芥川龍之介全集2」ちくま文庫、筑摩書房\n　　　1986（昭和61）年10月28日第1刷発行\n　　　1996（平成8）年7月15日第11刷発行\n親本：筑摩全集類聚版芥川龍之介全集\n　　　1971（昭和46）年3月〜11月\n入力：平山誠、野口英司\n校正：もりみつじゅんじ\n1997年11月10日公開\n2011年1月28日修正\n青空文庫作成ファイル：\nこのファイルは、インターネットの図書館、青空文庫（http://www.aozora.gr.jp/）で作られました。入力、校正、制作にあたったのは、ボランティアの皆さんです。","paras":["ある日の事でございます。<ruby>御釈迦様<rt>おしゃかさま</rt></ruby>は極楽の<ruby>蓮池<rt>はすいけ</rt></ruby>のふちを、独りでぶらぶら御歩きになっていらっしゃいました。池の中に咲いている<ruby>蓮<rt>はす</rt></ruby>の花は、みんな玉のようにまっ白で、そのまん中にある<ruby>金色<rt>きんいろ</rt></ruby>の<ruby>蕊<rt>ずい</rt></ruby>からは、何とも云えない<ruby>好<rt>よ</rt></ruby>い<ruby>匂<rt>におい</rt></ruby>が、<ruby>絶間<rt>たえま</rt></ruby>なくあたりへ<ruby>溢<rt>あふ</rt></ruby>れて居ります。極楽は丁度朝なのでございましょう。","やがて御釈迦様はその池のふちに<ruby>御佇<rt>おたたず</rt></ruby>みになって、水の<ruby>面<rt>おもて</rt></ruby>を<ruby>蔽<rt>おお</rt></ruby>っている蓮の葉の間から、ふと下の<ruby>容子<rt>ようす</rt></ruby>を御覧になりました。この極楽の蓮池の下は、丁度<ruby>地獄<rt>じごく</rt></ruby>の底に当って居りますから、<ruby>水晶<rt>すいしよう</rt></ruby>のような水を透き徹して、<ruby>三途<rt>さんず</rt></ruby>の河や針の山の景色が、丁度<ruby>覗<rt>のぞ</rt></ruby>き<ruby>眼鏡<rt>めがね</rt></ruby>を見るように、はっきりと見えるのでございます。","するとその地獄の底に、※<ruby>陀多<rt>かんだた</rt></ruby>と云う男が一人、ほかの罪人と一しょに<ruby>蠢<rt>うごめ</rt></ruby>いている姿が、御眼に止まりました。この※陀多と云う男は、人を殺したり家に火をつけたり、いろいろ悪事を働いた大泥坊でございますが、それでもたった一つ、善い事を致した覚えがございます。と申しますのは、ある時この男が深い林の中を通りますと、小さな<ruby>蜘蛛<rt>くも</rt></ruby>が一匹、路ばたを<ruby>這<rt>は</rt></ruby>って行くのが見えました。そこで※陀多は早速足を挙げて、踏み殺そうと致しましたが、「いや、いや、これも小さいながら、命のあるものに違いない。その命を<ruby>無暗<rt>むやみ</rt></ruby>にとると云う事は、いくら何でも可哀そうだ。」と、こう急に思い返して、とうとうその蜘蛛を殺さずに助けてやったからでございます。","御釈迦様は地獄の容子を御覧になりながら、この※陀多には蜘蛛を助けた事があるのを御思い出しになりました。そうしてそれだけの善い事をした<ruby>報<rt>むくい</rt></ruby>には、出来るなら、この男を地獄から救い出してやろうと御考えになりました。幸い、側を見ますと、<ruby>翡翠<rt>ひすい</rt></ruby>のような色をした蓮の葉の上に、極楽の蜘蛛が一匹、美しい銀色の糸をかけて居ります。御釈迦様はその蜘蛛の糸をそっと御手に御取りになって、玉のような<ruby>白蓮<rt>しらはす</rt></ruby>の間から、遥か下にある地獄の底へ、まっすぐにそれを御<ruby>下<rt>おろ</rt></ruby>しなさいました。","こちらは地獄の底の血の池で、ほかの罪人と一しょに、浮いたり沈んだりしていた※<ruby>陀多<rt>かんだた</rt></ruby>でございます。何しろどちらを見ても、まっ暗で、たまにそのくら暗からぼんやり浮き上っているものがあると思いますと、それは恐しい針の山の針が光るのでございますから、その心細さと云ったらございません。その上あたりは墓の中のようにしんと静まり返って、たまに聞えるものと云っては、ただ罪人がつく<ruby>微<rt>かすか</rt></ruby>な<ruby>嘆息<rt>たんそく</rt></ruby>ばかりでございます。これはここへ落ちて来るほどの人間は、もうさまざまな地獄の<ruby>責苦<rt>せめく</rt></ruby>に疲れはてて、泣声を出す力さえなくなっているのでございましょう。ですからさすが大泥坊の※陀多も、やはり血の池の血に<ruby>咽<rt>むせ</rt></ruby>びながら、まるで死にかかった<ruby>蛙<rt>かわず</rt></ruby>のように、ただもがいてばかり居りました。","ところがある時の事でございます。<ruby>何気<rt>なにげ</rt></ruby>なく※陀多が頭を挙げて、血の池の空を眺めますと、そのひっそりとした暗の中を、遠い遠い天上から、銀色の<ruby>蜘蛛<rt>くも</rt></ruby>の糸が、まるで人目にかかるのを恐れるように、一すじ細く光りながら、するすると自分の上へ垂れて参るのではございませんか。※陀多はこれを見ると、思わず手を<ruby>拍<rt>う</rt></ruby>って喜びました。この糸に<ruby>縋<rt>すが</rt></ruby>りついて、どこまでものぼって行けば、きっと地獄からぬけ出せるのに相違ございません。いや、うまく行くと、極楽へはいる事さえも出来ましょう。そうすれば、もう針の山へ追い上げられる事もなくなれば、血の池に沈められる事もある筈はございません。","こう思いましたから※<ruby>陀多<rt>かんだた</rt></ruby>は、早速その蜘蛛の糸を両手でしっかりとつかみながら、一生懸命に上へ上へとたぐりのぼり始めました。元より大泥坊の事でございますから、こう云う事には昔から、慣れ切っているのでございます。","しかし地獄と極楽との間は、何万里となくございますから、いくら<ruby>焦<rt>あせ</rt></ruby>って見た所で、容易に上へは出られません。ややしばらくのぼる<ruby>中<rt>うち</rt></ruby>に、とうとう※陀多もくたびれて、もう一たぐりも上の方へはのぼれなくなってしまいました。そこで仕方がございませんから、まず一休み休むつもりで、糸の中途にぶら下りながら、遥かに目の下を見下しました。","すると、一生懸命にのぼった甲斐があって、さっきまで自分がいた血の池は、今ではもう暗の底にいつの間にかかくれて居ります。それからあのぼんやり光っている恐しい針の山も、足の下になってしまいました。この分でのぼって行けば、地獄からぬけ出すのも、存外わけがないかも知れません。※陀多は両手を蜘蛛の糸にからみながら、ここへ来てから何年にも出した事のない声で、「しめた。しめた。」と笑いました。ところがふと気がつきますと、蜘蛛の糸の下の方には、<ruby>数限<rt>かずかぎり</rt></ruby>もない罪人たちが、自分ののぼった後をつけて、まるで<ruby>蟻<rt>あり</rt></ruby>の行列のように、やはり上へ上へ一心によじのぼって来るではございませんか。※陀多はこれを見ると、驚いたのと恐しいのとで、しばらくはただ、<ruby>莫迦<rt>ばか</rt></ruby>のように大きな口を<ruby>開<rt>あ</rt></ruby>いたまま、眼ばかり動かして居りました。自分一人でさえ<ruby>断<rt>き</rt></ruby>れそうな、この細い蜘蛛の糸が、どうしてあれだけの<ruby>人数<rt>にんず</rt></ruby>の重みに堪える事が出来ましょう。もし万一途中で<ruby>断<rt>き</rt></ruby>れたと致しましたら、折角ここへまでのぼって来たこの<ruby>肝腎<rt>かんじん</rt></ruby>な自分までも、元の地獄へ<ruby>逆落<rt>さかおと</rt></ruby>しに落ちてしまわなければなりません。そんな事があったら、大変でございます。が、そう云う中にも、罪人たちは何百となく何千となく、まっ暗な血の池の底から、うようよと<ruby>這<rt>は</rt></ruby>い上って、細く光っている蜘蛛の糸を、一列になりながら、せっせとのぼって参ります。今の中にどうかしなければ、糸はまん中から二つに断れて、落ちてしまうのに違いありません。","そこで※陀多は大きな声を出して、「こら、罪人ども。この蜘蛛の糸は<ruby>己<rt>おれ</rt></ruby>のものだぞ。お前たちは一体誰に<ruby>尋<rt>き</rt></ruby>いて、のぼって来た。下りろ。下りろ。」と<ruby>喚<rt>わめ</rt></ruby>きました。","その途端でございます。今まで何ともなかった蜘蛛の糸が、急に※陀多のぶら下っている所から、ぷつりと音を立てて<ruby>断<rt>き</rt></ruby>れました。ですから※陀多もたまりません。あっと云う<ruby>間<rt>ま</rt></ruby>もなく風を切って、<ruby>独楽<rt>こま</rt></ruby>のようにくるくるまわりながら、見る見る中に暗の底へ、まっさかさまに落ちてしまいました。","後にはただ極楽の蜘蛛の糸が、きらきらと細く光りながら、月も星もない空の中途に、短く垂れているばかりでございます。","<ruby>御釈迦様<rt>おしゃかさま</rt></ruby>は極楽の<ruby>蓮池<rt>はすいけ</rt></ruby>のふちに立って、この一部<ruby>始終<rt>しじゅう</rt></ruby>をじっと見ていらっしゃいましたが、やがて※<ruby>陀多<rt>かんだた</rt></ruby>が血の池の底へ石のように沈んでしまいますと、悲しそうな御顔をなさりながら、またぶらぶら御歩きになり始めました。自分ばかり地獄からぬけ出そうとする、※陀多の無慈悲な心が、そうしてその心相当な罰をうけて、元の地獄へ落ちてしまったのが、御釈迦様の御目から見ると、浅間しく思召されたのでございましょう。","しかし極楽の蓮池の蓮は、少しもそんな事には<ruby>頓着<rt>とんじゃく</rt></ruby>致しません。その玉のような白い花は、御釈迦様の<ruby>御足<rt>おみあし</rt></ruby>のまわりに、ゆらゆら<ruby>萼<rt>うてな</rt></ruby>を動かして、そのまん中にある金色の<ruby>蕊<rt>ずい</rt></ruby>からは、何とも云えない<ruby>好<rt>よ</rt></ruby>い匂が、<ruby>絶間<rt>たえま</rt></ruby>なくあたりへ<ruby>溢<rt>あふ</rt></ruby>れて居ります。極楽ももう<ruby>午<rt>ひる</rt></ruby>に近くなったのでございましょう。"]},{"id":"蜜柑","title":"蜜柑","title_vi":"Quả cam","author":"芥川竜之介","level":"N3","chars":3117,"summary":"Trên chuyến tàu cuối năm đầy mệt mỏi, khoảnh khắc ngây thơ của cô bé nhà quê ném cam cho các em tiễn chân đã thắp sáng tâm hồn chàng công chức chán đời.","card_url":"https://www.aozora.gr.jp/cards/000879/card98.html","credit":"底本：「現代日本文学大系　43　芥川龍之介集」筑摩書房\n　　　1968（昭和43）年8月25日初版第1刷発行\n入力：j.utiyama\n校正：野口英司\n1998年3月16日公開\n2005年10月18日修正\n青空文庫作成ファイル：\nこのファイルは、インターネットの図書館、青空文庫（http://www.aozora.gr.jp/）で作られました。入力、校正、制作にあたったのは、ボランティアの皆さんです。","paras":["或曇つた冬の日暮である。私は横須賀発上り二等客車の隅に腰を下して、ぼんやり発車の笛を待つてゐた。とうに電燈のついた客車の中には、珍らしく私の外に一人も乗客はゐなかつた。外を<ruby>覗<rt>のぞ</rt></ruby>くと、うす暗いプラツトフオオムにも、今日は珍しく見送りの人影さへ跡を絶つて、唯、<ruby>檻<rt>をり</rt></ruby>に入れられた小犬が一匹、時々悲しさうに、吠え立ててゐた。これらはその時の私の心もちと、不思議な位似つかはしい景色だつた。私の頭の中には云ひやうのない疲労と倦怠とが、まるで雪曇りの空のやうなどんよりした影を落してゐた。私は外套のポツケツトへぢつと両手をつつこんだ<ruby>儘<rt>まま</rt></ruby>、そこにはいつてゐる夕刊を出して見ようと云ふ元気さへ起らなかつた。","が、やがて発車の笛が鳴つた。私はかすかな心の<ruby>寛<rt>くつろ</rt></ruby>ぎを感じながら、後の窓枠へ頭をもたせて、眼の前の停車場がずるずると後ずさりを始めるのを待つともなく待ちかまへてゐた。所がそれよりも先にけたたましい<ruby>日和<rt>ひより</rt></ruby>下駄の音が、改札口の方から聞え出したと思ふと、間もなく車掌の何か云ひ<ruby>罵<rt>ののし</rt></ruby>る声と共に、私の乗つてゐる二等室の戸ががらりと開いて、十三四の小娘が一人、<ruby>慌<rt>あわただ</rt></ruby>しく中へはいつて来た、と同時に一つづしりと揺れて、<ruby>徐<rt>おもむろ</rt></ruby>に汽車は動き出した。一本づつ眼をくぎつて行くプラツトフオオムの柱、置き忘れたやうな運水車、それから車内の誰かに祝儀の礼を云つてゐる赤帽――さう云ふすべては、窓へ吹きつける煤煙の中に、未練がましく後へ倒れて行つた。私は<ruby>漸<rt>やうや</rt></ruby>くほつとした心もちになつて、巻煙草に火をつけながら、始めて<ruby>懶<rt>ものう</rt></ruby>い<ruby>睚<rt>まぶた</rt></ruby>をあげて、前の席に腰を下してゐた小娘の顔を<ruby>一瞥<rt>いちべつ</rt></ruby>した。","それは油気のない髪をひつつめの<ruby>銀杏返<rt>いてふがへ</rt></ruby>しに結つて、横なでの痕のある<ruby>皸<rt>ひび</rt></ruby>だらけの両頬を気持の悪い程赤く<ruby>火照<rt>ほて</rt></ruby>らせた、如何にも<ruby>田舎者<rt>ゐなかもの</rt></ruby>らしい娘だつた。しかも垢じみた<ruby>萌黄色<rt>もえぎいろ</rt></ruby>の毛糸の襟巻がだらりと垂れ下つた膝の上には、大きな風呂敷包みがあつた。その又包みを抱いた霜焼けの手の中には、三等の赤切符が大事さうにしつかり握られてゐた。私はこの小娘の下品な顔だちを好まなかつた。それから彼女の服装が不潔なのもやはり不快だつた。最後にその二等と三等との区別さへも<ruby>弁<rt>わきま</rt></ruby>へない愚鈍な心が腹立たしかつた。だから巻煙草に火をつけた私は、一つにはこの小娘の存在を忘れたいと云ふ心もちもあつて、今度はポツケツトの夕刊を漫然と膝の上へひろげて見た。すると其時夕刊の紙面に落ちてゐた外光が、突然電燈の光に変つて、<ruby>刷<rt>すり</rt></ruby>の悪い何欄かの活字が意外な位<ruby>鮮<rt>あざやか</rt></ruby>に私の眼の前へ浮んで来た。云ふまでもなく汽車は今、横須賀線に多い<ruby>隧道<rt>トンネル</rt></ruby>の最初のそれへはいつたのである。","しかしその電燈の光に照らされた夕刊の紙面を見渡しても、やはり私の憂欝を慰むべく、世間は余りに平凡な出来事ばかりで持ち切つてゐた。講和問題、新婦新郎、<ruby>涜職<rt>とくしよく</rt></ruby>事件、死亡広告――私は隧道へはいつた一瞬間、汽車の走つてゐる方向が逆になつたやうな錯覚を感じながら、それらの索漠とした記事から記事へ<ruby>殆<rt>ほとんど</rt></ruby>機械的に眼を通した。が、その間も勿論あの小娘が、<ruby>恰<rt>あたか</rt></ruby>も卑俗な現実を人間にしたやうな面持ちで、私の前に坐つてゐる事を絶えず意識せずにはゐられなかつた。この隧道の中の汽車と、この田舎者の小娘と、さうして又この平凡な記事に埋つてゐる夕刊と、――これが象徴でなくて何であらう。不可解な、下等な、退屈な人生の象徴でなくて何であらう。私は一切がくだらなくなつて、読みかけた夕刊を<ruby>抛<rt>はふ</rt></ruby>り出すと、又窓枠に頭を<ruby>靠<rt>もた</rt></ruby>せながら、死んだやうに眼をつぶつて、うつらうつらし始めた。","それから幾分か過ぎた後であつた。ふと何かに<ruby>脅<rt>おびやか</rt></ruby>されたやうな心もちがして、思はずあたりを見まはすと、<ruby>何時<rt>いつ</rt></ruby>の間にか例の小娘が、向う側から席を私の隣へ移して、<ruby>頻<rt>しきり</rt></ruby>に窓を開けようとしてゐる。が、重い<ruby>硝子戸<rt>ガラスど</rt></ruby>は中々思ふやうにあがらないらしい。あの<ruby>皸<rt>ひび</rt></ruby>だらけの頬は<ruby>愈<rt>いよいよ</rt></ruby>赤くなつて、時々<ruby>鼻洟<rt>はな</rt></ruby>をすすりこむ音が、小さな息の切れる声と一しよに、せはしなく耳へはいつて来る。これは勿論私にも、幾分ながら同情を<ruby>惹<rt>ひ</rt></ruby>くに足るものには相違なかつた。しかし汽車が今<ruby>将<rt>まさ</rt></ruby>に<ruby>隧道<rt>トンネル</rt></ruby>の口へさしかからうとしてゐる事は、暮色の中に枯草ばかり明い両側の山腹が、間近く窓側に迫つて来たのでも、すぐに<ruby>合点<rt>がてん</rt></ruby>の行く事であつた。にも関らずこの小娘は、わざわざしめてある窓の戸を下さうとする、――その理由が私には呑みこめなかつた。いや、それが私には、単にこの小娘の気まぐれだとしか考へられなかつた。だから私は腹の底に依然として険しい感情を蓄へながら、あの霜焼けの手が硝子戸を<ruby>擡<rt>もた</rt></ruby>げようとして悪戦苦闘する<ruby>容子<rt>ようす</rt></ruby>を、まるでそれが永久に成功しない事でも祈るやうな冷酷な眼で眺めてゐた。すると間もなく凄じい音をはためかせて、汽車が隧道へなだれこむと同時に、小娘の開けようとした硝子戸は、とうとうばたりと下へ落ちた。さうしてその四角な穴の中から、<ruby>煤<rt>すす</rt></ruby>を溶したやうなどす黒い空気が、<ruby>俄<rt>にはか</rt></ruby>に息苦しい煙になつて、<ruby>濛々<rt>もうもう</rt></ruby>と車内へ<ruby>漲<rt>みなぎ</rt></ruby>り出した。元来<ruby>咽喉<rt>のど</rt></ruby>を害してゐた私は、<ruby>手巾<rt>ハンケチ</rt></ruby>を顔に当てる暇さへなく、この煙を満面に浴びせられたおかげで、<ruby>殆<rt>ほとんど</rt></ruby>息もつけない程<ruby>咳<rt>せ</rt></ruby>きこまなければならなかつた。が、小娘は私に頓着する<ruby>気色<rt>けしき</rt></ruby>も見えず、窓から外へ首をのばして、闇を吹く風に<ruby>銀杏返<rt>いてふがへ</rt></ruby>しの<ruby>鬢<rt>びん</rt></ruby>の毛を<ruby>戦<rt>そよ</rt></ruby>がせながら、ぢつと汽車の進む方向を見やつてゐる。その姿を<ruby>煤煙<rt>ばいえん</rt></ruby>と電燈の光との中に眺めた時、もう窓の外が見る見る明くなつて、そこから土の匂や枯草の匂や水の匂が<ruby>冷<rt>ひやや</rt></ruby>かに流れこんで来なかつたなら、<ruby>漸<rt>やうやく</rt></ruby>咳きやんだ私は、この見知らない小娘を頭ごなしに叱りつけてでも、又元の通り窓の戸をしめさせたのに相違なかつたのである。","しかし汽車はその時分には、もう安々と<ruby>隧道<rt>トンネル</rt></ruby>を<ruby>辷<rt>すべ</rt></ruby>りぬけて、枯草の山と山との間に挾まれた、或貧しい町はづれの踏切りに通りかかつてゐた。踏切りの近くには、いづれも見すぼらしい藁屋根や瓦屋根がごみごみと狭苦しく建てこんで、踏切り番が振るのであらう、唯<ruby>一旒<rt>いちりう</rt></ruby>のうす白い旗が<ruby>懶<rt>ものう</rt></ruby>げに暮色を<ruby>揺<rt>ゆす</rt></ruby>つてゐた。やつと隧道を出たと思ふ――その時その<ruby>蕭索<rt>せうさく</rt></ruby>とした踏切りの柵の向うに、私は頬の赤い三人の男の子が、目白押しに並んで立つてゐるのを見た。彼等は皆、この曇天に押しすくめられたかと思ふ程、<ruby>揃<rt>そろ</rt></ruby>つて背が低かつた。さうして又この町はづれの陰惨たる風物と同じやうな色の着物を着てゐた。それが汽車の通るのを仰ぎ見ながら、一斉に手を挙げるが早いか、いたいけな喉を高く<ruby>反<rt>そ</rt></ruby>らせて、何とも意味の分らない<ruby>喊声<rt>かんせい</rt></ruby>を一生懸命に<ruby>迸<rt>ほとばし</rt></ruby>らせた。するとその瞬間である。窓から半身を乗り出してゐた例の娘が、あの霜焼けの手をつとのばして、勢よく左右に振つたと思ふと、忽ち心を躍らすばかり暖な日の色に染まつてゐる<ruby>蜜柑<rt>みかん</rt></ruby>が凡そ五つ六つ、汽車を見送つた子供たちの上へばらばらと空から降つて来た。私は思はず息を呑んだ。さうして刹那に一切を了解した。小娘は、恐らくはこれから奉公先へ<ruby>赴<rt>おもむ</rt></ruby>かうとしてゐる小娘は、その懐に蔵してゐた<ruby>幾顆<rt>いくくわ</rt></ruby>の蜜柑を窓から投げて、わざわざ踏切りまで見送りに来た弟たちの労に報いたのである。","暮色を帯びた町はづれの踏切りと、小鳥のやうに声を挙げた三人の子供たちと、さうしてその上に乱落する<ruby>鮮<rt>あざやか</rt></ruby>な蜜柑の色と――すべては汽車の窓の外に、<ruby>瞬<rt>またた</rt></ruby>く暇もなく通り過ぎた。が、私の心の上には、切ない程はつきりと、この光景が焼きつけられた。さうしてそこから、或<ruby>得体<rt>えたい</rt></ruby>の知れない<ruby>朗<rt>ほがらか</rt></ruby>な心もちが湧き上つて来るのを意識した。私は昂然と頭を挙げて、まるで別人を見るやうにあの小娘を注視した。小娘は何時かもう私の前の席に返つて、<ruby>不相変<rt>あひかはらず</rt></ruby><ruby>皸<rt>ひび</rt></ruby>だらけの頬を萌黄色の毛糸の襟巻に埋めながら、大きな風呂敷包みを抱へた手に、しつかりと三等切符を握つてゐる。…………","私はこの時始めて、云ひやうのない疲労と倦怠とを、さうして又不可解な、下等な、退屈な人生を僅に忘れる事が出来たのである。"]},{"id":"注文の多い料理店","title":"注文の多い料理店","title_vi":"Nhà hàng nhiều yêu cầu","author":"宮沢賢治","level":"N3","chars":5336,"summary":"Hai thợ săn trẻ lạc vào nhà hàng hoang giữa núi sâu; những \"cảnh báo ngược\" ngày càng kỳ quặc dần biến họ từ khách hàng thành… món ăn.","card_url":"https://www.aozora.gr.jp/cards/000081/card1927.html","credit":"底本：「宮沢賢治全集8」ちくま文庫、筑摩書房\n　　　1986（昭和61）年1月28日第1刷発行\n　　　2004（平成16）年4月25日第20刷発行\n初出：「イーハトヴ童話　注文の多い料理店」盛岡市杜陵出版部・東京光原社\n　　　1924（大正13）年12月1日\n入力：土屋隆\n校正：noriko saito\n2005年2月21日作成\n青空文庫作成ファイル：\nこのファイルは、インターネットの図書館、青空文庫（http://www.aozora.gr.jp/）で作られました。入力、校正、制作にあたったのは、ボランティアの皆さんです。","paras":["二人の若い紳士が、すつかりイギリスの兵隊のかたちをして、ぴか々する鉄砲をかついで、<ruby>白熊<rt>しろくま</rt></ruby>のやうな犬を二<ruby>疋<rt>ひき</rt></ruby>つれて、だいぶ山奥の、木の葉のかさ々したとこを、こんなことを<ruby>云<rt>い</rt></ruby>ひながら、あるいてをりました。","「ぜんたい、こゝらの山は<ruby>怪<rt>け</rt></ruby>しからんね。鳥も獣も一疋も居やがらん。なんでも構はないから、早くタンタアーンと、やつて見たいもんだなあ。」","「<ruby>鹿<rt>しか</rt></ruby>の黄いろな横つ腹なんぞに、二三発お見舞まうしたら、ずゐぶん痛快だらうねえ。くる々まはつて、それからどたつと倒れるだらうねえ。」","それはだいぶの山奥でした。案内してきた専門の鉄砲打ちも、ちよつとまごついて、どこかへ行つてしまつたくらゐの山奥でした。","それに、あんまり山が<ruby>物凄<rt>ものすご</rt></ruby>いので、その白熊のやうな犬が、二疋いつしよにめまひを起して、しばらく<ruby>吠<rt>うな</rt></ruby>つて、それから泡を吐いて死んでしまひました。","「じつにぼくは、二千四百円の損害だ」と一人の紳士が、その犬の<ruby>眼<rt>ま</rt></ruby>ぶたを、ちよつとかへしてみて言ひました。","「ぼくは二千八百円の損害だ。」と、もひとりが、くやしさうに、あたまをまげて言ひました。","はじめの紳士は、すこし顔いろを悪くして、じつと、もひとりの紳士の、顔つきを見ながら云ひました。","「ぼくはもう戻らうとおもふ。」","「さあ、ぼくもちやうど寒くはなつたし腹は<ruby>空<rt>す</rt></ruby>いてきたし戻らうとおもふ。」","「そいぢや、これで切りあげやう。なあに戻りに、昨日の宿屋で、山鳥を拾円も買つて帰ればいゝ。」","「<ruby>兎<rt>うさぎ</rt></ruby>もでてゐたねえ。さうすれば結局おんなじこつた。では帰らうぢやないか」","ところがどうも困つたことは、どつちへ行けば戻れるのか、いつかう見当がつかなくなつてゐました。","風がどうと吹いてきて、草はざわざわ、木の葉はかさかさ、木はごとんごとんと鳴りました。","「どうも腹が空いた。さつきから横つ腹が痛くてたまらないんだ。」","「ぼくもさうだ。もうあんまりあるきたくないな。」","「あるきたくないよ。あゝ困つたなあ、何かたべたいなあ。」","「喰べたいもんだなあ」","二人の紳士は、ざわざわ鳴るすゝきの中で、こんなことを云ひました。","その時ふとうしろを見ますと、立派な一軒の西洋造りの家がありました。","そして玄関には","RESTAURANT","西洋料理店","WILDCAT HOUSE","山猫軒","といふ札がでてゐました。","「君、ちやうどいゝ。こゝはこれでなかなか開けてるんだ。入らうぢやないか」","「おや、こんなとこにをかしいね。しかしとにかく何か食事ができるんだらう」","「もちろんできるさ。看板にさう書いてあるぢやないか」","「はいらうぢやないか。ぼくはもう何か喰べたくて倒れさうなんだ。」","二人は玄関に立ちました。玄関は白い瀬戸の<ruby>煉瓦<rt>れんぐわ</rt></ruby>で組んで、実に立派なもんです。","そして<ruby>硝子<rt>がらす</rt></ruby>の開き戸がたつて、そこに金文字でかう書いてありました。","「どなたもどうかお入りください。決してご遠慮はありません」","二人はそこで、ひどくよろこんで言ひました。","「こいつはどうだ、やつぱり世の中はうまくできてるねえ、けふ一日なんぎしたけれど、こんどはこんないゝこともある。このうちは料理店だけれどもたゞでご<ruby>馳走<rt>ちそう</rt></ruby>するんだぜ。」","「どうもさうらしい。決してご遠慮はありませんといふのはその意味だ。」","二人は戸を押して、なかへ入りました。そこはすぐ廊下になつてゐました。その硝子戸の裏側には、金文字でかうなつてゐました。","「ことに<ruby>肥<rt>ふと</rt></ruby>つたお方や若いお方は、大歓迎いたします」","二人は大歓迎といふので、もう大よろこびです。","「君、ぼくらは大歓迎にあたつてゐるのだ。」","「ぼくらは両方兼ねてるから」","ずんずん廊下を進んで行きますと、こんどは水いろのペンキ塗りの<ruby>扉<rt>と</rt></ruby>がありました。","「どうも変な<ruby>家<rt>うち</rt></ruby>だ。どうしてこんなにたくさん戸があるのだらう。」","「これはロシア式だ。寒いとこや山の中はみんなかうさ。」","そして二人はその扉をあけようとしますと、上に黄いろな字でかう書いてありました。","「当軒は注文の多い料理店ですからどうかそこはご承知ください」","「なかなかはやつてるんだ。こんな山の中で。」","「それあさうだ。見たまへ、東京の大きな料理屋だつて大通りにはすくないだらう」","二人は云ひながら、その扉をあけました。するとその裏側に、","「注文はずゐぶん多いでせうがどうか一々こらえて下さい。」","「これはぜんたいどういふんだ。」ひとりの紳士は顔をしかめました。","「うん、これはきつと注文があまり多くて支度が手間取るけれどもごめん下さいと<ruby>斯<rt>か</rt></ruby>ういふことだ。」","「さうだらう。早くどこか<ruby>室<rt>へや</rt></ruby>の中にはひりたいもんだな。」","「そしてテーブルに座りたいもんだな。」","ところがどうもうるさいことは、また<ruby>扉<rt>と</rt></ruby>が一つありました。そしてそのわきに鏡がかゝつて、その下には長い柄のついたブラシが置いてあつたのです。","扉には赤い字で、","「お客さまがた、こゝで髪をきちんとして、それからはきもの","の泥を落してください。」","と書いてありました。","「これはどうも<ruby>尤<rt>もつと</rt></ruby>もだ。僕もさつき玄関で、山のなかだとおもつて見くびつたんだよ」","「作法の厳しい<ruby>家<rt>うち</rt></ruby>だ。きつとよほど偉い人たちが、たびたび来るんだ。」","そこで二人は、きれいに髪をけづつて、靴の泥を落しました。","そしたら、どうです。ブラシを板の上に置くや否や、そいつがぼうつとかすんで無くなつて、風がどうつと室の中に入つてきました。","二人はびつくりして、互によりそつて、扉をがたんと開けて、次の室へ入つて行きました。早く何か暖いものでもたべて、元気をつけて置かないと、もう途方もないことになつてしまふと、二人とも思つたのでした。","扉の内側に、また変なことが書いてありました。","「鉄砲と<ruby>弾丸<rt>たま</rt></ruby>をこゝへ置いてください。」","見るとすぐ横に黒い台がありました。","「なるほど、鉄砲を持つてものを食ふといふ法はない。」","「いや、よほど偉いひとが始終来てゐるんだ。」","二人は鉄砲をはづし、帯皮を解いて、それを台の上に置きました。","また黒い扉がありました。","「どうか帽子と<ruby>外套<rt>ぐわいたう</rt></ruby>と靴をおとり下さい。」","「どうだ、とるか。」","「仕方ない、とらう。たしかによつぽどえらいひとなんだ。奥に来てゐるのは」","二人は帽子とオーバコートを<ruby>釘<rt>くぎ</rt></ruby>にかけ、靴をぬいでぺたぺたあるいて扉の中にはひりました。","扉の裏側には、","「ネクタイピン、カフスボタン、<ruby>眼鏡<rt>めがね</rt></ruby>、財布、その他金物類、","ことに<ruby>尖<rt>とが</rt></ruby>つたものは、みんなこゝに置いてください」","と書いてありました。扉のすぐ横には黒塗りの立派な金庫も、ちやんと口を開けて置いてありました。<ruby>鍵<rt>かぎ</rt></ruby>まで添へてあつたのです。","「はゝあ、何かの料理に電気をつかふと見えるね。<ruby>金気<rt>かなけ</rt></ruby>のものはあぶない。ことに<ruby>尖<rt>とが</rt></ruby>つたものはあぶないと<ruby>斯<rt>か</rt></ruby>う云ふんだらう。」","「さうだらう。して見ると勘定は帰りにこゝで払ふのだらうか。」","「どうもさうらしい。」","「さうだ。きつと。」","二人はめがねをはづしたり、カフスボタンをとつたり、みんな金庫の中に入れて、ぱちんと錠をかけました。","すこし行きますとまた<ruby>扉<rt>と</rt></ruby>があつて、その前に<ruby>硝子<rt>がらす</rt></ruby>の<ruby>壺<rt>つぼ</rt></ruby>が一つありました。扉には<ruby>斯<rt>か</rt></ruby>う書いてありました。","「壺のなかのクリームを顔や手足にすつかり塗つてください。」","みるとたしかに壺のなかのものは牛乳のクリームでした。","「クリームをぬれといふのはどういふんだ。」","「これはね、外がひじやうに寒いだらう。<ruby>室<rt>へや</rt></ruby>のなかがあんまり暖いとひびがきれるから、その予防なんだ。どうも奥には、よほどえらいひとがきてゐる。こんなとこで、案外ぼくらは、貴族とちかづきになるかも知れないよ。」","二人は壺のクリームを、顔に塗つて手に塗つてそれから靴下をぬいで足に塗りました。それでもまだ残つてゐましたから、それは二人ともめいめいこつそり顔へ塗るふりをしながら喰べました。","それから大急ぎで扉をあけますと、その裏側には、","「クリームをよく塗りましたか、耳にもよく塗りましたか、」","と書いてあつて、ちひさなクリームの壺がこゝにも置いてありました。","「さうさう、ぼくは耳には塗らなかつた。あぶなく耳にひゞを切らすとこだつた。こゝの主人はじつに用意周到だね。」","「あゝ、細かいとこまでよく気がつくよ。ところでぼくは早く何か喰べたいんだが、どうも<ruby>斯<rt>か</rt></ruby>うどこまでも廊下ぢや仕方ないね。」","するとすぐその前に次の戸がありました。","「料理はもうすぐできます。","十五分とお待たせはいたしません。","すぐたべられます。","早くあなたの頭に<ruby>瓶<rt>びん</rt></ruby>の中の香水をよく振りかけてください。」","そして戸の前には金ピカの香水の瓶が置いてありました。","二人はその香水を、頭へぱちやぱちや振りかけました。","ところがその香水は、どうも酢のやうな<ruby>匂<rt>にほひ</rt></ruby>がするのでした。","「この香水はへんに酢くさい。どうしたんだらう。」","「まちがへたんだ。下女が<ruby>風邪<rt>かぜ</rt></ruby>でも引いてまちがへて入れたんだ。」","二人は扉をあけて中にはひりました。","扉の裏側には、大きな字で斯う書いてありました。","「いろいろ注文が多くてうるさかつたでせう。お気の毒でした。","もうこれだけです。どうかからだ中に、<ruby>壺<rt>つぼ</rt></ruby>の中の塩をたくさ","んよくもみ込んでください。」","なるほど立派な青い瀬戸の塩壺は置いてありましたが、こんどといふこんどは二人ともぎよつとしてお互にクリームをたくさん塗つた顔を見合せました。","「どうもをかしいぜ。」","「ぼくもをかしいとおもふ。」","「沢山の注文といふのは、向ふがこつちへ注文してるんだよ。」","「だからさ、西洋料理店といふのは、ぼくの考へるところでは、西洋料理を、来た人にたべさせるのではなくて、来た人を西洋料理にして、食べてやる<ruby>家<rt>うち</rt></ruby>とかういふことなんだ。これは、その、つ、つ、つ、つまり、ぼ、ぼ、ぼくらが……。」がたがたがたがた、ふるへだしてもうものが言へませんでした。","「その、ぼ、ぼくらが、……うわあ。」がたがたがたがたふるへだして、もうものが言へませんでした。","「<ruby>遁<rt>に</rt></ruby>げ……。」がたがたしながら一人の紳士はうしろの戸を押さうとしましたが、どうです、戸はもう<ruby>一分<rt>いちぶ</rt></ruby>も動きませんでした。","奥の方にはまだ一枚扉があつて、大きなかぎ穴が二つつき、銀いろのホークとナイフの形が切りだしてあつて、","「いや、わざわざご苦労です。","大へん結構にできました。","さあさあおなかにおはひりください。」","と書いてありました。おまけにかぎ穴からはきよろきよろ二つの青い<ruby>眼玉<rt>めだま</rt></ruby>がこつちをのぞいてゐます。","「うわあ。」がたがたがたがた。","「うわあ。」がたがたがたがた。","ふたりは泣き出しました。","すると戸の中では、こそこそこんなことを云つてゐます。","「だめだよ。もう気がついたよ。塩をもみこまないやうだよ。」","「あたりまへさ。親分の書きやうがまづいんだ。あすこへ、いろいろ注文が多くてうるさかつたでせう、お気の毒でしたなんて、間抜けたことを書いたもんだ。」","「どつちでもいゝよ。どうせぼくらには、骨も分けて<ruby>呉<rt>く</rt></ruby>れやしないんだ。」","「それはさうだ。けれどももしこゝへあいつらがはひつて来なかつたら、それはぼくらの責任だぜ。」","「呼ばうか、呼ばう。おい、お客さん方、早くいらつしやい。いらつしやい。いらつしやい。お<ruby>皿<rt>さら</rt></ruby>も洗つてありますし、菜つ葉ももうよく塩でもんで置きました。あとはあなたがたと、菜つ葉をうまくとりあはせて、まつ白なお皿にのせる<ruby>丈<rt>だ</rt></ruby>けです。はやくいらつしやい。」","「へい、いらつしやい、いらつしやい。それともサラドはお嫌ひですか。そんならこれから火を起してフライにしてあげませうか。とにかくはやくいらつしやい。」","二人はあんまり心を痛めたために、顔がまるでくしやくしやの<ruby>紙屑<rt>かみくづ</rt></ruby>のやうになり、お互にその顔を見合せ、ぶるぶるふるへ、声もなく泣きました。","中ではふつふつとわらつてまた叫んでゐます。","「いらつしやい、いらつしやい。そんなに泣いては折角のクリームが流れるぢやありませんか。へい、たゞいま。ぢきもつてまゐります。さあ、早くいらつしやい。」","「早くいらつしやい。親方がもうナフキンをかけて、ナイフをもつて、舌なめずりして、お客さま方を待つてゐられます。」","二人は泣いて泣いて泣いて泣いて泣きました。","そのときうしろからいきなり、","「わん、わん、ぐわあ。」といふ声がして、あの<ruby>白熊<rt>しろくま</rt></ruby>のやうな犬が二<ruby>疋<rt>ひき</rt></ruby>、<ruby>扉<rt>と</rt></ruby>をつきやぶつて<ruby>室<rt>へや</rt></ruby>の中に飛び込んできました。<ruby>鍵穴<rt>かぎあな</rt></ruby>の眼玉はたちまちなくなり、犬どもはううとうなつてしばらく室の中をくるくる廻つてゐましたが、また一声","「わん。」と高く<ruby>吠<rt>ほ</rt></ruby>えて、いきなり次の扉に飛びつきました。戸はがたりとひらき、犬どもは吸ひ込まれるやうに飛んで行きました。","その扉の向ふのまつくらやみのなかで、","「にやあお、くわあ、ごろごろ。」といふ声がして、それからがさがさ鳴りました。","室はけむりのやうに消え、二人は寒さにぶるぶるふるへて、草の中に立つてゐました。","見ると、上着や靴や財布やネクタイピンは、あつちの枝にぶらさがつたり、こつちの根もとにちらばつたりしてゐます。風がどうと吹いてきて、草はざわざわ、木の葉はかさかさ、木はごとんごとんと鳴りました。","犬がふうとうなつて戻つてきました。","そしてうしろからは、","「<ruby>旦那<rt>だんな</rt></ruby>あ、旦那あ、」と叫ぶものがあります。","二人は<ruby>俄<rt>には</rt></ruby>かに元気がついて","「おゝい、おゝい、こゝだぞ、早く来い。」と叫びました。","<ruby>簔帽子<rt>みのばうし</rt></ruby>をかぶつた専門の猟師が、草をざわざわ分けてやつてきました。","そこで二人はやつと安心しました。","そして猟師のもつてきた団子をたべ、途中で十円だけ山鳥を買つて東京に帰りました。","しかし、さつき一ぺん紙くづのやうになつた二人の顔だけは、東京に帰つても、お湯にはひつても、もうもとのとほりになほりませんでした。"]},{"id":"雪渡り","title":"雪渡り","title_vi":"Băng đồng tuyết","author":"宮沢賢治","level":"N3","chars":6254,"summary":"Hai anh em Shirō và Kanko băng đồng tuyết đi chợ; đêm về được đàn cáo mời dự hội trượt tuyết thần bí dưới ánh trăng.","card_url":"https://www.aozora.gr.jp/cards/000081/card2543.html","credit":"底本：「宮沢賢治全集8」ちくま文庫、筑摩書房\n　　　1986（昭和61）年1月28日第1刷発行\n　　　2004（平成16）年4月25日第20刷発行\n初出：「愛国婦人」\n　　　1921（大正10）年12月号、1922（大正11）年1月号\n入力：土屋隆\n校正：鈴木厚司\n2009年1月14日作成\n青空文庫作成ファイル：\nこのファイルは、インターネットの図書館、青空文庫（http://www.aozora.gr.jp/）で作られました。入力、校正、制作にあたったのは、ボランティアの皆さんです。","paras":["雪渡り　その一（<ruby>小狐<rt>こぎつね</rt></ruby>の紺三郎）","雪がすっかり凍って大理石よりも堅くなり、空も冷たい滑らかな青い石の板で出来てゐるらしいのです。","「堅雪かんこ、しみ雪しんこ。」","お日様がまっ白に燃えて<ruby>百合<rt>ゆり</rt></ruby>の<ruby>匂<rt>にほひ</rt></ruby>を<ruby>撒<rt>ま</rt></ruby>きちらし又雪をぎらぎら照らしました。","木なんかみんなザラメを掛けたやうに霜でぴかぴかしてゐます。","「堅雪かんこ、<ruby>凍<rt>し</rt></ruby>み雪しんこ。」","四郎とかん子とは小さな<ruby>雪沓<rt>ゆきぐつ</rt></ruby>をはいてキックキックキック、野原に出ました。","こんな面白い日が、またとあるでせうか。いつもは歩けない<ruby>黍<rt>きび</rt></ruby>の畑の中でも、すすきで一杯だった野原の上でも、すきな方へどこ<ruby>迄<rt>まで</rt></ruby>でも行けるのです。平らなことはまるで一枚の板です。そしてそれが沢山の小さな小さな鏡のやうにキラキラキラキラ光るのです。","「堅雪かんこ、<ruby>凍<rt>し</rt></ruby>み雪しんこ。」","二人は森の近くまで来ました。大きな<ruby>柏<rt>かしは</rt></ruby>の木は枝も<ruby>埋<rt>うづ</rt></ruby>まるくらゐ立派な透きとほった<ruby>氷柱<rt>つらら</rt></ruby>を下げて重さうに<ruby>身体<rt>からだ</rt></ruby>を曲げて<ruby>居<rt>を</rt></ruby>りました。","「堅雪かんこ、凍み雪しんこ。<ruby>狐<rt>きつね</rt></ruby>の子ぁ、<ruby>嫁<rt>よめ</rt></ruby>ぃほしい、ほしい。」と二人は森へ向いて高く叫びました。","しばらくしいんとしましたので二人はも一度叫ばうとして息をのみこんだとき森の中から","「凍み雪しんしん、堅雪かんかん。」と<ruby>云<rt>い</rt></ruby>ひながら、キシリキシリ雪をふんで白い狐の子が出て来ました。","四郎は少しぎょっとしてかん子をうしろにかばって、しっかり足をふんばって叫びました。","「狐こんこん白狐、お嫁ほしけりゃ、とってやろよ。」","すると狐がまだまるで小さいくせに銀の針のやうなおひげをピンと一つひねって云ひました。","「四郎はしんこ、かん子はかんこ、おらはお嫁はいらないよ。」","四郎が笑って云ひました。","「狐こんこん、狐の子、お嫁がいらなきゃ<ruby>餅<rt>もち</rt></ruby>やろか。」","すると狐の子も頭を二つ三つ振って面白さうに云ひました。","「四郎はしんこ、かん子はかんこ、<ruby>黍<rt>きび</rt></ruby>の団子をおれやろか。」","かん子もあんまり面白いので四郎のうしろにかくれたまゝそっと歌ひました。","「狐こんこん狐の子、狐の団子は<ruby>兎<rt>うさ</rt></ruby>のくそ。」","すると小狐紺三郎が笑って云ひました。","「いゝえ、決してそんなことはありません。あなた方のやうな立派なお方が<ruby>兎<rt>うさぎ</rt></ruby>の茶色の団子なんか召しあがるもんですか。私らは全体いままで人をだますなんてあんまりむじつの罪をきせられてゐたのです。」","四郎がおどろいて尋ねました。","「そいぢゃきつねが人をだますなんて<ruby>偽<rt>うそ</rt></ruby>かしら。」","紺三郎が熱心に云ひました。","「偽ですとも。けだし最もひどい偽です。だまされたといふ人は大抵お酒に酔ったり、臆病でくるくるしたりした人です。面白いですよ。<ruby>甚兵衛<rt>じんべゑ</rt></ruby>さんがこの前、月夜の晩私たちのお<ruby>家<rt>うち</rt></ruby>の前に坐って一晩じゃうるりをやりましたよ。私らはみんな出て見たのです。」","四郎が叫びました。","「甚兵衛さんならじゃうるりぢゃないや。きっと<ruby>浪花<rt>なには</rt></ruby>ぶしだぜ。」","子狐紺三郎はなるほどといふ顔をして、","「えゝ、さうかもしれません。とにかくお団子をおあがりなさい。私のさしあげるのは、ちゃんと私が畑を作って<ruby>播<rt>ま</rt></ruby>いて草をとって刈って<ruby>叩<rt>たた</rt></ruby>いて粉にして練ってむしてお砂糖をかけたのです。いかゞですか。一皿さしあげませう。」","と云ひました。","と四郎が笑って、","「紺三郎さん、僕らは丁度いまね、お<ruby>餅<rt>もち</rt></ruby>をたべて来たんだからおなかが減らないんだよ。この次におよばれしようか。」","子狐の紺三郎が<ruby>嬉<rt>うれ</rt></ruby>しがってみじかい腕をばたばたして云ひました。","「さうですか。そんなら今度幻燈会のときさしあげませう。幻燈会にはきっといらっしゃい。この次の雪の凍った月夜の晩です。八時からはじめますから、入場券をあげて置きませう。何枚あげませうか。」","「そんなら五枚お<ruby>呉<rt>く</rt></ruby>れ。」と四郎が云ひました。","「五枚ですか。あなた方が二枚にあとの三枚はどなたですか。」と紺三郎が云ひました。","「兄さんたちだ。」と四郎が答へますと、","「兄さんたちは十一歳以下ですか。」と紺三郎が又尋ねました。","「いや<ruby>小兄<rt>ちひにい</rt></ruby>さんは四年生だからね、八つの四つで十二歳。」と四郎が云ひました。","すると紺三郎は<ruby>尤<rt>もっと</rt></ruby>もらしく又おひげを一つひねって云ひました。","「それでは残念ですが兄さんたちはお断わりです。あなた方だけいらっしゃい。特別席をとって置きますから、面白いんですよ。幻燈は第一が『お酒をのむべからず。』これはあなたの村の<ruby>太右衛門<rt>たゑもん</rt></ruby>さんと、清作さんがお酒をのんでたうとう目がくらんで野原にあるへんてこなおまんぢゅうや、おそばを喰べようとした所です。私も写真の中にうつってゐます。第二が『わなに注意せよ。』これは私共のこん<ruby>兵衛<rt>べゑ</rt></ruby>が野原でわなにかかったのを<ruby>画<rt>か</rt></ruby>いたのです。絵です。写真ではありません。第三が『火を軽べつすべからず。』これは私共のこん助があなたのお<ruby>家<rt>うち</rt></ruby>へ行って<ruby>尻尾<rt>しっぽ</rt></ruby>を焼いた景色です。ぜひおいで下さい。」","二人は<ruby>悦<rt>よろこ</rt></ruby>んでうなづきました。","狐は<ruby>可笑<rt>をか</rt></ruby>しさうに口を曲げて、キックキックトントンキックキックトントンと足ぶみをはじめてしっぽと頭を振ってしばらく考へてゐましたがやっと思ひついたらしく、両手を振って調子をとりながら歌ひはじめました。","「<ruby>凍<rt>し</rt></ruby>み雪しんこ、堅雪かんこ、","野原のまんぢゅうはポッポッポ。","酔ってひょろひょろ<ruby>太右衛門<rt>たゑもん</rt></ruby>が、","去年、三十八、たべた。","凍み雪しんこ、堅雪かんこ、","野原のおそばはホッホッホ。","酔ってひょろひょろ清作が、","去年十三ばいたべた。」","四郎もかん子もすっかり釣り込まれてもう狐と一緒に踊ってゐます。","キック、キック、トントン。キック、キック、トントン。キック、キック、キック、キック、トントントン。","四郎が歌ひました。","「<ruby>狐<rt>きつね</rt></ruby>こんこん狐の子、去年狐のこん<ruby>兵衛<rt>べゑ</rt></ruby>が、ひだりの足をわなに入れ、こんこんばたばたこんこんこん。」","かん子が歌ひました。","「狐こんこん狐の子、去年狐のこん助が、焼いた魚を取ろとしておしりに火がつききゃんきゃんきゃん。」","キック、キック、トントン。キック、キック、トントン。キック、キック、キック、キックトントントン。","そして三人は踊りながらだんだん林の中にはひって行きました。赤い<ruby>封蝋<rt>ふうらふ</rt></ruby>細工のほほの木の芽が、風に吹かれてピッカリピッカリと光り、林の中の雪には<ruby>藍<rt>あゐ</rt></ruby>色の木の影がいちめん網になって落ちて日光のあたる所には銀の<ruby>百合<rt>ゆり</rt></ruby>が咲いたやうに見えました。","すると子狐紺三郎が云ひました。","「<ruby>鹿<rt>しか</rt></ruby>の子もよびませうか。鹿の子はそりゃ笛がうまいんですよ。」","四郎とかん子とは手を<ruby>叩<rt>たた</rt></ruby>いてよろこびました。そこで三人は一緒に叫びました。","「堅雪かんこ、<ruby>凍<rt>し</rt></ruby>み雪しんこ、鹿の子ぁ嫁ぃほしいほしい。」","すると向ふで、","「北風ぴいぴい風三郎、西風どうどう又三郎」と細いいゝ声がしました。","狐の子の紺三郎がいかにもばかにしたやうに、口を<ruby>尖<rt>とが</rt></ruby>らして云ひました。","「あれは鹿の子です。あいつは臆病ですからとてもこっちへ来さうにありません。けれどもう一遍叫んでみませうか。」","そこで三人は又叫びました。","「堅雪かんこ、<ruby>凍<rt>し</rt></ruby>み雪しんこ、しかの子ぁ<ruby>嫁<rt>よめい</rt></ruby>ほしい、ほしい。」","すると今度はずうっと遠くで風の音か笛の声か、又は鹿の子の歌かこんなやうに聞えました。","「北風ぴいぴい、かんこかんこ","西風どうどう、どっこどっこ。」","狐が又ひげをひねって云ひました。","「雪が柔らかになるといけませんからもうお帰りなさい。今度月夜に雪が凍ったらきっとおいで下さい。さっきの幻燈をやりますから。」","そこで四郎とかん子とは","「堅雪かんこ、凍み雪しんこ。」と歌ひながら銀の雪を渡っておうちへ帰りました。","「堅雪かんこ、凍み雪しんこ。」","雪渡り　その二（狐小学校の幻燈会）","青白い大きな十五夜のお月様がしづかに<ruby>氷<rt>ひ</rt></ruby>の<ruby>上<rt>かみ</rt></ruby>山から登りました。","雪はチカチカ青く光り、そして今日も<ruby>寒水石<rt>かんすゐせき</rt></ruby>のやうに堅く凍りました。","四郎は狐の紺三郎との約束を思ひ出して妹のかん子にそっと云ひました。","「今夜狐の幻燈会なんだね。行かうか。」","するとかん子は、","「行きませう。行きませう。狐こんこん狐の子、こんこん狐の紺三郎。」とはねあがって高く叫んでしまひました。","すると二番目の兄さんの二郎が","「お前たちは狐のとこへ遊びに行くのかい。僕も行きたいな。」と云ひました。","四郎は困ってしまって肩をすくめて云ひました。","「<ruby>大兄<rt>おほにい</rt></ruby>さん。だって、狐の幻燈会は十一歳までですよ、入場券に書いてあるんだもの。」","二郎が云ひました。","「どれ、ちょっとお見せ、ははあ、学校生徒の父兄にあらずして十二歳以上の来賓は入場をお断わり申し<ruby>候<rt>そろ</rt></ruby>、狐なんて仲々うまくやってるね。僕はいけないんだね。仕方ないや。お前たち行くんならお<ruby>餅<rt>もち</rt></ruby>を持って行っておやりよ。そら、この鏡餅がいゝだらう。」","四郎とかん子はそこで小さな<ruby>雪沓<rt>ゆきぐつ</rt></ruby>をはいてお餅をかついで外に出ました。","兄弟の一郎二郎三郎は戸口に並んで立って、","「行っておいで。大人の狐にあったら急いで目をつぶるんだよ。そら僕ら<ruby>囃<rt>はや</rt></ruby>してやらうか。堅雪かんこ、<ruby>凍<rt>し</rt></ruby>み雪しんこ、狐の子ぁ嫁ぃほしいほしい。」と叫びました。","お月様は空に高く登り森は青白いけむりに包まれてゐます。二人はもうその森の入口に来ました。","すると胸にどんぐりのきしゃうをつけた白い小さな狐の子が立って居て云ひました。","「今晩は。お早うございます。入場券はお持ちですか。」","「持ってゐます。」二人はそれを出しました。","「さあ、どうぞあちらへ。」狐の子が<ruby>尤<rt>もっと</rt></ruby>もらしくからだを曲げて眼をパチパチしながら林の奥を手で教へました。","林の中には月の光が青い棒を何本も斜めに投げ込んだやうに<ruby>射<rt>さ</rt></ruby>して<ruby>居<rt>を</rt></ruby>りました。その中のあき地に二人は来ました。","見るともう狐の学校生徒が沢山集って<ruby>栗<rt>くり</rt></ruby>の皮をぶっつけ合ったりすまふをとったり殊にをかしいのは小さな小さな<ruby>鼠<rt>ねずみ</rt></ruby>位の狐の子が大きな子供の狐の肩車に乗ってお星様を取らうとしてゐるのです。","みんなの前の木の枝に白い一枚の敷布がさがってゐました。","不意にうしろで","「今晩は、よくおいででした。先日は失礼いたしました。」といふ声がしますので四郎とかん子とはびっくりして振り向いて見ると紺三郎です。","紺三郎なんかまるで立派な<ruby>燕尾服<rt>えんびふく</rt></ruby>を着て<ruby>水仙<rt>すゐせん</rt></ruby>の花を胸につけてまっ白なはんけちでしきりにその<ruby>尖<rt>とが</rt></ruby>ったお口を<ruby>拭<rt>ふ</rt></ruby>いてゐるのです。","四郎は<ruby>一寸<rt>ちょっと</rt></ruby>お辞儀をして云ひました。","「この間は失敬。それから今晩はありがたう。このお餅をみなさんであがって下さい。」","狐の学校生徒はみんなこっちを見てゐます。","紺三郎は胸を一杯に張ってすまして<ruby>餅<rt>もち</rt></ruby>を受けとりました。","「これはどうもおみやげを<ruby>戴<rt>いただ</rt></ruby>いて済みません。どうかごゆるりとなすって下さい。もうすぐ幻燈もはじまります。私は一寸失礼いたします。」","紺三郎はお餅を持って向ふへ行きました。","狐の学校生徒は声をそろへて叫びました。","「堅雪かんこ、<ruby>凍<rt>し</rt></ruby>み雪しんこ、<ruby>硬<rt>かた</rt></ruby>いお餅はかったらこ、白いお餅はべったらこ。」","幕の横に、","「寄贈、お餅沢山、人の四郎氏、人のかん子氏」と大きな札が出ました。狐の生徒は<ruby>悦<rt>よろこ</rt></ruby>んで手をパチパチ<ruby>叩<rt>たた</rt></ruby>きました。","その時ピーと<ruby>笛<rt>ふえ</rt></ruby>が鳴りました。","紺三郎がエヘンエヘンとせきばらひをしながら幕の横から出て来て丁寧にお辞儀をしました。みんなはしんとなりました。","「今夜は美しい天気です。お月様はまるで真珠のお皿です。お星さまは野原の露がキラキラ固まったやうです。さて<ruby>只今<rt>ただいま</rt></ruby>から幻燈会をやります。みなさんは<ruby>瞬<rt>またたき</rt></ruby>やくしゃみをしないで目をまんまろに開いて見てゐて下さい。","それから今夜は大切な二人のお客さまがありますからどなたも静かにしないといけません。決してそっちの方へ<ruby>栗<rt>くり</rt></ruby>の皮を投げたりしてはなりません。開会の辞です。」","みんな悦んでパチパチ手を叩きました。そして四郎がかん子にそっと云ひました。","「紺三郎さんはうまいんだね。」","笛がピーと鳴りました。","『お酒をのむべからず』大きな字が幕にうつりました。そしてそれが消えて写真がうつりました。一人のお酒に酔った人間のおぢいさんが何かをかしな円いものをつかんでゐる景色です。","みんなは足ぶみをして歌ひました。","キックキックトントンキックキックトントン","<ruby>凍<rt>し</rt></ruby>み雪しんこ、堅雪かんこ、","野原のまんぢゅうはぽっぽっぽ","酔ってひょろひょろ<ruby>太右衛門<rt>たゑもん</rt></ruby>が","去年、三十八たべた。","キックキックキックキックトントントン","写真が消えました。四郎はそっとかん子に云ひました。","「あの歌は紺三郎さんのだよ。」","別に写真がうつりました。一人のお酒に酔った若い者がほほの木の葉でこしらへたお<ruby>椀<rt>わん</rt></ruby>のやうなものに顔をつっ込んで何か喰べてゐます。紺三郎が白い<ruby>袴<rt>はかま</rt></ruby>をはいて向ふで見てゐるけしきです。","みんなは足踏みをして歌ひました。","キックキックトントン、キックキック、トントン、","<ruby>凍<rt>し</rt></ruby>み雪しんこ、堅雪かんこ、","野原のおそばはぽっぽっぽ、","酔ってひょろひょろ清作が","去年十三ばい喰べた。","キック、キック、キック、キック、トン、トン、トン。","写真が消えて<ruby>一寸<rt>ちょっと</rt></ruby>やすみになりました。","可愛らしい<ruby>狐<rt>きつね</rt></ruby>の女の子が<ruby>黍団子<rt>きびだんご</rt></ruby>をのせたお皿を二つ持って来ました。","四郎はすっかり弱ってしまひました。なぜってたった今<ruby>太右衛門<rt>たゑもん</rt></ruby>と清作との悪いものを知らないで喰べたのを見てゐるのですから。","それに狐の学校生徒がみんなこっちを向いて「食ふだらうか。ね。食ふだらうか。」なんてひそひそ話し合ってゐるのです。かん子ははづかしくてお皿を手に持ったまゝまっ赤になってしまひました。すると四郎が決心して云ひました。","「ね、喰べよう。お喰べよ。僕は紺三郎さんが僕らを<ruby>欺<rt>だま</rt></ruby>すなんて思はないよ。」そして二人は黍団子をみんな喰べました。そのおいしいことは<ruby>頬<rt>ほ</rt></ruby>っぺたも落ちさうです。狐の学校生徒はもうあんまり<ruby>悦<rt>よろこ</rt></ruby>んでみんな踊りあがってしまひました。","キックキックトントン、キックキックトントン。","「ひるはカンカン日のひかり","よるはツンツン月あかり、","たとへからだを、さかれても","狐の生徒はうそ云ふな。」","キック、キックトントン、キックキックトントン。","「ひるはカンカン日のひかり","よるはツンツン月あかり","たとへこゞえて倒れても","狐の生徒はぬすまない。」","キックキックトントン、キックキックトントン。","「ひるはカンカン日のひかり","よるはツンツン月あかり","たとへからだがちぎれても","狐の生徒はそねまない。」","キックキックトントン、キックキックトントン。","四郎もかん子もあんまり<ruby>嬉<rt>うれ</rt></ruby>しくて涙がこぼれました。","笛がピーとなりました。","『わなを軽べつすべからず』と大きな字がうつりそれが消えて絵がうつりました。狐のこん<ruby>兵衛<rt>べゑ</rt></ruby>がわなに左足をとられた景色です。","「<ruby>狐<rt>きつね</rt></ruby>こんこん狐の子、去年狐のこん<ruby>兵衛<rt>べゑ</rt></ruby>が","左の足をわなに入れ、こんこんばたばた","こんこんこん。」","とみんなが歌ひました。","四郎がそっとかん子に云ひました。","「僕の作った歌だねい。」","絵が消えて『火を軽べつすべからず』といふ字があらはれました。それも消えて絵がうつりました。狐のこん助が焼いたお魚を取らうとしてしっぽに火がついた所です。","狐の生徒がみな叫びました。","「狐こんこん狐の子。去年狐のこん助が","焼いた魚を取ろとしておしりに火がつき","きゃんきゃんきゃん。」","笛がピーと鳴り幕は明るくなって紺三郎が又出て来て云ひました。","「みなさん。今晩の幻燈はこれでおしまひです。今夜みなさんは深く心に留めなければならないことがあります。それは狐のこしらへたものを賢いすこしも酔はない人間のお子さんが喰べて下すったといふ事です。そこでみなさんはこれからも、大人になってもうそをつかず人をそねまず私共狐の<ruby>今迄<rt>いままで</rt></ruby>の悪い評判をすっかり無くしてしまふだらうと思ひます。閉会の辞です。」","狐の生徒はみんな感動して両手をあげたりワーッと立ちあがりました。そしてキラキラ涙をこぼしたのです。","紺三郎が二人の前に来て、丁寧におじぎをして云ひました。","「それでは。さやうなら。今夜のご恩は決して忘れません。」","二人もおじぎをしてうちの方へ帰りました。狐の生徒たちが追ひかけて来て二人のふところやかくしにどんぐりだの栗だの青びかりの石だのを入れて、","「そら、あげますよ。」「そら、取って下さい。」なんて云って風の様に逃げ帰って行きます。","紺三郎は笑って見てゐました。","二人は森を出て野原を行きました。","その青白い雪の野原のまん中で三人の黒い影が向ふから来るのを見ました。それは迎ひに来た兄さん達でした。"]},{"id":"オツベルと象","title":"オツベルと象","title_vi":"Otsuberu và con voi","author":"宮沢賢治","level":"N3","chars":5595,"summary":"Chú voi già cần mẫn bơm nước cho ruộng của ông chủ Otsuberu mà chẳng được trả công — đến ngày đàn voi bạn cũ kéo đến đòi lại công bằng.","card_url":"https://www.aozora.gr.jp/cards/000081/card466.html","credit":"底本：「新編　銀河鉄道の夜」新潮文庫、新潮社\n　　　1989（平成元）年6月15日発行\n底本の親本：「新修宮沢賢治全集　第十三巻」筑摩書房\n　　　1980（昭和55）年3月\n※「〔一字不明〕」は、底本編集時の注記です。\n入力：r.sawai\n校正：篠宮康彰\n1999年2月6日公開\n2011年2月14日修正\n青空文庫作成ファイル：\nこのファイルは、インターネットの図書館、青空文庫（http://www.aozora.gr.jp）で作られました。入力、校正、制作にあたったのは、ボランティアの皆さんです。","paras":["……ある<ruby>牛飼<rt>うしか</rt></ruby>いがものがたる","第一日曜","オツベルときたら大したもんだ。<ruby>稲扱<rt>いねこき</rt></ruby>器械の六台も<ruby>据<rt>す</rt></ruby>えつけて、のんのんのんのんのんのんと、大そろしない音をたててやっている。","十六人の<ruby>百姓<rt>ひゃくしょう</rt></ruby>どもが、顔をまるっきりまっ赤にして足で<ruby>踏<rt>ふ</rt></ruby>んで器械をまわし、小山のように積まれた稲を片っぱしから<ruby>扱<rt>こ</rt></ruby>いて行く。<ruby>藁<rt>わら</rt></ruby>はどんどんうしろの方へ投げられて、また新らしい山になる。そこらは、<ruby>籾<rt>もみ</rt></ruby>や藁から<ruby>発<rt>た</rt></ruby>ったこまかな<ruby>塵<rt>ちり</rt></ruby>で、変にぼうっと黄いろになり、まるで<ruby>沙漠<rt>さばく</rt></ruby>のけむりのようだ。","そのうすくらい仕事場を、オツベルは、大きな<ruby>琥珀<rt>こはく</rt></ruby>のパイプをくわえ、<ruby>吹殻<rt>ふきがら</rt></ruby>を藁に落さないよう、<ruby>眼<rt>め</rt></ruby>を細くして気をつけながら、両手を背中に組みあわせて、ぶらぶら<ruby>往<rt>い</rt></ruby>ったり来たりする。","小屋はずいぶん<ruby>頑丈<rt>がんじょう</rt></ruby>で、学校ぐらいもあるのだが、何せ新式稲扱器械が、六台もそろってまわってるから、のんのんのんのんふるうのだ。中にはいるとそのために、すっかり腹が<ruby>空<rt>す</rt></ruby>くほどだ。そしてじっさいオツベルは、そいつで上手に腹をへらし、ひるめしどきには、六寸ぐらいのビフテキだの、<ruby>雑巾<rt>ぞうきん</rt></ruby>ほどあるオムレツの、ほくほくしたのをたべるのだ。","とにかく、そうして、のんのんのんのんやっていた。","そしたらそこへどういうわけか、その、白象がやって来た。白い象だぜ、ペンキを<ruby>塗<rt>ぬ</rt></ruby>ったのでないぜ。どういうわけで来たかって？　そいつは象のことだから、たぶんぶらっと森を出て、ただなにとなく来たのだろう。","そいつが小屋の入口に、ゆっくり顔を出したとき、百姓どもはぎょっとした。なぜぎょっとした？　よくきくねえ、何をしだすか知れないじゃないか。かかり合っては大へんだから、どいつもみな、いっしょうけんめい、じぶんの稲を扱いていた。","ところがそのときオツベルは、ならんだ器械のうしろの方で、ポケットに手を入れながら、ちらっと<ruby>鋭<rt>するど</rt></ruby>く象を見た。それからすばやく下を向き、何でもないというふうで、いままでどおり往ったり来たりしていたもんだ。","するとこんどは白象が、<ruby>片脚<rt>かたあし</rt></ruby><ruby>床<rt>ゆか</rt></ruby>にあげたのだ。百姓どもはぎょっとした。それでも仕事が<ruby>忙<rt>いそが</rt></ruby>しいし、かかり合ってはひどいから、そっちを見ずに、やっぱり稲を扱いていた。","オツベルは<ruby>奥<rt>おく</rt></ruby>のうすくらいところで両手をポケットから出して、も一度ちらっと象を見た。それからいかにも<ruby>退屈<rt>たいくつ</rt></ruby>そうに、わざと大きなあくびをして、両手を頭のうしろに組んで、行ったり来たりやっていた。ところが象が<ruby>威勢<rt>いせい</rt></ruby>よく、<ruby>前肢<rt>まえあし</rt></ruby>二つつきだして、小屋にあがって来ようとする。百姓どもはぎくっとし、オツベルもすこしぎょっとして、大きな琥珀のパイプから、ふっとけむりをはきだした。それでもやっぱりしらないふうで、ゆっくりそこらをあるいていた。","そしたらとうとう、象がのこのこ上って来た。そして器械の前のとこを、<ruby>呑気<rt>のんき</rt></ruby>にあるきはじめたのだ。","ところが何せ、器械はひどく<ruby>廻<rt>まわ</rt></ruby>っていて、<ruby>籾<rt>もみ</rt></ruby>は夕立か<ruby>霰<rt>あられ</rt></ruby>のように、パチパチ象にあたるのだ。象はいかにもうるさいらしく、小さなその眼を細めていたが、またよく見ると、たしかに少しわらっていた。","オツベルはやっと<ruby>覚悟<rt>かくご</rt></ruby>をきめて、<ruby>稲扱<rt>いねこき</rt></ruby>器械の前に出て、象に話をしようとしたが、そのとき象が、とてもきれいな、<ruby>鶯<rt>うぐいす</rt></ruby>みたいないい声で、こんな文句を<ruby>云<rt>い</rt></ruby>ったのだ。","「ああ、だめだ。あんまりせわしく、砂がわたしの歯にあたる。」","まったく籾は、パチパチパチパチ歯にあたり、またまっ白な頭や首にぶっつかる。","さあ、オツベルは<ruby>命懸<rt>いのちが</rt></ruby>けだ。パイプを右手にもち直し、度胸を据えて<ruby>斯<rt>こ</rt></ruby>う云った。","「どうだい、<ruby>此処<rt>ここ</rt></ruby>は<ruby>面白<rt>おもしろ</rt></ruby>いかい。」","「面白いねえ。」象がからだを<ruby>斜<rt>なな</rt></ruby>めにして、眼を細くして返事した。","「ずうっとこっちに居たらどうだい。」","百姓どもははっとして、息を殺して象を見た。オツベルは云ってしまってから、にわかにがたがた<ruby>顫<rt>ふる</rt></ruby>え出す。ところが象はけろりとして","「居てもいいよ。」と答えたもんだ。","「そうか。それではそうしよう。そういうことにしようじゃないか。」オツベルが顔をくしゃくしゃにして、まっ赤になって<ruby>悦<rt>よろこ</rt></ruby>びながらそう云った。","どうだ、そうしてこの象は、もうオツベルの財産だ。いまに見たまえ、オツベルは、あの白象を、はたらかせるか、サーカス団に売りとばすか、どっちにしても万円以上もうけるぜ。","第二日曜","オツベルときたら大したもんだ。それにこの前稲扱小屋で、うまく自分のものにした、象もじっさい大したもんだ。力も二十馬力もある。第一みかけがまっ白で、<ruby>牙<rt>きば</rt></ruby>はぜんたいきれいな<ruby>象牙<rt>ぞうげ</rt></ruby>でできている。皮も全体、立派で<ruby>丈夫<rt>じょうぶ</rt></ruby>な象皮なのだ。そしてずいぶんはたらくもんだ。けれどもそんなに<ruby>稼<rt>かせ</rt></ruby>ぐのも、やっぱり主人が<ruby>偉<rt>えら</rt></ruby>いのだ。","「おい、お前は時計は<ruby>要<rt>い</rt></ruby>らないか。」丸太で建てたその象小屋の前に来て、オツベルは琥珀のパイプをくわえ、顔をしかめて斯う<ruby>訊<rt>き</rt></ruby>いた。","「ぼくは時計は要らないよ。」象がわらって返事した。","「まあ持って見ろ、いいもんだ。」斯う言いながらオツベルは、ブリキでこさえた大きな時計を、象の首からぶらさげた。","「なかなかいいね。」象も云う。","「<ruby>鎖<rt>くさり</rt></ruby>もなくちゃだめだろう。」オツベルときたら、百キロもある鎖をさ、その前肢にくっつけた。","「うん、なかなか鎖はいいね。」三あし歩いて象がいう。","「<ruby>靴<rt>くつ</rt></ruby>をはいたらどうだろう。」","「ぼくは靴などはかないよ。」","「まあはいてみろ、いいもんだ。」オツベルは顔をしかめながら、赤い張子の大きな靴を、象のうしろのかかとにはめた。","「なかなかいいね。」象も云う。","「靴に<ruby>飾<rt>かざ</rt></ruby>りをつけなくちゃ。」オツベルはもう大急ぎで、四百キロある分銅を靴の上から、<ruby>穿<rt>は</rt></ruby>め込んだ。","「うん、なかなかいいね。」象は二あし歩いてみて、さもうれしそうにそう云った。","次の日、ブリキの大きな時計と、やくざな紙の靴とはやぶけ、象は鎖と分銅だけで、大よろこびであるいて<ruby>居<rt>お</rt></ruby>った。","「済まないが税金も高いから、今日はすこうし、川から水を<ruby>汲<rt>く</rt></ruby>んでくれ。」オツベルは両手をうしろで組んで、顔をしかめて象に云う。","「ああ、ぼく水を汲んで来よう。もう何ばいでも汲んでやるよ。」","象は眼を細くしてよろこんで、そのひるすぎに五十だけ、川から水を汲んで来た。そして菜っ葉の畑にかけた。","夕方象は小屋に居て、十<ruby>把<rt>ぱ</rt></ruby>の<ruby>藁<rt>わら</rt></ruby>をたべながら、西の三日の月を見て、","「ああ、<ruby>稼<rt>かせ</rt></ruby>ぐのは<ruby>愉快<rt>ゆかい</rt></ruby>だねえ、さっぱりするねえ」と云っていた。","「済まないが税金がまたあがる。今日は少うし森から、たきぎを運んでくれ」オツベルは<ruby>房<rt>ふさ</rt></ruby>のついた赤い<ruby>帽子<rt>ぼうし</rt></ruby>をかぶり、両手をかくしにつっ込んで、次の日象にそう言った。","「ああ、ぼくたきぎを持って来よう。いい天気だねえ。ぼくはぜんたい森へ行くのは大すきなんだ」象はわらってこう言った。","オツベルは少しぎょっとして、パイプを手からあぶなく落としそうにしたがもうあのときは、象がいかにも愉快なふうで、ゆっくりあるきだしたので、また安心してパイプをくわえ、小さな<ruby>咳<rt>せき</rt></ruby>を一つして、百姓どもの仕事の方を見に行った。","そのひるすぎの半日に、象は九百把たきぎを運び、眼を細くしてよろこんだ。","晩方象は小屋に居て、八把の藁をたべながら、西の四日の月を見て","「ああ、せいせいした。サンタマリア」と<ruby>斯<rt>こ</rt></ruby>うひとりごとしたそうだ。","その次の日だ、","「済まないが、税金が五倍になった、今日は少うし<ruby>鍛冶場<rt>かじば</rt></ruby>へ行って、炭火を<ruby>吹<rt>ふ</rt></ruby>いてくれないか」","「ああ、吹いてやろう。本気でやったら、ぼく、もう、息で、石もなげとばせるよ」","オツベルはまたどきっとしたが、気を落ち付けてわらっていた。","象はのそのそ鍛冶場へ行って、べたんと肢を折って<ruby>座<rt>すわ</rt></ruby>り、ふいごの代りに半日炭を吹いたのだ。","その晩、象は象小屋で、七<ruby>把<rt>わ</rt></ruby>の藁をたべながら、空の五日の月を見て","「ああ、つかれたな、うれしいな、サンタマリア」と斯う言った。","どうだ、そうして次の日から、象は朝からかせぐのだ。藁も昨日はただ五把だ。よくまあ、五把の藁などで、あんな力がでるもんだ。","じっさい象はけいざいだよ。それというのもオツベルが、頭がよくてえらいためだ。オツベルときたら大したもんさ。","第五日曜","オツベルかね、そのオツベルは、おれも云おうとしてたんだが、居なくなったよ。","まあ落ちついてききたまえ。前にはなしたあの象を、オツベルはすこしひどくし過ぎた。しかたがだんだんひどくなったから、象がなかなか笑わなくなった。時には赤い<ruby>竜<rt>りゅう</rt></ruby>の眼をして、じっとこんなにオツベルを見おろすようになってきた。","ある晩象は象小屋で、三把の藁をたべながら、十日の月を<ruby>仰<rt>あお</rt></ruby>ぎ見て、","「苦しいです。サンタマリア。」と云ったということだ。","こいつを聞いたオツベルは、ことごと象につらくした。","ある晩、象は象小屋で、ふらふら<ruby>倒<rt>たお</rt></ruby>れて地べたに座り、藁もたべずに、十一日の月を見て、","「もう、さようなら、サンタマリア。」と斯う言った。","「おや、何だって？　さよならだ？」月が<ruby>俄<rt>にわ</rt></ruby>かに象に<ruby>訊<rt>き</rt></ruby>く。","「ええ、さよならです。サンタマリア。」","「何だい、なりばかり大きくて、からっきし<ruby>意気地<rt>いくじ</rt></ruby>のないやつだなあ。仲間へ手紙を書いたらいいや。」月がわらって斯う云った。","「お筆も紙もありませんよう。」象は細ういきれいな声で、しくしくしくしく泣き出した。","「そら、これでしょう。」すぐ眼の前で、<ruby>可愛<rt>かあい</rt></ruby>い子どもの声がした。象が頭を上げて見ると、赤い着物の童子が立って、<ruby>硯<rt>すずり</rt></ruby>と紙を<ruby>捧<rt>ささ</rt></ruby>げていた。象は早速手紙を書いた。","「ぼくはずいぶん眼にあっている。みんなで出て来て助けてくれ。」","童子はすぐに手紙をもって、林の方へあるいて行った。","<ruby>赤衣<rt>せきい</rt></ruby>の童子が、そうして山に着いたのは、ちょうどひるめしごろだった。このとき山の象どもは、<ruby>沙羅樹<rt>さらじゅ</rt></ruby>の下のくらがりで、<ruby>碁<rt>ご</rt></ruby>などをやっていたのだが、額をあつめてこれを見た。","「ぼくはずいぶん眼にあっている。みんなで出てきて助けてくれ。」","象は一せいに立ちあがり、まっ黒になって<ruby>吠<rt>ほ</rt></ruby>えだした。","「オツベルをやっつけよう」議長の象が高く<ruby>叫<rt>さけ</rt></ruby>ぶと、","「おう、でかけよう。グララアガア、グララアガア。」みんながいちどに呼応する。","さあ、もうみんな、<ruby>嵐<rt>あらし</rt></ruby>のように林の中をなきぬけて、グララアガア、グララアガア、野原の方へとんで行く。どいつもみんなきちがいだ。小さな木などは根こぎになり、<ruby>藪<rt>やぶ</rt></ruby>や何かもめちゃめちゃだ。グワア　グワア　グワア　グワア、花火みたいに野原の中へ飛び出した。それから、何の、走って、走って、とうとう向うの青くかすんだ野原のはてに、オツベルの<ruby>邸<rt>やしき</rt></ruby>の黄いろな屋根を<ruby>見附<rt>みつ</rt></ruby>けると、象はいちどに<ruby>噴火<rt>ふんか</rt></ruby>した。","グララアガア、グララアガア。その時はちょうど一時半、オツベルは皮の<ruby>寝台<rt>しんだい</rt></ruby>の上でひるねのさかりで、<ruby>烏<rt>からす</rt></ruby>の<ruby>夢<rt>ゆめ</rt></ruby>を見ていたもんだ。あまり大きな音なので、オツベルの家の百姓どもが、門から少し外へ出て、小手をかざして向うを見た。林のような象だろう。汽車より早くやってくる。さあ、まるっきり、血の気も失せてかけ<ruby>込<rt>こ</rt></ruby>んで、","「<ruby>旦那<rt>だんな</rt></ruby>あ、象です。押し寄せやした。旦那あ、象です。」と声をかぎりに叫んだもんだ。","ところがオツベルはやっぱりえらい。眼をぱっちりとあいたときは、もう何もかもわかっていた。","「おい、象のやつは小屋にいるのか。居る？　居る？　居るのか。よし、戸をしめろ。戸をしめるんだよ。早く象小屋の戸をしめるんだ。ようし、早く丸太を持って来い。とじこめちまえ、<ruby>畜生<rt>ちくしょう</rt></ruby>めじたばたしやがるな、丸太をそこへしばりつけろ。何ができるもんか。わざと力を減らしてあるんだ。ようし、もう五六本持って来い。さあ、大丈夫だ。大丈夫だとも。あわてるなったら。おい、みんな、こんどは門だ。門をしめろ。かんぬきをかえ。つっぱり。つっぱり。そうだ。おい、みんな心配するなったら。しっかりしろよ。」オツベルはもう<ruby>支度<rt>したく</rt></ruby>ができて、ラッパみたいないい声で、百姓どもをはげました。ところがどうして、百姓どもは気が気じゃない。こんな主人に巻き<ruby>添<rt>ぞ</rt></ruby>いなんぞ食いたくないから、みんなタオルやはんけちや、よごれたような白いようなものを、ぐるぐる<ruby>腕<rt>うで</rt></ruby>に巻きつける。降参をするしるしなのだ。","オツベルはいよいよやっきとなって、そこらあたりをかけまわる。オツベルの犬も気が立って、火のつくように<ruby>吠<rt>ほ</rt></ruby>えながら、やしきの中をはせまわる。","間もなく地面はぐらぐらとゆられ、そこらはばしゃばしゃくらくなり、象はやしきをとりまいた。グララアガア、グララアガア、その<ruby>恐<rt>おそ</rt></ruby>ろしいさわぎの中から、","「今助けるから安心しろよ。」やさしい声もきこえてくる。","「ありがとう。よく来てくれて、ほんとに<ruby>僕<rt>ぼく</rt></ruby>はうれしいよ。」象小屋からも声がする。さあ、そうすると、まわりの象は、一そうひどく、グララアガア、グララアガア、<ruby>塀<rt>へい</rt></ruby>のまわりをぐるぐる走っているらしく、度々中から、<ruby>怒<rt>おこ</rt></ruby>ってふりまわす鼻も見える。けれども塀はセメントで、中には鉄も入っているから、なかなか象もこわせない。塀の中にはオツベルが、たった一人で叫んでいる。百姓どもは眼もくらみ、そこらをうろうろするだけだ。そのうち外の象どもは、仲間のからだを台にして、いよいよ塀を<ruby>越<rt>こ</rt></ruby>しかかる。だんだんにゅうと顔を出す。その<ruby>皺<rt>しわ</rt></ruby>くちゃで灰いろの、大きな顔を見あげたとき、オツベルの犬は気絶した。さあ、オツベルは<ruby>射<rt>う</rt></ruby>ちだした。六連発のピストルさ。ドーン、グララアガア、ドーン、グララアガア、ドーン、グララアガア、ところが<ruby>弾丸<rt>たま</rt></ruby>は通らない。<ruby>牙<rt>きば</rt></ruby>にあたればはねかえる。一<ruby>疋<rt>ぴき</rt></ruby>なぞは<ruby>斯<rt>こ</rt></ruby>う言った。","「なかなかこいつはうるさいねえ。ぱちぱち顔へあたるんだ。」","オツベルはいつかどこかで、こんな文句をきいたようだと思いながら、ケースを帯からつめかえた。そのうち、象の片脚が、塀からこっちへはみ出した。それからも一つはみ出した。五匹の象が一ぺんに、塀からどっと落ちて来た。オツベルはケースを握ったまま、もうくしゃくしゃに<ruby>潰<rt>つぶ</rt></ruby>れていた。早くも門があいていて、グララアガア、グララアガア、象がどしどしなだれ込む。","「<ruby>牢<rt>ろう</rt></ruby>はどこだ。」みんなは小屋に押し寄せる。丸太なんぞは、マッチのようにへし折られ、あの白象は大へん<ruby>瘠<rt>や</rt></ruby>せて小屋を出た。","「まあ、よかったねやせたねえ。」みんなはしずかにそばにより、鎖と銅をはずしてやった。","「ああ、ありがとう。ほんとにぼくは助かったよ。」白象はさびしくわらってそう云った。","おや、川へはいっちゃいけないったら。"]}];
+const STORY_LEVELS = { all: 'TẤT CẢ', n5: 'N5', n4: 'N4', n3: 'N3' };
+const STORY_LV_ICONS = { all: 'apps', n5: 'wb_sunny', n4: 'cloud', n3: 'ac_unit' };
+window.storyState = { lv: 'all', cur: null };
+
+/* ---------- Tiến độ localStorage (mirror jlptProg) ---------- */
+function storyProgKey() { return 'minddeck_story_prog_' + ((currentUser && currentUser.id) || 'guest'); }
+function storyProg() {
+    try { return JSON.parse(localStorage.getItem(storyProgKey()) || '{}'); } catch (e) { return {}; }
+}
+function storySaveProg(p) { try { localStorage.setItem(storyProgKey(), JSON.stringify(p)); } catch (e) {} }
+function storyFuriGet() { return localStorage.getItem('minddeck_story_furi') !== '0'; }
+
+/* ---------- Vào trang ---------- */
+function showStoriesPage(skipHash = false) {
+    if (!skipHash) { window.location.hash = 'stories'; return; }
+    showPage('storyPage');
+    updateBreadcrumb([]);
+    updateHeaderTitle('TRUYỆN ĐỌC');
+    storyShowView('storyList');
+    storyRenderList();
+}
+
+/* ---------- Chuyển màn ---------- */
+function storyShowView(id) {
+    ['storyList', 'storyReader'].forEach(v => {
+        const el = document.getElementById(v);
+        if (el) el.classList.toggle('hidden', v !== id);
+    });
+}
+
+/* ---------- MÀN DANH SÁCH ---------- */
+function storyRenderList() {
+    const st = window.storyState, prog = storyProg();
+    document.getElementById('storyCountChip').textContent = STORY_DB.length + ' truyện';
+
+    // Tab cấp độ đáy màn
+    const bar = document.getElementById('storyLevelBar');
+    bar.innerHTML = Object.keys(STORY_LEVELS).map(k =>
+        `<button type="button" class="story-level-tab${st.lv === k ? ' active' : ''}" onclick="storySetLevel('${k}')" aria-label="Lọc truyện cấp ${STORY_LEVELS[k]}">
+            <span class="material-symbols-outlined">${STORY_LV_ICONS[k]}</span>
+            <span class="story-lv-name">${STORY_LEVELS[k]}</span>
+        </button>`).join('');
+
+    // Danh sách truyện theo cấp đang chọn
+    const rows = STORY_DB.filter(s => st.lv === 'all' || s.level.toLowerCase() === st.lv);
+    const body = document.getElementById('storyListBody');
+    body.innerHTML = rows.map(s => {
+        const read = prog[s.id] && prog[s.id].s === 'done';
+        const mins = Math.max(1, Math.ceil(s.chars / 300));
+        const right = read
+            ? `<span class="story-read-badge" title="Đã đọc"><span class="material-symbols-outlined">check</span></span>`
+            : `<span class="material-symbols-outlined story-chev">chevron_right</span>`;
+        return `<button type="button" class="story-card" onclick="storyOpen('${s.id.replace(/'/g, "\\'")}')" title="${escapeHTML(s.title_vi)}">
+            <span class="story-card-icon"><span class="material-symbols-outlined">auto_stories</span></span>
+            <span class="story-card-body">
+                <span class="story-card-title">${escapeHTML(s.title)} <span class="story-vi">${escapeHTML(s.title_vi)}</span> <span class="story-lv-chip lv-${s.level.toLowerCase()}">${s.level}</span></span>
+                <span class="story-card-sub">${escapeHTML(s.author)} · ${s.chars.toLocaleString('vi-VN')} ký tự · ~${mins} phút${read ? ' · ĐÃ ĐỌC' : ''}</span>
+                <span class="story-card-sum">${escapeHTML(s.summary)}</span>
+            </span>
+            ${right}
+        </button>`;
+    }).join('') || '<div class="story-empty">Chưa có truyện ở cấp độ này.</div>';
+}
+function storySetLevel(lv) {
+    window.storyState.lv = lv;
+    storyRenderList();
+}
+
+/* ---------- MÀN ĐỌC ---------- */
+function storyOpen(id) {
+    const s = STORY_DB.find(x => x.id === id);
+    if (!s) return;
+    window.storyState.cur = id;
+    const mins = Math.max(1, Math.ceil(s.chars / 300));
+    const prog = storyProg();
+    const read = prog[s.id] && prog[s.id].s === 'done';
+    document.getElementById('storyRTitle').textContent = s.title;
+    document.getElementById('storyRSub').textContent = s.author + ' · ' + s.level + ' · ~' + mins + ' phút';
+    const body = document.getElementById('storyReaderBody');
+    body.className = 'story-reader' + (storyFuriGet() ? '' : ' nofuri');
+    body.innerHTML =
+        `<h1 class="story-r-title">${escapeHTML(s.title)}</h1>` +
+        `<div class="story-r-meta">${escapeHTML(s.author)} · <span class="story-lv-chip lv-${s.level.toLowerCase()}">${s.level}</span> · ${s.chars.toLocaleString('vi-VN')} ký tự · ~${mins} phút${read ? ' · <span class="story-read-tag">ĐÃ ĐỌC</span>' : ''}</div>` +
+        `<div class="story-r-sum">${escapeHTML(s.summary)}</div>` +
+        s.paras.map(p => `<p class="story-r-para">${p}</p>`).join('') +
+        `<div class="story-credit">
+            <div class="story-credit-title">Nguồn &amp; ghi công — quy tắc tái sử dụng 青空文庫</div>
+            <p>${escapeHTML(s.credit.replace(/\s*\n\s*/g, ' · '))}</p>
+            <a href="${s.card_url}" target="_blank" rel="noopener">図書カード Aozora Bunko ↗</a>
+        </div>`;
+    storyFuriApply();
+    const sc = document.getElementById('storyReaderScroll');
+    sc.scrollTop = 0;
+    storyShowView('storyReader');
+    // Khởi động thanh tiến độ (truyện ngắn vừa mở đã thấy hết = 100%)
+    requestAnimationFrame(() => storyOnScroll());
+}
+function storyBack() {
+    storyShowView('storyList');
+    storyRenderList();
+}
+
+/* ---------- Furigana toggle ---------- */
+function storyToggleFuri() {
+    const on = !storyFuriGet();
+    try { localStorage.setItem('minddeck_story_furi', on ? '1' : '0'); } catch (e) {}
+    storyFuriApply();
+}
+function storyFuriApply() {
+    const on = storyFuriGet();
+    const body = document.getElementById('storyReaderBody');
+    if (body) body.classList.toggle('nofuri', !on);
+    const btn = document.getElementById('storyFuriBtn');
+    if (btn) btn.classList.toggle('on', on);
+    const lbl = document.getElementById('storyFuriLabel');
+    if (lbl) lbl.textContent = on ? 'かな ON' : 'かな OFF';
+}
+
+/* ---------- Tiến độ cuộn + đánh dấu đã đọc ---------- */
+function storyOnScroll() {
+    const sc = document.getElementById('storyReaderScroll');
+    if (!sc) return;
+    const max = sc.scrollHeight - sc.clientHeight;
+    const pct = max > 4 ? Math.min(100, Math.round(sc.scrollTop / max * 100)) : 100;
+    const txt = document.getElementById('storyProgText');
+    if (txt) txt.textContent = 'Đã đọc ' + pct + '%';
+    const fill = document.getElementById('storyProgFill');
+    if (fill) fill.style.width = pct + '%';
+    const st = window.storyState;
+    if (st.cur && pct >= 98) {
+        const prog = storyProg();
+        if (!prog[st.cur] || prog[st.cur].s !== 'done') {
+            prog[st.cur] = { s: 'done', ts: Date.now() };
+            storySaveProg(prog);
+        }
+    }
 }
 
 /* ================= CHỨC NĂNG TỪ ĐIỂN ================= */
