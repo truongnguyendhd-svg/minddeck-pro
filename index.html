@@ -14940,17 +14940,56 @@ body.fc-3part-mode #answer-group-standard button.answer-btn { border-radius: 18p
 /* tab level N5-N1 đáy màn, thanh ô vuông phân trang câu hỏi,    */
 /* nhãn trạng thái Chưa kiểm tra / Đang tiến hành / Hoàn thành.  */
 /* Dữ liệu 31.920 câu + 374 bài đọc nhúng gzip-base64 (T71 extract) */
+/* [T74] (1) header app trong suốt + nút menu kính tối;         */
+/* (2) app-screen: root khóa chiều cao 100dvh — trang cuộn nội  */
+/*     bộ, tab N5-N1 & chân quiz đứng yên tuyệt đối khi cuộn;   */
+/* (3) bỏ nút 'Ý nghĩa' + khối bản dịch Việt trong câu hỏi.     */
 /* ============================================================ */
 body.jlpt-mode { background: #0b1220; }
+
+/* ===== [T74] HEADER TRONG SUỐN trên trang JLPT Test =====
+   Trước: .app-header kính trắng rgba(255,255,255,.85)+blur (line ~3490) + nút menu pill TRẮNG viền xám
+   → cắt mạnh cảnh navy của trang (user: 'header cho nền trong suốt').
+   Sau: header mất nền/blur/bóng — lộ nền body #0b1220 → cả màn navy liền mạch như app gốc;
+   nút menu chuyển pill kính tối + icon sáng (đồng bộ style nút .jlpt-back trong trang). */
+body.jlpt-mode .app-header {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    border-bottom: none !important; /* không kẻ — viền .jlpt-root tự phân định khung trang */
+}
+body.jlpt-mode #globalMenuBtn {
+    background: rgba(148, 163, 184, 0.1) !important;
+    border: 1px solid rgba(148, 163, 184, 0.16) !important;
+    box-shadow: none !important;
+}
+body.jlpt-mode #globalMenuBtn:hover {
+    background: rgba(148, 163, 184, 0.2) !important;
+    box-shadow: none !important;
+}
+body.jlpt-mode #globalMenuBtn .material-symbols-outlined { color: #e2e8f0 !important; } /* thắng inline color:#1d1d1f */
+body.jlpt-mode #globalMenuBtn:hover .material-symbols-outlined { color: #fbbf24 !important; } /* hover accent cam như trang */
+body.jlpt-mode .header-breadcrumb .bc-current,
+body.jlpt-mode .header-breadcrumb .bc-item { color: #cbd5e1 !important; } /* chữ breadcrumb sáng nếu có */
 
 #jlptPage {
     max-width: 1000px;
     margin: 0 auto;
-    padding: 0 0 10px 0;
+    padding: 0; /* [T74] bỏ padding đáy 10px — root chạm sát mép dưới viewport (app-screen) */
     font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-/* Nền navy đậm + họa tiết vòng tròn đồng tâm mờ (soi màn chào app gốc) */
+/* [T74] main-content bỏ padding đáy 30px trên trang JLPT (thắng cả rule mobile @600px !important)
+   để .jlpt-root với height=100dvh khớp đúng đáy màn hình */
+body.jlpt-mode .main-content { padding-bottom: 0 !important; }
+
+/* Nền navy đậm + họa tiết vòng tròn đồng tâm mờ (soi màn chào app gốc)
+   [T74] APP-SCREEN: root KHÓA đúng chiều cao màn hình (trừ header 60/50px + 5px padding-top main-content)
+   → cả trang KHÔNG cuộn document nữa mà cuộn NỘI BỘ (#jlptHome / .jlpt-test-scroll / .jlpt-quiz-scroll)
+   → tab level N5-N1 & chân quiz là phần tử ĐỨNG YÊN tuyệt đối (như Scaffold bottomNavigationBar của Flutter).
+   Hết lỗi cũ: sticky bottom:0 theo document scroll bị NHẢ RA ở cuối trang (padding đáy 40px)
+   → thanh nhảy lên/xuống mỗi lần cuộn gần hết ('nhảy nhót'), cộng jitter backdrop-filter + thanh URL mobile. */
 .jlpt-root {
     position: relative;
     border-radius: 22px;
@@ -14959,7 +14998,9 @@ body.jlpt-mode { background: #0b1220; }
         radial-gradient(circle at 4% 104%, rgba(45, 212, 191, 0.06), transparent 36%),
         linear-gradient(180deg, #0f172a 0%, #131c31 55%, #1e293b 100%);
     border: 1px solid rgba(148, 163, 184, 0.14);
-    min-height: 640px;
+    box-sizing: border-box; /* viền nằm trong height — root khớp đáy viewport từng pixel */
+    height: calc(100vh - var(--header-height) - 5px); /* fallback trình duyệt không hỗ trợ dvh */
+    height: calc(100dvh - var(--header-height) - 5px); /* dvh: chiều cao động (thanh URL mobile) */
     display: flex;
     flex-direction: column;
 }
@@ -14975,7 +15016,19 @@ body.jlpt-mode { background: #0b1220; }
 .jlpt-deco::before { width: 420px; height: 420px; top: -210px; right: -140px; box-shadow: 0 0 0 70px rgba(148,163,184,0.035), 0 0 0 150px rgba(148,163,184,0.02); }
 .jlpt-deco::after { width: 340px; height: 340px; bottom: -180px; left: -120px; box-shadow: 0 0 0 60px rgba(148,163,184,0.03); }
 
-.jlpt-view { position: relative; z-index: 1; display: flex; flex-direction: column; flex: 1; }
+/* [T74] Mọi view cuộn NỘI BỘ (app-screen): overflow != visible còn tự đặt min-height flex = 0
+   → view co đúng khung root thay vì phình theo nội dung (nguồn gây document scroll cũ).
+   Tab level (con cuối #jlptHome) sticky đáy của CHÍNH khung cuộn này → luôn ghim đáy khung nhìn,
+   và vì là con cuối không có padding sau nó → KHÔNG bao giờ bị 'nhả' nhảy lên khi cuộn.
+   margin-top:auto (rule .jlpt-levelbar) giữ tab sát đáy khi nội dung ngắn hơn khung.
+   Màn Tests/Quiz không tràn (scroller con flex:1 min 0) → appbar + chân đứng yên tuyệt đối;
+   màn Result ngắn — overflow chỉ là fallback dự phòng viewport lùn. */
+.jlpt-view { position: relative; z-index: 1; display: flex; flex-direction: column; flex: 1; overflow-y: auto; overflow-x: hidden; }
+/* [T74] ẨN thanh cuộn của các khung cuộn nội bộ (Chrome desktop scrollbar cổ điển chiếm ~15px
+   làm nội dung hụt mép phải so viền root) — như Flutter ListView: cuộn bằng wheel/chạm, không thanh.
+   Riêng .jlpt-passage/.jlpt-pager giữ scrollbar mảnh có sẵn (hộp nhỏ, cần biết còn nội dung). */
+.jlpt-view, .jlpt-test-scroll, .jlpt-quiz-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.jlpt-view::-webkit-scrollbar, .jlpt-test-scroll::-webkit-scrollbar, .jlpt-quiz-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
 /* ---------- App bar (màn Tests / Quiz) ---------- */
 .jlpt-appbar {
@@ -15081,12 +15134,14 @@ body.jlpt-mode { background: #0b1220; }
 .jlpt-grid-sub.jlpt-done { color: #10b981; }
 .jlpt-grid-sub.jlpt-ip { color: #f59e0b; }
 
-/* ---------- Thanh level N5-N1 đáy màn (soi app gốc) ---------- */
+/* ---------- Thanh level N5-N1 đáy màn (soi app gốc) ----------
+   [T74] BỎ backdrop-filter + nền đặc hơn: backdrop-filter trên phần tử sticky là nguồn
+   jitter (vùng lấy mẫu trễ 1 frame khi cuộn) — thanh như 'rung'. Nền phẳng 0.97 trên
+   gradient navy cho cùng hiệu ứng thị giác, không còn lớp composite jumpy. */
 .jlpt-levelbar {
     position: sticky; bottom: 0; z-index: 5;
     display: flex; gap: 6px; padding: 10px 14px 12px 14px; margin-top: auto;
-    background: rgba(11, 18, 32, 0.92);
-    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    background: rgba(11, 18, 32, 0.97);
     border-top: 1px solid rgba(148, 163, 184, 0.14);
 }
 .jlpt-level-tab {
@@ -15164,20 +15219,10 @@ body.jlpt-mode { background: #0b1220; }
 }
 .jlpt-qmeta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .jlpt-qnum { font-size: 11px; font-weight: 800; letter-spacing: 1px; color: #f59e0b; text-transform: uppercase; }
-.jlpt-vn-toggle {
-    height: 27px; padding: 0 11px; border-radius: 50px; font-size: 11px; font-weight: 800;
-    background: rgba(45, 212, 191, 0.1); border: 1px solid rgba(45, 212, 191, 0.35); color: #5eead4;
-    cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s; font-family: inherit;
-}
-.jlpt-vn-toggle:hover { background: rgba(45, 212, 191, 0.2); }
-.jlpt-vn-toggle .material-symbols-outlined { font-size: 14px; }
+/* [T74] BỎ NÚT 'Ý NGHĨA' (xem bản dịch Việt) theo yêu cầu user —
+   xóa cả .jlpt-vn-toggle lẫn .jlpt-vn-text (không còn cách mở dịch). */
 .jlpt-qtext { font-size: 17px; line-height: 1.8; color: #f8fafc; font-weight: 600; }
 .jlpt-qtext mark.jlpt-ul { background: rgba(245, 158, 11, 0.22); color: #fcd34d; border-bottom: 2px solid #f59e0b; border-radius: 3px; padding: 0 2px; }
-.jlpt-vn-text {
-    margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(148, 163, 184, 0.25);
-    font-size: 13px; line-height: 1.6; color: #94a3b8; font-style: italic; display: none;
-}
-.jlpt-vn-text.show { display: block; }
 
 .jlpt-opts { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
 .jlpt-opt {
@@ -15203,10 +15248,12 @@ body.jlpt-mode { background: #0b1220; }
 .jlpt-opt.is-wrong .jlpt-opt-tail .material-symbols-outlined.jlpt-ic-no { display: block; color: #f87171; }
 .jlpt-opt.is-dim { opacity: 0.55; }
 
-/* Chân màn làm bài: thống kê + thanh ô vuông câu hỏi (soi app gốc) */
+/* Chân màn làm bài: thống kê + thanh ô vuông câu hỏi (soi app gốc)
+   [T74] BỎ position:sticky + backdrop-filter — root giờ khóa đúng chiều cao màn (app-screen)
+   nên chân là flex child THƯỜNG nằm cố định đáy root, anh em với .jlpt-quiz-scroll cuộn nội bộ
+   → đứng yên tuyệt đối khi cuộn (sticky theo document là nguyên nhân thanh nhảy trước đây). */
 .jlpt-quiz-foot {
-    position: sticky; bottom: 0; z-index: 5;
-    background: rgba(11, 18, 32, 0.94); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    background: rgba(11, 18, 32, 0.97);
     border-top: 1px solid rgba(148, 163, 184, 0.14); padding: 9px 16px 11px 16px;
 }
 .jlpt-foot-stats { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -15256,7 +15303,7 @@ body.jlpt-mode { background: #0b1220; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 768px) {
-    .jlpt-root { border-radius: 0; min-height: 82vh; }
+    .jlpt-root { border-radius: 0; } /* [T74] bỏ min-height 82vh — height calc() ở base tự khóa đúng màn */
     .jlpt-home-head { padding: 18px 16px 12px 16px; }
     .jlpt-home-head h1 { font-size: 20px; }
     .jlpt-banner { margin: 0 16px 18px 16px; padding: 13px 14px; gap: 12px; }
@@ -31305,21 +31352,14 @@ function jlptRenderQuiz() {
         </button>`;
     }).join('');
 
-    const hasVn = !!(q.vn || q.psVn);
-    const vnText = q.t === 'r'
-        ? [q.psVn ? escapeHTML(q.psVn) : '', q.vn ? escapeHTML(q.vn) : ''].filter(Boolean).join('<br><br>')
-        : (q.vn ? escapeHTML(q.vn) : '');
-
     body.innerHTML = `
         <div class="jlpt-instr"><span class="material-symbols-outlined">info</span><span>${escapeHTML(instr)}</span></div>
         ${q.t === 'r' ? `<div class="jlpt-passage">${jlptFmtPassage(q.ps)}</div>` : ''}
         <div class="jlpt-qcard">
             <div class="jlpt-qmeta">
                 <span class="jlpt-qnum">Câu ${st.qidx + 1} / ${st.qs.length}</span>
-                ${hasVn ? `<button type="button" class="jlpt-vn-toggle" onclick="this.nextElementSibling.classList.toggle('show')"><span class="material-symbols-outlined">translate</span> Ý nghĩa</button>` : ''}
             </div>
             <div class="jlpt-qtext">${q.t === 'r' ? escapeHTML(q.sq) : jlptFmtQ(q)}</div>
-            ${hasVn ? `<div class="jlpt-vn-text">${vnText}</div>` : ''}
             <div class="jlpt-opts">${optsHtml}</div>
         </div>`;
     body.scrollTop = 0;
