@@ -15286,7 +15286,7 @@ body.fc-3part-mode #answer-group-standard button.answer-btn { border-radius: 18p
             <div class="dfw-decks-col">
                 <!-- [T64] caption '📌 Bộ bài đã ghim' ĐÃ XÓA theo yêu cầu user — hàng/lưới thẻ ghim mở thẳng từ đỉnh cột -->
                 <div class="dfw-decks" id="dfwDeckList">
-                    <!-- JS: renderFeaturedWidget() vẽ học phần đã ghim (ưu tiên) hoặc đang học (gợi ý) -->
+                    <!-- JS: renderFeaturedWidget() vẽ học phần đã ghim (ưu tiên, badge 📌) + TỰ ĐIỀN bộ mới tạo nhất cho đủ 12 [T71] -->
                 </div>
                 <!-- [T63] PAGER MOBILE (≤480px): bộ đếm n/N + 2 nút mũi tên chuyển thẻ ghim
                      kiểu pager boost N40 — soi .dash-boost-pager; màn > 480px ẩn (CSS base
@@ -24100,8 +24100,11 @@ window.toggleDeckPin = function(event, deckId) {
 };
 
 // [T50→T62] Widget "HỌC PHẦN NỔI BẬT" (dashboard) — THẺ DECK 2 NỬA như thẻ boost:
-// 1. Ưu tiên hiển thị học phần đã GHIM (giữ đúng thứ tự ghim — mới nhất trên cùng);
-// 2. Chưa ghim gì → gợi ý tối đa 4 bộ ĐANG HỌC (trừ bộ hệ thống) kèm dòng chú thích;
+// 1. Ưu tiên hiển thị học phần đã GHIM (giữ đúng thứ tự ghim — mới nhất trên cùng,
+//    thẻ có badge 📌 góc trái .deck-pin-badge);
+// 2. [T71] Ghim dưới 12 → TỰ ĐIỀN các học phần MỚI TẠO NHẤT (sort theo ngày tạo =
+//    timestamp nhúng cuối id deck) cho đủ 12 thẻ như 12 thẻ boost PLAY GAMES — trừ
+//    bộ hệ thống + bộ người khác chia sẻ, không lặp bộ đã ghim; ghim ≥ 12 → chỉ ghim;
 // 3. Không có gì → empty state + nút mở Kho học phần. Bấm thẻ nào mở modal học bộ đó.
 // [T62] mỗi thẻ: nửa trên .dfwt-art ảnh minh họa AI irasutoya-style 512x293 (6 ảnh
 // xoay vòng theo hash id bộ bài — cùng bộ luôn cùng ảnh), nửa dưới .dfwt-info tên +
@@ -24120,6 +24123,9 @@ function dfwDeckArt(id) {
     for (let i = 0; i < id.length; i++) h = ((h * 31) + id.charCodeAt(i)) >>> 0;
     return DFW_DECK_ARTS[h % DFW_DECK_ARTS.length];
 }
+// [T71] Số thẻ tối đa của hàng ghim cột phải widget — ngang 12 THẺ BOOST của PLAY GAMES;
+// ghim dưới con số này thì tự điền các học phần MỚI TẠO NHẤT cho đủ (sort theo ts cuối id).
+const DFW_ROW_TOTAL = 12;
 function renderFeaturedWidget() {
     const zone = document.getElementById('dfwDeckList');
     const hintEl = document.getElementById('dfwHint');
@@ -24138,7 +24144,7 @@ function renderFeaturedWidget() {
     // [T62] THẺ DECK 2 NỬA (soi thẻ boost): nửa trên .dfwt-art ảnh minh họa hash id,
     // nửa dưới .dfwt-info — tên bộ (kẹp 2 dòng) + phụ đề số thẻ + dòng trạng thái màu
     // accent; chevron góc phải trên ảnh (CSS ::after như thẻ boost).
-    const buildTile = (id) => {
+    const buildTile = (id, isPinned) => {
         const stat = globalDeckStatsMap[id] || {};
         const status = stat.status || 'notstudied';
         const name = escapeHTML(getCleanName(id));
@@ -24147,6 +24153,7 @@ function renderFeaturedWidget() {
             ? `${stat.due_now} thẻ cần ôn`
             : (stat.total > 0 ? `${stat.total} thẻ` : 'Chưa có thẻ');
         return `<div class="dfwt-tile" style="--tile-accent: ${STATUS_COLOR[status]};" onclick="openStudyOptionsModal('${id}', '${safeName}', 'flashcard')" title="${name} — ${STATUS_LABEL[status]}">
+            ${isPinned ? '<div class="deck-pin-badge" title="Bộ bài đã ghim"><span class="material-symbols-outlined">push_pin</span></div>' : ''}
             <div class="dfwt-art"><img src="${dfwDeckArt(id)}" alt="${name}" width="512" height="293"></div>
             <div class="dfwt-info">
                 <span class="dfwt-names">
@@ -24158,24 +24165,35 @@ function renderFeaturedWidget() {
         </div>`;
     };
 
-    // 1. Học phần đã GHIM (đúng thứ tự ghim)
-    let html = pinnedIds.map(buildTile).join('');
+    // 1. Học phần đã GHIM (đúng thứ tự ghim) — badge 📌 góc trái đánh dấu thẻ đã ghim
+    let html = pinnedIds.map(id => buildTile(id, true)).join('');
     let hint = '';
-    if (!html) {
-        // 2. Chưa ghim → gợi ý các bộ ĐANG HỌC (trừ bộ hệ thống Favorites/Remedial/AI_Vault)
-        // Ưu tiên gợi ý: studying (đang học) trước, due (cần ôn) sau; chỉ tính bộ của
-        // chính user (bỏ shared). Không có gì → empty state + nút mở Kho học phần.
-        const studyRank = (st) => st === 'studying' ? 0 : (st === 'due' ? 1 : 2);
-        const studying = coreDecks
+    // 2. [T71] Ghim dưới DFW_ROW_TOTAL (12) → TỰ ĐIỀN các học phần MỚI TẠO NHẤT cho đủ
+    //    12 thẻ (đúng số tầng thẻ boost của PLAY GAMES): sort theo NGÀY TẠO = timestamp
+    //    nhúng cuối id deck `${owner}:${name}:${Date.now()}` (createDeck/copyDeck đều
+    //    dùng mẫu này); loại bộ hệ thống Favorites/Remedial/AI_Vault + bộ người khác
+    //    chia sẻ, không lặp bộ đã ghim. Ghim ≥ 12 → chỉ hiện ghim, không điền thêm.
+    //    Id không nhúng ts (bộ hệ thống/cũ) → ts 0 xếp cuối. Hết ghim + hết deck → empty.
+    const pinnedCount = pinnedIds.length;
+    if (pinnedCount < DFW_ROW_TOTAL) {
+        const pinnedSet = new Set(pinnedIds);
+        const tsOf = (id) => {
+            const i = id.lastIndexOf(':');
+            const n = i >= 0 ? parseInt(id.slice(i + 1), 10) : NaN;
+            return (isNaN(n) || n <= 0) ? 0 : n;
+        };
+        const fillers = coreDecks
             .filter(d => d.owner_id === currentUser.id
-                && ['studying', 'due'].includes((globalDeckStatsMap[d.id] || {}).status)
+                && !pinnedSet.has(d.id)
                 && !d.id.endsWith(':Favorites') && !d.id.endsWith(':Remedial') && !d.id.endsWith(':AI_Vault'))
-            .sort((a, b) => studyRank((globalDeckStatsMap[a.id] || {}).status) - studyRank((globalDeckStatsMap[b.id] || {}).status))
-            .slice(0, 4);
-        html = studying.map(d => buildTile(d.id)).join('');
-        hint = studying.length
-            ? '📌 Đang học — mở menu ⋮ trong Kho học phần để ghim cố định lên đây'
-            : '';
+            .sort((a, b) => tsOf(b.id) - tsOf(a.id))
+            .slice(0, DFW_ROW_TOTAL - pinnedCount);
+        html += fillers.map(d => buildTile(d.id, false)).join('');
+        hint = (pinnedCount === 0 && fillers.length)
+            ? `📌 ${fillers.length} bộ mới tạo nhất — mở menu ⋮ trong Kho học phần để ghim cố định lên đầu hàng`
+            : ((pinnedCount > 0 && fillers.length)
+                ? `📌 ${pinnedCount} bộ đã ghim đầu hàng + ${fillers.length} bộ mới tạo nhất (tự điền đủ ${DFW_ROW_TOTAL})`
+                : '');
         if (!html) {
             html = `<div class="dfw-empty">
                  <span class="material-symbols-outlined">push_pin</span>
