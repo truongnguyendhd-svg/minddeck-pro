@@ -11840,7 +11840,8 @@ body.grammar-searching #headerGrammarSearch {
 }
 /* (2) Content game (từ dưới TÊN GAME #boostPrompt — vẫn ở vị trí cũ (top) — đến
        trên footer) căn GIỮA DỌC: #boostContentWrap bọc #boostQuestion +
-       #boostInteractiveZone. margin: auto 0 — auto margin HẤP THU hết chỗ trống
+       #boostInteractiveZone (+ rổ gạch #kb-pool game 11 dock PHÍA DƯỚI CÙNG).
+       margin: auto 0 — auto margin HẤP THU hết chỗ trống
        (thắng justify-content: flex-start !important của card theo spec flexbox)
        → nhóm content căn giữa khi còn chỗ; khi NỘI DUNG TRÀN (màn ngắn) auto
        margin = 0 → content về TOP và #boostInteractiveZone (min-height 0 +
@@ -13369,11 +13370,18 @@ body.grammar-searching #headerGrammarSearch {
     }
 }
 
+/* 🟢 NEW (yêu cầu user): rổ gạch #kb-pool giờ DOCK TRONG #boostContentWrap —
+   PHÍA DƯỚI CÙNG của card kính (dưới #boostQuestion + #boostInteractiveZone),
+   không còn nằm trong footer #boostGiveUpZone. Hở 14px với nội dung phía trên;
+   selector CON TRỰC TIẾP chỉ match lúc dock — khi rổ nổi trong
+   #kbFloatingPoolMount selector không match → không bị ảnh hưởng. */
+#boostContentWrap > #kb-pool { margin-top: 14px !important; }
+
 /* ================= TASK 28: MÀN HÌNH THẤP (cao < 600px) — RỔ GẠCH FLOATING ================= */
-/* Chiều cao < 600px: ẨN rổ gạch dock dưới footer + hiện hint; chạm ô vuông trên khay đích
-   (JS gắn listener) sẽ chuyển rổ gạch thành FLOATING PANEL nổi giữa màn hình */
+/* Chiều cao < 600px: ẨN rổ gạch dock trong #boostContentWrap + hiện hint; chạm ô vuông
+   trên khay đích (JS gắn listener) sẽ chuyển rổ gạch thành FLOATING PANEL nổi giữa màn hình */
 @media not all and (min-height: 600px) {
-    #boostGiveUpZone > #kb-pool { display: none !important; }
+    #boostContentWrap > #kb-pool { display: none !important; }
     .kb-compact-hint { display: flex !important; }
     .kb-slot { cursor: pointer !important; }
 }
@@ -15777,8 +15785,9 @@ body.login-mode .app-header { display: none !important; }
    (VLM vòng 1 chấm 22%→3% quá trong: dải nằm trên vùng ảnh chi tiết
    không đọc ra là tấm kính).
    .boost-footer-row con giữ nền trắng đặc (line ~4616) → ép transparent,
-   viền đáy → viền TRÊN trắng mềm (nó nằm cuối màn); #kb-pool game 11
-   nằm trong zone này cũng được kính phủ (viên gạch tự có nền trắng riêng). */
+   viền đáy → viền TRÊN trắng mềm (nó nằm cuối màn); rổ gạch #kb-pool game 11
+   giờ đã chuyển vào #boostContentWrap (đáy card kính) nên không còn nằm
+   trong zone này (viên gạch tự có nền trắng riêng). */
 #boostArea:not(.hidden) > #boostGiveUpZone {
     background: linear-gradient(150deg,
         rgba(255, 255, 255, 0.60) 0%,
@@ -23087,13 +23096,14 @@ window.kbCloseFloatingPool = function() {
     const ov = document.getElementById('kbFloatingPoolOverlay');
     if (!ov || !ov.classList.contains('kb-open')) return;
     ov.classList.remove('kb-open');
-    // Trả rổ gạch về vị trí dock (đầu giveUpZone, trên hàng footer) — CSS media query
+    // 🟢 NEW (yêu cầu user): trả rổ gạch về vị trí dock MỚI — ĐÁY #boostContentWrap
+    // (phía dưới cùng, trong card kính) thay vì đầu giveUpZone; CSS media query
     // quyết định nó hiển thị (màn cao) hay ẩn (màn thấp chờ chạm ô vuông mở lại)
     const mount = document.getElementById('kbFloatingPoolMount');
     const pool = mount ? mount.querySelector('#kb-pool') : null;
     if (pool) {
-        const gz = document.getElementById('boostGiveUpZone');
-        if (gz) gz.insertBefore(pool, gz.firstChild);
+        const wrap = document.getElementById('boostContentWrap');
+        if (wrap) wrap.appendChild(pool);
     }
     // 🟢 TASK 29: trả KHAY ĐÍCH về #boostQuestion (vị trí đầu — trên hint/dòng GHÉP CHỮ).
     // Nếu question ĐÃ render khay mới (đổi bước/thành công/thẻ mới trong lúc panel mở)
@@ -23398,6 +23408,9 @@ function renderBoostCard() {
     // đồng thời dọn state inline của game 7/11 (flex column + gap) từ thẻ trước.
     const giveUpZone = document.getElementById('boostGiveUpZone');
     if (window.kbCloseFloatingPool) window.kbCloseFloatingPool(); // 🟢 TASK 28: dọn rổ gạch nổi game 11 (thẻ trước)
+    // 🟢 NEW: #kb-pool giờ dock trong #boostContentWrap (footer innerHTML không còn
+    // dọn được nó) → tự remove khi sang thẻ/game khác, chống rò rỉ khối rổ gạch
+    document.querySelectorAll('#kb-pool').forEach(el => el.remove());
     giveUpZone.innerHTML = boostFooterRowHTML(boostSkipBtnHTML());
     giveUpZone.style.display = 'block';
     giveUpZone.style.flexDirection = '';
@@ -24332,7 +24345,7 @@ function renderBoostCard() {
 
                     const isCompoundWord = c.front.length > 1;
                     const vocabContextHtml = isCompoundWord
-                        ? `<div style="background: #f8fafc; border: 2px dashed #cbd5e0; padding: 8px 12px; border-radius: 10px; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px;">
+                        ? `<div style="background: #f8fafc; border: 1px solid #cbd5e0; padding: 8px 12px; border-radius: 10px; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px;">
                              <span style="font-size: 11px; color: #a0aec0; font-weight: 800; letter-spacing: 0.5px;">TỪ VỰNG:</span>
                              <span style="color: #3182ce; font-size: 18px; font-weight: 900;">${c.reading}</span>
                              <span style="color: #4a5568; font-size: 14px; font-weight: 600;">(${gameMeaning})</span>
@@ -24374,19 +24387,27 @@ function renderBoostCard() {
                     ).join('');
                     
                     const giveUpZone = document.getElementById('boostGiveUpZone');
-                    giveUpZone.style.display = 'flex';
-                    giveUpZone.style.flexDirection = 'column';
-                    giveUpZone.style.gap = '15px'; 
+                    // 🟢 NEW (yêu cầu user): footer giờ chỉ còn HÀNG NÚT — rổ gạch #kb-pool
+                    // đã rời footer, chuyển vào #boostContentWrap (trong card kính)
+                    giveUpZone.style.display = 'block';
+                    giveUpZone.style.flexDirection = '';
+                    giveUpZone.style.gap = '';
                     
                     // 🟢 TASK 28: đóng floating pool còn mở từ bước trước + chỉ ghi --kb-pool-n
                     // (tổng số viên) — số cột do CSS media query quyết định theo độ rộng màn hình
                     window.kbCloseFloatingPool();
-                    giveUpZone.innerHTML = `
+
+                    // 🟢 NEW (yêu cầu user): #kb-pool dock PHÍA DƯỚI CÙNG của #boostContentWrap —
+                    // dưới #boostQuestion + #boostInteractiveZone (nằm trong card kính cùng
+                    // nội dung game). Dọn pool cũ (bước trước / rổ nổi vừa đóng) rồi mới chèn —
+                    // chống trùng ID #kb-pool khi đổi bước ghép.
+                    document.querySelectorAll('#kb-pool').forEach(el => el.remove());
+                    document.getElementById('boostContentWrap').insertAdjacentHTML('beforeend', `
                         <div class="kb-pool-grid" id="kb-pool" style="--kb-pool-n: ${poolSize};">
                             ${poolHTML}
                         </div>
-                        ${boostFooterRowHTML(boostSkipBtnHTML())}
-                    `;
+                    `);
+                    giveUpZone.innerHTML = boostFooterRowHTML(boostSkipBtnHTML());
 
                     const targetBox = document.getElementById('kb-target-box');
                     const poolBox = document.getElementById('kb-pool');
