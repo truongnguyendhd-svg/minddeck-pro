@@ -15874,10 +15874,12 @@ body.login-mode .app-header { display: none !important; }
    vào trang; thanh 3 nút bấm chuyển sang ảnh tương ứng.
    (1) PAGER: viên thuốc kính, 3 nút dọc — nút đang chọn dài + đậm.
        Login: absolute đáy trang (z-index 40 — trên lớp phủ ::before).
-       Boost: nằm TRONG #boostGiveUpZone DƯỚI hàng avatar|timer|SKIP
-       (giữa hàng footer là bộ đếm thời gian nên không chèn giữa được);
-       hiển thị/ẩn cùng footer, footer reset mỗi thẻ → MutationObserver
-       trong JS tự gắn lại.
+       Boost: con CUỐI của #boostCardDisplay — đáy card, PHÍA TRÊN footer
+       #boostGiveUpZone (không nằm trong footer nữa theo yêu cầu user;
+       footer nằm ngay dưới card display nên pager đáy card = sát trên
+       footer). #boostCardDisplay không bao giờ bị reset innerHTML (game
+       chỉ render vào #boostQuestion / #boostInteractiveZone / footer)
+       nên pager tự tồn tại qua các thẻ — bỏ MutationObserver bản trước.
    (2) ẢNH TÔNG TỐI (.bg-dark trên #loginPage / #boostArea): tăng lớp
        phủ trắng để chữ tối (#1d1d1f login / #2d3748 boost) đọc rõ trên
        ảnh đêm indigo (độ sáng trung bình 43-58 so với 179-191 ảnh sáng).
@@ -15912,11 +15914,19 @@ body.login-mode .app-header { display: none !important; }
     z-index: 40;
 }
 
-/* Boost — pager trong footer kính, dưới hàng avatar|timer|SKIP */
-#boostGiveUpZone .bg-pager {
-    margin: 5px auto 6px;
+/* Boost — pager là con CUỐI của #boostCardDisplay: đáy card, PHÍA TRÊN
+   footer #boostGiveUpZone (không còn nằm trong footer). margin auto
+   TRÁI/PHẢI căn giữa ngang — cùng trục với card kính #boostContentWrap
+   max-width 680px ở trên; flex-shrink: 0 giữ nguyên chiều cao khi màn
+   ngắn (nội dung game co lại chứ pager không bị bóp méo). */
+#boostCardDisplay .bg-pager {
+    margin: 10px auto 0; /* top 10px: khoảng thở với card kính khi màn
+                            chật hết chỗ (auto-margin wrap = 0); màn rộng
+                            thì auto-margin wrap hút hết chỗ trống, pill
+                            vẫn chốt đáy card như cũ */
     width: max-content;
     max-width: 100%;
+    flex-shrink: 0;
 }
 
 /* (2) ẢNH TÔNG TỐI — lớp phủ trắng đậm hơn cho chữ tối
@@ -50645,9 +50655,12 @@ function startMiniAssessment(card) {
    chọn NGẪU NHIÊN 1 ảnh; thanh 3 nút (.bg-pager) bấm chuyển ảnh.
    Mỗi ảnh: { img, tone } — tone 'dark' (ảnh đêm) bật class .bg-dark
    trên container để CSS tăng lớp phủ trắng (chữ tối vẫn đọc rõ).
-   Login: pager absolute đáy #loginPage. Boost: pager trong
-   #boostGiveUpZone (dưới hàng avatar|timer|SKIP) — footer bị reset
-   innerHTML mỗi thẻ nên MutationObserver tự gắn pager lại.
+   Login: pager absolute đáy #loginPage. Boost: pager là con CUỐI của
+   #boostCardDisplay — đáy card, PHÍA TRÊN footer #boostGiveUpZone
+   (không nằm trong footer theo yêu cầu user). #boostCardDisplay không
+   bao giờ bị reset innerHTML (game chỉ render vào #boostQuestion /
+   #boostInteractiveZone + footer) nên pager tự tồn tại qua các thẻ,
+   bỏ MutationObserver gắn lại của bản pager-trong-footer.
    Ảnh chỉ đổi BACKGROUND-IMAGE inline (giữ màu fallback + cover của
    rule CSS gốc); không đụng logic game/đăng nhập.
    ================================================================ */
@@ -50696,14 +50709,13 @@ function startMiniAssessment(card) {
         });
 
         if (isBoost) {
-            var zone = document.getElementById('boostGiveUpZone');
-            if (zone) {
-                zone.appendChild(pager);
-                /* footer đổi nội dung mỗi thẻ (innerHTML reset) → gắn pager lại nếu mất */
-                new MutationObserver(function () {
-                    if (!zone.contains(pager)) zone.appendChild(pager);
-                }).observe(zone, { childList: true });
-            }
+            /* [sửa user] pager THUỘC #boostCardDisplay — con cuối của card,
+               PHÍA TRÊN footer #boostGiveUpZone (không còn nằm trong footer).
+               #boostCardDisplay không bị reset innerHTML bao giờ (game chỉ
+               viết vào #boostQuestion / #boostInteractiveZone / footer) nên
+               bỏ MutationObserver gắn lại của bản trước. */
+            var card = document.getElementById('boostCardDisplay');
+            if (card) card.appendChild(pager);
         } else {
             area.appendChild(pager);
         }
