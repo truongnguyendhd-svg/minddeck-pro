@@ -15987,9 +15987,15 @@ body.login-mode .app-header { display: none !important; }
    số đo tone từng ảnh xem comment [BG SHARED POOL] trên mảng LOGIN_BGS
    cuối script); JS chọn NGẪU NHIÊN 1 ảnh mỗi lần vào trang; thanh
    6 nút bấm chuyển sang ảnh tương ứng.
-   (1) PAGER: viên thuốc kính, 3 nút dọc — nút đang chọn dài + đậm.
-       Login: absolute đáy trang (z-index 40 — trên lớp phủ ::before).
-       Boost: con CUỐI của #boostCardDisplay — đáy card, PHÍA TRÊN footer
+   (1) PAGER → [LOGIN ARROW NEXT — sửa user '#loginPage > div.bg-pager
+       thiết kế lại không dùng thanh trượt nữa, dùng một nút mũi tên nhỏ ">"
+       ở góc phải bên dưới trang, bấm vào để next ảnh, next hết lại quay
+       vòng. trên màn cảm ứng cho phép vuốt để next'] LOGIN BỎ thanh pill
+       6 nút — thay bằng NÚT MŨI TÊN ">" tròn kính GÓC PHẢI-DƯỚI trang
+       (z-index 40 — trên lớp phủ ::before như pager cũ): bấm → ảnh tiếp
+       theo, hết 6 ảnh QUAY VÒNG về đầu; màn cảm ứng VUỐT TRÁI cũng next.
+       BOOST: GIỮ NGUYÊN pill 6 nút — con CUỐI của #boostCardDisplay,
+       đáy card, PHÍA TRÊN footer
        #boostGiveUpZone (không nằm trong footer nữa theo yêu cầu user;
        footer nằm ngay dưới card display nên pager đáy card = sát trên
        footer). #boostCardDisplay không bao giờ bị reset innerHTML (game
@@ -16031,12 +16037,50 @@ body.login-mode .app-header { display: none !important; }
 .bg-pager button:hover { background: rgba(87, 83, 78, 0.55); }
 .bg-pager button.active { width: 46px; background: #1d1d1f; }
 
-/* Login — pager absolute đáy trang, trên lớp phủ ::before (z-index 40) */
-#loginPage .bg-pager {
+/* [LOGIN ARROW NEXT — sửa user] LOGIN KHÔNG còn thanh pill .bg-pager —
+   NÚT MŨI TÊN ">" TRÒN KÍNH GÓC PHẢI-DƯỚI: 44px (touch target chuẩn),
+   kính trắng 55% + blur + viền mềm + bóng — CÙNG ngôn ngữ kính của
+   .bg-pager/.login-btn-guest; icon chevron_right đậm #1d1d1f (màu
+   logo/navy của theme login); hover đậm hơn + bấm co nhẹ (scale 0.92).
+   z-index 40 — TRÊN lớp phủ kem ::before (cùng giá trị pager cũ);
+   right/bottom 20px lệch mép cho thoáng. .bg-pager base + đám rule
+   .bg-dark .bg-pager bên dưới GIỮ NGUYÊN cho BOOST. */
+#loginPage .bg-next {
     position: absolute;
-    bottom: 18px; left: 50%;
-    transform: translateX(-50%);
+    right: 20px; bottom: 20px;
     z-index: 40;
+    width: 44px; height: 44px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.70);
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(10px) saturate(135%);
+    -webkit-backdrop-filter: blur(10px) saturate(135%);
+    /* [VLM vòng 1 — màn thấp nền sáng] kính trắng trên veil kem 'hơi kém nổi'
+       → bóng tối đậm hơn 1 bậc so với .bg-pager (0.16→0.30, tản rộng hơn) tạo
+       tách khối với mọi vùng nền sáng; icon navy đậm giữ tương phản chính */
+    box-shadow: 0 6px 18px rgba(50, 42, 34, 0.30);
+    transition: background 0.18s ease, transform 0.12s ease;
+}
+#loginPage .bg-next:hover {
+    background: rgba(255, 255, 255, 0.75);
+    border-color: rgba(255, 255, 255, 0.90);
+}
+#loginPage .bg-next:active { transform: scale(0.92); }
+#loginPage .bg-next .material-symbols-outlined {
+    font-size: 26px;
+    color: #1d1d1f;
+    pointer-events: none;
+}
+/* Tông tối (login no-veil: ảnh hiện nguyên bản) — kính trắng ĐẬM hơn
+   80% + viền 90% + bóng tối (CÙNG bộ giá trị .bg-dark .bg-pager của
+   boost) để nổi trên ảnh đêm/tối; icon giữ navy đậm #1d1d1f. */
+#loginPage.bg-dark .bg-next {
+    background: rgba(255, 255, 255, 0.80);
+    border-color: rgba(255, 255, 255, 0.90);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.30);
 }
 
 /* Boost — pager là con CUỐI của #boostCardDisplay: đáy card, PHÍA TRÊN
@@ -51024,30 +51068,69 @@ function startMiniAssessment(card) {
             syncBtns();
         }
 
-        var pager = document.createElement('div');
-        pager.className = 'bg-pager';
-        pager.setAttribute('role', 'tablist');
-        pager.setAttribute('aria-label', label);
-        list.forEach(function (e, i) {
-            var b = document.createElement('button');
-            b.type = 'button';
-            b.title = e.name;
-            b.setAttribute('aria-label', label + ': ' + e.name);
-            b.addEventListener('click', function () { apply(i); });
-            pager.appendChild(b);
-            btns.push(b);
-        });
-
         if (isBoost) {
             /* [sửa user] pager THUỘC #boostCardDisplay — con cuối của card,
                PHÍA TRÊN footer #boostGiveUpZone (không còn nằm trong footer).
                #boostCardDisplay không bị reset innerHTML bao giờ (game chỉ
                viết vào #boostQuestion / #boostInteractiveZone / footer) nên
                bỏ MutationObserver gắn lại của bản trước. */
+            var pager = document.createElement('div');
+            pager.className = 'bg-pager';
+            pager.setAttribute('role', 'tablist');
+            pager.setAttribute('aria-label', label);
+            list.forEach(function (e, i) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.title = e.name;
+                b.setAttribute('aria-label', label + ': ' + e.name);
+                b.addEventListener('click', function () { apply(i); });
+                pager.appendChild(b);
+                btns.push(b);
+            });
             var card = document.getElementById('boostCardDisplay');
             if (card) card.appendChild(pager);
         } else {
-            area.appendChild(pager);
+            /* [LOGIN ARROW NEXT — sửa user '#loginPage > div.bg-pager thiết kế
+               lại không dùng thanh trượt nữa, dùng một nút mũi tên nhỏ ">" ở
+               góc phải bên dưới trang, bấm vào để next ảnh, next hết lại quay
+               vòng. trên màn cảm ứng cho phép vuốt để next'] LOGIN BỎ HẲN pill
+               .bg-pager — thay bằng 1 NÚT MŨI TÊN ">" tròn kính (.bg-next, CSS
+               góc phải-dưới): bấm → apply((cur+1) % len) — ảnh TIẾP THEO, hết
+               6 ảnh QUAY VÒNG về đầu; MÀN CẢM ỨNG: VUỐT TRÁI ngang trên toàn
+               #loginPage cũng next — listener passive KHÔNG preventDefault
+               (cuộn dọc/chạm nút không bị chặn), chỉ tính cử động THẬT SỰ là
+               vuốt ngang: dịch đủ dài (|dx| > 50px) + TRỘI ngang hơn 2.2 lần
+               dọc (loại cuộn dọc/chéo) + trong 1s (loại kéo lê chậm); vuốt
+               PHẢI không next (yêu cầu chỉ 'vuốt để next', đơn hướng như nút).
+               syncBtns vô hại với login (btns rỗng — không còn nút active). */
+            var nextBtn = document.createElement('button');
+            nextBtn.type = 'button';
+            nextBtn.className = 'bg-next';
+            nextBtn.title = 'Ảnh nền tiếp theo';
+            nextBtn.setAttribute('aria-label', 'Ảnh nền tiếp theo');
+            nextBtn.innerHTML = '<span class="material-symbols-outlined">chevron_right</span>';
+            nextBtn.addEventListener('click', function () {
+                apply((cur + 1) % list.length);
+            });
+            area.appendChild(nextBtn);
+
+            var touchX = null, touchY = 0, touchT = 0;
+            area.addEventListener('touchstart', function (e) {
+                if (e.touches.length !== 1) { touchX = null; return; }
+                touchX = e.touches[0].clientX;
+                touchY = e.touches[0].clientY;
+                touchT = Date.now();
+            }, { passive: true });
+            area.addEventListener('touchend', function (e) {
+                if (touchX === null) return;
+                var dx = e.changedTouches[0].clientX - touchX;
+                var dy = e.changedTouches[0].clientY - touchY;
+                var dt = Date.now() - touchT;
+                touchX = null;
+                if (dt < 1000 && dx < -50 && Math.abs(dx) > 2.2 * Math.abs(dy)) {
+                    apply((cur + 1) % list.length);
+                }
+            }, { passive: true });
         }
 
         apply(Math.floor(Math.random() * list.length)); /* mỗi lần vào trang: ngẫu nhiên 1 ảnh */
