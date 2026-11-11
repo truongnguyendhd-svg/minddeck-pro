@@ -4516,18 +4516,25 @@ body.hsp-open {
     margin-bottom: 0 !important;
     justify-content: flex-start !important;
 }
+/* 🟢 [FIX TRÀN QUESTION MÀN THẤP — sửa user 'trên màn hình thấp #boostQuestion
+   bị tràn ra khỏi #boostContentWrap, hãy fix để #boostContentWrap luôn chứa
+   #boostQuestion và cuộn theo']: zone BỎ vai trò hộp cuộn — flex:1 cũ có
+   flex-basis 0 + min-height 0 khiến zone co về 0 trên màn thấp trong khi
+   #boostQuestion (sàn min-height auto = nội dung) TRÀN RA NGOÀI card kính
+   (wrap cũ overflow visible) đè pager/footer. Giờ zone là cột flex thường:
+   + flex: 1 1 auto — flex-basis AUTO: zone mang chiều cao NỘI DUNG thật
+     (màn rộng flex-grow 1 vẫn giãn lấp hết chỗ trống như cũ);
+   + KHÔNG min-height 0, KHÔNG overflow-y auto — sàn min-height auto (mặc định
+     của flexbox, CHỈ hiệu lực khi overflow VISIBLE) giữ zone không bao giờ co
+     dưới chiều cao nội dung; việc cuộn chuyển hết cho #boostContentWrap (cha)
+     cuộn NGUYÊN KHỐI question + zone + rổ gạch #kb-pool (game 11). */
 #boostInteractiveZone {
-    flex: 1;
+    flex: 1 1 auto;
     display: flex;
     flex-direction: column;
     justify-content: flex-start; /* FIX: Đổi về flex-start để chống cắt mép trên */
-    min-height: 0; 
-    overflow-y: auto; 
     width: 100%;
-    -ms-overflow-style: none;
-    scrollbar-width: none;
 }
-#boostInteractiveZone::-webkit-scrollbar { display: none; }
 
 /* ================= GAME FULLSCREEN MODE ================= */
 body.game-fullscreen-mode .app-header { display: none !important; }
@@ -4569,7 +4576,8 @@ body.game-fullscreen-mode #boostCardDisplay {
        thiểu 59+150+51+4 = 264px; viewport thấp hơn thì TRÀN xuống đáy và bị
        .unified-study-container (overflow: hidden) CẮT MẤT FOOTER (1280×260 cắt 4px,
        ≤215px mất sạch). Khung GAME cần co về 0 — nội dung tự cuộn trong
-       #boostInteractiveZone (overflow-y: auto), footer luôn nguyên vẹn. */
+       #boostContentWrap (overflow-y: auto — 🟢 [FIX TRÀN QUESTION] hộp cuộn
+       duy nhất, thay cho #boostInteractiveZone cũ), footer luôn nguyên vẹn. */
     min-height: 0 !important;
 }
 /* 🟢 TASK 30: MÀN CỰC THẤP (cao < 300px) — gọn chữ khung game để vùng trả lời
@@ -11899,17 +11907,43 @@ body.grammar-searching #headerGrammarSearch {
        margin: auto 0 — auto margin HẤP THU hết chỗ trống
        (thắng justify-content: flex-start !important của card theo spec flexbox)
        → nhóm content căn giữa khi còn chỗ; khi NỘI DUNG TRÀN (màn ngắn) auto
-       margin = 0 → content về TOP và #boostInteractiveZone (min-height 0 +
-       overflow-y auto) tự cuộn — đúng yêu cầu "phải cuộn thì không căn giữa".
+       margin = 0 → content về TOP — đúng yêu cầu "phải cuộn thì không căn giữa".
        flex: 0 1 auto — không grow (chừa chỗ trống cho auto margin), shrink
-       được khi màn ngắn. */
+       được khi màn ngắn.
+       🟢 [FIX TRÀN QUESTION MÀN THẤP — sửa user 'trên màn hình thấp
+       #boostQuestion bị tràn ra khỏi #boostContentWrap, hãy fix để
+       #boostContentWrap luôn chứa #boostQuestion và cuộn theo'] — wrap giờ là
+       HỘP CUỘN DUY NHẤT của card kính: overflow-y auto + thanh cuộn ẨN (cùng
+       pattern .kb-fp-card — cuộn được bằng wheel/chạm mà không hiện thanh).
+       Trước fix: zone (flex-basis 0 + min-height 0) co về 0 trên màn thấp,
+       còn #boostQuestion (sàn min-height auto = nội dung) TRÀN RA NGOÀI card
+       kính (wrap overflow visible) đè lên pager/footer. Sau fix: cả 3 con —
+       #boostQuestion (flex-shrink 0 — rule bên dưới), #boostInteractiveZone
+       (basis auto + sàn nội dung — khối CSS riêng phần GAME FULLSCREEN) và
+       #kb-pool (sàn min-height auto mặc định) — đều GIỮ NGUYÊN chiều cao nội
+       dung: tràn bao nhiêu cũng NẰM TRONG wrap, nguyên khối question + nút
+       đáp án + rổ gạch cuộn lên/xuống bên trong; prompt + pager + footer
+       (ngoài wrap) luôn nguyên vẹn trên màn cao lẫn thấp. */
 #boostContentWrap {
     flex: 0 1 auto;
     display: flex;
     flex-direction: column;
     min-height: 0;
     margin: auto 0;
+    /* 🟢 HỘP CUỘN — luôn CHỨA TRỌN question + zone + kb-pool khi màn thấp */
+    overflow-y: auto;
+    /* 🟢 ẨN THANH CUỘN (Firefox / legacy IE-Edge) — tràn vẫn cuộn được */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
+/* 🟢 ẨN THANH CUỘN (Chrome/Safari/Edge — Blink/WebKit): không hiển thị,
+   không chiếm chỗ; nội dung tràn vẫn cuộn được bằng wheel/chạm */
+#boostContentWrap::-webkit-scrollbar { display: none; }
+/* 🟢 [FIX TRÀN QUESTION] question KHÔNG BAO GIỜ co dưới chiều cao nội dung —
+   flex-shrink 0 (h2 vốn có sàn min-height auto nhưng .kb-success-scroll của
+   màn hoàn thành game 11 đặt min-height 0 cho question TỰ cuộn; giờ wrap cuộn
+   thay nên khóa nốt shrink: question luôn nguyên khối, việc tràn thuộc wrap) */
+#boostContentWrap > #boostQuestion { flex-shrink: 0; }
 /* ================= HẾT TASK 32 ================= */
 /* ================= CSS SPOTLIGHT ONBOARDING ================= */
 #spotlightHole {
@@ -13479,6 +13513,10 @@ body.grammar-searching #headerGrammarSearch {
    question CO GIÃN theo card + TỰ CUỘN khi viewport thấp — nội dung (chữ Kanji
    lớn + ô TỪ VỰNG) không còn tràn xuống đè nút TIẾP TỤC / footer bên dưới.
    Màn cao: không tràn → KHÔNG cuộn (không đổi gì so với trước).
+   🟢 [FIX TRÀN QUESTION]: question giờ flex-shrink 0 (luôn nguyên khối, rule
+   ở khối TASK 32) nên rule này VÔ HẠI — question không bao giờ tràn nội bộ;
+   việc cuộn khi màn thấp do #boostContentWrap đảm nhiệm. Giữ rule + class JS
+   cho hồi quy an toàn (bỏ class phải sửa JS render game 11, không đổi hành vi).
    🟢 THANH CUỘN ẨN (màn thấp: nội dung tự cuộn nhưng KHÔNG hiện thanh
    cuộn — cùng pattern bảng ghép .kb-fp-card): scrollbar-width none +
    rule riêng ::-webkit-scrollbar display none (Chrome/Safari/Edge). */
@@ -15905,7 +15943,8 @@ body.login-mode .app-header { display: none !important; }
    .tf-grid 2 cột nút đáp án vẫn rộng thoải mái, mobile full-width;
    + padding 26px 30px — hộp kính có thịt riêng (TASK 32 cũ không có);
    + margin: auto — GIỮ căn giữa dọc của TASK 32 (auto top/bottom hút
-   chỗ trống; tràn thì về 0 + #boostInteractiveZone tự cuộn như cũ)
+   chỗ trống; tràn thì về 0 + #boostContentWrap tự cuộn nguyên khối —
+   🟢 [FIX TRÀN QUESTION] thay #boostInteractiveZone cũ)
      và THÊM căn giữa ngang cho max-width (thắng rule TASK 32 line
      ~11850 nhờ 2-ID selector đứng sau trong cascade);
    + radius 0 — vuông vức như login-box. */
@@ -16868,7 +16907,7 @@ body.login-mode .app-header { display: none !important; }
                     <!-- TASK 32: wrapper căn giữa dọc nhóm content (trừ tên game) -->
                     <div id="boostContentWrap">
                         <h2 id="boostQuestion" style="text-align: center; font-weight: 900; font-size: 32px; color: #2d3748; margin: 0 0 20px 0;"></h2>
-                        <div id="boostInteractiveZone" style="flex: 1; display: flex; flex-direction: column; min-height: 0;"></div>
+                        <div id="boostInteractiveZone" style="flex: 1 1 auto; display: flex; flex-direction: column;"></div>
                     </div>
                 </div>
 
