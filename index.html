@@ -16405,6 +16405,10 @@ body.login-mode .app-header { display: none !important; }
         <button class="side-menu-btn" onclick="closeSideMenu(); showStoriesPage()">
             <span class="material-symbols-outlined">auto_stories</span> Truyện đọc
         </button>
+        <!-- [WP] Nút Luyện viết — nằm dưới "Truyện đọc" -->
+        <button class="side-menu-btn" onclick="closeSideMenu(); showWritingPage()">
+            <span class="material-symbols-outlined">draw</span> Luyện viết
+        </button>
         <div style="height: 1px; background: #edf2f7; margin: 15px 0;"></div>
         <!-- CHỈ HIỂN THỊ NÚT NÀY CHO TÀI KHOẢN ADMIN -->
         <button id="sideMenuAdminBtn" class="side-menu-btn hidden" onclick="closeSideMenu(); showAdminPage()">
@@ -17083,6 +17087,113 @@ body.login-mode .app-header { display: none !important; }
 <!-- CHÚ Ý: Đã thêm padding-bottom: 100px để thẻ cuối không bị Banner đè lên -->
 
 <!-- ================= TRANG SMART PDF READER ================= -->
+<style>
+/* ================= [WP] TRANG LUYỆN VIẾT — WRITING PRACTICE =================
+   Thiết kế theo khảo sát thị trường (10/2026): Skritter (feedback từng nét + SRS),
+   Duolingo (phiên ngắn + confetti), Writing Wizard (nét mờ + chấm bắt đầu),
+   Kanji Study (gói nội dung theo JLPT). Màu sắc bám design system app:
+   accent #3b82f6, ink #1e293b, border #e2e8f0, bg #f1f5f9. */
+#writingPage { min-height: calc(100vh - 60px); }
+.wp-setup-banner { background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 20px; padding: 26px 28px; margin: 18px 0 22px; color: #fff; position: relative; overflow: hidden; box-shadow: 0 10px 30px rgba(15,23,42,0.15); }
+.wp-setup-banner h1 { margin: 0 0 6px; font-size: 26px; font-weight: 900; display: flex; align-items: center; gap: 10px; }
+.wp-setup-banner p { margin: 0; color: #94a3b8; font-size: 14px; }
+.wp-src-tabs { display: flex; gap: 10px; margin-bottom: 18px; }
+.wp-src-tab { flex: 1; background: #fff; border: 2px solid #e2e8f0; border-radius: 14px; padding: 14px 10px; text-align: center; cursor: pointer; transition: 0.2s; font-weight: 800; color: #64748b; }
+.wp-src-tab .wp-src-char { font-size: 26px; font-weight: 900; display: block; margin-bottom: 4px; font-family: 'Noto Sans JP', sans-serif; color: #1e293b; }
+.wp-src-tab.active { border-color: #3b82f6; background: #eff6ff; color: #1e293b; box-shadow: 0 4px 14px rgba(59,130,246,0.15); }
+.wp-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 18px; margin-bottom: 14px; box-shadow: 0 2px 8px rgba(15,23,42,0.04); }
+.wp-label { font-size: 12px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.wp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.wp-chip { border: 1.5px solid #e2e8f0; background: #fff; border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 700; color: #64748b; cursor: pointer; transition: 0.15s; }
+.wp-chip.active { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+.wp-chip.disabled { opacity: 0.45; cursor: not-allowed; }
+.wp-mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wp-mode-card { border: 2px solid #e2e8f0; border-radius: 14px; padding: 14px; cursor: pointer; transition: 0.2s; background: #fff; }
+.wp-mode-card.active { border-color: #3b82f6; background: #eff6ff; }
+.wp-mode-card .material-symbols-outlined { float: left; margin-right: 8px; color: #3b82f6; font-size: 22px; }
+.wp-mode-title { font-weight: 800; font-size: 14px; color: #1e293b; }
+.wp-mode-desc { font-size: 12px; color: #64748b; margin-top: 6px; line-height: 1.45; }
+.wp-start-btn { width: 100%; padding: 16px; font-size: 17px; font-weight: 900; border: none; border-radius: 14px; background: #3b82f6; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 6px 18px rgba(59,130,246,0.35); transition: 0.2s; }
+.wp-start-btn:hover { background: #2563eb; transform: translateY(-1px); }
+.wp-note { text-align: center; color: #94a3b8; font-size: 12px; margin: 12px 0 0; }
+.wp-credit { text-align: center; color: #94a3b8; font-size: 11px; margin: 14px 0 30px; line-height: 1.5; }
+/* ---- Pha luyện ---- */
+#wpPractice { max-width: 480px; margin: 0 auto; }
+.wp-top-bar { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 14px; gap: 8px; }
+.wp-exit-btn { display: flex; align-items: center; gap: 4px; background: #fff; border: 1px solid #e2e8f0; border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 700; color: #64748b; cursor: pointer; transition: 0.15s; }
+.wp-exit-btn:hover { border-color: #ef4444; color: #ef4444; }
+.wp-top-progress { font-weight: 900; color: #1e293b; font-size: 15px; }
+.wp-streak-chip { display: flex; align-items: center; gap: 3px; background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; border-radius: 999px; padding: 5px 11px; font-size: 12px; font-weight: 800; }
+.wp-prompt { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 14px; text-align: center; margin-bottom: 14px; box-shadow: 0 2px 8px rgba(15,23,42,0.04); }
+.wp-prompt-char { font-size: 84px; font-weight: 900; line-height: 1.1; font-family: 'Noto Sans JP', sans-serif; }
+.wp-prompt-reveal { animation: wpPop 0.45s ease; }
+@keyframes wpPop { 0% { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
+.wp-prompt-sub { color: #64748b; font-size: 14px; margin-top: 4px; }
+.wp-prompt-lead { color: #64748b; font-size: 13px; font-weight: 700; }
+.wp-canvas-wrap { position: relative; background: #fff; border: 1px solid #e2e8f0; border-radius: 20px; padding: 10px; box-shadow: 0 2px 8px rgba(15,23,42,0.04); width: fit-content; margin: 0 auto; }
+.wp-canvas-wrap.shake { animation: kwShake 0.4s ease; }
+#wpCanvas { touch-action: none; border-radius: 12px; display: block; cursor: crosshair; }
+.wp-stroke-pill { position: absolute; top: 18px; right: 18px; background: #1e293b; color: #fff; border-radius: 999px; padding: 5px 12px; font-size: 12px; font-weight: 800; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+.wp-stroke-pill.done { background: #10b981; }
+.wp-hint-line { text-align: center; min-height: 20px; font-size: 13px; font-weight: 600; color: #64748b; margin: 10px 0; }
+.wp-hint-line.err { color: #ef4444; }
+.wp-hint-line.ok { color: #10b981; }
+.wp-controls { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.wp-ctrl-btn { display: flex; flex-direction: column; align-items: center; gap: 3px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 9px 14px; font-size: 11px; font-weight: 700; color: #64748b; cursor: pointer; transition: 0.15s; min-width: 64px; }
+.wp-ctrl-btn:hover { border-color: #3b82f6; color: #3b82f6; }
+.wp-ctrl-btn .material-symbols-outlined { font-size: 22px; }
+.wp-dots { display: flex; justify-content: center; gap: 6px; margin: 16px 0 30px; flex-wrap: wrap; }
+.wp-dot { width: 9px; height: 9px; border-radius: 50%; background: #e2e8f0; }
+.wp-dot.cur { background: #3b82f6; transform: scale(1.35); }
+.wp-dot.ok { background: #10b981; }
+.wp-dot.bad { background: #f59e0b; }
+/* ---- Pha tổng kết ---- */
+#wpSummary { max-width: 480px; margin: 0 auto; text-align: center; }
+.wp-sum-title { font-size: 26px; font-weight: 900; color: #1e293b; margin: 20px 0 4px; }
+.wp-sum-sub { color: #64748b; font-size: 14px; margin-bottom: 18px; }
+.wp-stats-row { display: flex; gap: 10px; margin-bottom: 16px; }
+.wp-stat-box { flex: 1; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px 8px; }
+.wp-stat-num { font-size: 24px; font-weight: 900; color: #1e293b; }
+.wp-stat-lab { font-size: 11px; color: #94a3b8; font-weight: 700; margin-top: 2px; }
+.wp-char-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 20px; }
+.wp-char-item { width: 46px; height: 52px; background: #fff; border: 1.5px solid #e2e8f0; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Noto Sans JP', sans-serif; }
+.wp-char-item .c { font-size: 20px; font-weight: 800; color: #1e293b; }
+.wp-char-item .m { font-size: 10px; font-weight: 800; }
+.wp-char-item.ok { border-color: #10b981; background: #f0fdf4; }
+.wp-char-item.ok .m { color: #10b981; }
+.wp-char-item.bad { border-color: #f59e0b; background: #fffbeb; }
+.wp-char-item.bad .m { color: #d97706; }
+.wp-sum-btns { display: flex; flex-direction: column; gap: 10px; margin-bottom: 30px; }
+.wp-sum-btn { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 13px; font-size: 15px; font-weight: 800; border-radius: 12px; cursor: pointer; border: none; transition: 0.2s; }
+.wp-sum-btn.primary { background: #3b82f6; color: #fff; }
+.wp-sum-btn.primary:hover { background: #2563eb; }
+.wp-sum-btn.secondary { background: #fff; color: #1e293b; border: 1.5px solid #e2e8f0; }
+.wp-sum-btn.srs { background: #f0fdf4; color: #15803d; border: 1.5px solid #86efac; }
+.wp-sum-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+@media (max-width: 640px) {
+    .wp-mode-grid { grid-template-columns: 1fr; }
+    .wp-prompt-char { font-size: 64px; }
+    .wp-src-tab { padding: 10px 6px; }
+    .wp-src-tab .wp-src-char { font-size: 20px; }
+    .wp-setup-banner { padding: 20px; }
+    .wp-setup-banner h1 { font-size: 21px; }
+    .wp-card { padding: 14px; }
+    .wp-chips { gap: 6px; }
+    .wp-chip { padding: 6px 11px; font-size: 12px; }
+    .wp-ctrl-btn { min-width: 56px; padding: 8px 10px; }
+    .wp-stats-row { gap: 8px; }
+}
+</style>
+<!-- ================= [WP] TRANG LUYỆN VIẾT — 3 pha: SETUP / PRACTICE / SUMMARY ================= -->
+<div id="writingPage" class="hidden" style="max-width: 1000px; margin: 0 auto; padding-top: 10px;">
+    <!-- Pha 1: chọn nội dung (render động bởi wpRenderSetup) -->
+    <div id="wpSetup"></div>
+    <!-- Pha 2: luyện viết từng chữ (shell dựng bởi wpRenderPracticeShell) -->
+    <div id="wpPractice" class="hidden"></div>
+    <!-- Pha 3: tổng kết phiên (shell dựng bởi wpRenderSummaryShell) -->
+    <div id="wpSummary" class="hidden"></div>
+</div>
+
 <div id="pdfReaderPage" class="hidden">
     
     <!-- TRẠNG THÁI 1: TẢI FILE -->
@@ -19091,7 +19202,7 @@ async function handleRoute() {
     const hash = window.location.hash.substring(1);
     
     // 🟢 GUEST MODE: Khách chỉ được phép ở Dashboard. Mọi route khác → về dashboard.
-    if (currentUser && currentUser.isGuest && hash && hash !== 'dashboard' && hash !== 'landing' && hash !== 'jlpt' && hash !== 'stories') { // [T73] khách được dùng JLPT Test; [T81] khách được dùng Truyện đọc (dữ liệu tĩnh)
+    if (currentUser && currentUser.isGuest && hash && hash !== 'dashboard' && hash !== 'landing' && hash !== 'jlpt' && hash !== 'stories' && hash !== 'writing') { // [T73] khách được dùng JLPT Test; [T81] khách được dùng Truyện đọc (dữ liệu tĩnh); [WP] khách được dùng Luyện viết (SRS chỉ hiện khi đăng nhập)
         console.log('MindDeck: 👤 Phiên khách — chuyển hướng về Dashboard.');
         window.location.hash = 'dashboard';
         return;
@@ -19219,6 +19330,9 @@ async function handleRoute() {
         }
         else if (route === 'kanji') {
             showKanjiCollection(true); 
+        }
+        else if (route === 'writing') {
+            showWritingPage(true); 
         }
         else if (route === 'pdfreader') {
             showPdfReaderPage(true); 
@@ -19587,7 +19701,7 @@ function escapeHTML(str) {
 }
 
 function showPage(p) {
-    const allPages = ['loginPage', 'homePage', 'dashboardPage', 'alphabetPage', 'reviewPage', 'searchResultPage', 'dictionaryPage', 'grammarPage', 'jlptPage', 'storyPage', 'kanjiPage', 'pdfReaderPage', 'adminPage'];        
+    const allPages = ['loginPage', 'homePage', 'dashboardPage', 'alphabetPage', 'reviewPage', 'searchResultPage', 'dictionaryPage', 'grammarPage', 'jlptPage', 'storyPage', 'kanjiPage', 'pdfReaderPage', 'adminPage', 'writingPage'];        
     
     allPages.forEach(id => {
         const el = document.getElementById(id);
@@ -20508,6 +20622,968 @@ function closeKanaWriteModal() {
 }
 // ================= END KANA WRITING PRACTICE =================
 // ================= END BẢNG CHỮ CÁI =================
+
+/* ================= [WP] TRANG LUYỆN VIẾT — WRITING PRACTICE (v1) =================
+   Khảo sát thị trường (10/2026):
+   • Skritter ($14.99/th): feedback TỪNG NÉT tức thì + SRS — mô hình chuẩn ngành.
+   • Duolingo / Quizlet Write: phiên NGẮN, confetti, streak, tính % đúng ngay lần đầu.
+   • Writing Wizard / Literki (kids): nét mờ ghost, chấm bắt đầu xanh, thử lại từng nét.
+   • Kanji Study: nội dung chia gói theo JLPT N5–N1.
+   Thiết kế MindDeck "Luyện viết":
+   • 2 chế độ: TẬP CHÉP (ghost + guide từng nét, chấm điểm offline tức thì) và
+     TỰ VIẾT (chỉ hiện romaji / Hán Việt + nghĩa — viết từ trí nhớ, sai nét mới hé gợi ý).
+   • Phiên 5/10/20 chữ; tổng kết có "Luyện lại chữ chưa đạt" (spiral review như Quizlet).
+   • Dữ liệu nét: kana tái dùng CDN strokesvg + KANA_SVG_CACHE như trang Bảng chữ cái;
+     kanji dùng bundle assets/data/writing-kanji-v1.json.gz — phái sinh từ KanjiVG
+     (© Ulrich Apel, CC BY-SA 3.0, kanjivg.tagaini.net) — 6.613 chữ, lazy 1 lần.
+   • Logic vẽ/validate nhân bản từ kw* (modal kana) — ngưỡng đã kiểm chứng,
+     tổng quát hoá viewBox (1024 kana / 109 kanji) + ngưỡng "nét ngắn" theo độ dài guide
+     (chấp nhận dấu chấm nhỏ của kanji).
+   • SRS: nút tổng kết "Cập nhật SRS" (khách ẩn) — payload SM-2 word_text = chữ kanji,
+     đẩy qua srsPendingQueue + flushSrsQueue — đúng pattern Kanji Defense (kdSubmitSRS).
+   Tiến độ luyện viết lưu localStorage minddeck_writing_prog_<uid> (khách = 'guest'). */
+
+const WP_STROKE_DATA_URL = 'assets/data/writing-kanji-v1.json.gz';
+const WP_SOURCE_LABELS = { hiragana: 'Hiragana', katakana: 'Katakana', kanji: 'Kanji JLPT' };
+const WP_COUNT_OPTIONS = [5, 10, 20, 0]; /* 0 = tất cả */
+let wpStrokeLoadingPromise = null;
+
+const wpState = {
+    phase: 'setup', source: 'hiragana', mode: 'trace', count: 10,
+    groups: { seion: true, dakuon: true, yoon: false },
+    kanjiLevel: 'N5', queue: [], idx: 0, results: [], isRetryPass: false,
+    char: '', item: null, svgText: '', viewBox: 1024,
+    totalStrokes: 0, currentStroke: 0, userStrokes: [], isDrawing: false, currentPoints: [],
+    ghostImg: null, guideImgs: [], startPoints: [], strokePaths: [], comparisonData: [],
+    canvas: null, ctx: null, canvasSize: 340, scale: 340 / 1024,
+    strokeErrors: 0, charFirstTryOk: true, hintUsed: false, hintFlash: false,
+    noData: false, completed: false, revealKind: 'ok', timer: null, guideTimer: null,
+    streak: 0, bestStreak: 0, _kanjiEnsured: false
+};
+window.wpState = wpState; /* debug + kiểm thử tự động */
+
+/* ================= [WP] MỞ TRANG + HẠ TẦNG DỮ LIỆU ================= */
+
+function showWritingPage(skipHash) {
+    if (!skipHash) { window.location.hash = 'writing'; return; }
+    showPage('writingPage');
+    updateBreadcrumb([{ label: 'LUYỆN VIẾT' }]);
+    updateHeaderTitle('LUYỆN VIẾT');
+    wpState.phase = 'setup';
+    wpRenderSetup();
+}
+
+function wpEnsureKanjiStrokes() {
+    if (window.WP_KANJI_STROKE_DB) return Promise.resolve(window.WP_KANJI_STROKE_DB);
+    if (!wpStrokeLoadingPromise) {
+        wpStrokeLoadingPromise = fetchGunzipJson(WP_STROKE_DATA_URL).then(function (db) {
+            window.WP_KANJI_STROKE_DB = db || {};
+            return window.WP_KANJI_STROKE_DB;
+        }).catch(function (e) {
+            console.warn('MindDeck WP: Không nạp được dữ liệu nét kanji:', e);
+            wpStrokeLoadingPromise = null;
+            throw e;
+        });
+    }
+    return wpStrokeLoadingPromise;
+}
+
+/* Sinh SVG strokesvg-tương-thích từ bundle KanjiVG (viewBox 109, style --i:N) */
+function wpBuildKanjiSvg(char) {
+    const db = window.WP_KANJI_STROKE_DB;
+    if (!db) return null;
+    const paths = db[char];
+    if (!paths || !paths.length) return null;
+    let inner = '';
+    for (let i = 0; i < paths.length; i++) {
+        inner += '<path style="--i:' + i + '" d="' + paths[i] + '" fill="none" stroke="#334155" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>';
+    }
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 109 109" width="109" height="109"><g data-strokesvg="strokes">' + inner + '</g></svg>';
+}
+
+/* ================= [WP] PHA 1: SETUP ================= */
+
+function wpShowPhase(name) {
+    ['wpSetup', 'wpPractice', 'wpSummary'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+    });
+    const target = document.getElementById(name === 'setup' ? 'wpSetup' : name === 'practice' ? 'wpPractice' : 'wpSummary');
+    if (target) target.classList.remove('hidden');
+    window.scrollTo({ top: 0 });
+    if (name === 'practice' && !document.getElementById('wpCanvas')) wpRenderPracticeShell();
+    if (name === 'summary' && !document.getElementById('wpSumBody')) wpRenderSummaryShell();
+}
+
+function wpRenderSetup() {
+    const s = wpState;
+    wpShowPhase('setup');
+    const el = document.getElementById('wpSetup');
+    if (!el) return;
+    const srcMeta = [
+        { id: 'hiragana', char: 'あ', name: 'Hiragana', sub: 'Chữ mềm' },
+        { id: 'katakana', char: 'ア', name: 'Katakana', sub: 'Chữ đứng' },
+        { id: 'kanji', char: '漢', name: 'Kanji', sub: 'JLPT N5–N1' }
+    ];
+    let html = '';
+    html += '<div class="wp-setup-banner"><h1><span class="material-symbols-outlined" style="color:#7dd3fc;font-size:30px;">draw</span> Luyện viết</h1>'
+         + '<p>Rèn tay viết theo đúng thứ tự nét — chấm điểm từng nét tức thì. Kanji chạy offline, kana cần mạng lần đầu.</p></div>';
+    html += '<div class="wp-src-tabs">';
+    srcMeta.forEach(function (m) {
+        html += '<div class="wp-src-tab' + (s.source === m.id ? ' active' : '') + '" onclick="wpSelectSource(\'' + m.id + '\')">'
+             + '<span class="wp-src-char">' + m.char + '</span><span class="wp-src-name">' + m.name + '</span>'
+             + '<div style="font-size:11px;font-weight:600;margin-top:2px;color:#94a3b8;">' + m.sub + '</div></div>';
+    });
+    html += '</div>';
+    /* Khối chọn chữ */
+    html += '<div class="wp-card">';
+    if (s.source === 'kanji') {
+        html += wpRenderKanjiSelect();
+    } else {
+        html += '<div class="wp-label">Chọn nhóm chữ</div><div class="wp-chips">';
+        [['seion', 'Âm trong'], ['dakuon', 'Âm đục']].forEach(function (pair) {
+            const gp = pair[0], name = pair[1];
+            const cnt = (ALPHABET_DATA[s.source][gp] || []).length;
+            html += '<div class="wp-chip' + (s.groups[gp] ? ' active' : '') + '" onclick="wpToggleGroup(\'' + gp + '\')">' + name + ' (' + cnt + ')</div>';
+        });
+        const yoonCnt = (ALPHABET_DATA[s.source].yoon || []).length;
+        html += '<div class="wp-chip disabled" title="Âm ghép = viết 2 chữ thành phần — sẽ có ở bản sau">Âm ghép (' + yoonCnt + ') — bản sau</div>';
+        html += '</div>';
+    }
+    html += '</div>';
+    /* Khối chọn chế độ */
+    html += '<div class="wp-card"><div class="wp-label">Chế độ luyện</div><div class="wp-mode-grid">'
+         + '<div class="wp-mode-card' + (s.mode === 'trace' ? ' active' : '') + '" onclick="wpSelectMode(\'trace\')">'
+         + '<span class="material-symbols-outlined">stylus</span><div class="wp-mode-title">Tập chép</div>'
+         + '<div class="wp-mode-desc">Nét mờ + chỉ dẫn từng nét, chấm điểm tức thì. Dành cho lần đầu làm quen chữ.</div></div>'
+         + '<div class="wp-mode-card' + (s.mode === 'recall' ? ' active' : '') + '" onclick="wpSelectMode(\'recall\')">'
+         + '<span class="material-symbols-outlined">psychology</span><div class="wp-mode-title">Tự viết</div>'
+         + '<div class="wp-mode-desc">Chỉ hiện romaji / Hán Việt + nghĩa. Viết từ trí nhớ — sai nét mới được hé chỉ dẫn.</div></div>'
+         + '</div></div>';
+    /* Khối số chữ */
+    html += '<div class="wp-card"><div class="wp-label">Số chữ mỗi phiên</div><div class="wp-chips">';
+    WP_COUNT_OPTIONS.forEach(function (c) {
+        html += '<div class="wp-chip' + (s.count === c ? ' active' : '') + '" onclick="wpSelectCount(' + c + ')">' + (c === 0 ? 'Tất cả' : c) + '</div>';
+    });
+    html += '</div><div class="wp-note" id="wpProgressNote"></div></div>';
+    /* Nút bắt đầu + credit */
+    html += '<button class="wp-start-btn" onclick="wpStartPractice()"><span class="material-symbols-outlined">edit</span> Bắt đầu luyện viết</button>';
+    html += '<div class="wp-credit">Dữ liệu nét viết Kanji: KanjiVG © Ulrich Apel (CC BY-SA 3.0 · kanjivg.tagaini.net)<br>Kana: StrokeSVG (zhengkyl) — cảm ơn các tác giả nguồn mở.</div>';
+    el.innerHTML = html;
+    wpUpdateProgressNote();
+    if (s.source === 'kanji' && (!allKanjiData || !allKanjiData.length)) wpEnsureKanjiForSetup();
+}
+
+function wpRenderKanjiSelect() {
+    const s = wpState;
+    if (!allKanjiData || !allKanjiData.length) {
+        return '<div style="text-align:center;color:#64748b;font-size:13px;padding:8px 0;" id="wpKanjiStatus">⏳ Đang nạp kho Kanji…</div>';
+    }
+    const counts = { 'N5': 0, 'N4': 0, 'N3': 0, 'N2': 0, 'N1': 0 };
+    let unknown = 0;
+    allKanjiData.forEach(function (k) {
+        if (counts[k.level] !== undefined) counts[k.level]++;
+        else unknown++;
+    });
+    let html = '<div class="wp-label">Chọn cấp độ JLPT</div><div class="wp-chips">';
+    ['N5', 'N4', 'N3', 'N2', 'N1'].forEach(function (lv) {
+        html += '<div class="wp-chip' + (s.kanjiLevel === lv ? ' active' : '') + '" onclick="wpSelectKanjiLevel(\'' + lv + '\')">' + lv + ' (' + counts[lv] + ')</div>';
+    });
+    html += '<div class="wp-chip' + (s.kanjiLevel === 'ALL' ? ' active' : '') + '" onclick="wpSelectKanjiLevel(\'ALL\')">Tất cả (' + allKanjiData.length + ')</div>';
+    html += '</div>';
+    if (unknown > 0) html += '<div class="wp-note">' + unknown + ' chữ chưa rõ cấp độ bị bỏ qua khi chọn Tất cả.</div>';
+    return html;
+}
+
+function wpEnsureKanjiForSetup() {
+    const s = wpState;
+    if (s._kanjiEnsured) return;
+    s._kanjiEnsured = true;
+    Promise.resolve().then(function () { return ensureKanjiDictLoaded(); }).then(function () {
+        s._kanjiEnsured = false;
+        if (s.phase === 'setup' && s.source === 'kanji') wpRenderSetup();
+    }).catch(function () {
+        s._kanjiEnsured = false;
+        const st = document.getElementById('wpKanjiStatus');
+        if (st) st.innerHTML = '⚠️ Không nạp được kho Kanji (cần đăng nhập lần đầu để đồng bộ). Hai bảng kana vẫn luyện được bình thường.';
+    });
+}
+
+function wpSelectSource(src) { wpState.source = src; wpRenderSetup(); }
+function wpToggleGroup(gp) { wpState.groups[gp] = !wpState.groups[gp]; wpRenderSetup(); }
+function wpSelectMode(m) { wpState.mode = m; wpRenderSetup(); }
+function wpSelectCount(c) { wpState.count = c; wpRenderSetup(); }
+function wpSelectKanjiLevel(lv) { wpState.kanjiLevel = lv; wpRenderSetup(); }
+
+/* Danh sách ứng viên theo lựa chọn hiện tại (chưa xáo, chưa cắt) */
+function wpCandidateItems() {
+    const s = wpState;
+    const items = [];
+    if (s.source === 'kanji') {
+        ((allKanjiData) || []).forEach(function (k) {
+            if (s.kanjiLevel !== 'ALL' && k.level !== s.kanjiLevel) return;
+            items.push({ char: k.kanji, type: 'kanji', level: k.level, hv: k.hv || '', meaning: k.meaning || '' });
+        });
+    } else {
+        const groups = ALPHABET_DATA[s.source];
+        ['seion', 'dakuon'].forEach(function (gp) {
+            if (!s.groups[gp]) return;
+            (groups[gp] || []).forEach(function (it) {
+                items.push({ char: it.kana, romaji: it.romaji, type: s.source });
+            });
+        });
+    }
+    return items;
+}
+
+function wpProgressKey() { return 'minddeck_writing_prog_' + (currentUser && currentUser.id ? currentUser.id : 'guest'); }
+function wpLoadProgressMap() {
+    try { return JSON.parse(localStorage.getItem(wpProgressKey()) || '{}'); } catch (e) { return {}; }
+}
+function wpSetupProgressLine(candidates) {
+    const map = wpLoadProgressMap();
+    let done = 0, lastT = 0;
+    candidates.forEach(function (c) {
+        const e = map[c.char];
+        if (e) { done++; if (e.t > lastT) lastT = e.t; }
+    });
+    if (!done) return 'Chưa luyện chữ nào trong kho này — bấm Bắt đầu để viết chữ đầu tiên!';
+    const d = lastT ? new Date(lastT) : null;
+    const today = new Date().toDateString();
+    const when = (d && d.toDateString() === today) ? 'lần cuối hôm nay' : (d ? ('lần cuối ' + d.getDate() + '/' + (d.getMonth() + 1)) : '');
+    return 'Bạn đã luyện ' + done + '/' + candidates.length + ' chữ' + (when ? ' (' + when + ')' : '') + '.';
+}
+function wpUpdateProgressNote() {
+    const el = document.getElementById('wpProgressNote');
+    if (!el) return;
+    el.textContent = wpSetupProgressLine(wpCandidateItems());
+}
+
+/* ================= [WP] BẮT ĐẦU PHIÊN ================= */
+
+function wpStartPractice() {
+    const s = wpState;
+    const items = wpCandidateItems();
+    if (!items.length) { showToast('Hãy chọn ít nhất một nhóm chữ.'); return; }
+    let queue = items.slice();
+    for (let i = queue.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = queue[i]; queue[i] = queue[j]; queue[j] = tmp;
+    }
+    if (s.count > 0 && queue.length > s.count) queue = queue.slice(0, s.count);
+    wpStartQueue(queue, false);
+}
+
+function wpStartQueue(items, isRetry) {
+    const s = wpState;
+    if (!items || !items.length) { showToast('Không có chữ nào để luyện.'); return; }
+    s.queue = items.slice();
+    s.idx = 0;
+    s.results = [];
+    s.isRetryPass = !!isRetry;
+    s.streak = 0; s.bestStreak = 0;
+    s.phase = 'practice';
+    wpShowPhase('practice');
+    wpRenderTopBar();
+    wpLoadChar(0);
+}
+
+async function wpExitSession() {
+    const s = wpState;
+    const yes = await showConfirm('Thoát phiên luyện viết?', 'Tiến độ của phiên hiện tại sẽ không được lưu vào tổng kết.', 'Thoát', 'Tiếp tục viết');
+    if (!yes) return;
+    clearTimeout(s.timer); s.timer = null;
+    clearTimeout(s.guideTimer); s.guideTimer = null;
+    s.phase = 'setup';
+    wpRenderSetup();
+}
+
+/* Rời trang giữa phiên bằng hash → dọn timer, về setup lần sau */
+window.addEventListener('hashchange', function () {
+    const s = wpState;
+    if (s.phase === 'practice' && window.location.hash !== '#writing') {
+        clearTimeout(s.timer); s.timer = null;
+        clearTimeout(s.guideTimer); s.guideTimer = null;
+        s.phase = 'setup';
+    }
+});
+
+/* ================= [WP] PHA 2: SHELL GIAO DIỆN LUYỆN ================= */
+
+function wpRenderPracticeShell() {
+    const el = document.getElementById('wpPractice');
+    if (!el) return;
+    el.innerHTML = ''
+        + '<div class="wp-top-bar">'
+        +   '<button class="wp-exit-btn" onclick="wpExitSession()"><span class="material-symbols-outlined" style="font-size:18px;">arrow_back</span> Thoát</button>'
+        +   '<div class="wp-top-progress" id="wpTopProgress"></div>'
+        +   '<div class="wp-streak-chip" id="wpStreakChip" style="display:none;">🔥 <span id="wpStreakNum"></span></div>'
+        + '</div>'
+        + '<div class="wp-prompt" id="wpPrompt"></div>'
+        + '<div class="wp-canvas-wrap" id="wpCanvasWrap">'
+        +   '<canvas id="wpCanvas"></canvas>'
+        +   '<div class="wp-stroke-pill" id="wpStrokePill"></div>'
+        +   '<div id="wpCanvasLoading" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(255,255,255,0.78);border-radius:12px;"><div class="spinner"></div></div>'
+        + '</div>'
+        + '<div class="wp-hint-line" id="wpHintLine"></div>'
+        + '<div class="wp-controls">'
+        +   '<button class="wp-ctrl-btn" onclick="wpHint()"><span class="material-symbols-outlined">lightbulb</span>Gợi ý</button>'
+        +   '<button class="wp-ctrl-btn" onclick="wpRestartChar()"><span class="material-symbols-outlined">replay</span>Viết lại</button>'
+        +   '<button class="wp-ctrl-btn hidden" id="wpDoneBtn" onclick="wpCharComplete()"><span class="material-symbols-outlined">check</span>Xong</button>'
+        +   '<button class="wp-ctrl-btn" onclick="wpSkipChar()"><span class="material-symbols-outlined">skip_next</span>Bỏ qua</button>'
+        +   '<button class="wp-ctrl-btn" onclick="playKanaAudio(wpState.char)"><span class="material-symbols-outlined">volume_up</span>Âm</button>'
+        + '</div>'
+        + '<div class="wp-dots" id="wpDots"></div>';
+}
+
+function wpRenderTopBar() {
+    const s = wpState;
+    const prog = document.getElementById('wpTopProgress');
+    if (prog) prog.textContent = 'Chữ ' + Math.min(s.idx + 1, s.queue.length) + '/' + s.queue.length;
+    const chip = document.getElementById('wpStreakChip');
+    if (chip) {
+        if (s.streak >= 2) { chip.style.display = 'flex'; document.getElementById('wpStreakNum').textContent = 'x' + s.streak; }
+        else chip.style.display = 'none';
+    }
+    wpRenderDots();
+}
+
+function wpRenderDots() {
+    const s = wpState;
+    const el = document.getElementById('wpDots');
+    if (!el) return;
+    if (s.queue.length > 40) { el.innerHTML = ''; return; }
+    let html = '';
+    s.queue.forEach(function (q, i) {
+        let cls = 'wp-dot';
+        if (i < s.results.length) cls += s.results[i].firstTry ? ' ok' : ' bad';
+        if (i === s.idx && !s.completed) cls += ' cur';
+        html += '<div class="' + cls + '"></div>';
+    });
+    el.innerHTML = html;
+}
+
+function wpPromptSub(it) {
+    const esc = (typeof escapeHTML === 'function') ? escapeHTML : function (x) { return x; };
+    if (!it) return '';
+    if (it.type === 'kanji') return '[' + esc(it.hv) + '] — ' + esc(it.meaning) + ' · ' + esc(it.level || '');
+    return esc(it.romaji) + ' · ' + (it.type === 'hiragana' ? 'Hiragana' : 'Katakana');
+}
+
+function wpRenderPrompt() {
+    const s = wpState;
+    const el = document.getElementById('wpPrompt');
+    if (!el) return;
+    const it = s.item || {};
+    const esc = (typeof escapeHTML === 'function') ? escapeHTML : function (x) { return x; };
+    let html = '';
+    if (s.completed) {
+        const good = s.revealKind !== 'skip';
+        html = '<div class="wp-prompt-reveal"><div class="wp-prompt-char" style="color:' + (good ? '#10b981' : '#f59e0b') + ';">' + s.char + '</div>'
+             + '<div class="wp-prompt-sub">' + wpPromptSub(it) + '</div></div>';
+    } else if (s.mode === 'recall') {
+        if (it.type === 'kanji') {
+            html = '<div class="wp-prompt-lead">Viết chữ kanji mang Hán Việt</div>'
+                 + '<div style="font-size:34px;font-weight:900;color:#1e293b;margin:4px 0;font-family:\'Noto Sans JP\',sans-serif;">[' + esc(it.hv) + ']</div>'
+                 + '<div class="wp-prompt-sub">Nghĩa: ' + esc(it.meaning) + ' · ' + esc(it.level || '') + '</div>';
+        } else {
+            const srcName = it.type === 'hiragana' ? 'Hiragana' : 'Katakana';
+            html = '<div class="wp-prompt-lead">Viết chữ ' + srcName + ' đọc là</div>'
+                 + '<div style="font-size:34px;font-weight:900;color:#1e293b;margin:4px 0;">「 ' + esc(it.romaji) + ' 」</div>';
+        }
+    } else {
+        html = '<div class="wp-prompt-char">' + s.char + '</div><div class="wp-prompt-sub">' + wpPromptSub(it) + '</div>';
+    }
+    el.innerHTML = html;
+}
+
+function wpSetHint(text, cls) {
+    const el = document.getElementById('wpHintLine');
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'wp-hint-line' + (cls ? ' ' + cls : '');
+}
+
+function wpUpdateStrokePill() {
+    const s = wpState;
+    const p = document.getElementById('wpStrokePill');
+    if (!p) return;
+    if (s.completed) {
+        p.textContent = s.revealKind === 'skip' ? 'Đã bỏ qua' : 'Hoàn thành!';
+        p.classList.add('done');
+        return;
+    }
+    p.classList.remove('done');
+    p.textContent = s.noData ? 'Tự do' : (s.totalStrokes > 0 ? 'Nét ' + Math.min(s.currentStroke + 1, s.totalStrokes) + '/' + s.totalStrokes : '...');
+}
+
+function wpShowLoading(show) {
+    const el = document.getElementById('wpCanvasLoading');
+    if (el) el.style.display = show ? 'flex' : 'none';
+}
+
+/* ================= [WP] NẠP CHỮ + DỮ LIỆU NÉT ================= */
+
+async function wpLoadChar(i) {
+    const s = wpState;
+    if (s.phase !== 'practice') return;
+    s.idx = i;
+    s.currentStroke = 0; s.userStrokes = []; s.currentPoints = [];
+    s.strokeErrors = 0; s.charFirstTryOk = true; s.hintUsed = false; s.hintFlash = false;
+    s.comparisonData = []; s.ghostImg = null; s.guideImgs = []; s.startPoints = []; s.strokePaths = [];
+    s.noData = false; s.completed = false; s.revealKind = 'ok';
+    const doneBtn = document.getElementById('wpDoneBtn');
+    if (doneBtn) doneBtn.classList.add('hidden');
+    s.item = s.queue[i]; s.char = s.item.char;
+    wpRenderTopBar(); wpRenderPrompt(); wpUpdateStrokePill(); wpSetHint('', '');
+    wpSetupCanvas(); wpShowLoading(true);
+    const myIdx = i;
+    try {
+        let svgText = null;
+        if (s.item.type === 'kanji') {
+            await wpEnsureKanjiStrokes();
+            svgText = wpBuildKanjiSvg(s.item.char);
+        } else {
+            if (KANA_SVG_CACHE[s.item.char]) { svgText = KANA_SVG_CACHE[s.item.char]; }
+            else {
+                const r = await fetch(getStrokeSvgUrl(s.item.char));
+                if (!r.ok) throw new Error('404');
+                svgText = await r.text();
+                KANA_SVG_CACHE[s.item.char] = svgText;
+            }
+        }
+        if (s.phase !== 'practice' || s.idx !== myIdx) return;
+        if (!svgText) throw new Error('no stroke data');
+        wpProcessSvgText(svgText);
+    } catch (e) {
+        if (s.phase === 'practice' && s.idx === myIdx) wpSetupFallback();
+    } finally {
+        if (s.idx === myIdx) wpShowLoading(false);
+    }
+}
+
+/* Clone kwProcessSvg — tổng quát viewBox: đọc từ thuộc tính viewBox của SVG */
+function wpProcessSvgText(svgText) {
+    const s = wpState;
+    try {
+        const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+        const svgRoot = doc.querySelector('svg');
+        const g = doc.querySelector('g[data-strokesvg="strokes"]');
+        if (!svgRoot || !g) return wpSetupFallback();
+        const vbArr = (svgRoot.getAttribute('viewBox') || '').split(/[\s,]+/).map(parseFloat);
+        const vb = (vbArr.length >= 3 && vbArr[2] > 0) ? vbArr[2] : 1024;
+        s.viewBox = vb;
+        s.scale = s.canvasSize / vb;
+        s.svgText = svgText;
+        const els = g.children;
+        s.totalStrokes = els.length;
+        s.startPoints = []; s.strokePaths = []; s.guideImgs = []; s.comparisonData = [];
+        for (let i = 0; i < els.length; i++) {
+            const el = els[i];
+            const paths = [];
+            if (el.tagName === 'path') { const d = el.getAttribute('d'); if (d) paths.push(d); }
+            else if (el.tagName === 'g') el.querySelectorAll('path').forEach(function (p) { const d = p.getAttribute('d'); if (d) paths.push(d); });
+            s.strokePaths.push(paths);
+            const m = paths[0] ? paths[0].match(/^[Mm]\s*([\d.e+-]+)[,\s]+([\d.e+-]+)/) : null;
+            s.startPoints.push(m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : null);
+            const guideSvg = wpCreateGuideSvg(svgText, i);
+            const guideImg = new Image();
+            s.guideImgs.push({ img: guideImg, loaded: false, svgStr: guideSvg });
+            wpLoadSvgImage(guideSvg, guideImg, (function (idx) {
+                return function () { s.guideImgs[idx].loaded = true; wpRedraw(); };
+            })(i));
+        }
+        s.ghostImg = new Image();
+        wpLoadSvgImage(svgText, s.ghostImg, wpRedraw);
+        wpUpdateStrokePill();
+        wpRedraw();
+    } catch (e) { wpSetupFallback(); }
+}
+
+/* Clone kwCreateGuideSvg — giữ đúng cấu trúc --i:N của strokesvg */
+function wpCreateGuideSvg(svgText, strokeIndex) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    const g = doc.querySelector('g[data-strokesvg="strokes"]');
+    const gShadow = doc.querySelector('g[data-strokesvg="shadows"]');
+    if (!g) return svgText;
+    function hideOthers(parent, keepIdx) {
+        if (!parent) return;
+        const toRemove = [];
+        for (let i = 0; i < parent.children.length; i++) {
+            const el = parent.children[i];
+            const st = el.getAttribute('style') || '';
+            const m = st.match(/--i:(\d+)/);
+            const idx = m ? parseInt(m[1]) : i;
+            if (idx !== keepIdx) toRemove.push(el);
+        }
+        toRemove.forEach(function (el) { parent.removeChild(el); });
+    }
+    hideOthers(g, strokeIndex);
+    hideOthers(gShadow, strokeIndex);
+    if (g.children.length > 0) {
+        const vis = g.children[0];
+        const st = vis.getAttribute('style') || '';
+        vis.setAttribute('style', st + ';stroke:#93c5fd;fill:none');
+    }
+    if (gShadow && gShadow.children.length > 0) {
+        const vis = gShadow.children[0];
+        const st = vis.getAttribute('style') || '';
+        vis.setAttribute('style', st + ';fill:#93c5fd;opacity:0.25');
+    }
+    return new XMLSerializer().serializeToString(doc);
+}
+
+function wpLoadSvgImage(svgStr, img, cb) {
+    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    img.onload = function () { URL.revokeObjectURL(url); if (cb) cb(); };
+    img.onerror = function () { URL.revokeObjectURL(url); };
+    img.src = url;
+}
+
+/* Fallback: không có dữ liệu nét → viết tự do trên chữ mờ rồi bấm Xong */
+function wpSetupFallback() {
+    const s = wpState;
+    s.noData = true; s.totalStrokes = 0; s.currentStroke = 0;
+    s.userStrokes = []; s.currentPoints = []; s.comparisonData = [];
+    s.ghostImg = null; s.guideImgs = [];
+    wpUpdateStrokePill();
+    wpSetHint('Không có dữ liệu nét — viết tự do theo chữ mờ rồi bấm Xong.', '');
+    const doneBtn = document.getElementById('wpDoneBtn');
+    if (doneBtn) doneBtn.classList.remove('hidden');
+    wpSetupCanvas(); wpRedraw();
+}
+
+/* ================= [WP] CANVAS — VẼ, LƯỚI, INPUT (clone kw*) ================= */
+
+function wpSetupCanvas() {
+    const s = wpState;
+    const wrap = document.getElementById('wpCanvasWrap');
+    const canvas = document.getElementById('wpCanvas');
+    if (!wrap || !canvas) return;
+    const parentW = wrap.parentElement ? wrap.parentElement.clientWidth : 340;
+    const size = Math.max(240, Math.min(parentW - 20, 360));
+    s.canvasSize = size;
+    s.scale = size / s.viewBox;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = size * dpr; canvas.height = size * dpr;
+    canvas.style.width = size + 'px'; canvas.style.height = size + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    s.canvas = canvas; s.ctx = ctx;
+    canvas.onmousedown = wpMouseDown; canvas.onmousemove = wpMouseMove;
+    canvas.onmouseup = wpStrokeEnd; canvas.onmouseleave = wpStrokeEnd;
+    canvas.ontouchstart = wpTouchStart; canvas.ontouchmove = wpTouchMove; canvas.ontouchend = wpTouchEnd;
+}
+
+function wpDrawGrid(ctx, sz) {
+    ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(0.5, 0.5, sz - 1, sz - 1);
+    ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(sz / 2, 0); ctx.lineTo(sz / 2, sz);
+    ctx.moveTo(0, sz / 2); ctx.lineTo(sz, sz / 2); ctx.stroke();
+    ctx.strokeStyle = '#f3f4f6'; ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(sz, sz); ctx.moveTo(sz, 0); ctx.lineTo(0, sz);
+    ctx.stroke(); ctx.setLineDash([]);
+}
+
+function wpRedraw() {
+    const s = wpState;
+    const ctx = s.ctx; const sz = s.canvasSize;
+    if (!ctx) return;
+    ctx.clearRect(0, 0, sz, sz);
+    wpDrawGrid(ctx, sz);
+    const showGuideAll = (s.mode === 'trace' || s.hintFlash) && !s.completed;
+    if (s.noData) {
+        ctx.font = '900 ' + (sz * 0.62) + 'px "Noto Sans JP", sans-serif';
+        ctx.fillStyle = 'rgba(148,163,184,0.35)';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(s.char, sz / 2, sz / 2);
+    }
+    if (showGuideAll && !s.noData && s.ghostImg && s.ghostImg.complete && s.ghostImg.naturalWidth > 0) {
+        ctx.save(); ctx.globalAlpha = s.mode === 'trace' ? 0.18 : 0.3;
+        ctx.drawImage(s.ghostImg, 0, 0, sz, sz); ctx.restore();
+    }
+    if (showGuideAll && !s.noData && s.currentStroke < s.guideImgs.length) {
+        const gi = s.guideImgs[s.currentStroke];
+        if (gi && gi.loaded && gi.img.complete && gi.img.naturalWidth > 0) {
+            ctx.save(); ctx.globalAlpha = 0.55; ctx.drawImage(gi.img, 0, 0, sz, sz); ctx.restore();
+        }
+    }
+    if (showGuideAll && !s.noData && s.currentStroke < s.startPoints.length && s.startPoints[s.currentStroke]) {
+        const sp = s.startPoints[s.currentStroke];
+        ctx.save(); ctx.fillStyle = '#3b82f6'; ctx.globalAlpha = 0.9;
+        ctx.beginPath(); ctx.arc(sp.x * s.scale, sp.y * s.scale, 8, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+    for (let i = 0; i < s.userStrokes.length; i++) {
+        const pts = s.userStrokes[i]; if (pts.length < 2) continue;
+        ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 5;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalAlpha = 0.9;
+        ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+        for (let j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
+        ctx.stroke();
+    }
+    if (s.currentPoints.length >= 2) {
+        ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 5;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalAlpha = 1;
+        ctx.beginPath(); ctx.moveTo(s.currentPoints[0].x, s.currentPoints[0].y);
+        for (let i = 1; i < s.currentPoints.length; i++) ctx.lineTo(s.currentPoints[i].x, s.currentPoints[i].y);
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+}
+
+function wpGetPos(e) {
+    const rect = wpState.canvas.getBoundingClientRect();
+    const sx = wpState.canvasSize / rect.width;
+    const sy = wpState.canvasSize / rect.height;
+    return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
+}
+function wpMouseDown(e) { wpState.isDrawing = true; wpState.currentPoints = [wpGetPos(e)]; }
+function wpMouseMove(e) { if (!wpState.isDrawing) return; wpState.currentPoints.push(wpGetPos(e)); wpRedraw(); }
+function wpTouchStart(e) { e.preventDefault(); wpMouseDown(e.touches[0]); }
+function wpTouchMove(e) { e.preventDefault(); wpMouseMove(e.touches[0]); }
+function wpTouchEnd() { wpStrokeEnd(); }
+
+window.addEventListener('resize', function () {
+    const s = wpState;
+    if (s.phase !== 'practice' || !s.canvas) return;
+    const oldSz = s.canvasSize;
+    wpSetupCanvas();
+    if (s.canvasSize !== oldSz) {
+        const k = s.canvasSize / oldSz;
+        s.userStrokes.forEach(function (st) { st.forEach(function (p) { p.x *= k; p.y *= k; }); });
+        s.comparisonData = [];
+        wpRedraw();
+    }
+});
+
+/* ================= [WP] VALIDATE NÉT (clone kw* + ngưỡng nét ngắn) ================= */
+
+function wpBuildComparisonData(idx) {
+    const s = wpState;
+    if (s.comparisonData[idx]) return s.comparisonData[idx];
+    const sz = s.canvasSize; const vb = s.viewBox;
+    if (sz <= 0 || vb <= 0 || !s.strokePaths[idx]) return null;
+    const off = document.createElement('canvas');
+    off.width = sz; off.height = sz;
+    const octx = off.getContext('2d');
+    const scale = sz / vb;
+    octx.scale(scale, scale);
+    const strokeW = vb * 0.0703; /* tương đương lineWidth 72 trong không gian 1024 của kw */
+    octx.strokeStyle = '#000'; octx.lineWidth = strokeW;
+    octx.lineCap = 'round'; octx.lineJoin = 'round';
+    (s.strokePaths[idx] || []).forEach(function (d) {
+        try { octx.stroke(new Path2D(d)); } catch (e) { }
+    });
+    const pixelData = octx.getImageData(0, 0, sz, sz).data;
+    let guideCount = 0;
+    for (let i = 3; i < pixelData.length; i += 4) { if (pixelData[i] > 20) guideCount++; }
+    /* guideLength ~ độ dài nét chuẩn (px canvas) — dùng cho ngưỡng "nét ngắn" của dấu chấm */
+    const data = { pixelData: pixelData, guidePixelCount: guideCount, guideLength: guideCount / Math.max(1, strokeW * scale * 0.92) };
+    s.comparisonData[idx] = data;
+    return data;
+}
+
+function wpValidateStroke(pts) {
+    const s = wpState;
+    if (s.currentStroke >= s.totalStrokes) return true;
+    if (pts.length < 3) return 'too_short';
+    const sz = s.canvasSize;
+    /* 1. Điểm bắt đầu (dung sai 15% canvas) */
+    const sp = s.startPoints[s.currentStroke];
+    if (sp) {
+        const d = Math.hypot(pts[0].x - sp.x * s.scale, pts[0].y - sp.y * s.scale);
+        if (d > sz * 0.15) return 'wrong_start';
+    }
+    /* 2. Độ dài: so với độ dài nét chuẩn — chấp nhận dấu chấm nhỏ của kanji */
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    const comp = wpBuildComparisonData(s.currentStroke);
+    const minLen = Math.max(sz * 0.045, (comp && comp.guideLength ? comp.guideLength * 0.42 : sz * 0.10));
+    if (len < minLen) return 'too_short';
+    if (!comp) return true;
+    const pixels = comp.pixelData;
+    /* 3. Forward coverage >= 55%: điểm user nằm trên center-line guide */
+    const step = Math.max(1, Math.floor(pts.length / 50));
+    let onPath = 0, sampled = 0;
+    const tol = Math.max(2, Math.round(sz * 0.012));
+    for (let i = 0; i < pts.length; i += step) {
+        const px = Math.round(pts[i].x), py = Math.round(pts[i].y);
+        let hit = false;
+        for (let dy = -tol; dy <= tol && !hit; dy += tol) {
+            for (let dx = -tol; dx <= tol && !hit; dx += tol) {
+                const cx = px + dx, cy = py + dy;
+                if (cx >= 0 && cx < sz && cy >= 0 && cy < sz) {
+                    if (pixels[(cy * sz + cx) * 4 + 3] > 20) hit = true;
+                }
+            }
+        }
+        if (hit) onPath++;
+        sampled++;
+    }
+    if (sampled < 3) return 'wrong_path';
+    if (onPath / sampled < 0.55) return 'wrong_path';
+    /* 4. Reverse coverage >= 20%: guide được nét user phủ */
+    if (comp.guidePixelCount > 0) {
+        const off2 = document.createElement('canvas');
+        off2.width = sz; off2.height = sz;
+        const ctx2 = off2.getContext('2d');
+        const userWidth = Math.max(14, Math.round(sz * 0.05));
+        ctx2.strokeStyle = '#000'; ctx2.lineWidth = userWidth;
+        ctx2.lineCap = 'round'; ctx2.lineJoin = 'round';
+        ctx2.beginPath(); ctx2.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx2.lineTo(pts[i].x, pts[i].y);
+        ctx2.stroke();
+        const userPx = ctx2.getImageData(0, 0, sz, sz).data;
+        const sampleStep = Math.max(1, Math.floor(comp.guidePixelCount / 150));
+        let covered = 0, checked = 0;
+        for (let i = 3; i < pixels.length; i += 4) {
+            if (pixels[i] > 20) {
+                checked++;
+                if (checked % sampleStep === 0) { if (userPx[i] > 20) covered++; }
+            }
+        }
+        const totalSampled = Math.ceil(checked / sampleStep);
+        if (totalSampled > 0 && covered / totalSampled < 0.20) return 'wrong_path';
+    }
+    return true;
+}
+
+/* ================= [WP] LUỒNG NÉT: KẾT THÚC → CHẤM → TIẾN ================= */
+
+function wpStrokeEnd() {
+    const s = wpState;
+    if (!s.isDrawing) return;
+    s.isDrawing = false;
+    if (s.currentPoints.length < 2) { s.currentPoints = []; wpRedraw(); return; }
+    if (s.noData || s.completed) { s.userStrokes.push([].concat(s.currentPoints)); s.currentPoints = []; wpRedraw(); return; }
+    wpCommitStroke(wpValidateStroke(s.currentPoints), s.currentPoints);
+}
+
+function wpCommitStroke(result, pts) {
+    const s = wpState;
+    if (s.completed || s.noData) return;
+    s.userStrokes.push([].concat(pts));
+    s.currentPoints = [];
+    if (result === true) {
+        wpFlash('green');
+        wpSetHint('', '');
+        if (s.currentStroke < s.totalStrokes - 1) {
+            s.timer = setTimeout(function () {
+                s.currentStroke++;
+                wpUpdateStrokePill(); wpRedraw();
+            }, 380);
+        } else {
+            s.timer = setTimeout(wpCharComplete, 380);
+        }
+    } else {
+        wpFlash('red'); wpShake();
+        s.strokeErrors++; s.charFirstTryOk = false;
+        wpSetHint(result === 'wrong_start' ? 'Bắt đầu từ chấm xanh!' : result === 'too_short' ? 'Nét quá ngắn!' : 'Nét chưa đúng — thử lại!', 'err');
+        if (s.mode === 'recall') {
+            /* Sai nét mới hé guide (Skritter-style) rồi tắt */
+            s.hintFlash = true; wpRedraw();
+            clearTimeout(s.guideTimer);
+            s.guideTimer = setTimeout(function () { s.hintFlash = false; if (s.phase === 'practice') wpRedraw(); }, 900);
+        }
+        /* Nét sai hiển thị thoáng qua rồi gỡ (như kw*) — pop bằng tham chiếu cho an toàn */
+        const bad = s.userStrokes[s.userStrokes.length - 1];
+        setTimeout(function () {
+            const pos = s.userStrokes.indexOf(bad);
+            if (pos > -1) s.userStrokes.splice(pos, 1);
+            if (s.strokeErrors >= 3 && s.mode !== 'recall') wpSetHint('Còn khó? Bấm Gợi ý bên dưới nhé!', '');
+            wpRedraw();
+        }, 550);
+    }
+    wpRedraw();
+}
+
+function wpHint() {
+    const s = wpState;
+    if (s.completed || s.noData) return;
+    s.hintUsed = true; s.charFirstTryOk = false;
+    s.hintFlash = true;
+    wpSetHint('Nét ' + Math.min(s.currentStroke + 1, s.totalStrokes) + ': nhìn nét mờ rồi viết theo!', '');
+    wpRedraw();
+    clearTimeout(s.guideTimer);
+    s.guideTimer = setTimeout(function () { s.hintFlash = false; if (s.phase === 'practice') wpRedraw(); }, 1600);
+}
+
+function wpRestartChar() {
+    const s = wpState;
+    if (s.completed) return;
+    s.userStrokes = []; s.currentPoints = []; s.currentStroke = 0; s.comparisonData = [];
+    s.strokeErrors = 0; s.charFirstTryOk = false;
+    wpUpdateStrokePill(); wpSetHint('', ''); wpRedraw();
+}
+
+function wpSkipChar() {
+    const s = wpState;
+    if (s.completed) return;
+    clearTimeout(s.timer);
+    s.completed = true; s.revealKind = 'skip';
+    s.results.push({ char: s.char, type: s.item.type, firstTry: false, skipped: true, errors: s.strokeErrors });
+    s.streak = 0;
+    wpRenderTopBar(); wpUpdateStrokePill(); wpRenderPrompt();
+    wpSetHint('Bỏ qua — nhớ kỹ nét này nhé!', '');
+    s.timer = setTimeout(wpNextChar, 1600);
+}
+
+function wpCharComplete() {
+    const s = wpState;
+    if (s.completed) return;
+    s.completed = true; s.revealKind = 'ok';
+    const firstTry = s.charFirstTryOk && !s.hintUsed && !s.noData;
+    s.results.push({ char: s.char, type: s.item.type, firstTry: firstTry, skipped: false, errors: s.strokeErrors });
+    if (firstTry) { s.streak++; s.bestStreak = Math.max(s.bestStreak, s.streak); }
+    else s.streak = 0;
+    wpRenderTopBar(); wpUpdateStrokePill(); wpRenderPrompt();
+    wpSetHint(firstTry ? 'Tuyệt vời! Đúng ngay lần đầu.' : 'Hoàn thành!', 'ok');
+    try { playKanaAudio(s.char); } catch (e) { }
+    if (typeof confetti === 'function') {
+        confetti({ particleCount: firstTry ? 80 : 35, spread: 60, origin: { y: 0.6 } });
+        if (firstTry) setTimeout(function () { confetti({ particleCount: 45, spread: 100, origin: { y: 0.5 } }); }, 280);
+    }
+    s.timer = setTimeout(wpNextChar, 1500);
+}
+
+function wpNextChar() {
+    const s = wpState;
+    clearTimeout(s.timer); s.timer = null;
+    if (s.phase !== 'practice') return;
+    const next = s.idx + 1;
+    if (next >= s.queue.length) return wpEndSession();
+    wpLoadChar(next);
+}
+
+function wpFlash(color) {
+    const w = document.getElementById('wpCanvasWrap');
+    if (!w) return;
+    w.style.boxShadow = color === 'green'
+        ? '0 0 20px rgba(22,163,74,0.5), inset 0 0 20px rgba(22,163,74,0.08)'
+        : '0 0 20px rgba(239,68,68,0.5), inset 0 0 20px rgba(239,68,68,0.08)';
+    setTimeout(function () { w.style.boxShadow = ''; }, 450);
+}
+function wpShake() {
+    const w = document.getElementById('wpCanvasWrap');
+    if (!w) return;
+    w.classList.remove('shake'); void w.offsetWidth; w.classList.add('shake');
+    setTimeout(function () { w.classList.remove('shake'); }, 450);
+}
+
+/* ================= [WP] PHA 3: TỔNG KẾT + SRS + TIẾN ĐỘ ================= */
+
+function wpEndSession() {
+    const s = wpState;
+    s.phase = 'summary';
+    clearTimeout(s.timer); clearTimeout(s.guideTimer);
+    wpSaveProgress();
+    wpRenderSummary();
+}
+
+function wpRenderSummaryShell() {
+    const el = document.getElementById('wpSummary');
+    if (!el) return;
+    el.innerHTML = ''
+        + '<div class="wp-sum-title">🎉 Hoàn thành!</div>'
+        + '<div class="wp-sum-sub" id="wpSumSub"></div>'
+        + '<div class="wp-stats-row" id="wpStatsRow"></div>'
+        + '<div class="wp-char-list" id="wpCharList"></div>'
+        + '<div class="wp-sum-btns" id="wpSumBtns"></div>';
+}
+
+function wpRenderSummary() {
+    wpShowPhase('summary');
+    const s = wpState;
+    const total = s.results.length;
+    const firstTry = s.results.filter(function (r) { return r.firstTry; }).length;
+    document.getElementById('wpSumSub').textContent =
+        (s.isRetryPass ? 'Phiên luyện lại · ' : (WP_SOURCE_LABELS[s.source] + ' · ')) +
+        (s.mode === 'trace' ? 'Tập chép' : 'Tự viết');
+    const boxes = [[total, 'Số chữ đã viết'], [firstTry, 'Đúng ngay lần đầu'], [s.bestStreak, 'Chuỗi đúng dài nhất']];
+    document.getElementById('wpStatsRow').innerHTML = boxes.map(function (b) {
+        return '<div class="wp-stat-box"><div class="wp-stat-num">' + b[0] + '</div><div class="wp-stat-lab">' + b[1] + '</div></div>';
+    }).join('');
+    document.getElementById('wpCharList').innerHTML = s.results.map(function (r) {
+        const mark = r.firstTry ? '✓' : (r.skipped ? '↪' : '↻');
+        return '<div class="wp-char-item ' + (r.firstTry ? 'ok' : 'bad') + '"><div class="c">' + r.char + '</div><div class="m">' + mark + '</div></div>';
+    }).join('');
+    let btns = '';
+    const wrongCount = s.results.filter(function (r) { return !r.firstTry; }).length;
+    if (!s.isRetryPass && wrongCount > 0) {
+        btns += '<button class="wp-sum-btn primary" onclick="wpRetryWrong()"><span class="material-symbols-outlined">replay</span> Luyện lại ' + wrongCount + ' chữ chưa đạt</button>';
+    }
+    btns += '<button class="wp-sum-btn ' + (!s.isRetryPass && wrongCount > 0 ? 'secondary' : 'primary') + '" onclick="wpNewSession()"><span class="material-symbols-outlined">refresh</span> Phiên mới</button>';
+    if (s.source === 'kanji' && typeof currentUser !== 'undefined' && currentUser && !currentUser.isGuest) {
+        btns += '<button class="wp-sum-btn srs" id="wpSrsBtn" onclick="wpSubmitSRS()"><span class="material-symbols-outlined">cloud_upload</span> Cập nhật SRS (ôn tập gián đoạn)</button>';
+    }
+    document.getElementById('wpSumBtns').innerHTML = btns;
+}
+
+function wpRetryWrong() {
+    const s = wpState;
+    const wrongItems = [];
+    s.results.forEach(function (r) {
+        if (r.firstTry) return;
+        const q = s.queue.find(function (x) { return x.char === r.char && x.type === r.type; });
+        if (q) wrongItems.push(q);
+    });
+    if (!wrongItems.length) return;
+    wpStartQueue(wrongItems, true);
+}
+
+function wpNewSession() {
+    wpState.phase = 'setup';
+    wpRenderSetup();
+}
+
+/* Pattern khSubmitSelectedSRS (Kanji Hebi): payload SM-2 đầy đủ, word_text = chữ kanji.
+   Máy chủ sẽ tự bỏ qua chữ chưa nằm trong kho từ vựng SRS (upsert_progress_safe). */
+async function wpSubmitSRS() {
+    if (typeof currentUser === 'undefined' || !currentUser) { showToast('Đăng nhập để dùng tính năng SRS.'); return; }
+    if (currentUser.isGuest) { showToast('Tài khoản khách không thể cập nhật SRS.'); return; }
+    const s = wpState;
+    const items = s.results.filter(function (r) { return r.type === 'kanji' && !r.skipped; });
+    if (!items.length) { showToast('Không có chữ kanji nào để cập nhật.'); return; }
+    const btn = document.getElementById('wpSrsBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Đang lưu...'; }
+    let pushed = 0;
+    items.forEach(function (r) {
+        let ef = 2.5, interval = 1, interval_count = 0;
+        if (r.firstTry) { ef = 2.5; interval_count = 1; interval = 1; }
+        else { ef = 2.3; interval_count = 0; interval = 1; }
+        const due = new Date();
+        due.setDate(due.getDate() + interval);
+        srsPendingQueue.push({
+            user_id: currentUser.id,
+            word_text: r.char,
+            ef: ef, interval: interval, interval_count: interval_count,
+            due: due.toISOString()
+        });
+        pushed++;
+    });
+    try { await flushSrsQueue(); } catch (e) { console.warn('MindDeck WP: flush SRS lỗi (offline queue sẽ tự thử lại):', e); }
+    if (btn) { btn.textContent = '✓ Đã cập nhật ' + pushed + ' chữ vào SRS'; btn.style.opacity = '0.6'; }
+    showToast('Đã đẩy ' + pushed + ' chữ vào chuỗi ôn tập SRS.');
+}
+
+function wpSaveProgress() {
+    const s = wpState;
+    const map = wpLoadProgressMap();
+    s.results.forEach(function (r) {
+        const e = map[r.char] || { n: 0, p: 0, t: 0 };
+        e.n += 1;
+        if (r.firstTry) e.p += 1;
+        e.t = Date.now();
+        map[r.char] = e;
+    });
+    try { localStorage.setItem(wpProgressKey(), JSON.stringify(map)); } catch (e) { }
+}
+/* ================= END [WP] TRANG LUYỆN VIẾT ================= */
+
 
 /* ================= [N23] KHỐI LỜI CHÀO — NỀN HOẠT HỌA THEO THỜI GIAN ================= */
 /* 4 pha theo giờ client (đồng bộ mốc với lời chào): 5-11 sáng / 11-14 trưa /
