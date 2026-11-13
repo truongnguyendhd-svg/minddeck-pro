@@ -14607,13 +14607,25 @@ body.grammar-searching #headerGrammarSearch {
 }
 
 /* ================================================================
-   🟢 MÀN KẾT QUẢ SÁT HẠCH: TAB "Hổng kiến thức" / "Thuộc bài"
-   + hover cho thẻ trong 2 danh sách (bấm mở modal Remedial tại thẻ đó).
-   Dùng class riêng .assessment-card-list để không ảnh hưởng danh sách
-   tổng kết của chế độ Boost (.summary-list #boostSummaryList).
+   🟢 MÀN KẾT QUẢ SÁT HẠCH / BOOST (REDESIGN): hiện NGAY cả 2 danh sách
+   (Cần lưu ý + Đã thuộc) khi vào trang — bỏ tab bấm chuyển, bỏ nút
+   "Xem lại toàn bộ" dưới đáy.
+   - .summary-close-x: nút X tròn ghim góc trên phải màn hình (thay nút
+     "Thoát về trang chủ" / "Kết thúc" cũ). position: fixed để X KHÔNG
+     bị cuộn mất khi danh sách dài.
+   - hover cho thẻ trong 2 danh sách (bấm mở modal Remedial tại thẻ đó):
+     dùng class riêng .assessment-card-list để không ảnh hưởng danh sách
+     tổng kết của chế độ Boost (.summary-list #boostSummaryList).
    ================================================================ */
-#summaryTabPassed:hover,
-#summaryTabFailed:hover { transform: translateY(-1px); }
+.summary-close-x {
+    position: fixed; top: 18px; right: 18px; width: 42px; height: 42px;
+    border-radius: 50%; border: 1px solid rgba(0,0,0,0.08); background: #ffffff;
+    color: #4a5568; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    transition: transform 0.15s ease, background 0.15s ease; z-index: 10;
+}
+.summary-close-x:hover { transform: scale(1.06); background: #f7fafc; }
+.summary-close-x:active { transform: scale(0.94); background: #edf2f7; }
 .assessment-card-list li { transition: transform 0.15s ease, box-shadow 0.15s ease; }
 .assessment-card-list li:hover { transform: translateY(-1px); box-shadow: 0 5px 14px rgba(0,0,0,0.09); }
 .assessment-card-list li:active { transform: translateY(0); box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
@@ -16998,8 +17010,11 @@ body.login-mode .app-header { display: none !important; }
                     </div>
                 </div>
             </div>
-            <!-- MÀN HÌNH TỔNG KẾT BOOST -->
+            <!-- MÀN HÌNH TỔNG KẾT BOOST (thiết kế mới: nút X tròn góc trên phải thay nút Kết thúc, hiện sẵn 2 danh sách) -->
             <div id="boostSummaryPage" class="hidden">
+                <button class="summary-close-x" onclick="returnFromBoostToBasic()" aria-label="Thoát" title="Thoát">
+                    <span class="material-symbols-outlined" style="font-size: 24px;">close</span>
+                </button>
                 <div class="summary-title">WELL DONE! 🎉</div>
                 <p style="color: #276749; font-weight: 700; font-size: 18px;">Bạn đã hoàn thành phiên Boost</p>
                 <div style="display: flex; justify-content: center; gap: 20px; margin-top: 20px;">
@@ -17007,7 +17022,6 @@ body.login-mode .app-header { display: none !important; }
                     <div style="background: white; padding: 15px 30px; border-radius: 15px;"><h3 style="margin:0; color:#e53e3e; font-size:24px;" id="sumWrong">0</h3><small>Sai</small></div>
                 </div>
                 <ul class="summary-list" id="boostSummaryList"></ul>
-                <button id="btnEndBoostSummary" onclick="returnFromBoostToBasic()" style="margin-top: 30px; width: 100%; padding: 18px; background: #22543d; color: white; border: none; border-radius: 50px; font-size: 18px; font-weight: 800; cursor: pointer;">KẾT THÚC (QUAY LẠI CƠ BẢN)</button>
             </div>
         </div>
     </div>
@@ -27808,7 +27822,7 @@ function endBoostSession() {
     document.getElementById('boostSummaryPage').classList.remove('hidden');
     
     // [N16] Trang tổng kết Boost theo đúng thiết kế trang KẾT QUẢ SÁT HẠCH:
-    // 2 khối Đúng/Sai (bấm chuyển tab) + danh sách thẻ + 2 nút Kết thúc / Xem lại toàn bộ
+    // 2 khối Đúng/Sai + hiện NGAY cả 2 danh sách + nút X thoát góc trên phải
     renderBoostSummaryPage();
 
     // 4. Bắn pháo hoa chúc mừng
@@ -27829,77 +27843,48 @@ window.renderBoostSummaryPage = function() {
     const total = (boostState.history || []).length;
 
     let html = `
+        <button class="summary-close-x" onclick="exitBoostSummary()" aria-label="Kết thúc" title="Kết thúc">
+            <span class="material-symbols-outlined" style="font-size: 24px;">close</span>
+        </button>
         <div class="summary-title" style="color: #15803d;">KẾT QUẢ PHIÊN BOOST</div>
         <p style="color: #4a5568; font-weight: 600;">Bạn đã hoàn thành phiên Boost ${total} thẻ.</p>
 
-        <div style="display: flex; justify-content: space-between; gap: 15px; margin-top: 20px; margin-bottom: 30px; width: 100%;">
-            <div id="boostTabCorrect" onclick="switchBoostSummaryTab('correct')" style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #c6f6d5; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: transform 0.15s ease;">
+        <div style="display: flex; justify-content: space-between; gap: 15px; margin-top: 20px; margin-bottom: 10px; width: 100%;">
+            <div style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #c6f6d5; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center;">
                 <h3 style="margin:0; color:#38a169; font-size:28px;">${correct}</h3>
-                <small style="color: #718096; font-weight: 700; text-align: center;">Trả lời đúng</small>
+                <small style="color: #38a169; font-weight: 700; text-align: center;">Trả lời đúng</small>
             </div>
-            <div id="boostTabWrong" onclick="switchBoostSummaryTab('wrong')" style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #fed7d7; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: transform 0.15s ease;">
+            <div style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #fed7d7; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center;">
                 <h3 style="margin:0; color:#e53e3e; font-size:28px;">${wrong}</h3>
-                <small style="color: #718096; font-weight: 700; text-align: center;">Trả lời sai</small>
+                <small style="color: #e53e3e; font-weight: 700; text-align: center;">Trả lời sai</small>
             </div>
         </div>
         <div id="boostSummaryListContainer"></div>
     `;
 
-    html += `
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 20px; width: 100%;">
-            <button onclick="exitBoostSummary()" style="background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: clamp(12.5px, 3.6vw, 15px); cursor: pointer; text-transform: uppercase; white-space: nowrap; padding: 14px 5px;">
-                Kết thúc
-            </button>
-            <button onclick="startBoostReview()" style="background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: clamp(12.5px, 3.6vw, 15px); cursor: pointer; text-transform: uppercase; white-space: nowrap; padding: 14px 5px;">
-                Xem lại toàn bộ
-            </button>
-        </div>
-    `;
+    // 🟢 REDESIGN: bỏ hàng 2 nút dưới đáy ("Kết thúc" + "Xem lại toàn bộ") —
+    // thoát chuyển lên nút X tròn góc trên phải; xem lại: chạm trực tiếp vào thẻ.
 
     summaryPage.innerHTML = html;
-    // Mặc định mở tab Sai (ôn cái sai trước); phiên không sai thẻ nào thì mở tab Đúng
-    switchBoostSummaryTab(wrong > 0 ? 'wrong' : 'correct');
+    // 🟢 Hiện NGAY cả 2 danh sách (Trả lời sai + Trả lời đúng) — không cần bấm chọn tab như cũ
+    renderBoostSummaryLists();
 };
 
-window.switchBoostSummaryTab = function(tab) {
-    const correctTab = document.getElementById('boostTabCorrect');
-    const wrongTab = document.getElementById('boostTabWrong');
+/* 🟢 REDESIGN: render NGAY cả 2 danh sách (Trả lời sai + Trả lời đúng) vào
+   #boostSummaryListContainer — không còn tab bấm chuyển như cũ. Chạm vào 1
+   thẻ bất kỳ → mở modal Remedial (startBoostReview) tại đúng thẻ đó. */
+window.renderBoostSummaryLists = function() {
     const container = document.getElementById('boostSummaryListContainer');
-    if (!correctTab || !wrongTab || !container) return;
-
-    const isWrong = (tab === 'wrong');
-    window.currentBoostSummaryTab = isWrong ? 'wrong' : 'correct';
-
-    // Highlight ô đang active: chỉ nhãn chữ đổi màu (giống tab Sát hạch)
-    correctTab.querySelector('small').style.color = isWrong ? '#718096' : '#38a169';
-    wrongTab.querySelector('small').style.color = isWrong ? '#e53e3e' : '#718096';
+    if (!container) return;
 
     const history = boostState.history || [];
     const wrongCards = history.filter(h => h.status === 'wrong');
     const correctCards = history.filter(h => h.status === 'correct');
-    // Mảng gộp [Sai..., Đúng...] giống Sát hạch (thẻ sai lên trước) — offset cho click mở đúng thẻ
-    const offset = isWrong ? 0 : wrongCards.length;
-    const cards = isWrong ? wrongCards : correctCards;
-    const borderColor = isWrong ? '#e53e3e' : '#38a169';
-
-    let listHtml = `<div style="text-align:left; font-size:14px; font-weight:800; color:${isWrong ? '#c50f1f' : '#15803d'}; margin-bottom:10px; text-transform:uppercase;">${isWrong ? 'Danh sách trả lời sai:' : 'Danh sách trả lời đúng:'}</div>`;
-
-    if (!cards || cards.length === 0) {
-        listHtml += `<div style="text-align:center; padding: 25px 15px; color:#86868b; background:#fff; border:1px dashed rgba(0,0,0,0.12); border-radius:12px; font-size:14px; font-weight:500;">Không có thẻ nào trong danh sách này.</div>`;
-    } else {
-        listHtml += `<ul class="summary-list assessment-card-list" style="margin-top:0;">`;
-        cards.forEach((c, i) => {
-            listHtml += `
-            <li onclick="startBoostReview(${offset + i})" style="border: 1px solid ${borderColor}; padding: 12px 16px; cursor: pointer;">
-                <div>
-                    <div style="font-weight:800; font-size:16px; color:#1a1a1a;">${escapeHTML(c.front)}</div>
-                    <div style="font-size:13px; color:#718096;">${escapeHTML(c.back).replace(/\n/g, ' - ')}</div>
-                </div>
-            </li>`;
-        });
-        listHtml += `</ul>`;
-    }
-    container.innerHTML = listHtml;
+    // Modal (startBoostReview) dùng mảng gộp [Sai..., Đúng...] → offset để bấm thẻ mở đúng vị trí
+    container.innerHTML =
+        buildSummaryCardList(wrongCards, 0, '#e53e3e', '#c50f1f', 'Danh sách trả lời sai', 'startBoostReview') +
+        buildSummaryCardList(correctCards, wrongCards.length, '#38a169', '#15803d', 'Danh sách trả lời đúng', 'startBoostReview') +
+        buildSummaryListHint();
 };
 
 // [N16] "Xem lại toàn bộ" thẻ của phiên Boost qua modal Remedial (giống Sát hạch: thẻ sai lên trước)
@@ -43160,91 +43145,85 @@ function endAssessmentSession() {
     const remedial = boostState.remedialCards.length;
     const total = sessionCards.length;
 
-    // ĐÃ CHỈNH SỬA YÊU CẦU 3: Flex:1 cho 2 khối cân xứng, Sửa UI nút bấm
+    // 🟢 REDESIGN: 2 khối thống kê (flex:1 cân xứng) KHÔNG còn bấm chuyển tab —
+    // cả 2 danh sách hiện NGAY bên dưới; thoát bằng nút X tròn góc trên phải.
     let html = `
+        <button class="summary-close-x" onclick="exitStudySession()" aria-label="Thoát về trang chủ" title="Thoát về trang chủ">
+            <span class="material-symbols-outlined" style="font-size: 24px;">close</span>
+        </button>
         <div class="summary-title" style="color: #0067c0;">KẾT QUẢ SÁT HẠCH</div>
         <p style="color: #4a5568; font-weight: 600;">Bạn đã hoàn thành phiên đánh giá ${total} thẻ.</p>
         
-        <div style="display: flex; justify-content: space-between; gap: 15px; margin-top: 20px; margin-bottom: 30px; width: 100%;">
-            <div id="summaryTabPassed" onclick="switchSummaryTab('passed')" style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #c6f6d5; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: transform 0.15s ease;">
+        <div style="display: flex; justify-content: space-between; gap: 15px; margin-top: 20px; margin-bottom: 10px; width: 100%;">
+            <div style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #c6f6d5; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center;">
                 <h3 style="margin:0; color:#38a169; font-size:28px;">${passed}</h3>
-                <small style="color: #718096; font-weight: 700; text-align: center;">Thuộc bài</small>
+                <small style="color: #38a169; font-weight: 700; text-align: center;">Thuộc bài</small>
             </div>
-            <div id="summaryTabFailed" onclick="switchSummaryTab('failed')" style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #fed7d7; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: transform 0.15s ease;">
+            <div style="flex: 1; background: white; padding: 15px 10px; border-radius: 15px; border: 1px solid #fed7d7; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; align-items: center;">
                 <h3 style="margin:0; color:#e53e3e; font-size:28px;">${remedial}</h3>
-                <small style="color: #718096; font-weight: 700; text-align: center;">Hổng kiến thức</small>
+                <small style="color: #e53e3e; font-weight: 700; text-align: center;">Hổng kiến thức</small>
             </div>
         </div>
         <div id="summaryListContainer"></div>
     `;
 
 
-    // 🟢 YÊU CẦU MỚI: 2 nút cùng 1 dòng — THOÁT VỀ TRANG CHỦ mép TRÁI, XEM LẠI TOÀN BỘ mép PHẢI.
-    // Cả 2 nút đều dạng CHỮ (text-style) thống nhất theo thiết kế nút "Thoát về trang chủ" cũ:
-    // nền trong suốt - không viền - chữ đậm viết hoa màu #4a5568. clamp() giúp 2 nhãn dài vẫn vừa hàng trên màn hình nhỏ (320px).
-    html += `
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 20px; width: 100%;">
-            <button onclick="exitStudySession()" style="background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: clamp(12.5px, 3.6vw, 15px); cursor: pointer; text-transform: uppercase; white-space: nowrap; padding: 14px 5px;">
-                Thoát về trang chủ
-            </button>
-            <button onclick="startRemedialReview()" style="background: transparent; border: none; color: #4a5568; font-weight: 800; font-size: clamp(12.5px, 3.6vw, 15px); cursor: pointer; text-transform: uppercase; white-space: nowrap; padding: 14px 5px;">
-                Xem lại toàn bộ
-            </button>
-        </div>
-    `;
+    // 🟢 REDESIGN: bỏ hàng 2 nút dưới đáy ("Thoát về trang chủ" + "Xem lại toàn bộ") —
+    // thoát chuyển lên nút X tròn góc trên phải; xem lại: chạm trực tiếp vào thẻ.
 
     summaryPage.innerHTML = html;
 
-    // 🟢 Mặc định active ô "Hổng kiến thức" → hiện "Danh sách cần lưu ý"
-    // (Nếu phiên không có thẻ hổng nào → active ô "Thuộc bài" → hiện "Danh sách đã thuộc")
-    switchSummaryTab(remedial > 0 ? 'failed' : 'passed');
+    // 🟢 Hiện NGAY cả 2 danh sách (Cần lưu ý + Đã thuộc) — không cần bấm chọn tab như cũ
+    renderSummaryLists();
 }
 
-// Tab đang được chọn trên màn tổng kết sát hạch ('failed' | 'passed')
-let currentSummaryTab = 'failed';
+/* 🟢 REDESIGN MÀN KẾT QUẢ SÁT HẠCH:
+   - Vào là hiện NGAY cả 2 danh sách trong #summaryListContainer — bỏ tab
+     "Hổng kiến thức" / "Thuộc bài" bấm chuyển như cũ.
+   - Tiêu đề "Danh sách cần lưu ý" / "Danh sách đã thuộc" CĂN GIỮA.
+   - Chạm vào 1 thẻ bất kỳ → mở ngay modal Remedial tại đúng thẻ đó
+     (thay nút "Xem lại toàn bộ" đã bỏ). */
 
-/* 🟢 TAB TRÊN MÀN KẾT QUẢ SÁT HẠCH:
-   - Ô "Hổng kiến thức" (mặc định) → "Danh sách cần lưu ý" (thẻ rớt, viền đỏ)
-   - Ô "Thuộc bài" → "Danh sách đã thuộc" (thẻ đậu, viền xanh lá)
-   - Nhấn vào 1 thẻ trong danh sách → mở ngay modal Remedial tại đúng thẻ đó */
-window.switchSummaryTab = function(tab) {
-    const failedTab = document.getElementById('summaryTabFailed');
-    const passedTab = document.getElementById('summaryTabPassed');
-    const container = document.getElementById('summaryListContainer');
-    if (!failedTab || !passedTab || !container) return;
-
-    const isFailed = (tab === 'failed');
-    currentSummaryTab = isFailed ? 'failed' : 'passed';
-
-    // Highlight ô đang active: CHỈ nhãn chữ đổi màu
-    // (viền 1px màu nhạt + nền trắng + bóng xám nhạt giữ nguyên ở cả 2 trạng thái)
-    failedTab.querySelector('small').style.color = isFailed ? '#e53e3e' : '#718096';
-    passedTab.querySelector('small').style.color = isFailed ? '#718096' : '#38a169';
-
-    // Danh sách thẻ tương ứng. offset = vị trí bắt đầu trong mảng gộp
-    // [...remedialCards, ...passedCards] mà modal Remedial (startRemedialReview) dùng
-    const cards = isFailed ? boostState.remedialCards : boostState.passedCards;
-    const offset = isFailed ? 0 : boostState.remedialCards.length;
-    const borderColor = isFailed ? '#e53e3e' : '#38a169';
-
-    let listHtml = `<div style="text-align:left; font-size:14px; font-weight:800; color:${isFailed ? '#c50f1f' : '#15803d'}; margin-bottom:10px; text-transform:uppercase;">${isFailed ? 'Danh sách cần lưu ý:' : 'Danh sách đã thuộc:'}</div>`;
-
+// Khối HTML chung cho 1 danh sách thẻ trên màn tổng kết (Sát hạch + Boost).
+// offset = vị trí bắt đầu trong mảng gộp [...thẻSai, ...thẻĐúng] mà modal
+// Remedial / modal Xem lại đang dùng → bấm thẻ mở modal đúng vị trí.
+function buildSummaryCardList(cards, offset, borderColor, headingColor, headingText, clickFn) {
+    let out = `<div style="text-align:center; font-size:14px; font-weight:800; color:${headingColor}; margin:22px 0 10px; text-transform:uppercase; letter-spacing:0.5px;">${headingText}</div>`;
     if (!cards || cards.length === 0) {
-        listHtml += `<div style="text-align:center; padding: 25px 15px; color:#86868b; background:#fff; border:1px dashed rgba(0,0,0,0.12); border-radius:12px; font-size:14px; font-weight:500;">Không có thẻ nào trong danh sách này.</div>`;
-    } else {
-        listHtml += `<ul class="summary-list assessment-card-list" style="margin-top:0;">`;
-        cards.forEach((c, i) => {
-            listHtml += `
-            <li onclick="startRemedialReview(${offset + i})" style="border: 1px solid ${borderColor}; padding: 12px 16px; cursor: pointer;">
-                <div>
-                    <div style="font-weight:800; font-size:16px; color:#1a1a1a;">${escapeHTML(c.front)}</div>
-                    <div style="font-size:13px; color:#718096;">${escapeHTML(c.back).replace(/\n/g, ' - ')}</div>
-                </div>
-            </li>`;
-        });
-        listHtml += `</ul>`;
+        out += `<div style="text-align:center; padding: 25px 15px; color:#86868b; background:#fff; border:1px dashed rgba(0,0,0,0.12); border-radius:12px; font-size:14px; font-weight:500;">Không có thẻ nào trong danh sách này.</div>`;
+        return out;
     }
-    container.innerHTML = listHtml;
+    out += `<ul class="summary-list assessment-card-list" style="margin-top:0;">`;
+    cards.forEach((c, i) => {
+        out += `
+        <li onclick="${clickFn}(${offset + i})" style="border: 1px solid ${borderColor}; padding: 12px 16px; cursor: pointer;">
+            <div>
+                <div style="font-weight:800; font-size:16px; color:#1a1a1a;">${escapeHTML(c.front)}</div>
+                <div style="font-size:13px; color:#718096;">${escapeHTML(c.back).replace(/\n/g, ' - ')}</div>
+            </div>
+        </li>`;
+    });
+    out += `</ul>`;
+    return out;
+}
+
+// Gợi ý nhỏ dưới đáy danh sách (thay nút "Xem lại toàn bộ" đã bỏ)
+function buildSummaryListHint() {
+    return `<div style="text-align:center; font-size:12px; color:#a0aec0; font-weight:600; margin-top:18px;">Chạm vào một thẻ bất kỳ để xem lại chi tiết</div>`;
+}
+
+// Render NGAY cả 2 danh sách (Cần lưu ý + Đã thuộc) vào #summaryListContainer
+window.renderSummaryLists = function() {
+    const container = document.getElementById('summaryListContainer');
+    if (!container) return;
+
+    const failedCards = boostState.remedialCards || [];
+    const passedCards = boostState.passedCards || [];
+    // Modal Remedial (startRemedialReview) dùng mảng gộp [...remedialCards, ...passedCards]
+    container.innerHTML =
+        buildSummaryCardList(failedCards, 0, '#e53e3e', '#c50f1f', 'Danh sách cần lưu ý', 'startRemedialReview') +
+        buildSummaryCardList(passedCards, failedCards.length, '#38a169', '#15803d', 'Danh sách đã thuộc', 'startRemedialReview') +
+        buildSummaryListHint();
 };
 
 // BẮT ĐẦU PHASE 3: REMEDIAL (KHẮC PHỤC) - Hiển thị toàn bộ thẻ qua MODAL FULLSCREEN
@@ -43612,18 +43591,22 @@ saveQuickEdit = async function() {
 
 // Hàm đóng modal remedial
 function closeRemedialModal() {
+    // [N16] Ghi nhớ nguồn mở modal (Sát hạch / Boost) trước khi reset cờ
+    const _wasBoostReview = window.__isBoostSummaryReview;
     window.__isBoostSummaryReview = false; // [N16] thoát chế độ "Xem lại toàn bộ" của trang tổng kết Boost
     document.getElementById('remedialReviewModal').style.display = 'none';
     document.getElementById('remedialCardList').style.display = 'none';
     document.getElementById('btnRemedialProgress').classList.remove('active');
     document.body.classList.remove('modal-open-lock');
-    // 🟢 FIX: Show lại màn hình tổng kết (KẾT QUẢ SÁT HẠCH)
-    // vì startRemedialReview() đã ẩn boostSummaryPage
+    // 🟢 FIX: Show lại màn hình tổng kết (KẾT QUẢ SÁT HẠCH / KẾT QUẢ BOOST)
+    // vì startRemedialReview()/startBoostReview() đã ẩn boostSummaryPage
     document.getElementById('boostSummaryPage').classList.remove('hidden');
-    // 🟢 Refresh danh sách theo tab đang mở trên trang tổng kết
+    // 🟢 REDESIGN: Refresh lại cả 2 danh sách trên trang tổng kết
     // (thẻ có thể vừa được sửa qua "Sửa thẻ trực tiếp" trong modal)
-    if (typeof switchSummaryTab === 'function' && typeof currentSummaryTab !== 'undefined') {
-        switchSummaryTab(currentSummaryTab);
+    if (_wasBoostReview) {
+        if (typeof renderBoostSummaryLists === 'function' && document.getElementById('boostSummaryListContainer')) renderBoostSummaryLists();
+    } else if (typeof renderSummaryLists === 'function' && document.getElementById('summaryListContainer')) {
+        renderSummaryLists();
     }
 }
 
