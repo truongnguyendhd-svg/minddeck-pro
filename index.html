@@ -8867,7 +8867,14 @@ body.guest-mode .dash-games-split { grid-template-columns: minmax(0, 1fr); }
    [EX BLOCK v3 — sửa user] NỀN NGẪU NHIÊN MỖI LẦN MỞ THẺ: thêm ảnh nền TỐI
    thứ 2 assets/ex-bg-dark.jpg (giấy washi đêm indigo — sao li ti góc trên +
    sóng seigaiha bạc mép dưới, tâm trống mean 19, VLM duyệt đạt); JS quay số
-   ngẫu nhiên 2 ảnh mỗi lần build — xem khối v3 bên dưới. */
+   ngẫu nhiên 2 ảnh mỗi lần build — xem khối v3 bên dưới.
+   [EX HEIGHT SYNC — sửa user] ĐỘ CAO NỬA TRÊN = NỬA DƯỚI + HÀNG NÚT: nửa trên
+   giấy washi KHÔNG còn tự co theo nội dung (trước đây thường lùn hơn tổng 2 khối
+   dưới làm khối "đổ dồn" xuống đáy) — JS toàn cục đặt sát buildExampleSentenceBlock
+   (syncExHeightSync) ghi min-height .ex-half-top = offsetHeight .ex-half-bottom
+   + .ex-actions-row, theo dõi mọi thay đổi bằng ResizeObserver + MutationObserver
+   (wrap nút mobile / font JP tải xong / vào-thoát test trí nhớ) — chi tiết ở chú
+   thích khối JS đó. */
 .ex-half-top {
     padding: 16px 14px 12px 14px;
     /* [EX BLOCK v3] biến màu nửa trên — bản SÁNG mặc định */
@@ -49500,6 +49507,95 @@ window.playExampleAudio = function(btn, jpEncoded) {
         }
     }
 };
+
+/* 🟢🟢🟢 [EX HEIGHT SYNC — sửa user] ĐỘ CAO .ex-half-top = .ex-half-bottom + .ex-actions-row
+   Theo yêu cầu user "trong khối ví dụ, chỉnh lại độ cao ex-half-top bằng độ cao
+   ex-half-bottom cộng với độ cao ex-actions-row" — nửa trên giấy washi của MỌI khối
+   ví dụ (modal Study / Remedial, bottom sheet, grammar modal, Game 6 ghép xong câu)
+   cao đúng bằng NỬA DƯỚI + HÀNG NÚT cộng lại, thay vì tự co theo nội dung.
+
+   VÌ SAO PHẢI JS (không làm được bằng CSS thuần): 2 khối dưới cao THEO NỘI DUNG
+   và đổi liên tục — nghĩa VN dài 1-3 dòng, hàng nút wrap xuống 2 hàng trên mobile
+   (media 899/600px cho flex-wrap), font Noto Sans JP tải xong mới đổi line-height,
+   vào test trí nhớ thì ẩn nửa dưới + đổi hàng nút — không có cách CSS nào tham
+   chiều "chiều cao 2 phần tử anh em cộng lại".
+
+   (1) syncExHalfTopHeight(block): tính offsetHeight nửa dưới + hàng nút rồi ghi
+       MIN-HEIGHT lên nửa trên (không phải height): trạng thái nghỉ nội dung nửa
+       trên ngắn hơn tổng → chiều cao nửa trên = ĐÚNG tổng (phép "bằng" thành hiện
+       thực); khi mở test gõ / test xếp mảnh (nằm TRONG nửa trên) nội dung dài hơn
+       thì nửa trên vẫn giãn tự do — không cắt xén khu test.
+   (2) ResizeObserver DUY NHẤT theo dõi .ex-half-bottom + .ex-actions-row của từng
+       khối → 2 khối đổi kích thước là tính lại min-height ngay. Chống rò rỉ bộ nhớ
+       khi khối bị thay bằng innerHTML: mỗi lượt scanExHeightSync() disconnect()
+       rồi observe lại TOÀN BỘ khối còn nối vào DOM — danh sách theo dõi luôn khớp
+       DOM sống, khối đã rời DOM tự được dọn.
+   (3) MutationObserver toàn cục trên document.body (childList + subtree, gộp lượt
+       bằng rAF) — MỌI khối ví dụ chèn vào DOM ở bất kỳ điểm render nào (10 chỗ gọi
+       buildExampleSentenceBlock rải rác trong app) đều tự được gắn theo dõi sau
+       đúng 1 khung hình, KHÔNG phải sửa từng điểm render. Trình duyệt quá cũ không
+       có ResizeObserver → chỉ tính 1 lần lúc chèn (thoái hoá chấp nhận được).
+
+   KHÔNG ĐỤNG gì khác: không đụng padding/font/màu của 3 khối (kể cả
+   .memory-test-block .ex-half-top padding-bottom 5px khi test), không đụng Game 11
+   #boostQuestion.kb-washi-bg (riêng biệt), không đụng bottom sheet, giữ nguyên
+   toàn bộ hành vi test trí nhớ / test xếp mảnh / nút Nghe-Romaji-Đổi ví dụ. */
+function syncExHalfTopHeight(blockEl) {
+    if (!blockEl || !blockEl.isConnected) return;
+    const top = blockEl.querySelector('.ex-half-top');
+    const bottom = blockEl.querySelector('.ex-half-bottom');
+    if (!top || !bottom) return;
+    const actions = blockEl.querySelector('.ex-actions-row');
+    const sumH = bottom.offsetHeight + (actions ? actions.offsetHeight : 0);
+    /* App KHÔNG có global * { box-sizing: border-box } → .ex-half-top là CONTENT-BOX:
+       min-height áp lên vùng NỘI DUNG, chiều cao vẽ ra = min + padding + border dọc.
+       Muốn offsetHeight nửa trên = ĐÚNG tổng 2 khối dưới thì phải trừ phần đệm dọc
+       của chính nửa trên (16px trên + 12px dưới bản thường; 5px dưới khi đang test
+       trí nhớ — lấy computed style nên tự đúng mọi bối cảnh). */
+    const cs = getComputedStyle(top);
+    const extras = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+        + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+    const targetH = sumH - extras;
+    /* Tổng = 0 (khối đang bị ẩn display:none) → bỏ ràng buộc, khỏi kẹt chiều cao giả */
+    top.style.minHeight = targetH > 0 ? targetH + 'px' : '';
+}
+function scanExHeightSync() {
+    const blocks = document.querySelectorAll('.example-sentence-block');
+    if (!blocks.length) return;
+    if (window.__exHalfTopRO === undefined) {
+        window.__exHalfTopRO = (typeof ResizeObserver === 'function') ? new ResizeObserver((entries) => {
+            for (const ent of entries) {
+                const blk = ent.target && ent.target.closest ? ent.target.closest('.example-sentence-block') : null;
+                if (blk) syncExHalfTopHeight(blk);
+            }
+        }) : false;
+    }
+    if (window.__exHalfTopRO) window.__exHalfTopRO.disconnect();
+    blocks.forEach((b) => {
+        syncExHalfTopHeight(b);
+        if (window.__exHalfTopRO) {
+            const bot = b.querySelector('.ex-half-bottom');
+            const act = b.querySelector('.ex-actions-row');
+            if (bot) window.__exHalfTopRO.observe(bot);
+            if (act) window.__exHalfTopRO.observe(act);
+        }
+    });
+}
+(function initExHeightSync() {
+    const start = () => {
+        scanExHeightSync();
+        if (typeof MutationObserver !== 'function') return;
+        let queued = false;
+        const mo = new MutationObserver(() => {
+            if (queued) return;
+            queued = true;
+            (window.requestAnimationFrame || function (f) { setTimeout(f, 16); })(() => { queued = false; scanExHeightSync(); });
+        });
+        mo.observe(document.body, { childList: true, subtree: true });
+    };
+    if (document.body) start();
+    else document.addEventListener('DOMContentLoaded', start);
+})();
 
 function buildExampleSentenceBlock(cardId, exIndex, jp, romaji, vn, front) {
     if (!jp) return "";
