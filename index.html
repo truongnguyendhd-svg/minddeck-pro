@@ -4613,9 +4613,10 @@ body.game-fullscreen-mode .unified-study-container:has(> #boostArea:not(.hidden)
 }
 .btn-exit-game:hover { background: transparent; opacity: 0.6; }
 
-/* FOOTER GAME: AVATAR (trái ngoài cùng) — ĐẾM GIỜ (giữa) — NÚT (phải) */
-/* Footer mỏng: row padding 6px dọc, nút 9px dọc. TRÁI NGOÀI CÙNG: avatar user 28px
-   (Google OAuth, fallback 👤 — boostFooterAvatarHTML). GIỮA: bộ đếm giờ thẻ hiện tại
+/* FOOTER GAME: NÚT CÀI ĐẶT (trái ngoài cùng) — ĐẾM GIỜ (giữa) — NÚT (phải) */
+/* Footer mỏng: row padding 6px dọc, nút 9px dọc. TRÁI NGOÀI CÙNG: NÚT CÀI ĐẶT
+   (icon bánh răng — boostFooterSettingsHTML, thay avatar user theo yêu cầu
+   '[BOOST SETTINGS]'; mở panel #boostSettingsOverlay). GIỮA: bộ đếm giờ thẻ hiện tại
    (icon timer + m:ss) — CHẠY khi SKIP hiển thị; khi TIẾP THEO hiện (hoàn thành câu
    hỏi) thì DỪNG ở thời điểm hoàn thành, vẫn hiện mờ nhẹ để nhìn lại. SKIP / TIẾP THEO:
    ICON arrow_forward BÊN PHẢI chữ — SKIP ĐEN hover VÀNG, TIẾP THEO xanh lá (TIẾP TỤC
@@ -4680,23 +4681,96 @@ body.game-fullscreen-mode .unified-study-container:has(> #boostArea:not(.hidden)
 .boost-footer-timer .material-symbols-outlined { font-size: 18px; }
 /* Đã DỪNG (TIẾP THEO — câu hỏi hoàn thành): mờ nhẹ, giữ nguyên khoảng cách icon+số */
 .boost-footer-timer .bft-stopped { display: flex; align-items: center; gap: 4px; opacity: 0.65; }
-/* Avatar user — góc trái ngoài cùng footer (28px tròn, nhỏ hơn avatar menu 35px) */
-.boost-footer-avatar {
+/* 🟢 [BOOST SETTINGS — sửa user 'Thay nút #boostFooterAvatar bằng nút setting
+   (icon bánh răng)']: NÚT CÀI ĐẶT thay avatar — vòng tròn 28px giữ NGUYÊN KÍCH
+   THƯỚC + vị trí cũ của avatar (footer không xê dịch, bộ đếm giờ absolute
+   chính giữa không lệch tâm); icon bánh răng Material Symbols 'settings'.
+   HOVER: bánh răng XOAY 90° (transition mượt — affordance rõ đây là nút bấm,
+   không phải ảnh tĩnh). Click mở panel CÀI ĐẶT HIỂN THỊ (3 nhóm: ảnh nền khu
+   vực game / ảnh nền giấy washi câu hỏi sáng-tối / font chữ tiếng Nhật —
+   xem khối [BOOST SETTINGS PANEL] bên dưới). Click gắn bằng DELEGATION trên
+   document (trong module IIFE cuối script) — nút được render lại bởi
+   boostFooterRowHTML mỗi thẻ nên listener bám DOM sống, không cần gắn lại. */
+.boost-footer-settings {
     width: 28px;
     height: 28px;
     border-radius: 50%;
     border: 2px solid #e2e8f0;
     background: #edf2f7;
-    overflow: hidden;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 15px;
-    line-height: 1;
+    padding: 0;
+    cursor: pointer;
     user-select: none;
+    -webkit-user-select: none;
+    transition: transform 0.3s ease, background 0.2s ease;
 }
-.boost-footer-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.boost-footer-settings .material-symbols-outlined { font-size: 17px; color: #4a5568; line-height: 1; }
+.boost-footer-settings:hover { background: #e2e8f0; transform: rotate(90deg); }
+.boost-footer-settings:active { transform: scale(0.9); }
+
+/* ================= [BOOST SETTINGS PANEL] =================
+   Panel CÀI ĐẶT HIỂN THỊ — mở bằng nút bánh răng footer game. Overlay toàn
+   màn (z-index 17000: trên lightbox gallery 16800 + popover kanji 16900,
+   dưới toast/loading 99k+ theo thang z-index của app), card trắng bo 16px
+   pattern win11-modal (header título + nút X, body cuộn). 3 nhóm cài đặt:
+   (1) ẢNH NỀN KHU VỰC GAME — lưới 6 thumbnail của pool dùng chung
+       [BG SHARED POOL] (LOGIN_BGS/BOOST_BGS) — chọn là gọi thẳng
+       window.bgBoostSet(i) (apply() của rotator lo tone .bg-dark + nút
+       '>' tiếp tục xoay từ ảnh đang chọn);
+   (2) ẢNH NỀN CÂU HỎI — giấy washi SÁNG (ex-bg.jpg — mặc định) / ĐÊM
+       (ex-bg-dark.jpg — body.qbg-dark, xem khối [BOOST QBG DARK]);
+   (3) FONT CHỮ TIẾNG NHẬT — xem khối [BOOST JP FONT].
+   Ô chọn: viền teal #0d9488 + nền xanh nhạt khi đang hoạt (is-active) +
+   huy hiệu check tròn góc. Mọi lựa chọn ÁP DỤNG NGAY (không cần nút Lưu) +
+   ghi localStorage (minddeck_*) — phục hồi tự động lần tải sau. */
+#boostSettingsOverlay { position: fixed; inset: 0; z-index: 17000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.bst-backdrop { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.55); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.bst-card { position: relative; z-index: 1; width: 100%; max-width: 560px; max-height: 86vh; display: flex; flex-direction: column; background: #ffffff; border-radius: 16px; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.25); overflow: hidden; animation: bstPop 0.18s ease-out; }
+@keyframes bstPop { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.bst-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; border-bottom: 1px solid #f0f0f0; flex-shrink: 0; }
+.bst-head-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 800; color: #1a1a1a; letter-spacing: 0.5px; }
+.bst-head-title .material-symbols-outlined { font-size: 20px; color: #0d9488; }
+.bst-close { border: none; background: transparent; cursor: pointer; padding: 6px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.bst-close:hover { background: #f1f5f9; }
+.bst-close .material-symbols-outlined { font-size: 20px; color: #4a5568; }
+.bst-body { padding: 16px 18px 20px; overflow-y: auto; }
+.bst-section { margin-bottom: 20px; }
+.bst-section:last-child { margin-bottom: 0; }
+.bst-section-title { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; color: #64748b; margin: 0 0 3px 0; display: flex; align-items: center; gap: 6px; text-transform: uppercase; }
+.bst-section-title .material-symbols-outlined { font-size: 16px; color: #0d9488; }
+.bst-section-note { font-size: 11px; color: #94a3b8; margin: 0 0 10px 0; line-height: 1.4; }
+.bst-bg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.bst-qbg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.bst-bg-tile { border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; cursor: pointer; padding: 0; background: #f8fafc; position: relative; transition: border-color 0.15s ease, box-shadow 0.15s ease; font-family: inherit; }
+.bst-bg-tile:hover { border-color: #94a3b8; }
+.bst-bg-thumb { width: 100%; aspect-ratio: 16 / 10; background-size: cover; background-position: center; background-repeat: no-repeat; display: block; }
+.bst-bg-name { display: block; font-size: 11px; font-weight: 700; color: #4a5568; padding: 6px 6px; text-align: center; line-height: 1.25; }
+.bst-bg-tile.is-active { border-color: #0d9488; box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15); }
+.bst-bg-tile.is-active .bst-bg-name { color: #0f766e; }
+.bst-check { width: 20px; height: 20px; border-radius: 50%; background: #0d9488; color: #ffffff; display: none; align-items: center; justify-content: center; flex-shrink: 0; }
+.bst-check .material-symbols-outlined { font-size: 14px; color: #ffffff; }
+.bst-bg-tile .bst-check { position: absolute; top: 6px; right: 6px; }
+.bst-bg-tile.is-active .bst-check { display: flex; }
+/* Dòng font: sample tiếng Nhật lớn render bằng CHÍNH font đó + tên + mô tả
+   (font tải lazy qua <link> khi mở panel — sample hiện đúng sau vài trăm ms) */
+.bst-font-list { display: flex; flex-direction: column; gap: 8px; }
+.bst-font-row { display: flex; align-items: center; gap: 12px; border: 2px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; cursor: pointer; background: #ffffff; text-align: left; transition: border-color 0.15s ease, box-shadow 0.15s ease; font-family: inherit; width: 100%; box-sizing: border-box; }
+.bst-font-row:hover { border-color: #94a3b8; }
+.bst-font-row.is-active { border-color: #0d9488; background: #f0fdfa; box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12); }
+.bst-font-sample { font-size: 21px; font-weight: 800; color: #1a1a1a; line-height: 1.25; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bst-font-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+.bst-font-name { font-size: 11px; font-weight: 800; color: #0f766e; }
+.bst-font-desc { font-size: 10px; color: #94a3b8; }
+.bst-font-row.is-active .bst-check { display: flex; }
+@media (max-width: 480px) {
+    .bst-bg-grid { grid-template-columns: repeat(2, 1fr); }
+    .bst-card { max-height: 90vh; }
+    .bst-font-sample { font-size: 18px; }
+    .bst-font-row { gap: 8px; padding: 8px 10px; }
+}
 /* SKIP: chữ ĐEN hover VÀNG (đồng bộ THOÁT header) + icon arrow_forward — sát mép phải */
 .boost-footer-skip {
     background: transparent;
@@ -11819,11 +11893,11 @@ body.grammar-searching #headerGrammarSearch {
     .audio-btn-huge { width: 80px; height: 80px; margin: 10px auto; }
     .audio-btn-huge .material-symbols-outlined { font-size: 40px; }
     .kb-pool-grid { gap: 6px !important; max-width: 100%; }
-    /* Footer game: AVATAR (trái) + SKIP/TIẾP THEO (phải) — không viền/nền;
+    /* Footer game: NÚT CÀI ĐẶT (trái) + SKIP/TIẾP THEO (phải) — không viền/nền;
        padding ngang 0 để nút căn SÁT MÉP, thẳng hàng header (12px mobile) */
     .boost-footer-row { padding: 5px 12px !important; gap: 8px !important; }
     .boost-footer-btn { padding: 7px 0 !important; font-size: 14px !important; }
-    .boost-footer-avatar { width: 24px; height: 24px; }
+    .boost-footer-settings { width: 24px; height: 24px; }
     .boost-header-exit { width: 24px; height: 24px; }
     .boost-header-exit .material-symbols-outlined { font-size: 16px !important; }
     /* 🟢 FIX: .kb-piece giờ dùng cqi, tự co trên mobile — không cần rule cứng nữa */
@@ -13537,8 +13611,9 @@ body.grammar-searching #headerGrammarSearch {
    (Game 6 #sentenceDropZone / modal Study-Remedial): ảnh generate
    assets/ex-bg.jpg + lớp phủ trắng 60% (chữ tối #2d3748 / #64748b /
    #3182ce đọc rõ như trên .ex-half-top), cover/center/no-repeat + padding
-   y hệt .ex-half-top. CHỈ dùng bản SÁNG (không quay số .ex-bg-dark): màu
-   chữ KB set inline tối sẵn — bản tối sẽ làm chữ mờ. JS thêm class
+   y hệt .ex-half-top. Mặc định CHỈ dùng bản SÁNG (màu
+   chữ KB set inline tối sẵn — xem [BOOST QBG DARK] bên dưới: bản TỐI giờ có
+   sẵn như một LỰA CHỌN trong panel Cài đặt, kèm bộ chữ sáng hoá). JS thêm class
    .kb-washi-bg trong renderKanjiStep() + dọn ở reset thẻ (2 nơi
    question.classList.remove('kb-success-scroll')). box-sizing border-box
    vì app KHÔNG có global * border-box — chặn padding tràn ngang.
@@ -13561,6 +13636,77 @@ body.grammar-searching #headerGrammarSearch {
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
+}
+
+/* 🟢 [BOOST QBG DARK — mở rộng từ panel CÀI ĐẶT HIỂN THỊ, yêu cầu user 'ảnh
+   nền tối của nửa trên khối ví dụ chưa có, hãy thêm lựa chọn nó']: lựa chọn
+   "Giấy washi ĐÊM" (body.qbg-dark — class do panel bật/tắt + lưu localStorage
+   minddeck_q_bg) đổi rule trên sang ĐÚNG THÔNG SỐ .ex-half-top.ex-bg-dark:
+   ảnh assets/ex-bg-dark.jpg (giấy washi đêm indigo — sao li ti + sóng
+   seigaiha bạc) + phủ indigo 45% (bản tối vốn đã tối + dịu nên chỉ cần 45%,
+   bản sáng cần 60% trắng) + màu nền fallback #1f2937 (giấy tối NGAY khi ảnh
+   chưa tải xong). JS game KHÔNG đổi chỗ nào — vẫn thêm/dọn .kb-washi-bg như
+   cũ; body class ở cấp TRÊN chỉ đổi da của rule có sẵn (áp dụng NGAY cả trên
+   thẻ đang hiển thị — preview tức thì khi chọn trong panel). */
+body.qbg-dark #boostQuestion.kb-washi-bg {
+    background-color: #1f2937;
+    background-image:
+        linear-gradient(rgba(15, 23, 42, 0.45), rgba(15, 23, 42, 0.45)),
+        url('assets/ex-bg-dark.jpg');
+}
+/* Chữ SÁNG hoá trên giấy tối — mirror biến --ex-txt #f7f9fc của
+   .ex-half-top.ex-bg-dark. Màu chữ KB/Romaji/Scramble set INLINE tối sẵn
+   (#2d3748 h2 + #64748b nghĩa / #3182ce reading / #e53e3e HÁN VIỆT /
+   #4a5568 nghĩa vocab / #0067c0 link x-ray) → CSS !important thắng inline;
+   selector ghi theo [style*=...] bám đúng CHUỖI MÀU app đang set inline
+   (JS gán el.style.color cũng cập nhật style attribute nên vẫn khớp).
+   Màu feedback ĐÚNG/SAI của luồng đáp án (#38a169/#c6f6d5/#22543d...) và
+   nền trắng riêng của viên gạch KHÔNG nằm trong danh sách → giữ nguyên
+   semantic. Quầng trắng text-shadow của nhãn trên nền tối thành vầng sáng
+   quanh chữ sáng — tăng độ đọc, không cần đổi. */
+body.qbg-dark #boostQuestion.kb-washi-bg { color: #f7f9fc !important; }
+body.qbg-dark #boostQuestion.kb-washi-bg [style*="#2d3748"] { color: #f7f9fc !important; }
+body.qbg-dark #boostQuestion.kb-washi-bg [style*="#64748b"] { color: #cbd5e1 !important; }
+body.qbg-dark #boostQuestion.kb-washi-bg [style*="#4a5568"] { color: #e2e8f0 !important; }
+body.qbg-dark #boostQuestion.kb-washi-bg [style*="#3182ce"] { color: #93c5fd !important; }
+body.qbg-dark #boostQuestion.kb-washi-bg [style*="#e53e3e"] { color: #fca5a5 !important; }
+body.qbg-dark #boostQuestion.kb-washi-bg [style*="#0067c0"] { color: #93c5fd !important; }
+/* Viên gạch .kb-piece (Game 11 trong khay đích nằm TRONG question) + mảnh
+   .scramble-piece (bản sao trong ô thả Game 5) KHÔNG set màu riêng — thừa kế
+   màu h2 đã sáng hoá ở trên → chữ TRẮNG trên chip nền TRẮNG = vô hình!
+   → ép lại chữ TỐI #2d3748 trên chip trắng của chính chúng. */
+body.qbg-dark #boostQuestion.kb-washi-bg .kb-piece,
+body.qbg-dark #boostQuestion.kb-washi-bg .scramble-piece { color: #2d3748 !important; }
+/* Ô thả chữ Game 5 (#scrambleDropZone trong question) trên giấy tối —
+   mirror đúng .ex-half-top.ex-bg-dark .ex-scramble-zone: khay trắng mờ +
+   viền trắng mờ (mảnh trắng nổi bật hơn trên khay, đúng pattern khối ví dụ) */
+body.qbg-dark #boostQuestion.kb-washi-bg .scramble-zone {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.28);
+}
+
+/* 🟢 [BOOST JP FONT — mở rộng từ panel CÀI ĐẶT HIỂN THỊ, yêu cầu user 'thay
+   đổi font tiếng nhật: ngoài font hiện tại, hãy thêm font tiếng nhật ở các
+   ảnh trong gallery đang dùng, ngoài ra thêm vài font đẹp']: biến
+   --boost-jp-font (JS set từ panel, mặc định 'Noto Sans JP' = font hiện tại;
+   các lựa chọn khác nạp LAZY qua <link> Google Fonts chỉ khi được chọn/rồi
+   panel mở — không tăng tải trang ban đầu). Áp cho TOÀN BỘ chữ khu vực game
+   boost: #boostQuestion (chữ Kanji/kana lớn + dòng nghĩa) +
+   #boostInteractiveZone (nút đáp án/chip/ô nhập — kể cả #kb-pool là con
+   #boostContentWrap chứ không nằm trong zone) + input/button/textarea trong
+   zone. !important + specificity (1,1,x) thắng rule global 'body, button,
+   input, textarea, select' (line 30) cùng !important nhưng (0,0,1) thấp hơn.
+   Chữ Việt (nghĩa, nhãn nút) lọt qua stack fallback: font JP không có dấu
+   tiếng Việt → rơi về 'Noto Sans JP' rồi system sans — đúng hành vi hôm nay
+   (Noto Sans JP cũng không có glyph Việt) nên không thoái hoá. */
+:root { --boost-jp-font: 'Noto Sans JP', sans-serif; }
+#boostArea #boostQuestion,
+#boostArea #boostInteractiveZone,
+#boostArea #kb-pool,
+#boostArea #boostInteractiveZone input,
+#boostArea #boostInteractiveZone button,
+#boostArea #boostInteractiveZone textarea {
+    font-family: var(--boost-jp-font) !important;
 }
 
 /* Game 11 — màn hoàn thành 1 chữ (còn chữ tiếp theo): nút TIẾP TỤC (đổi tên từ
@@ -17095,13 +17241,34 @@ body.login-mode .app-header { display: none !important; }
                     </div>
                 </div>
 
-                <!-- LỚP ĐỘC LẬP: FOOTER GAME (avatar bên trái — SKIP/TIẾP THEO bên phải) -->
+                <!-- LỚP ĐỘC LẬP: FOOTER GAME (nút CÀI ĐẶT bánh răng bên trái — SKIP/TIẾP THEO bên phải) -->
                 <div id="boostGiveUpZone" style="display: none; flex-shrink: 0;">
                     <div class="boost-footer-row">
-                        <div id="boostFooterAvatar" class="boost-footer-avatar"></div>
+                        <!-- 🟢 [BOOST SETTINGS — nút bánh răng thay avatar user theo yêu cầu
+                             mới nhất; markup đồng bộ 100% với boostFooterSettingsHTML()] -->
+                        <button id="boostFooterSettings" class="boost-footer-settings" type="button" title="Cài đặt hiển thị" aria-label="Cài đặt hiển thị"><span class="material-symbols-outlined">settings</span></button>
                         <div id="boostFooterTimer" class="boost-footer-timer"></div>
                         <button onclick="confirmBoostGiveUp()" class="boost-footer-btn boost-footer-skip">SKIP <span class="material-symbols-outlined" style="font-size: 18px;">arrow_forward</span></button>
                     </div>
+                </div>
+            </div>
+
+            <!-- ⚙️ PANEL CÀI ĐẶT HIỂN THỊ (mở bằng nút bánh răng footer game):
+                 (1) ảnh nền khu vực game (6 ảnh pool dùng chung login/boost);
+                 (2) ảnh nền câu hỏi — giấy washi sáng/tối (body.qbg-dark);
+                 (3) font chữ tiếng Nhật (--boost-jp-font, nạp lazy Google Fonts).
+                 Overlay position:fixed z-index 17000 — đặt NGOÀI #boostArea
+                 (thoát mọi stacking context của khu vực game); markup rỗng tĩnh,
+                 nội dung render bởi module [BOOST SETTINGS PANEL] cuối script
+                 mỗi lần mở (bắt kịp trạng thái mới nhất). -->
+            <div id="boostSettingsOverlay" class="hidden" aria-hidden="true">
+                <div class="bst-backdrop" data-bst-close="1"></div>
+                <div class="bst-card" role="dialog" aria-modal="true" aria-label="Cài đặt hiển thị">
+                    <div class="bst-head">
+                        <div class="bst-head-title"><span class="material-symbols-outlined">settings</span>CÀI ĐẶT HIỂN THỊ</div>
+                        <button type="button" class="bst-close" data-bst-close="1" aria-label="Đóng"><span class="material-symbols-outlined">close</span></button>
+                    </div>
+                    <div class="bst-body" id="boostSettingsBody"></div>
                 </div>
             </div>
             <!-- MÀN HÌNH TỔNG KẾT BOOST (thiết kế mới: nút X tròn góc trên phải thay nút Kết thúc, hiện sẵn 2 danh sách) -->
@@ -26249,26 +26416,25 @@ window.handleBoostIntroClose = function() {
     }
 };
 
-// ===== 🟢 FOOTER GAME: EMOJI BIỂU CẢM (trái) — nút hành động (phải) =====
-// Góc trái footer = vùng emoji biểu cảm kết quả (vị trí nút THOÁT cũ — THOÁT đã trở
-// lại HEADER góc phải). Nút bên phải (SKIP / TIẾP THEO; game 11 giữa 2 bước:
-// TIẾP TỤC THẾ VÀO VỊ TRÍ SKIP — SKIP bị ẩn) không icon, chữ gạch chân 14px, sát mép phải thẳng hàng THẺ.
-// 🟢 AVATAR USER — góc trái ngoài cùng footer (đồng bộ nguồn với sideMenuAvatar:
-// Google OAuth avatar_url / picture, fallback 👤). Helper footer gọi trực tiếp;
-// footer HTML tĩnh được nạp lại ở renderBoostCard.
-function boostFooterAvatarHTML() {
-    const meta = (currentUser && currentUser.user_metadata) || {};
-    const url = meta.avatar_url || meta.picture || '';
-    const name = meta.full_name || meta.name || 'Bạn';
-    return url
-        ? '<img src="' + url + '" alt="' + name + '" title="' + name + '">'
-        : '👤';
+// ===== 🟢 FOOTER GAME: NÚT CÀI ĐẶT (trái) — nút hành động (phải) =====
+// Góc trái footer = NÚT CÀI ĐẶT HIỂN THỊ (icon bánh răng — vị trí nút THOÁT cũ,
+// sau đó là avatar user; THOÁT đã trở lại HEADER góc phải). Nút bên phải (SKIP /
+// TIẾP THEO; game 11 giữa 2 bước: TIẾP TỤC THẾ VÀO VỊ TRÍ SKIP — SKIP bị ẩn)
+// không icon, chữ gạch chân 14px, sát mép phải thẳng hàng THẺ.
+// 🟢 [BOOST SETTINGS — yêu cầu user 'Thay nút #boostFooterAvatar bằng nút
+//    setting (icon bánh răng)']: NÚT CÀI ĐẶT thay avatar user — markup tĩnh
+//    (không còn dữ liệu OAuth cần nạp lại mỗi thẻ). Click mở panel
+//    #boostSettingsOverlay — listener DELEGATION trên document (module
+//    [BOOST SETTINGS PANEL] cuối script) tự sống qua mọi lần footer bị
+//    render lại bởi boostFooterRowHTML, không cần gắn lại từng nút.
+function boostFooterSettingsHTML() {
+    return '<button id="boostFooterSettings" class="boost-footer-settings" type="button" title="Cài đặt hiển thị" aria-label="Cài đặt hiển thị"><span class="material-symbols-outlined">settings</span></button>';
 }
 
 function boostFooterRowHTML(rightBtnHTML) {
     return `
         <div class="boost-footer-row">
-            <div id="boostFooterAvatar" class="boost-footer-avatar">${boostFooterAvatarHTML()}</div>
+            ${boostFooterSettingsHTML()}
             <div id="boostFooterTimer" class="boost-footer-timer">${window.__boostFooterTimerHTML || ''}</div>
             ${rightBtnHTML || ''}
         </div>
@@ -26443,9 +26609,9 @@ function renderBoostCard() {
         }, 500);
     }
 
-    // 🟢 AVATAR USER — nạp avatar footer HTML tĩnh mỗi thẻ (footer helper tự gọi hàm)
-    const bfaEl = document.getElementById('boostFooterAvatar');
-    if (bfaEl) bfaEl.innerHTML = boostFooterAvatarHTML();
+    // 🟢 [BOOST SETTINGS]: nút cài đặt markup TĨNH (không còn avatar OAuth cần
+    // nạp lại mỗi thẻ — footer helper boostFooterRowHTML đã nhúng sẵn nút;
+    // click xử lý bằng delegation toàn cục trong module [BOOST SETTINGS PANEL])
 
     const zone = document.getElementById('boostInteractiveZone');
     const prompt = document.getElementById('boostPrompt');
@@ -54029,6 +54195,234 @@ function startMiniAssessment(card) {
             var exDark = new Image(); exDark.src = 'assets/ex-bg-dark.jpg';
         }, 2500);
     });
+
+    /* ================================================================
+       [BOOST SETTINGS PANEL — yêu cầu user 'Thay nút #boostFooterAvatar
+       bằng nút setting (icon bánh răng): đổi ảnh nền #boostCardDisplay /
+       thêm lựa chọn ảnh nền tối cho #boostQuestion / đổi font tiếng Nhật']
+       Module điều khiển panel #boostSettingsOverlay (markup tĩnh đặt ngay
+       sau #boostArea). Nằm TRONG IIFE rotator này để đọc TRỰC TIẾP pool
+       BOOST_BGS; API mở/đóng export qua window.__boostSettings.
+       3 nhóm cài đặt — tất cả ÁP DỤNG NGAY + lưu localStorage (minddeck_*),
+       phục hồi tự động ở khối INIT cuối module (không cần nút Lưu):
+       (1) ẢNH NỀN KHU VỰC GAME: gọi thẳng window.bgBoostSet(i) = apply()
+           của rotator (tự lo tone .bg-dark + nút '>' xoay tiếp từ ảnh vừa
+           chọn) — index hiện tại dò theo style.backgroundImage của
+           #boostArea (rotator giữ 'cur' private nên không đọc được trực
+           tiếp — dò chuỗi ảnh là cách không xâm phạm);
+       (2) ẢNH NỀN CÂU HỎI: body.qbg-dark bật/tắt — CSS [BOOST QBG DARK]
+           tự đổi da rule .kb-washi-bg có sẵn (áp dụng cả lên THẺ ĐANG
+           HIỆN — preview tức thì; game tiếp theo dọn class như cũ);
+       (3) FONT CHỮ TIẾNG NHẬT: đặt biến --boost-jp-font (CSS [BOOST JP
+           FONT] áp cho question + zone + kb-pool) + nạp lazy Google Fonts.
+       ================================================================ */
+    var BST_BG_KEY = 'minddeck_boost_bg';
+    var BST_QBG_KEY = 'minddeck_q_bg';
+    var BST_FONT_KEY = 'minddeck_jp_font';
+
+    /* Danh sách font tiếng Nhật — NGOÀI font hiện tại (Noto Sans JP) có:
+       + 2 font NÉT TRÒN đúng chất chữ nhãn trong ẢNH GALLERY đang dùng
+         (gothic tròn-terminal, nét đều, đậm dịu — Zen Maru Gothic nhẹ /
+         M PLUS Rounded 1c đậm);
+       + vài font đẹp gợi ý thêm: viết tay sách giáo khoa Nhật (Klee One —
+         chuẩn chữ mẫu học sinh), bút thư pháp (Yuji Syuku — hợp game Thư
+         Pháp Quán), pop tròn trẻ trung (RocknRoll One), pixel retro game
+         (DotGothic16), mincho sang trọng (Noto Serif JP — đã nạp sẵn cho
+         story reader, không tốn thêm request).
+       'stack' luôn về 'Noto Sans JP' làm fallback (đủ glyph JP + latin);
+       href rỗng = không cần nạp. Mỗi font nạp LAZY qua <link id="bst-font-
+       <id>"> chỉ khi được chọn / khi panel mở để render sample đúng font. */
+    var JP_FONTS = [
+        { id: 'noto',    name: 'Noto Sans JP',      desc: 'Hiện tại — Gothic chuẩn',   sample: '日本語 あいうえお', stack: "'Noto Sans JP', sans-serif", href: '' },
+        { id: 'zenmaru', name: 'Zen Maru Gothic',   desc: 'Gallery — nét tròn nhẹ',    sample: '日本語 あいうえお', stack: "'Zen Maru Gothic', 'Noto Sans JP', sans-serif", href: 'https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap' },
+        { id: 'mplus',   name: 'M PLUS Rounded 1c', desc: 'Gallery — nét tròn đậm',    sample: '日本語 あいうえお', stack: "'M PLUS Rounded 1c', 'Noto Sans JP', sans-serif", href: 'https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;900&display=swap' },
+        { id: 'klee',    name: 'Klee One',          desc: 'Viết tay sách giáo khoa',   sample: '日本語 あいうえお', stack: "'Klee One', 'Noto Sans JP', sans-serif", href: 'https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap' },
+        { id: 'yuji',    name: 'Yuji Syuku',        desc: 'Bút thư pháp (shodo)',     sample: '日本語 あいうえお', stack: "'Yuji Syuku', 'Noto Sans JP', serif", href: 'https://fonts.googleapis.com/css2?family=Yuji+Syuku&display=swap' },
+        { id: 'rock',    name: 'RocknRoll One',     desc: 'Pop tròn trẻ trung',       sample: '日本語 あいうえお', stack: "'RocknRoll One', 'Noto Sans JP', sans-serif", href: 'https://fonts.googleapis.com/css2?family=RocknRoll+One&display=swap' },
+        { id: 'dot',     name: 'DotGothic16',       desc: 'Pixel retro game',         sample: '日本語 あいうえお', stack: "'DotGothic16', 'Noto Sans JP', sans-serif", href: 'https://fonts.googleapis.com/css2?family=DotGothic16&display=swap' },
+        { id: 'serif',   name: 'Noto Serif JP',     desc: 'Mincho sang trọng',        sample: '日本語 あいうえお', stack: "'Noto Serif JP', serif", href: '' }
+    ];
+
+    function bstEnsureFontLink(f) {
+        if (!f.href || document.getElementById('bst-font-' + f.id)) return;
+        var link = document.createElement('link');
+        link.id = 'bst-font-' + f.id;
+        link.rel = 'stylesheet';
+        link.href = f.href;
+        document.head.appendChild(link);
+    }
+
+    function bstCurrentFontId() {
+        try {
+            var saved = localStorage.getItem(BST_FONT_KEY);
+            for (var i = 0; i < JP_FONTS.length; i++) {
+                if (JP_FONTS[i].id === saved) return saved;
+            }
+        } catch (e) { /* localStorage bị chặn → mặc định */ }
+        return 'noto';
+    }
+
+    function bstApplyFont(id, save) {
+        var f = null;
+        for (var i = 0; i < JP_FONTS.length; i++) {
+            if (JP_FONTS[i].id === id) { f = JP_FONTS[i]; break; }
+        }
+        if (!f) f = JP_FONTS[0];
+        bstEnsureFontLink(f);
+        /* Ghi đè biến trên <html> (inline style thắng :root mặc định); khi
+           quay về 'noto' cũng set lại stack mặc định — sạch sẽ tuyệt đối */
+        document.documentElement.style.setProperty('--boost-jp-font', f.stack);
+        if (save) { try { localStorage.setItem(BST_FONT_KEY, f.id); } catch (e) {} }
+    }
+
+    function bstCurrentQbg() {
+        try { return localStorage.getItem(BST_QBG_KEY) === 'dark' ? 'dark' : 'light'; }
+        catch (e) { return 'light'; }
+    }
+
+    function bstApplyQbg(mode, save) {
+        document.body.classList.toggle('qbg-dark', mode === 'dark');
+        if (save) { try { localStorage.setItem(BST_QBG_KEY, mode === 'dark' ? 'dark' : 'light'); } catch (e) {} }
+    }
+
+    function bstCurrentBgIndex() {
+        var el = document.getElementById('boostArea');
+        var cur = el ? (el.style.backgroundImage || '') : '';
+        for (var i = 0; i < BOOST_BGS.length; i++) {
+            if (cur.indexOf(BOOST_BGS[i].img) !== -1) return i;
+        }
+        return -1;
+    }
+
+    function bstApplyBg(i, save) {
+        if (i < 0 || i >= BOOST_BGS.length || !window.bgBoostSet) return;
+        window.bgBoostSet(i); /* apply() rotator: đổi ảnh + tone .bg-dark + spot-light nút '>' */
+        if (save) { try { localStorage.setItem(BST_BG_KEY, String(i)); } catch (e) {} }
+    }
+
+    function bstRenderPanel() {
+        var body = document.getElementById('boostSettingsBody');
+        if (!body) return;
+        var curBg = bstCurrentBgIndex();
+        var curQbg = bstCurrentQbg();
+        var curFont = bstCurrentFontId();
+
+        var bgTiles = BOOST_BGS.map(function (e, i) {
+            return '<button type="button" class="bst-bg-tile' + (i === curBg ? ' is-active' : '') + '" data-bst-bg="' + i + '" title="' + e.name + '">' +
+                '<span class="bst-bg-thumb" style="background-image: url(\'' + e.img + '\')"></span>' +
+                '<span class="bst-bg-name">' + e.name + '</span>' +
+                '<span class="bst-check"><span class="material-symbols-outlined">check</span></span>' +
+            '</button>';
+        }).join('');
+
+        var qbgTiles = [
+            { id: 'light', name: 'Giấy washi sáng', img: 'assets/ex-bg.jpg' },
+            { id: 'dark',  name: 'Giấy washi đêm',  img: 'assets/ex-bg-dark.jpg' }
+        ].map(function (q) {
+            return '<button type="button" class="bst-bg-tile' + (q.id === curQbg ? ' is-active' : '') + '" data-bst-qbg="' + q.id + '" title="' + q.name + '">' +
+                '<span class="bst-bg-thumb" style="background-image: url(\'' + q.img + '\')"></span>' +
+                '<span class="bst-bg-name">' + q.name + '</span>' +
+                '<span class="bst-check"><span class="material-symbols-outlined">check</span></span>' +
+            '</button>';
+        }).join('');
+
+        var fontRows = JP_FONTS.map(function (f) {
+            return '<button type="button" class="bst-font-row' + (f.id === curFont ? ' is-active' : '') + '" data-bst-font="' + f.id + '" title="' + f.name + ' — ' + f.desc + '">' +
+                '<span class="bst-font-sample" style="font-family: ' + f.stack + ';">' + f.sample + '</span>' +
+                '<span class="bst-font-meta"><span class="bst-font-name">' + f.name + '</span><span class="bst-font-desc">' + f.desc + '</span></span>' +
+                '<span class="bst-check"><span class="material-symbols-outlined">check</span></span>' +
+            '</button>';
+        }).join('');
+
+        body.innerHTML =
+            '<div class="bst-section">' +
+                '<div class="bst-section-title"><span class="material-symbols-outlined">wallpaper</span>Ảnh nền khu vực game</div>' +
+                '<p class="bst-section-note">Chọn 1 trong 6 ảnh nền hiện có của app (nút "&gt;" và vuốt sang trái vẫn xoay vòng như cũ).</p>' +
+                '<div class="bst-bg-grid">' + bgTiles + '</div>' +
+            '</div>' +
+            '<div class="bst-section">' +
+                '<div class="bst-section-title"><span class="material-symbols-outlined">texture</span>Ảnh nền câu hỏi — giấy washi</div>' +
+                '<p class="bst-section-note">Áp dụng cho game Xây dựng Kanji, Gõ Romaji và Sắp xếp cách đọc.</p>' +
+                '<div class="bst-qbg-grid">' + qbgTiles + '</div>' +
+            '</div>' +
+            '<div class="bst-section">' +
+                '<div class="bst-section-title"><span class="material-symbols-outlined">translate</span>Font chữ tiếng Nhật</div>' +
+                '<p class="bst-section-note">Áp dụng cho chữ Nhật trong khu vực game (câu hỏi + ô tương tác). Hai dòng đầu là chất chữ nét tròn của ảnh Gallery.</p>' +
+                '<div class="bst-font-list">' + fontRows + '</div>' +
+            '</div>';
+    }
+
+    function bstOpen() {
+        JP_FONTS.forEach(bstEnsureFontLink); /* nạp CSS mọi font để sample render đúng */
+        bstRenderPanel();
+        var ov = document.getElementById('boostSettingsOverlay');
+        if (ov) { ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false'); }
+    }
+
+    function bstClose() {
+        var ov = document.getElementById('boostSettingsOverlay');
+        if (ov) { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); }
+    }
+
+    window.__boostSettings = { open: bstOpen, close: bstClose };
+
+    /* DELEGATION toàn cục: (a) nút bánh răng #boostFooterSettings — nút được
+       render lại bởi boostFooterRowHTML mỗi thẻ nên listener phải bám document
+       (không gắn trực tiếp phần tử); (b) thao tác trong panel khi đang mở:
+       đóng (backdrop/X), chọn ảnh nền / washi / font — áp dụng NGAY + lưu +
+       render lại panel (kịp cập nhật huy hiệu is-active). */
+    document.addEventListener('click', function (e) {
+        var t = e.target;
+        if (!(t && t.closest)) return;
+        if (t.closest('#boostFooterSettings')) {
+            e.preventDefault();
+            var ov = document.getElementById('boostSettingsOverlay');
+            if (ov && !ov.classList.contains('hidden')) bstClose(); else bstOpen();
+            return;
+        }
+        var ov2 = document.getElementById('boostSettingsOverlay');
+        if (!ov2 || ov2.classList.contains('hidden')) return;
+        if (t.closest('[data-bst-close]')) { bstClose(); return; }
+        var bgTile = t.closest('[data-bst-bg]');
+        if (bgTile) {
+            bstApplyBg(parseInt(bgTile.getAttribute('data-bst-bg'), 10), true);
+            bstRenderPanel();
+            return;
+        }
+        var qTile = t.closest('[data-bst-qbg]');
+        if (qTile) {
+            bstApplyQbg(qTile.getAttribute('data-bst-qbg'), true);
+            bstRenderPanel();
+            return;
+        }
+        var fRow = t.closest('[data-bst-font]');
+        if (fRow) {
+            bstApplyFont(fRow.getAttribute('data-bst-font'), true);
+            bstRenderPanel();
+            return;
+        }
+    });
+
+    /* ESC đóng panel (không chặn các phím tắt khác — chỉ đóng khi đang mở) */
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        var ov = document.getElementById('boostSettingsOverlay');
+        if (ov && !ov.classList.contains('hidden')) bstClose();
+    });
+
+    /* INIT — phục hồi lựa chọn đã lưu (chạy 1 lần lúc tải, TRƯỚC khi trình
+       duyệt kịp paint nên không giật ảnh nền): ảnh nền boost đè lên lần random
+       của rotator; washi tối bật class body; font đặt biến --boost-jp-font
+       (+ nạp link font nếu đã từng chọn font khác). localStorage bị chặn
+       (private mode nghiêm ngặt) → mọi thứ về mặc định, KHÔNG crash. */
+    try {
+        var savedBgIdx = parseInt(localStorage.getItem(BST_BG_KEY) || '', 10);
+        if (!isNaN(savedBgIdx) && savedBgIdx >= 0 && savedBgIdx < BOOST_BGS.length) {
+            window.bgBoostSet(savedBgIdx);
+        }
+        bstApplyQbg(bstCurrentQbg(), false);
+        bstApplyFont(bstCurrentFontId(), false);
+    } catch (e) { /* localStorage không khả dụng → dùng mặc định */ }
 })();
 </script>
 <!-- ================= MODAL GIA SƯ AI (WINDOWS 11 STYLE) ================= -->
