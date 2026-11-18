@@ -13765,9 +13765,17 @@ body.qbg-dark #boostQuestion.kb-washi-bg .scramble-zone {
    #boostContentWrap chứ không nằm trong zone) + input/button/textarea trong
    zone. !important + specificity (1,1,x) thắng rule global 'body, button,
    input, textarea, select' (line 30) cùng !important nhưng (0,0,1) thấp hơn.
-   Chữ Việt (nghĩa, nhãn nút) lọt qua stack fallback: font JP không có dấu
-   tiếng Việt → rơi về 'Noto Sans JP' rồi system sans — đúng hành vi hôm nay
-   (Noto Sans JP cũng không có glyph Việt) nên không thoái hoá. */
+   🟢 [JP-ONLY ALIAS — yêu cầu user 'khi lựa chọn thay đổi font chữ tiếng
+   nhật thì chỉ thay đổi font tiếng nhật còn tiếng việt thì vẫn font chuẩn
+   noto san JP']: khi chọn font khác, biến nhận stack 'bst-jp-cur',
+   'Noto Sans JP', sans-serif — 'bst-jp-cur' là family ALIAS do JS
+   [JP-ONLY ALIAS] trong module panel sinh ra: fetch Google Fonts CSS của
+   font chọn, giữ CHỈ block @font-face có unicode-range NHẬT (kana/kanji/
+   fullwidth...), đổi tên family. Per-character: glyph NHẬT khớp range →
+   FONT CHỌN; glyph VIỆT/Latin không bị alias claim (block latin/
+   vietnamese của font JP đã lọc bỏ) → 'Noto Sans JP' (có sẵn subset
+   tiếng Việt) — CHỮ VIỆT LUÔN font chuẩn, hết nửa vời chữ không dấu
+   theo font JP. Mặc định 'noto' / offline (fetch lỗi) → stack thuần. */
 :root { --boost-jp-font: 'Noto Sans JP', sans-serif; }
 #boostArea #boostQuestion,
 #boostArea #boostInteractiveZone,
@@ -54372,8 +54380,10 @@ function startMiniAssessment(card) {
          Pháp Quán), pop tròn trẻ trung (RocknRoll One), pixel retro game
          (DotGothic16), mincho sang trọng (Noto Serif JP — đã nạp sẵn cho
          story reader, không tốn thêm request).
-       'stack' luôn về 'Noto Sans JP' làm fallback (đủ glyph JP + latin);
-       href rỗng = không cần nạp. Mỗi font nạp LAZY qua <link id="bst-font-
+       'stack' giờ chỉ còn 2 vai trò: render SAMPLE trong panel + FALLBACK
+       khi fetch alias lỗi (offline) — áp dụng THẬT cho game đi qua alias
+       JP-only 'bst-jp-cur' (xem [JP-ONLY ALIAS] ở bstApplyFont); href
+       rỗng = không cần nạp. Mỗi font nạp LAZY qua <link id="bst-font-
        <id>"> chỉ khi được chọn / khi panel mở để render sample đúng font. */
     var JP_FONTS = [
         { id: 'noto',    name: 'Noto Sans JP',      desc: 'Hiện tại — Gothic chuẩn',   sample: '日本語 あいうえお', stack: "'Noto Sans JP', sans-serif", href: '' },
@@ -54405,6 +54415,133 @@ function startMiniAssessment(card) {
         return 'noto';
     }
 
+    /* 🟢 [JP-ONLY ALIAS — yêu cầu user 'sửa lại cài đặt hiển thị
+       #boostSettingsOverlay: khi lựa chọn thay đổi font chữ tiếng nhật
+       thì chỉ thay đổi font tiếng nhật còn tiếng việt thì vẫn font chuẩn
+       noto san JP']: VẤN ĐỀ stack cũ — var áp NGUYÊN stack 'font JP chọn,
+       Noto Sans JP, sans-serif' lên MỌI glyph; nhiều font JP có subset
+       latin/vietnamese riêng (M PLUS Rounded 1c, Noto Serif JP, Klee One
+       latin...) nên CHỮ VIỆT trong game cũng đổi theo font JP (hoặc nửa
+       vời: chữ có dấu theo Noto, chữ không dấu theo font JP). GIẢI PHÁP
+       per-character bằng @font-face alias + unicode-range: fetch CHÍNH
+       URL Google Fonts CSS của font đang chọn → giữ lại chỉ các block
+       @font-face có unicode-range GIAO các dãi NHẬT (kana/kanji/fullwidth
+       ...) → đổi family thành 'bst-jp-cur' → nhét vào <style id="bst-jp-
+       alias">. Stack biến: 'bst-jp-cur', 'Noto Sans JP', sans-serif →
+       glyph NHẬT khớp range alias → FONT CHỌN; glyph Việt/Latin không bị
+       alias claim (block latin/vietnamese đã lọc bỏ) → rơi tiếp 'Noto
+       Sans JP' — đúng bộ font chuẩn toàn app (Noto Sans JP có sẵn subset
+       tiếng Việt, link head dòng 18). fetch lỗi (offline) → fallback stack
+       cũ f.stack — không thoái hoá. Cache theo fontId; bstAliasSeq chống
+       race khi chuyển nhanh giữa các font. */
+    var BST_ALIAS_FAMILY = 'bst-jp-cur';
+    var BST_ALIAS_STYLE_ID = 'bst-jp-alias';
+    var bstAliasCache = {}; /* fontId -> CSS alias ('' = đã thử & lỗi) */
+    var bstAliasSeq = 0;    /* tăng mỗi lần đổi font — hủy kết quả cũ */
+    /* Dãi glyph NHẬT — bộ tiêu chuẩn để (a) chọn block @font-face
+       'japanese' và (b) REWRITE unicode-range của block đó: CJK punct
+       3000-303F + hiragana 3040-309F + katakana 30A0-30FF + kanbun
+       3190-319F + katakana phonetic ext 31F0-31FF + CJK strokes 31C0-31EF
+       + radicals supplement 2E80-2EFF + Kangxi radicals 2F00-2FDF + CJK
+       thống nhất 4E00-9FFF + Ext A 3400-4DBF + Ext B..G 20000-3134A +
+       compat ideographs F900-FAFF + vertical forms FE10-FE19 + CJK compat
+       forms FE30-FE4F + fullwidth/halfwidth-kana FF00-FFEF + enclosed CJK
+       3200-33FF + fullwidth latin/digits 1F100-1F1FF + enclosed ideographic
+       1F200-1F2FF + kana supplement 1B000-1B16F. Mọi dãi ≥ 0x2E80 nên
+       KHÔNG giao latin/latin-ext/vietnamese (≤ 0x24FF) → token chứa dấu
+       tiếng Việt/látin lẫn trong block japanese (Google xếp U+a8, U+2227,
+       U+1ea0-1ef9... chung block với glyph Nhật) bị CẮT khỏi alias. */
+    var BST_JP_RANGES = [
+        [0x2E80, 0x2EFF], [0x2F00, 0x2FDF], [0x3000, 0x303F], [0x3040, 0x309F],
+        [0x30A0, 0x30FF], [0x3190, 0x319F], [0x31C0, 0x31EF], [0x31F0, 0x31FF],
+        [0x3200, 0x33FF], [0x3400, 0x4DBF], [0x4E00, 0x9FFF],
+        [0xF900, 0xFAFF], [0xFE10, 0xFE19], [0xFE30, 0xFE4F], [0xFF00, 0xFFEF],
+        [0x1B000, 0x1B16F], [0x1F100, 0x1F1FF], [0x1F200, 0x1F2FF],
+        [0x20000, 0x3134A]
+    ];
+    function bstRangeInJp(s, e) {
+        for (var j = 0; j < BST_JP_RANGES.length; j++) {
+            if (s <= BST_JP_RANGES[j][1] && e >= BST_JP_RANGES[j][0]) return true;
+        }
+        return false;
+    }
+    function bstRangeHasJp(rangeStr) {
+        var toks = rangeStr.split(',');
+        for (var i = 0; i < toks.length; i++) {
+            var m = toks[i].trim().match(/^[uU]\+([0-9a-fA-F]+)(?:-([0-9a-fA-F]+))?$/);
+            if (!m) continue;
+            var s = parseInt(m[1], 16);
+            var e = m[2] ? parseInt(m[2], 16) : s;
+            if (bstRangeInJp(s, e)) return true;
+        }
+        return false;
+    }
+    /* Build alias CSS: với MỖI block (a) đổi family thành 'bst-jp-cur';
+       (b) REWRITE unicode-range — chỉ giữ token giao dãi NHẬT (token
+       latin/vietnamese lẫn trong block japanese bị cắt bỏ → alias không
+       bao giờ claim dấu/chữ Việt); (c) block không còn token Nhật nào
+       (block latin/vietnamese/cyrillic thuần) bị bỏ hẳn. Nhờ đó stack
+       'bst-jp-cur', 'Noto Sans JP', sans-serif phân tuyến PER-CHARACTER:
+       glyph Nhật → font chọn, glyph Việt/Latin → Noto Sans JP chuẩn. */
+    function bstBuildAliasCss(cssText) {
+        var blocks = cssText.match(/@font-face\s*\{[^}]*\}/g) || [];
+        var out = [];
+        for (var i = 0; i < blocks.length; i++) {
+            var b = blocks[i];
+            var m = b.match(/unicode-range:\s*([^;}]+)/i);
+            if (!m) continue; /* không range → claim cả font → bỏ an toàn */
+            var toks = m[1].split(',');
+            var jpToks = [];
+            for (var k = 0; k < toks.length; k++) {
+                var t = toks[k].trim();
+                var mm = t.match(/^[uU]\+([0-9a-fA-F]+)(?:-([0-9a-fA-F]+))?$/);
+                if (!mm) continue;
+                var s = parseInt(mm[1], 16);
+                var e = mm[2] ? parseInt(mm[2], 16) : s;
+                if (bstRangeInJp(s, e)) jpToks.push(t);
+            }
+            if (!jpToks.length) continue; /* bỏ block latin/vietnamese/... */
+            out.push(b
+                .replace(/font-family:\s*'[^']*'/i, "font-family: '" + BST_ALIAS_FAMILY + "'")
+                .replace(/unicode-range:\s*[^;}]+/i, 'unicode-range: ' + jpToks.join(', ')));
+        }
+        return out.join('\n');
+    }
+    function bstInjectAlias(css) {
+        var el = document.getElementById(BST_ALIAS_STYLE_ID);
+        if (!el) {
+            el = document.createElement('style');
+            el.id = BST_ALIAS_STYLE_ID;
+            document.head.appendChild(el);
+        }
+        el.textContent = css;
+    }
+    function bstLoadAlias(f) {
+        var seq = ++bstAliasSeq;
+        if (Object.prototype.hasOwnProperty.call(bstAliasCache, f.id)) {
+            var cached = bstAliasCache[f.id];
+            if (cached) bstInjectAlias(cached);
+            else document.documentElement.style.setProperty('--boost-jp-font', f.stack);
+            return;
+        }
+        var stale = document.getElementById(BST_ALIAS_STYLE_ID);
+        if (stale) stale.remove(); /* tránh nháy font cũ trong lúc fetch */
+        /* 'serif' href rỗng (Noto Serif JP đã nạp sẵn link head dòng 18) —
+           dùng URL css2 tương đương weights của link đó để fetch bản text */
+        var url = f.href || 'https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;600;700&display=swap';
+        fetch(url).then(function (r) { return r.text(); }).then(function (t) {
+            var css = bstBuildAliasCss(t);
+            bstAliasCache[f.id] = css;
+            if (seq !== bstAliasSeq) return; /* user đã đổi font khác */
+            if (css) bstInjectAlias(css);
+            else document.documentElement.style.setProperty('--boost-jp-font', f.stack);
+        }).catch(function () {
+            bstAliasCache[f.id] = '';
+            if (seq === bstAliasSeq) {
+                document.documentElement.style.setProperty('--boost-jp-font', f.stack);
+            }
+        });
+    }
     function bstApplyFont(id, save) {
         var f = null;
         for (var i = 0; i < JP_FONTS.length; i++) {
@@ -54413,8 +54550,20 @@ function startMiniAssessment(card) {
         if (!f) f = JP_FONTS[0];
         bstEnsureFontLink(f);
         /* Ghi đè biến trên <html> (inline style thắng :root mặc định); khi
-           quay về 'noto' cũng set lại stack mặc định — sạch sẽ tuyệt đối */
-        document.documentElement.style.setProperty('--boost-jp-font', f.stack);
+           quay về 'noto' cũng set lại stack mặc định — sạch sẽ tuyệt đối.
+           🟢 [JP-ONLY ALIAS]: font khác 'noto' → stack alias 'bst-jp-cur'
+           (chỉ claim glyph NHẬT) + Noto Sans JP cho phần Việt/Latin; alias
+           build BẤT ĐỒNG BỘ qua fetch — font-display swap lo phần chờ. */
+        if (f.id === 'noto') {
+            var oldAlias = document.getElementById(BST_ALIAS_STYLE_ID);
+            if (oldAlias) oldAlias.remove();
+            bstAliasSeq++; /* hủy fetch đang treo của font trước */
+            document.documentElement.style.setProperty('--boost-jp-font', f.stack);
+        } else {
+            document.documentElement.style.setProperty('--boost-jp-font',
+                "'" + BST_ALIAS_FAMILY + "', 'Noto Sans JP', sans-serif");
+            bstLoadAlias(f);
+        }
         if (save) { try { localStorage.setItem(BST_FONT_KEY, f.id); } catch (e) {} }
     }
 
@@ -54490,7 +54639,7 @@ function startMiniAssessment(card) {
             '</div>' +
             '<div class="bst-section">' +
                 '<div class="bst-section-title"><span class="material-symbols-outlined">translate</span>Font chữ tiếng Nhật</div>' +
-                '<p class="bst-section-note">Áp dụng cho chữ Nhật trong khu vực game (câu hỏi + ô tương tác). Hai dòng đầu là chất chữ nét tròn của ảnh Gallery.</p>' +
+                '<p class="bst-section-note">Áp dụng cho CHỮ NHẬT trong khu vực game (câu hỏi + ô tương tác) — chữ Việt luôn giữ font chuẩn Noto Sans JP. Hai dòng đầu là chất chữ nét tròn của ảnh Gallery.</p>' +
                 '<div class="bst-font-list">' + fontRows + '</div>' +
             '</div>';
     }
