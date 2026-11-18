@@ -4765,6 +4765,15 @@ body.game-fullscreen-mode .unified-study-container:has(> #boostArea:not(.hidden)
 .bst-font-name { font-size: 11px; font-weight: 800; color: #0f766e; }
 .bst-font-desc { font-size: 10px; color: #94a3b8; }
 .bst-font-row.is-active .bst-check { display: flex; }
+/* 🟢 [JP FONT APPWIDE TOGGLE — hàng bật/tắt 'Áp dụng cho toàn bộ app' ở
+   cuối danh sách font trong panel (yêu cầu user 'thêm tùy chọn áp dụng
+   font tiếng nhật cho toàn bộ app')]: viền GẠCH ĐỨT phân biệt 'tùy chọn
+   phạm vi áp dụng' với các hàng chọn font (viền liền); khi BẬT, lớp
+   .is-active có sẵn cho viền LIỀN + màu teal + huy hiệu check. Rule đặt
+   SAU .bst-font-row (cùng specificity 0,1,0) nên đè border-style của
+   shorthand 'border: 2px solid' trong base. */
+.bst-appwide-toggle { border-style: dashed; }
+.bst-appwide-toggle.is-active { border-style: solid; }
 @media (max-width: 480px) {
     .bst-bg-grid { grid-template-columns: repeat(2, 1fr); }
     .bst-card { max-height: 90vh; }
@@ -13775,7 +13784,11 @@ body.qbg-dark #boostQuestion.kb-washi-bg .scramble-zone {
    FONT CHỌN; glyph VIỆT/Latin không bị alias claim (block latin/
    vietnamese của font JP đã lọc bỏ) → 'Noto Sans JP' (có sẵn subset
    tiếng Việt) — CHỮ VIỆT LUÔN font chuẩn, hết nửa vời chữ không dấu
-   theo font JP. Mặc định 'noto' / offline (fetch lỗi) → stack thuần. */
+   theo font JP. Mặc định 'noto' / offline (fetch lỗi) → stack thuần.
+   🟢 [JP FONT APPWIDE]: toggle 'Áp dụng cho toàn bộ app' trong panel
+   bật class body.bst-jp-appwide — rule [JP FONT APPWIDE] ngay dưới
+   đưa stack này vào CHÍNH rule font gốc toàn app (line 30) nên chữ
+   Nhật ngoài khu vực game cũng theo font chọn (chữ Việt vẫn Noto). */
 :root { --boost-jp-font: 'Noto Sans JP', sans-serif; }
 #boostArea #boostQuestion,
 #boostArea #boostInteractiveZone,
@@ -13783,6 +13796,30 @@ body.qbg-dark #boostQuestion.kb-washi-bg .scramble-zone {
 #boostArea #boostInteractiveZone input,
 #boostArea #boostInteractiveZone button,
 #boostArea #boostInteractiveZone textarea {
+    font-family: var(--boost-jp-font) !important;
+}
+/* 🟢 [JP FONT APPWIDE — yêu cầu user 'thêm tùy chọn áp dụng font tiếng nhật
+   cho toàn bộ app vào trong Panel Cài đặt hiển thị']: hàng bật/tắt cuối
+   danh sách font trong panel thêm/bỏ class body.bst-jp-appwide. Khi BẬT,
+   stack --boost-jp-font (alias JP-only 'bst-jp-cur' + Noto Sans JP) được
+   đưa vào CHÍNH bộ chọn của rule font GỐC toàn app (line 30: 'body,
+   button, input, textarea, select') → chữ Nhật NGOÀI khu vực game (menu,
+   từ điển, gallery, chat, mini-game, story...) cũng theo font chọn; chữ
+   Việt/Latin vẫn rơi 'Noto Sans JP' chuẩn nhờ phân tuyến per-character
+   của alias. :not(.material-symbols-outlined) trên button/input giữ FONT
+   ICON nếu mai sau gán icon trực tiếp lên nút (hiện icon luôn nằm trên
+   <span> nên không bị chạm); phần tử CÓ rule font riêng vẫn giữ chủ ý
+   thiết kế (.win11-modal Segoe UI — là div không match selector; sample
+   font trong panel là inline...). Specificity (0,1,1)/(0,2,2) +
+   !important thắng rule gốc (0,0,1) và các rule class !important
+   (.login-btn/.ai-mode-trigger (0,1,0)); khu vực boost có rule ID riêng
+   cùng giá trị biến — không xung đột. Font 'noto' hoặc TẮT → stack mặc
+   định trùng font gốc app → KHÔNG đổi hình thức. */
+body.bst-jp-appwide,
+body.bst-jp-appwide button:not(.material-symbols-outlined),
+body.bst-jp-appwide input:not(.material-symbols-outlined),
+body.bst-jp-appwide textarea,
+body.bst-jp-appwide select {
     font-family: var(--boost-jp-font) !important;
 }
 
@@ -17370,7 +17407,8 @@ body.login-mode .app-header { display: none !important; }
             <!-- ⚙️ PANEL CÀI ĐẶT HIỂN THỊ (mở bằng nút bánh răng footer game):
                  (1) ảnh nền khu vực game (6 ảnh pool dùng chung login/boost);
                  (2) ảnh nền câu hỏi — giấy washi sáng/tối (body.qbg-dark);
-                 (3) font chữ tiếng Nhật (--boost-jp-font, nạp lazy Google Fonts).
+                 (3) font chữ tiếng Nhật (--boost-jp-font, nạp lazy Google Fonts)
+                     + tùy chọn ÁP DỤNG TOÀN BỘ app (class body.bst-jp-appwide).
                  Overlay position:fixed z-index 17000 — đặt NGOÀI #boostArea
                  (thoát mọi stacking context của khu vực game); markup rỗng tĩnh,
                  nội dung render bởi module [BOOST SETTINGS PANEL] cuối script
@@ -54365,11 +54403,14 @@ function startMiniAssessment(card) {
            tự đổi da rule .kb-washi-bg có sẵn (áp dụng cả lên THẺ ĐANG
            HIỆN — preview tức thì; game tiếp theo dọn class như cũ);
        (3) FONT CHỮ TIẾNG NHẬT: đặt biến --boost-jp-font (CSS [BOOST JP
-           FONT] áp cho question + zone + kb-pool) + nạp lazy Google Fonts.
+           FONT] áp cho question + zone + kb-pool) + nạp lazy Google Fonts
+           + tùy chọn ÁP DỤNG TOÀN BỘ app (class body.bst-jp-appwide — CSS
+           [JP FONT APPWIDE] đưa stack vào rule font gốc toàn app line 30).
        ================================================================ */
     var BST_BG_KEY = 'minddeck_boost_bg';
     var BST_QBG_KEY = 'minddeck_q_bg';
     var BST_FONT_KEY = 'minddeck_jp_font';
+    var BST_APPWIDE_KEY = 'minddeck_jp_font_appwide';
 
     /* Danh sách font tiếng Nhật — NGOÀI font hiện tại (Noto Sans JP) có:
        + 2 font NÉT TRÒN đúng chất chữ nhãn trong ẢNH GALLERY đang dùng
@@ -54567,6 +54608,26 @@ function startMiniAssessment(card) {
         if (save) { try { localStorage.setItem(BST_FONT_KEY, f.id); } catch (e) {} }
     }
 
+    /* 🟢 [JP FONT APPWIDE — yêu cầu user 'thêm tùy chọn áp dụng font tiếng
+       nhật cho toàn bộ app vào trong Panel Cài đặt hiển thị']: trạng thái
+       hàng bật/tắt cuối danh sách font trong panel. BẬT → class
+       body.bst-jp-appwide → CSS [JP FONT APPWIDE] (ngay dưới [BOOST JP
+       FONT]) đưa stack --boost-jp-font vào rule font GỐC toàn app (line
+       30: body/button/input/textarea/select) — mọi chữ Nhật NGOÀI khu vực
+       game (menu, từ điển, gallery, chat, mini-game, story...) cũng chạy
+       qua alias per-character: glyph Nhật → font chọn, glyph Việt/Latin →
+       'Noto Sans JP' chuẩn. TẮT → bỏ class → về mặc định CHỈ khu vực game.
+       Font 'noto' + BẬT = vô hình (stack mặc định trùng font gốc app).
+       Lưu '1'/'0' vào localStorage (BST_APPWIDE_KEY), phục hồi ở INIT. */
+    function bstCurrentAppwide() {
+        try { return localStorage.getItem(BST_APPWIDE_KEY) === '1'; }
+        catch (e) { return false; }
+    }
+    function bstApplyAppwide(on, save) {
+        document.body.classList.toggle('bst-jp-appwide', !!on);
+        if (save) { try { localStorage.setItem(BST_APPWIDE_KEY, on ? '1' : '0'); } catch (e) {} }
+    }
+
     function bstCurrentQbg() {
         try { return localStorage.getItem(BST_QBG_KEY) === 'dark' ? 'dark' : 'light'; }
         catch (e) { return 'light'; }
@@ -54598,6 +54659,7 @@ function startMiniAssessment(card) {
         var curBg = bstCurrentBgIndex();
         var curQbg = bstCurrentQbg();
         var curFont = bstCurrentFontId();
+        var curAppwide = bstCurrentAppwide();
 
         var bgTiles = BOOST_BGS.map(function (e, i) {
             return '<button type="button" class="bst-bg-tile' + (i === curBg ? ' is-active' : '') + '" data-bst-bg="' + i + '" title="' + e.name + '">' +
@@ -54626,6 +54688,22 @@ function startMiniAssessment(card) {
             '</button>';
         }).join('');
 
+        /* Hàng bật/tắt ÁP DỤNG TOÀN BỘ app — cuối danh sách font: dáng
+           .bst-font-row dùng chung + viền gạch chữ (.bst-appwide-toggle)
+           + huy hiệu check .is-active như các hàng chọn. Sample stack =
+           stack HIỆN TẠI của biến ('noto' → stack thuần; font khác →
+           stack alias 'bst-jp-cur') nên chữ Nhật sample luôn khớp font
+           vừa chọn, phần tiếng Việt luôn Noto — mini-demo phân tuyến
+           per-character ngay trong hàng. Desc đổi theo trạng thái. */
+        var curStack = curFont === 'noto'
+            ? "'Noto Sans JP', sans-serif"
+            : "'" + BST_ALIAS_FAMILY + "', 'Noto Sans JP', sans-serif";
+        var appwideRow =
+            '<button type="button" class="bst-font-row bst-appwide-toggle' + (curAppwide ? ' is-active' : '') + '" data-bst-appwide="1" title="Áp dụng font tiếng Nhật cho toàn bộ app">' +
+                '<span class="bst-font-sample" style="font-family: ' + curStack + ';">日本語・Tiếng Việt</span>' +
+                '<span class="bst-font-meta"><span class="bst-font-name">Áp dụng cho toàn bộ app</span><span class="bst-font-desc">' + (curAppwide ? 'Đang BẬT — mọi chữ Nhật trong app' : 'Đang TẮT — chỉ khu vực game boost') + '</span></span>' +
+                '<span class="bst-check"><span class="material-symbols-outlined">check</span></span>' +
+            '</button>';
         body.innerHTML =
             '<div class="bst-section">' +
                 '<div class="bst-section-title"><span class="material-symbols-outlined">wallpaper</span>Ảnh nền khu vực game</div>' +
@@ -54639,8 +54717,8 @@ function startMiniAssessment(card) {
             '</div>' +
             '<div class="bst-section">' +
                 '<div class="bst-section-title"><span class="material-symbols-outlined">translate</span>Font chữ tiếng Nhật</div>' +
-                '<p class="bst-section-note">Áp dụng cho CHỮ NHẬT trong khu vực game (câu hỏi + ô tương tác) — chữ Việt luôn giữ font chuẩn Noto Sans JP. Hai dòng đầu là chất chữ nét tròn của ảnh Gallery.</p>' +
-                '<div class="bst-font-list">' + fontRows + '</div>' +
+                '<p class="bst-section-note">Áp dụng cho CHỮ NHẬT — mặc định trong khu vực game (câu hỏi + ô tương tác); bật hàng cuối danh sách để mở rộng TOÀN BỘ app. Chữ Việt luôn giữ font chuẩn Noto Sans JP. Hai dòng đầu là chất chữ nét tròn của ảnh Gallery.</p>' +
+                '<div class="bst-font-list">' + fontRows + appwideRow + '</div>' +
             '</div>';
     }
 
@@ -54687,6 +54765,12 @@ function startMiniAssessment(card) {
             bstRenderPanel();
             return;
         }
+        var awRow = t.closest('[data-bst-appwide]');
+        if (awRow) {
+            bstApplyAppwide(!bstCurrentAppwide(), true);
+            bstRenderPanel();
+            return;
+        }
         var fRow = t.closest('[data-bst-font]');
         if (fRow) {
             bstApplyFont(fRow.getAttribute('data-bst-font'), true);
@@ -54705,6 +54789,7 @@ function startMiniAssessment(card) {
     /* INIT — phục hồi lựa chọn đã lưu (chạy 1 lần lúc tải, TRƯỚC khi trình
        duyệt kịp paint nên không giật ảnh nền): ảnh nền boost đè lên lần random
        của rotator; washi tối bật class body; font đặt biến --boost-jp-font
+       + class body.bst-jp-appwide (tùy chọn áp dụng font tiếng Nhật toàn app)
        (+ nạp link font nếu đã từng chọn font khác). localStorage bị chặn
        (private mode nghiêm ngặt) → mọi thứ về mặc định, KHÔNG crash. */
     try {
@@ -54714,6 +54799,7 @@ function startMiniAssessment(card) {
         }
         bstApplyQbg(bstCurrentQbg(), false);
         bstApplyFont(bstCurrentFontId(), false);
+        bstApplyAppwide(bstCurrentAppwide(), false);
     } catch (e) { /* localStorage không khả dụng → dùng mặc định */ }
 })();
 </script>
