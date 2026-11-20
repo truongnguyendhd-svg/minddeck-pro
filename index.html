@@ -13207,6 +13207,80 @@ body.grammar-searching #headerGrammarSearch {
     }
 }
 
+/* 🟢 [STUDY GLASS STACK — sửa user 'thiết kế lại #studyOptionsModal giống
+   #remedialCardBody'] Tấm kính của modal BẮT ĐẦU HỌC (#studyOptionsModal):
+   renderStudyCard (~line 48582) giờ render wrapper mang class .study-glass-stack
+   (trước đây div ẩn danh inline flex column + gap 12px). Áp CÔNG THỨC Y HỆT
+   tấm kính remedial (#remedialCardBody > .remedial-glass-stack phía trên):
+   gradient trắng 22%→6%→3% + blur 20px saturate 135%, viền trắng mềm
+   0.45/0.70 (top sáng hơn), bóng ấm 0 18px 42px, padding 26px 30px, VUÔNG
+   (radius 0), max-width 680px, margin auto — CẢ V-CENTER DỌC như remedial
+   ([V-CENTER] line ~12944): #studyCardBody thêm display flex column và tấm
+   kính margin: auto → thẻ ngắn hơn vùng nhìn thì căn giữa DỌC + NGANG
+   (lơ lửng giữa body — điểm nhận diện chính của thiết kế remedial mà VLM
+   so sánh screenshots ghi nhận thiếu); thẻ dài hơn thì margin auto co về 0,
+   cuộn từ đỉnh như cũ (không cắt đầu nội dung). Selector 2-ID chốt
+   #studyOptionsModal: không đụng infoModal (showInfoModal ~line 30337 vẫn
+   wrapper ẩn danh) và không đụng remedial (class khác). Memory-test mobile
+   (media 899px, line ~8632) chọn `> div > .study-card-khoi1` — khớp wrapper
+   .study-glass-stack (là div con trực tiếp của #studyCardBody) như cũ, vì
+   selector đó bám TAG div chứ không phải inline style. Trạng thái rỗng
+   ('Chưa có thẻ nào') / lazy-load spinner cũng được căn giữa dọc qua rule
+   > div:not(.study-glass-stack) margin auto — đồng bộ nhịp v-center. */
+#studyOptionsModal .study-modal-body {
+    display: flex;
+    flex-direction: column;
+}
+#studyOptionsModal .study-modal-body > .study-glass-stack {
+    border-radius: 0;
+    background: linear-gradient(150deg,
+        rgba(255, 255, 255, 0.22) 0%,
+        rgba(255, 255, 255, 0.06) 55%,
+        rgba(255, 255, 255, 0.03) 100%);
+    backdrop-filter: blur(20px) saturate(135%);
+    -webkit-backdrop-filter: blur(20px) saturate(135%);
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    border-top: 1px solid rgba(255, 255, 255, 0.70);
+    box-shadow: 0 18px 42px rgba(120, 90, 60, 0.20);
+    padding: 26px 30px;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 680px;
+    /* V-CENTER: margin auto (dọc + ngang) — thẻ ngắn căn giữa body, dài thì co về 0 */
+    margin: auto;
+}
+/* Trạng thái rỗng / loading spinner (div ẩn danh không phải glass-stack):
+   cùng cơ chế căn giữa dọc của body flex column */
+#studyOptionsModal .study-modal-body > div:not(.study-glass-stack) {
+    margin: auto;
+}
+/* Mobile: gọn padding kính study như remedial (line phía trên) */
+@media (max-width: 600px) {
+    #studyOptionsModal .study-modal-body > .study-glass-stack {
+        padding: 22px 18px;
+    }
+}
+/* 🟢 KHỐI 1 trắng đặc + vuông + sát liền example block — Y HỆT remedial
+   ([KHỐI 1 TRẮNG + SÁT LIỀN] line ~12884): .study-card-khoi1 (reading +
+   từ lớn + HV + nghĩa — inline padding 10px 20px 25px từ renderStudyCard)
+   nền trắng ĐẶC, radius 0 vuông vức. Margin-top -12px chỉ khi KHỐI 1 đứng
+   LIỀN TRƯỚC example block (:has() — không có .glass-info-card chen giữa);
+   :not(.memory-test-active) chống kéo lệch khối test khi KHỐI 1 bị ẩn
+   (rule media 899px line ~8632 ẩn KHỐI 1 nhưng nó vẫn nằm trong DOM). */
+#studyOptionsModal .study-modal-body > .study-glass-stack > .study-card-khoi1 {
+    background: #ffffff;
+    border-radius: 0;
+}
+#studyOptionsModal .study-modal-body:not(.memory-test-active) > .study-glass-stack > .study-card-khoi1:has(+ .example-sentence-block) + .example-sentence-block {
+    margin-top: -12px;
+}
+/* 🟢 Placeholder 'Thẻ này chưa có thông tin...' khi KHỐI 1 đứng liền trước:
+   kéo sát luôn (đồng bộ nhịp liền khối) — .glass-info-card chen giữa thì KHÔNG
+   match, giữ khoảng thở 12px như remedial. */
+#studyOptionsModal .study-modal-body:not(.memory-test-active) > .study-glass-stack > .study-card-khoi1:has(+ div > .material-symbols-outlined) + div {
+    margin-top: -12px;
+}
+
 /* Footer: Prev (icon sát trái) | 1/15 (giữa) | Next (icon sát phải) */
 #remedialReviewModal .remedial-footer {
     display: flex; align-items: center; justify-content: space-between;
@@ -48579,7 +48653,12 @@ function renderStudyCard() {
     currentIndex = studyState.index;
 
     const parsed = parseCardData(c);
-    let html = '<div style="display: flex; flex-direction: column; gap: 12px; padding-bottom: 10px;">';
+    // 🟢 [STUDY GLASS STACK — sửa user 'thiết kế lại #studyOptionsModal giống
+    // #remedialCardBody'] Wrapper cha chung của KHỐI 1 và các example block:
+    // trước đây là div ẩn danh inline (flex column + gap 12px + padding-bottom
+    // 10px) — giờ gán class .study-glass-stack, tấm kính Y HỆT
+    // .remedial-glass-stack (CSS khối [STUDY GLASS STACK]).
+    let html = '<div class="study-glass-stack" style="display: flex; flex-direction: column; gap: 12px; padding-bottom: 10px;">';
     // KHỐI 1: Reading + Front + HV + Meaning (nghĩa xuống dưới Hán-Việt)
     html += `
         <div class="study-card-khoi1" style="padding: 10px 20px 25px 20px; text-align: center; position: relative;">
