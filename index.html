@@ -9693,12 +9693,9 @@ body.guest-mode .dash-games-split { grid-template-columns: minmax(0, 1fr); }
     background: #0067c0;
     box-shadow: 0 4px 14px rgba(0, 103, 192, 0.35);
 }
-/* Active state cho nút FLASHCARD khi sidebar mở */
-#btnStudyFlashcard.active {
-    background: rgba(0, 103, 192, 0.08);
-    border-color: #0067c0;
-    color: #0067c0;
-}
+/* [SỬA 20/11] Nút FLASHCARD footer đã BỎ — thay bằng nút bánh răng #btnStudySettings
+   mở panel cài đặt #studySettingsOverlay (không cần state active — overlay tự đảo
+   che khi mở). Rule active cũ của #btnStudyFlashcard được dọn tại đây. */
 
 /* ================= FIX MOBILE: Sidebar overlay + footer compact ================= */
 @media (max-width: 767px) {
@@ -13280,6 +13277,175 @@ body.grammar-searching #headerGrammarSearch {
 #studyOptionsModal .study-modal-body:not(.memory-test-active) > .study-glass-stack > .study-card-khoi1:has(+ div > .material-symbols-outlined) + div {
     margin-top: -12px;
 }
+
+/* ================= 🟢 [SỬA USER 20/11 — THIẾT KẾ LẠI #studyOptionsModal] =================
+   4 thay đổi theo yêu cầu:
+   (1) Nút "Tùy chọn sửa" chuyển lên KHỐI 1 (.study-card-khoi1) — icon bút chì,
+       KHÔNG nền KHÔNG viền; dropdown #studyEditDropdown mở XUỐNG từ nút (trước đây
+       pill nằm ở #studyEditPillRow và dropdown mở lên).
+   (2) #studyEditPillRow chỉ còn dòng chữ nhỏ hướng dẫn (.study-start-hint).
+   (3) Nút footer FLASHCARD → nút bánh răng #btnStudySettings mở panel cài đặt
+       hiển thị #studySettingsOverlay (clone #remedialSettingsOverlay).
+   (4) #studyProgressText nhấn được → modal danh sách thẻ #studyCardListModal
+       (thay dropdown #flashcardDropdown cũ): VUÔNG VỨC không bo góc, giữa màn hình. */
+
+/* (1) Nút bút chì trong KHỐI 1 — icon-only, transparent, không viền */
+.study-khoi1-edit-wrap {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 5;
+}
+.study-khoi1-edit-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    background: transparent;   /* không nền */
+    border: none;              /* không viền */
+    color: #9ca3af;
+    cursor: pointer;
+    padding: 0;
+    border-radius: 0;
+    transition: color 0.15s ease;
+    font-family: 'Noto Sans JP', sans-serif;
+}
+.study-khoi1-edit-btn:hover { color: #0067c0; }
+.study-khoi1-edit-btn .material-symbols-outlined { font-size: 20px; }
+
+/* (2) Dòng chữ nhỏ hướng dẫn trong #studyEditPillRow */
+.study-start-hint {
+    font-size: 12px;
+    font-weight: 500;
+    color: #9ca3af;
+    letter-spacing: 0.2px;
+    line-height: 1.4;
+    text-align: center;
+    user-select: none;
+}
+
+/* (3) [STUDY SETTINGS] Panel cài đặt hiển thị — clone #remedialSettingsOverlay
+       (z-index 13500: trên study modal + dropdown 13002 của nó; dưới aiResponse
+       14100 / xray 14200 / cloudExample 14600). Tái dụng hệ class .rem-set-*
+       (global, đặt tại khối [REMEDIAL SETTINGS]) — chỉ cần scope lại phần tile
+       dùng chung .bst-bg-tile cho đúng overlay này. */
+#studySettingsOverlay { position: fixed; inset: 0; z-index: 13500; display: flex; align-items: center; justify-content: center; padding: 16px; }
+#studySettingsOverlay.hidden { display: none; }
+#studySettingsOverlay .bst-bg-tile { border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; cursor: pointer; padding: 0; background: #f8fafc; position: relative; transition: border-color 0.15s ease, box-shadow 0.15s ease; font-family: inherit; }
+#studySettingsOverlay .bst-bg-tile:hover { border-color: #94a3b8; }
+#studySettingsOverlay .bst-bg-tile.is-active { border-color: #0d9488; box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15); }
+#studySettingsOverlay .bst-bg-thumb { width: 100%; aspect-ratio: 16 / 10; background-size: cover; background-position: center; background-repeat: no-repeat; display: block; }
+#studySettingsOverlay .bst-bg-name { display: block; font-size: 11px; font-weight: 700; color: #4a5568; padding: 6px 6px; text-align: center; line-height: 1.25; }
+#studySettingsOverlay .bst-bg-tile.is-active .bst-bg-name { color: #0f766e; }
+#studySettingsOverlay .bst-check { width: 20px; height: 20px; border-radius: 50%; background: #0d9488; color: #ffffff; display: none; align-items: center; justify-content: center; flex-shrink: 0; position: absolute; top: 6px; right: 6px; }
+#studySettingsOverlay .bst-check .material-symbols-outlined { font-size: 14px; color: #ffffff; }
+#studySettingsOverlay .bst-bg-tile.is-active .bst-check { display: flex; }
+
+/* (3a) Ảnh nền modal Bắt đầu học — clone .rem-bg-* (cùng 5 ảnh thật
+        assets/remedial-bg-*-v2.jpg, overlay trắng theo luminance như remedial),
+        class RIÊNG .study-bg-<id> trên .modal-content của #studyOptionsModal
+        (JS panel [STUDY SETTINGS PANEL] gán theo lựa chọn). Selector 2-ID/class
+        specificity cao hơn rule nền trắng #studyOptionsModal .modal-content
+        (line ~8599) nên đè được. */
+#studyOptionsModal .modal-content.study-bg-notes {
+    background: linear-gradient(rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.16)),
+        url('assets/remedial-bg-notes-v2.jpg') center / cover no-repeat !important;
+}
+#studyOptionsModal .modal-content.study-bg-nightstudy {
+    background: linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.22)),
+        url('assets/remedial-bg-nightstudy-v2.jpg') center / cover no-repeat !important;
+}
+#studyOptionsModal .modal-content.study-bg-cafe {
+    background: linear-gradient(rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.18)),
+        url('assets/remedial-bg-cafe-v2.jpg') center / cover no-repeat !important;
+}
+#studyOptionsModal .modal-content.study-bg-books {
+    background: linear-gradient(rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.24)),
+        url('assets/remedial-bg-books-v2.jpg') center / cover no-repeat !important;
+}
+#studyOptionsModal .modal-content.study-bg-studydesk {
+    background: linear-gradient(rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0.30)),
+        url('assets/remedial-bg-studydesk-v2.jpg') center / cover no-repeat !important;
+}
+/* 2 nền TỐI (notes/nightstudy): phủ trắng đậm hơn lên tấm kính .study-glass-stack
+   + hộp placeholder (clone y hệt 2 rule remedial — đảm bảo text phụ đọc được) */
+#studyOptionsModal .modal-content.study-bg-notes #studyCardBody > .study-glass-stack,
+#studyOptionsModal .modal-content.study-bg-nightstudy #studyCardBody > .study-glass-stack {
+    background: linear-gradient(150deg,
+        rgba(255, 255, 255, 0.42) 0%,
+        rgba(255, 255, 255, 0.34) 55%,
+        rgba(255, 255, 255, 0.48) 100%) !important;
+}
+#studyOptionsModal .modal-content.study-bg-notes #studyCardBody > .study-glass-stack > div:has(> .material-symbols-outlined),
+#studyOptionsModal .modal-content.study-bg-nightstudy #studyCardBody > .study-glass-stack > div:has(> .material-symbols-outlined) {
+    background: rgba(255, 255, 255, 0.62) !important;
+    color: #5a5a5f !important;
+    border-color: rgba(0, 0, 0, 0.18) !important;
+}
+#studyOptionsModal .modal-content.study-bg-notes #studyCardBody > .study-glass-stack > div:has(> .material-symbols-outlined) > div,
+#studyOptionsModal .modal-content.study-bg-nightstudy #studyCardBody > .study-glass-stack > div:has(> .material-symbols-outlined) > div {
+    color: #5a5a5f !important;
+}
+
+/* (3b) Font Nhật riêng cho modal Bắt đầu học — biến --study-jp-font (JS panel đặt,
+        alias JP-only 'study-jp-cur' độc lập với boost/remedial — 3 khu vực chọn
+        3 font khác nhau cùng lúc không giật lẫn nhau). Áp cho CHỮ NHẬT: các dòng
+        trong KHỐI 1 (reading + từ lớn + HV + nghĩa) và câu ví dụ .ex-jp / .test-input. */
+:root { --study-jp-font: 'Noto Sans JP', sans-serif; }
+#studyOptionsModal #studyCardBody .study-glass-stack > .study-card-khoi1 > div,
+#studyOptionsModal #studyCardBody .example-sentence-block .ex-jp,
+#studyOptionsModal #studyCardBody .example-sentence-block .test-input {
+    font-family: var(--study-jp-font) !important;
+}
+
+/* (4) MODAL DANH SÁCH THẺ — VUÔNG VỨC (radius 0 toàn bộ), giữa màn hình.
+       Tái dụng .fcl-drop-grid / .fcl-card (CSS [N20] line ~8534) cho grid nội
+       dung — chỉ ép vuông + full-width trong box. */
+#studyCardListModal { z-index: 13500; }
+.scl-box {
+    width: min(480px, calc(100vw - 32px));
+    max-height: min(80vh, 720px);
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0;               /* VUÔNG — không bo góc */
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+    overflow: hidden;
+    box-sizing: border-box;
+    animation: sclPop 0.16s ease-out;
+}
+@keyframes sclPop { from { transform: scale(0.97); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.scl-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e5e7eb;
+    flex-shrink: 0;
+}
+.scl-head-icon { font-size: 20px; color: #0067c0; flex-shrink: 0; }
+.scl-deck-name {
+    font-size: 13px; font-weight: 700; color: #1d1d1f;
+    letter-spacing: 0.3px; text-transform: uppercase;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0; margin-right: auto;
+}
+.scl-count { font-size: 12px; font-weight: 700; color: #6b7280; flex-shrink: 0; }
+.scl-close {
+    width: 28px; height: 28px;
+    border-radius: 0;                 /* vuông theo ngôn ngữ thiết kế */
+    background: #ffffff; color: #6b7280;
+    border: 1px solid #e5e7eb;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; padding: 0; flex-shrink: 0;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.scl-close:hover { background: #f5f6f8; color: #1d1d1f; border-color: #d1d5db; }
+.scl-close .material-symbols-outlined { font-size: 16px; }
+#studyCardListModal .fcl-drop-grid { width: 100%; max-height: min(56vh, 520px); box-sizing: border-box; }
+#studyCardListModal .fcl-card { border-radius: 0; }
 
 /* Footer: Prev (icon sát trái) | 1/15 (giữa) | Next (icon sát phải) */
 #remedialReviewModal .remedial-footer {
@@ -19450,10 +19616,14 @@ table.ws-hist td { padding: 10px; border-bottom: 1px solid #f1f5f9; color: #3341
                     <button onclick="studyStartAction('add')" title="Thêm thẻ mới" style="background: #ffffff; border: 1px solid #e5e7eb; color: #1d1d1f; padding: 10px 14px; text-align: left; font-size: 14px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.15s, border-color 0.15s;" onmouseover="this.style.background='#f5f6f8'; this.style.borderColor='#d1d5db'" onmouseout="this.style.background='#ffffff'; this.style.borderColor='#e5e7eb'">
                         <span class="material-symbols-outlined" style="font-size: 20px; color: #059669;">add_circle</span> Thêm thẻ
                     </button>
+                    <!-- [SỬA 20/11] Nút DANH SÁCH THẺ — mở modal danh sách thẻ (cùng modal với #studyProgressText) -->
+                    <button onclick="studyStartAction('list')" title="Danh sách thẻ" style="background: #ffffff; border: 1px solid #e5e7eb; color: #1d1d1f; padding: 10px 14px; text-align: left; font-size: 14px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.15s, border-color 0.15s;" onmouseover="this.style.background='#f5f6f8'; this.style.borderColor='#d1d5db'" onmouseout="this.style.background='#ffffff'; this.style.borderColor='#e5e7eb'">
+                        <span class="material-symbols-outlined" style="font-size: 20px; color: #0891b2;">style</span> Danh sách thẻ
+                    </button>
                 </div>
             </div>
-            <!-- Progress 1/N (không nền, không border) -->
-            <span id="studyProgressText" style="font-size: 14px; font-weight: 700; color: #6b7280; letter-spacing: 0.5px; margin-right: 6px;">1/0</span>
+            <!-- [SỬA 20/11] Progress 1/N giờ NHẤN ĐƯỢC — mở modal danh sách thẻ (vuông vức, giữa màn hình) -->
+            <button id="studyProgressText" onclick="openStudyCardListModal()" title="Danh sách thẻ" style="font-size: 14px; font-weight: 700; color: #6b7280; letter-spacing: 0.5px; margin-right: 6px; background: none; border: none; cursor: pointer; padding: 6px 8px; font-family: 'Noto Sans JP', sans-serif; transition: color 0.15s ease; flex-shrink: 0;" onmouseover="this.style.color='#0067c0'" onmouseout="this.style.color='#6b7280'">1/0</button>
             <!-- 🟢 NÚT SEARCH ICON — mở header search panel (tra từ điển & chat AI) -->
             <button class="study-circle-btn" onclick="remedialOpenSearchPanel(event)" title="Tra từ điển & Chat AI" style="width: 36px; height: 36px; border-radius: 50%; background: #ffffff; color: #6b7280; border: 1px solid #e5e7eb; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s ease; flex-shrink: 0; padding: 0; margin-right: 6px;">
                 <span class="material-symbols-outlined" style="font-size: 18px;">search</span>
@@ -19471,7 +19641,7 @@ table.ws-hist td { padding: 10px; border-bottom: 1px solid #f1f5f9; color: #3341
                 <div style="position: relative; flex: 1; display: flex; min-height: 0; overflow: hidden;">
                     <!-- RIGHT COLUMN: card body + AI zone + status badge + footer -->
                     <div style="flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative;">
-                        <!-- 🟢 Nút "Tùy chọn sửa": phần tử tĩnh trong #studyEditPillRow — nằm ngay trên footer (xem dưới) -->
+                        <!-- [SỬA 20/11] Nút "Tùy chọn sửa" (icon bút chì) giờ nằm trong KHỐI 1 của card — do renderStudyCard render (xem script) -->
                         <!-- BODY (card content) -->
                         <div id="studyCardBody" class="study-modal-body" style="flex: 1; min-width: 0;">
                             <!-- JS render -->
@@ -19480,37 +19650,22 @@ table.ws-hist td { padding: 10px; border-bottom: 1px solid #f1f5f9; color: #3341
                         <div id="studyAiResultZone" style="display: none; padding: 0 clamp(16px, 4vw, 48px) 20px clamp(16px, 4vw, 48px); animation: fadeInChat 0.3s ease; flex-shrink: 0;"></div>
                         <!-- STATUS BADGE (căn giữa) -->
                         <div id="studyStatusBadge" style="display: flex; justify-content: center; padding: 0 clamp(16px, 4vw, 48px) 20px clamp(16px, 4vw, 48px); flex-shrink: 0;"></div>
-                        <!-- 🟢 TASK8: NÚT "TÙY CHỌN SỬA" — pill không icon (giống nút "Xóa lịch sử chat"), nằm ngay trên hàng FLASHCARD/TRƯỚC/TIẾP; dropdown mở lên trên -->
-                        <div id="studyEditPillRow" style="display: flex; justify-content: center; padding: 8px clamp(16px, 4vw, 48px) 8px clamp(16px, 4vw, 48px); flex-shrink: 0; position: relative;">
-                            <button class="study-edit-pill" id="btnStudyEdit" onclick="toggleStudyEditDropdown(event)" title="Tùy chọn sửa">Tùy chọn sửa</button>
-                            <div id="studyEditDropdown" style="display: none; position: absolute; bottom: calc(100% - 4px); left: 50%; transform: translateX(-50%); min-width: 220px; background: rgba(28, 28, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.15); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.25); padding: 6px; z-index: 13002; flex-direction: column; gap: 2px;">
-                                <button onclick="studyEditAction('direct')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
-                                    <span class="material-symbols-outlined" style="font-size: 18px; color: #60a5fa;">edit_square</span> Sửa thẻ trực tiếp
-                                </button>
-                                <button onclick="studyEditAction('mnemonic')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
-                                    <span class="material-symbols-outlined" style="font-size: 18px; color: #a8c0ff;">lightbulb</span> Tạo cách nhớ (AI)
-                                </button>
-                            </div>
+                        <!-- [SỬA 20/11] Hàng pill cũ CHỈ CÒN DÒNG CHỮ NHỎ hướng dẫn — nút "Tùy chọn sửa"
+                             (icon bút chì, không nền/không viền) đã chuyển lên KHỐI 1 trong #studyCardBody
+                             (renderStudyCard render cùng card); dropdown #studyEditDropdown đi theo nút. -->
+                        <div id="studyEditPillRow" style="display: flex; justify-content: center; align-items: center; padding: 8px clamp(16px, 4vw, 48px) 8px clamp(16px, 4vw, 48px); flex-shrink: 0; position: relative;">
+                            <span class="study-start-hint">Nhấn nút "BẮT ĐẦU HỌC" để chọn chế độ học</span>
                         </div>
-                        <!-- FOOTER (TASK12): [○ menu][FLASHCARD] ... [○ ←][TRƯỚC | TIẾP][○ →] — chữ nằm giữa 2 vòng mũi tên; vòng 36px = nút search/X header; thẻ đầu → TIẾP + mũi tên → đậm -->
+                        <!-- FOOTER: [○ bánh răng][CÀI ĐẶT] ... [○ ←][TRƯỚC | TIẾP][○ →] — [SỬA 20/11] nút
+                             FLASHCARD cũ được thay bằng nút setting mở panel cài đặt hiển thị
+                             (#studySettingsOverlay — clone modal remedial); danh sách thẻ chuyển sang
+                             #studyProgressText (toolbar) + nút DANH SÁCH THẺ (dropdown BẮT ĐẦU HỌC). -->
                         <div class="study-modal-footer">
-                            <div class="study-nav-group" style="position: relative;">
-                                <button id="btnStudyFlashcard" onclick="toggleFlashcardDropdown(event)" title="Danh sách thẻ" class="study-nav-circle">
-                                    <span class="material-symbols-outlined">menu</span>
+                            <div class="study-nav-group">
+                                <button id="btnStudySettings" onclick="studyOpenSettings(event)" title="Cài đặt hiển thị: ảnh nền + font tiếng Nhật" class="study-nav-circle">
+                                    <span class="material-symbols-outlined">settings</span>
                                 </button>
-                                <span class="study-nav-label">Flashcard</span>
-                                <!-- [N20] Dropdown FLASHCARD xo LEN tu nut footer: max 3 cot, the 2 dong, style trang giong dropdown BAT DAU HOC -->
-                                <div id="flashcardDropdown" style="display: none; position: absolute; bottom: calc(100% + 8px); left: 0; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.12); padding: 6px; z-index: 13002; max-width: calc(100vw - 32px); box-sizing: border-box; flex-direction: column; gap: 6px;">
-                                    <div style="display: flex; align-items: center; gap: 8px; padding: 4px 6px 2px 6px; min-width: 0;">
-                                        <span class="material-symbols-outlined" style="font-size: 20px; color: #0067c0; flex-shrink: 0;">style</span>
-                                        <span id="fclDeckName" style="font-size: 13px; font-weight: 700; color: #1d1d1f; letter-spacing: 0.3px; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; margin-right: auto;">Flashcard</span>
-                                        <span id="fclCount" style="font-size: 12px; font-weight: 700; color: #6b7280; flex-shrink: 0;">0 thẻ</span>
-                                        <button onclick="closeFlashcardDropdown()" title="Đóng" style="width: 28px; height: 28px; border-radius: 50%; background: #ffffff; color: #6b7280; border: 1px solid #e5e7eb; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; flex-shrink: 0;">
-                                            <span class="material-symbols-outlined" style="font-size: 16px;">close</span>
-                                        </button>
-                                    </div>
-                                    <div id="fclCardGrid" class="fcl-drop-grid"></div>
-                                </div>
+                                <span class="study-nav-label">Cài đặt</span>
                             </div>
                             <div class="study-nav-group" style="margin-left: auto; gap: 10px;">
                                 <button id="btnStudyPrev" onclick="prevStudyCard()" title="Thẻ trước (←)" class="study-nav-circle">
@@ -19529,6 +19684,38 @@ table.ws-hist td { padding: 10px; border-bottom: 1px solid #f1f5f9; color: #3341
             </div>
         </div>
 
+    </div>
+</div>
+<!-- [SỬA 20/11] MODAL DANH SÁCH THẺ — thay dropdown #flashcardDropdown cũ của nút
+     FLASHCARD footer (nút đã bỏ). Mở từ: #studyProgressText trên toolbar HOẶC nút
+     DANH SÁCH THẺ trong dropdown BẮT ĐẦU HỌC. Thiết kế VUÔNG VỨC (không bo góc),
+     hiển thị GIỮA MÀN HÌNH; grid nội dung tái dùng renderFlashcardDropdown
+     (#fclDeckName / #fclCount / #fclCardGrid — giữ nguyên ID). -->
+<div id="studyCardListModal" class="modal" style="z-index: 13500;" onclick="if (event.target === this) closeStudyCardListModal()">
+    <div class="scl-box">
+        <div class="scl-head">
+            <span class="material-symbols-outlined scl-head-icon">style</span>
+            <span id="fclDeckName" class="scl-deck-name">Flashcard</span>
+            <span id="fclCount" class="scl-count">0 thẻ</span>
+            <button onclick="closeStudyCardListModal()" title="Đóng" class="scl-close">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div id="fclCardGrid" class="fcl-drop-grid"></div>
+    </div>
+</div>
+
+<!-- [SỬA 20/11] PANEL CÀI ĐẶT HIỂN THỊ cho modal BẮT ĐẦU HỌC — clone mô hình
+     #remedialSettingsOverlay: markup tĩnh rỗng, module [STUDY SETTINGS PANEL] cuối
+     script render nội dung mỗi lần mở (ảnh nền modal + font chữ tiếng Nhật). -->
+<div id="studySettingsOverlay" class="hidden" aria-hidden="true">
+    <div class="rem-set-backdrop" data-study-set-close="1"></div>
+    <div class="rem-set-card" role="dialog" aria-modal="true" aria-label="Cài đặt hiển thị modal Bắt đầu học">
+        <div class="rem-set-head">
+            <div class="rem-set-head-title"><span class="material-symbols-outlined">settings</span>CÀI ĐẶT HIỂN THỊ</div>
+            <button type="button" class="rem-set-close" data-study-set-close="1" aria-label="Đóng"><span class="material-symbols-outlined">close</span></button>
+        </div>
+        <div class="rem-set-body" id="studySettingsBody"></div>
     </div>
 </div>
 <!-- MODAL DANH SÁCH HIỆN TẠI (WIN 11 STYLE) -->
@@ -48534,8 +48721,9 @@ window.openStudyOptionsModal = function(deckId, deckName, type) {
     if (sidebar) sidebar.classList.remove('open');
     const backdrop = document.getElementById('studySidebarBackdrop');
     if (backdrop) backdrop.classList.remove('visible');
-    const progressBtn = document.getElementById('btnStudyFlashcard');
-    if (progressBtn) progressBtn.classList.remove('active');
+    // [SỬA 20/11] Nút FLASHCARD cũ đã bỏ — đóng modal danh sách thẻ + panel cài đặt nếu còn mở
+    closeStudyCardListModal();
+    if (window.studyCloseSettings) window.studyCloseSettings();
     const cardListItems = document.getElementById('studyCardListItems');
     if (cardListItems) cardListItems.innerHTML = '';
     const findInput = document.getElementById('studyFindInput');
@@ -48581,6 +48769,9 @@ window.closeStudyOptionsModal = function() {
     }
     removeStudyGateBanner(); // gỡ banner gate còn sót
     closeModal('studyOptionsModal');
+    // [SỬA 20/11] Dọn 2 lớp phụ của modal: danh sách thẻ + panel cài đặt hiển thị
+    closeStudyCardListModal();
+    if (window.studyCloseSettings) window.studyCloseSettings();
     sessionStorage.removeItem('minddeck_study_modal');
     // [N34] Đóng modal BẮT ĐẦU HỌC → nếu trang Kho học phần (homePage) đang hiển
     // thị phía sau modal (luồng "Học ngay" sau khi LƯU bộ bài từ Giáo trình/chủ
@@ -48660,8 +48851,24 @@ function renderStudyCard() {
     // .remedial-glass-stack (CSS khối [STUDY GLASS STACK]).
     let html = '<div class="study-glass-stack" style="display: flex; flex-direction: column; gap: 12px; padding-bottom: 10px;">';
     // KHỐI 1: Reading + Front + HV + Meaning (nghĩa xuống dưới Hán-Việt)
+    // [SỬA 20/11] Nút "Tùy chọn sửa" chuyển LÊN KHỐI 1: icon bút chì (edit), KHÔNG
+    // nền KHÔNG viền (.study-khoi1-edit-btn), góc trên phải; dropdown
+    // #studyEditDropdown (di chuyển từ #studyEditPillRow cũ) mở XUỐNG từ nút.
     html += `
         <div class="study-card-khoi1" style="padding: 10px 20px 25px 20px; text-align: center; position: relative;">
+            <div class="study-khoi1-edit-wrap">
+                <button class="study-khoi1-edit-btn" id="btnStudyEdit" onclick="toggleStudyEditDropdown(event)" title="Tùy chọn sửa" aria-label="Tùy chọn sửa">
+                    <span class="material-symbols-outlined">edit</span>
+                </button>
+                <div id="studyEditDropdown" style="display: none; position: absolute; top: calc(100% + 6px); right: 0; min-width: 220px; background: rgba(28, 28, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.15); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.25); padding: 6px; z-index: 20; flex-direction: column; gap: 2px;">
+                    <button onclick="studyEditAction('direct')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                        <span class="material-symbols-outlined" style="font-size: 18px; color: #60a5fa;">edit_square</span> Sửa thẻ trực tiếp
+                    </button>
+                    <button onclick="studyEditAction('mnemonic')" style="background: transparent; border: none; color: #fff; padding: 11px 14px; text-align: left; font-size: 13px; font-weight: 500; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                        <span class="material-symbols-outlined" style="font-size: 18px; color: #a8c0ff;">lightbulb</span> Tạo cách nhớ (AI)
+                    </button>
+                </div>
+            </div>
             ${parsed.reading ? `<div style="font-size: 20px; font-weight: 800; color: #4a5568; margin-bottom: 8px; letter-spacing: 0.5px;">${escapeHTML(parsed.reading)}</div>` : ''}
             <div style="font-size: 46px; font-weight: 900; color: #1d1d1f; margin-bottom: 8px; font-family: 'Noto Sans JP', sans-serif; line-height: 1.2;">
                 ${wrapKanjiWithLink(escapeHTML(parsed.front))}
@@ -48714,9 +48921,9 @@ function renderStudyCard() {
     }
     html += '</div>';
 
-    // 🟢 TASK8: Nút "Tùy chọn sửa" (btnStudyEdit + studyEditDropdown) giờ là phần tử
-    // TĨNH trong modal HTML (#studyEditPillRow) — pill không icon nằm ngay trên
-    // hàng FLASHCARD/TRƯỚC/TIẾP, không render ở cuối body nữa.
+    // [SỬA 20/11] Nút "Tùy chọn sửa" + #studyEditDropdown giờ render TẠI KHỐI 1
+    // của card (icon bút chì không nền/không viền — xem khối KHỐI 1 phía trên);
+    // #studyEditPillRow chỉ còn dòng chữ nhỏ hướng dẫn (phần tử tĩnh trong HTML).
 
     document.getElementById('studyCardBody').innerHTML = html;
     document.getElementById('studyCardBody').scrollTop = 0;
@@ -48957,12 +49164,12 @@ function prevStudyCard() {
     }
 }
 
-// Toggle study sidebar (mở/đóng sidebar chứa Find search + danh sách thẻ + Flashcard/Thêm thẻ)
+// Toggle study sidebar (mở/đóng sidebar chứa Find search + danh sách thẻ) — legacy sidebar
+// [SỬA 20/11] nút #btnStudyFlashcard đã bỏ (footer giờ là nút bánh răng cài đặt)
 function toggleStudyCardList() {
     const sidebar = document.getElementById('studySidebar');
-    const btn = document.getElementById('btnStudyFlashcard');
     const backdrop = document.getElementById('studySidebarBackdrop');
-    if (!sidebar || !btn) return;
+    if (!sidebar) return;
     const isOpen = sidebar.classList.contains('open');
     if (!isOpen) {
         // Reset filter state + input trước khi mở
@@ -48976,7 +49183,6 @@ function toggleStudyCardList() {
         renderStudyCardList();
         // Mở sidebar
         sidebar.classList.add('open');
-        btn.classList.add('active');
         // Hiện backdrop trên mobile
         if (backdrop) backdrop.classList.add('visible');
         // Focus vào Find input
@@ -48986,7 +49192,6 @@ function toggleStudyCardList() {
     } else {
         // Đóng sidebar
         sidebar.classList.remove('open');
-        btn.classList.remove('active');
         if (backdrop) backdrop.classList.remove('visible');
         // Ẩn candidates bar
         const sfBar = document.getElementById('studyFindCandidatesBar');
@@ -49042,14 +49247,11 @@ function jumpToStudyCard(idx) {
     if (window.__studyFindIme) window.__studyFindIme.clearCandidates();
     // Đóng sidebar sau khi chọn
     const sidebar = document.getElementById('studySidebar');
-    const btn = document.getElementById('btnStudyFlashcard');
     const backdrop = document.getElementById('studySidebarBackdrop');
     if (sidebar) sidebar.classList.remove('open');
-    if (btn) btn.classList.remove('active');
     if (backdrop) backdrop.classList.remove('visible');
-    // [N20] Dong dropdown FLASHCARD (neu dang mo) sau khi chon the
-    const fclDrop = document.getElementById('flashcardDropdown');
-    if (fclDrop && fclDrop.style.display !== 'none') closeFlashcardDropdown();
+    // [SỬA 20/11] Đóng modal danh sách thẻ (nếu đang mở) sau khi chọn thẻ
+    closeStudyCardListModal();
     // 🟢 GATE: đi qua test trí nhớ câu ví dụ — index đích tính theo allCards
     // (performStudyNavigation sẽ đồng bộ studyState.cards = allCards trước khi render)
     requestStudyCardNavigation(idx, { syncAllCards: true });
@@ -49072,12 +49274,14 @@ function closeStudyStartDropdown() {
     if (caret) caret.classList.remove('open');
 }
 // 4 che do (giu nguyen handler cua 4 pill cu trong sidebar): srs / boost / remedial / add
+// [SỬA 20/11] + 'list' — nút DANH SÁCH THẺ mở modal danh sách thẻ
 function studyStartAction(kind) {
     closeStudyStartDropdown();
     if (kind === 'srs') startBasicStudy();
     else if (kind === 'boost') startBoostFromSidebar();
     else if (kind === 'remedial') startRemedialFromSidebar();
     else if (kind === 'add') openQuickAddCardModal();
+    else if (kind === 'list') openStudyCardListModal();
 }
 // Click ra ngoai -> dong dropdown BAT DAU HOC
 document.addEventListener('click', function(e) {
@@ -49087,22 +49291,20 @@ document.addEventListener('click', function(e) {
     if (wrap && !wrap.contains(e.target)) closeStudyStartDropdown();
 });
 
-// ===== [N20] DROPDOWN FLASHCARD (xo LEN tu nut footer): max 3 cot - style trang giong dropdown BAT DAU HOC =====
-function toggleFlashcardDropdown(e) {
-    if (e) e.stopPropagation();
-    const dropdown = document.getElementById('flashcardDropdown');
-    if (!dropdown) return;
-    const isOpen = dropdown.style.display === 'flex';
-    if (!isOpen) renderFlashcardDropdown();
-    dropdown.style.display = isOpen ? 'none' : 'flex';
-    const btn = document.getElementById('btnStudyFlashcard');
-    if (btn) btn.classList.toggle('active', !isOpen);
+// ===== [SỬA 20/11] MODAL DANH SÁCH THẺ — thay dropdown #flashcardDropdown cũ của
+// nút FLASHCARD footer (nút đã bỏ, thay bằng nút bánh răng cài đặt). Mở từ:
+// (a) #studyProgressText trên toolbar, (b) nút DANH SÁCH THẺ trong dropdown
+// BẮT ĐẦU HỌC. Modal #studyCardListModal VUÔNG VỨC (không bo góc) hiện GIỮA
+// MÀN HÌNH; grid nội dung giữ nguyên mô hình cũ (max 3 cột, mobile 2 cột,
+// thẻ 2 dòng kanji/kana — renderFlashcardDropdown fill như cũ). =====
+function openStudyCardListModal() {
+    renderFlashcardDropdown(); // fill #fclDeckName + #fclCount + #fclCardGrid trong modal
+    const modal = document.getElementById('studyCardListModal');
+    if (modal) modal.style.display = 'flex';
 }
-function closeFlashcardDropdown() {
-    const dropdown = document.getElementById('flashcardDropdown');
-    if (dropdown) dropdown.style.display = 'none';
-    const btn = document.getElementById('btnStudyFlashcard');
-    if (btn) btn.classList.remove('active');
+function closeStudyCardListModal() {
+    const modal = document.getElementById('studyCardListModal');
+    if (modal) modal.style.display = 'none';
 }
 function renderFlashcardDropdown() {
     const grid = document.getElementById('fclCardGrid');
@@ -49130,20 +49332,15 @@ function renderFlashcardDropdown() {
     const active = grid.querySelector('.fcl-card.active');
     if (active) setTimeout(() => active.scrollIntoView({ block: 'center', behavior: 'smooth' }), 40);
 }
-// Click ra ngoai -> dong dropdown FLASHCARD
-document.addEventListener('click', function(e) {
-    const dropdown = document.getElementById('flashcardDropdown');
-    if (!dropdown || dropdown.style.display === 'none') return;
-    const wrap = dropdown.parentElement;
-    if (wrap && !wrap.contains(e.target)) closeFlashcardDropdown();
-});
-// Esc dong dropdown FLASHCARD
+// [SỬA 20/11] Đóng modal danh sách thẻ: nút X trong header + click backdrop
+// (onclick trực tiếp trên overlay) + phím Esc bên dưới. (Dropdown cũ và listener
+// click-ngoài tương ứng đã bỏ cùng #flashcardDropdown.)
 document.addEventListener('keydown', function(e) {
     if (e.key !== 'Escape') return;
-    const dropdown = document.getElementById('flashcardDropdown');
-    if (dropdown && dropdown.style.display === 'flex') {
+    const modal = document.getElementById('studyCardListModal');
+    if (modal && modal.style.display === 'flex') {
         e.preventDefault();
-        closeFlashcardDropdown();
+        closeStudyCardListModal();
     }
 });
 
@@ -55746,6 +55943,281 @@ function startMiniAssessment(card) {
     try {
         rsApplyBg(rsCurrentBgId(), false);
         rsApplyFont(rsCurrentFontId(), false);
+    } catch (e) { /* localStorage không khả dụng → dùng mặc định */ }
+})();
+</script>
+
+<script>
+/* ================================================================
+   🟢 [STUDY SETTINGS PANEL — sửa user 20/11 'Bỏ nút #btnStudyFlashcard,
+   thay bằng nút setting hình bánh răng, nhấn nút ra modal cài đặt hiển
+   thị như trong modal remedial']
+   Module độc lập (IIFE) cho panel #studySettingsOverlay — mở bằng nút
+   bánh răng #btnStudySettings trên footer modal BẮT ĐẦU HỌC
+   (studyOpenSettings). Mô hình CLONE [REMEDIAL SETTINGS PANEL]:
+   - ẢNH NỀN: cùng 5 ảnh thật (assets/remedial-bg-*-v2.jpg) + tùy chọn
+     'Trắng mặc định'. Áp bằng class .study-bg-<id> lên .modal-content
+     của #studyOptionsModal (CSS khối [SỬA USER 20/11]).
+   - FONT NHẬT: tái dùng danh sách window.__boostJpFonts (8 font) + cơ chế
+     ALIAS JP-ONLY nhưng bản RIÊNG 'study-jp-cur' + style element riêng —
+     3 khu vực boost/remedial/study chọn 3 font KHÁC NHAU cùng lúc mà
+     không giật (alias 'bst-jp-cur' / 'rem-jp-cur' không bị đè).
+   - Áp dụng NGAY + lưu localStorage minddeck_study_bg / minddeck_study_font
+     — phục hồi tự động ở INIT cuối module.
+   ================================================================ */
+(function () {
+    'use strict';
+
+    var SS_BG_KEY = 'minddeck_study_bg';
+    var SS_FONT_KEY = 'minddeck_study_font';
+
+    /* Danh sách nền: id trùng class CSS .study-bg-<id>; 'default' = không class
+       (nền trắng đục gốc của #studyOptionsModal .modal-content). */
+    var SS_BGS = [
+        { id: 'default',    name: 'Trắng mặc định',  img: '' },
+        { id: 'notes',      name: 'Giấy note màu',   img: 'assets/remedial-bg-notes-v2.jpg' },
+        { id: 'nightstudy', name: 'Đèn bàn học đêm', img: 'assets/remedial-bg-nightstudy-v2.jpg' },
+        { id: 'cafe',       name: 'Bàn cà phê',      img: 'assets/remedial-bg-cafe-v2.jpg' },
+        { id: 'books',      name: 'Chồng sách',      img: 'assets/remedial-bg-books-v2.jpg' },
+        { id: 'studydesk',  name: 'Bàn học trắng',   img: 'assets/remedial-bg-studydesk-v2.jpg' }
+    ];
+
+    /* ==== ALIAS JP-ONLY RIÊNG (copy cơ chế bst của boost và rem của remedial —
+       xem chú thích [JP-ONLY ALIAS] bên module boost để hiểu nguyên lý per-character) ==== */
+    var SS_ALIAS_FAMILY = 'study-jp-cur';
+    var SS_ALIAS_STYLE_ID = 'study-jp-alias';
+    var ssAliasCache = {};
+    var ssAliasSeq = 0;
+    var SS_JP_RANGES = [
+        [0x2E80, 0x2EFF], [0x2F00, 0x2FDF], [0x3000, 0x303F], [0x3040, 0x309F],
+        [0x30A0, 0x30FF], [0x3190, 0x319F], [0x31C0, 0x31EF], [0x31F0, 0x31FF],
+        [0x3200, 0x33FF], [0x3400, 0x4DBF], [0x4E00, 0x9FFF],
+        [0xF900, 0xFAFF], [0xFE10, 0xFE19], [0xFE30, 0xFE4F], [0xFF00, 0xFFEF],
+        [0x1B000, 0x1B16F], [0x1F100, 0x1F1FF], [0x1F200, 0x1F2FF],
+        [0x20000, 0x3134A]
+    ];
+    function ssRangeInJp(s, e) {
+        for (var j = 0; j < SS_JP_RANGES.length; j++) {
+            if (s <= SS_JP_RANGES[j][1] && e >= SS_JP_RANGES[j][0]) return true;
+        }
+        return false;
+    }
+    function ssBuildAliasCss(cssText) {
+        var blocks = cssText.match(/@font-face\s*\{[^}]*\}/g) || [];
+        var out = [];
+        for (var i = 0; i < blocks.length; i++) {
+            var b = blocks[i];
+            var m = b.match(/unicode-range:\s*([^;}]+)/i);
+            if (!m) continue;
+            var toks = m[1].split(',');
+            var jpToks = [];
+            for (var k = 0; k < toks.length; k++) {
+                var t = toks[k].trim();
+                var mm = t.match(/^[uU]\+([0-9a-fA-F]+)(?:-([0-9a-fA-F]+))?$/);
+                if (!mm) continue;
+                var s = parseInt(mm[1], 16);
+                var e = mm[2] ? parseInt(mm[2], 16) : s;
+                if (ssRangeInJp(s, e)) jpToks.push(t);
+            }
+            if (!jpToks.length) continue;
+            out.push(b
+                .replace(/font-family:\s*'[^']*'/i, "font-family: '" + SS_ALIAS_FAMILY + "'")
+                .replace(/unicode-range:\s*[^;}]+/i, 'unicode-range: ' + jpToks.join(', ')));
+        }
+        return out.join('\n');
+    }
+    function ssInjectAlias(css) {
+        var el = document.getElementById(SS_ALIAS_STYLE_ID);
+        if (!el) {
+            el = document.createElement('style');
+            el.id = SS_ALIAS_STYLE_ID;
+            document.head.appendChild(el);
+        }
+        el.textContent = css;
+    }
+    function ssEnsureFontLink(f) {
+        if (!f.href || document.getElementById('ss-font-' + f.id)) return;
+        /* Tái dùng link font boost/remedial nếu đã nạp — cùng URL, tránh tải đôi */
+        if (document.getElementById('bst-font-' + f.id)) return;
+        if (document.getElementById('rs-font-' + f.id)) return;
+        var link = document.createElement('link');
+        link.id = 'ss-font-' + f.id;
+        link.rel = 'stylesheet';
+        link.href = f.href;
+        document.head.appendChild(link);
+    }
+    function ssLoadAlias(f) {
+        var seq = ++ssAliasSeq;
+        if (Object.prototype.hasOwnProperty.call(ssAliasCache, f.id)) {
+            var cached = ssAliasCache[f.id];
+            if (cached) ssInjectAlias(cached);
+            else document.documentElement.style.setProperty('--study-jp-font', f.stack);
+            return;
+        }
+        var stale = document.getElementById(SS_ALIAS_STYLE_ID);
+        if (stale) stale.remove();
+        var url = f.href || 'https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;600;700&display=swap';
+        fetch(url).then(function (r) { return r.text(); }).then(function (t) {
+            var css = ssBuildAliasCss(t);
+            ssAliasCache[f.id] = css;
+            if (seq !== ssAliasSeq) return;
+            if (css) ssInjectAlias(css);
+            else document.documentElement.style.setProperty('--study-jp-font', f.stack);
+        }).catch(function () {
+            ssAliasCache[f.id] = '';
+            if (seq === ssAliasSeq) {
+                document.documentElement.style.setProperty('--study-jp-font', f.stack);
+            }
+        });
+    }
+
+    /* ==== ÁP DỤNG + TRẠNG THÁI HIỆN TẠI ==== */
+    function ssFontList() {
+        return window.__boostJpFonts || [{ id: 'noto', name: 'Noto Sans JP', desc: 'Hiện tại — Gothic chuẩn', sample: '日本語 あいうえお', stack: "'Noto Sans JP', sans-serif", href: '' }];
+    }
+    function ssCurrentBgId() {
+        try {
+            var saved = localStorage.getItem(SS_BG_KEY);
+            for (var i = 0; i < SS_BGS.length; i++) {
+                if (SS_BGS[i].id === saved) return saved;
+            }
+        } catch (e) {}
+        return 'default';
+    }
+    function ssApplyBg(id, save) {
+        var valid = SS_BGS.some(function (b) { return b.id === id; });
+        if (!valid) id = 'default';
+        var mc = document.querySelector('#studyOptionsModal .modal-content');
+        if (mc) {
+            SS_BGS.forEach(function (b) {
+                if (b.id !== 'default') mc.classList.remove('study-bg-' + b.id);
+            });
+            if (id !== 'default') mc.classList.add('study-bg-' + id);
+        }
+        if (save) { try { localStorage.setItem(SS_BG_KEY, id); } catch (e) {} }
+    }
+    function ssCurrentFontId() {
+        try {
+            var saved = localStorage.getItem(SS_FONT_KEY);
+            var list = ssFontList();
+            for (var i = 0; i < list.length; i++) {
+                if (list[i].id === saved) return saved;
+            }
+        } catch (e) {}
+        return 'noto';
+    }
+    function ssApplyFont(id, save) {
+        var list = ssFontList();
+        var f = null;
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].id === id) { f = list[i]; break; }
+        }
+        if (!f) f = list[0];
+        ssEnsureFontLink(f);
+        if (f.id === 'noto') {
+            var oldAlias = document.getElementById(SS_ALIAS_STYLE_ID);
+            if (oldAlias) oldAlias.remove();
+            ssAliasSeq++;
+            document.documentElement.style.setProperty('--study-jp-font', f.stack);
+        } else {
+            document.documentElement.style.setProperty('--study-jp-font',
+                "'" + SS_ALIAS_FAMILY + "', 'Noto Sans JP', sans-serif");
+            ssLoadAlias(f);
+        }
+        if (save) { try { localStorage.setItem(SS_FONT_KEY, f.id); } catch (e) {} }
+    }
+
+    /* ==== RENDER PANEL ==== */
+    function ssRenderPanel() {
+        var body = document.getElementById('studySettingsBody');
+        if (!body) return;
+        var curBg = ssCurrentBgId();
+        var curFont = ssCurrentFontId();
+
+        var bgTiles = SS_BGS.map(function (b) {
+            var thumb = b.img
+                ? 'background-image: url(\'' + b.img + '\'); background-size: cover; background-position: center;'
+                : 'background: linear-gradient(150deg, #fbfbfd 0%, #eef0f4 100%);'; /* ô trắng mặc định */
+            return '<button type="button" class="bst-bg-tile' + (b.id === curBg ? ' is-active' : '') + '" data-study-set-bg="' + b.id + '" title="' + b.name + '">' +
+                '<span class="bst-bg-thumb" style="' + thumb + '"></span>' +
+                '<span class="bst-bg-name">' + b.name + '</span>' +
+                '<span class="bst-check"><span class="material-symbols-outlined">check</span></span>' +
+            '</button>';
+        }).join('');
+
+        var fontRows = ssFontList().map(function (f) {
+            return '<button type="button" class="rem-set-font-row' + (f.id === curFont ? ' is-active' : '') + '" data-study-set-font="' + f.id + '" title="' + f.name + ' — ' + f.desc + '">' +
+                '<span class="rem-set-font-sample" style="font-family: ' + f.stack + ';">' + f.sample + '</span>' +
+                '<span class="rem-set-font-meta"><span class="rem-set-font-name">' + f.name + '</span><span class="rem-set-font-desc">' + f.desc + '</span></span>' +
+                '<span class="rem-set-check"><span class="material-symbols-outlined">check</span></span>' +
+            '</button>';
+        }).join('');
+
+        body.innerHTML =
+            '<div class="rem-set-section">' +
+                '<div class="rem-set-section-title"><span class="material-symbols-outlined">wallpaper</span>Ảnh nền modal Bắt đầu học</div>' +
+                '<p class="rem-set-section-note">Chọn ảnh nền cho toàn bộ modal Bắt đầu học (toolbar + vùng thẻ + footer). Mặc định là nền trắng gốc của app.</p>' +
+                '<div class="rem-set-bg-grid">' + bgTiles + '</div>' +
+            '</div>' +
+            '<div class="rem-set-section">' +
+                '<div class="rem-set-section-title"><span class="material-symbols-outlined">translate</span>Font chữ tiếng Nhật</div>' +
+                '<p class="rem-set-section-note">Áp dụng cho CHỮ NHẬT trong modal (từ vựng lớn + câu ví dụ) — chữ Việt luôn giữ font chuẩn Noto Sans JP. Danh sách font giống hệt khu vực game Boost và modal Remedial.</p>' +
+                '<div class="rem-set-font-list">' + fontRows + '</div>' +
+            '</div>';
+    }
+
+    function ssOpen() {
+        ssFontList().forEach(ssEnsureFontLink); /* nạp CSS mọi font để sample render đúng */
+        ssRenderPanel();
+        var ov = document.getElementById('studySettingsOverlay');
+        if (ov) { ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false'); }
+    }
+    function ssClose() {
+        var ov = document.getElementById('studySettingsOverlay');
+        if (ov) { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); }
+    }
+
+    /* API toàn cục cho onclick của nút bánh răng trên footer modal BẮT ĐẦU HỌC */
+    window.studyOpenSettings = function (e) {
+        if (e) e.stopPropagation();
+        var ov = document.getElementById('studySettingsOverlay');
+        if (ov && !ov.classList.contains('hidden')) ssClose(); else ssOpen();
+    };
+    /* Cho closeStudyOptionsModal / openStudyOptions dọn lớp overlay khi đổi/đóng modal */
+    window.studyCloseSettings = ssClose;
+
+    /* DELEGATION: mọi thao tác trong panel khi đang mở (đóng/đổi nền/đổi font) */
+    document.addEventListener('click', function (e) {
+        var t = e.target;
+        if (!(t && t.closest)) return;
+        var ov = document.getElementById('studySettingsOverlay');
+        if (!ov || ov.classList.contains('hidden')) return;
+        if (t.closest('[data-study-set-close]')) { ssClose(); return; }
+        var bgTile = t.closest('[data-study-set-bg]');
+        if (bgTile) {
+            ssApplyBg(bgTile.getAttribute('data-study-set-bg'), true);
+            ssRenderPanel();
+            return;
+        }
+        var fRow = t.closest('[data-study-set-font]');
+        if (fRow) {
+            ssApplyFont(fRow.getAttribute('data-study-set-font'), true);
+            ssRenderPanel();
+            return;
+        }
+    });
+
+    /* ESC đóng panel (chỉ khi đang mở — không chặn phím tắt khác) */
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        var ov = document.getElementById('studySettingsOverlay');
+        if (ov && !ov.classList.contains('hidden')) ssClose();
+    });
+
+    /* INIT — phục hồi lựa chọn đã lưu (chạy 1 lần lúc tải trước paint) */
+    try {
+        ssApplyBg(ssCurrentBgId(), false);
+        ssApplyFont(ssCurrentFontId(), false);
     } catch (e) { /* localStorage không khả dụng → dùng mặc định */ }
 })();
 </script>
