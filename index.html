@@ -5520,11 +5520,42 @@ body.game-fullscreen-mode .unified-study-container:has(> #boostArea:not(.hidden)
 .dash-greeting { font-size: clamp(24px, 4vw, 32px); font-weight: 900; color: #1d1d1f; margin: 0 0 5px 0; letter-spacing: -0.5px; }
 .dash-subtitle { font-size: 15px; color: #718096; margin: 0; }
 /* ================= [N23] KHỐI LỜI CHÀO — NỀN HOẠT HỌA THEO THỜI GIAN ================= */
-/* 4 pha theo giờ client: hero-morning (5-11) / hero-noon (11-14) / hero-afternoon (14-18) / hero-night (18-5) */
-.dash-header-section.hero-morning   { background: linear-gradient(135deg, #ffffff 0%, #f2f8ff 55%, #e4efff 100%); }
-.dash-header-section.hero-noon      { background: linear-gradient(135deg, #ffffff 0%, #fffdf6 55%, #fff6dd 100%); }
-.dash-header-section.hero-afternoon { background: linear-gradient(135deg, #ffffff 0%, #f8f4ef 55%, #fdeada 100%); }
-.dash-header-section.hero-night     { background: linear-gradient(135deg, #232b3d 0%, #1a2233 60%, #141a28 100%); border-color: #2d3550; }
+/* 4 pha theo giờ client: hero-morning (5-11) / hero-noon (11-14) / hero-afternoon (14-18) / hero-night (18-5)
+   [SỬA USER — 'màu nền TOÀN TRANG + tất cả widget dùng nền như khối hero-sky']:
+   gradient 4 pha chuyển TỪ .dash-header-section (chỉ tô hết khối hero, cắt ngang
+   ở đáy) LÊN body.dashboard-mode (JS applyHeroDayPhase giờ treo pha lên CẢ body)
+   → MỘT NỀN TRỜI LIÊN TỤC chảy suốt viewport — phủ cả khi nội dung ngắn hơn màn
+   (guest). Toàn bộ widget dashboard nằm trên nền trời này: .dash-header-section
+   (bỏ gradient riêng — trong suốt), .roadmap-widget (bỏ vàng kem #fdefd4),
+   .dash-widget-box Play Games (bỏ đen inline) — đồng bộ 2 khối vốn sẵn trong
+   suốt (.dash-action-card + .dash-gallery-widget). Thẻ nội dung (game/boost/
+   gallery tile, pill trắng roadmap) GIỮ nền riêng — nổi trên trời mọi pha
+   (pattern gallery tile T59b). */
+body.dashboard-mode.hero-morning   { background: linear-gradient(135deg, #ffffff 0%, #f2f8ff 55%, #e4efff 100%); }
+body.dashboard-mode.hero-noon      { background: linear-gradient(135deg, #ffffff 0%, #fffdf6 55%, #fff6dd 100%); }
+body.dashboard-mode.hero-afternoon { background: linear-gradient(135deg, #ffffff 0%, #f8f4ef 55%, #fdeada 100%); }
+body.dashboard-mode.hero-night     { background: linear-gradient(135deg, #232b3d 0%, #1a2233 60%, #141a28 100%); }
+body.dashboard-mode { transition: background 0.6s ease; } /* nhả pha mượt như section cũ */
+/* Widget TRONG SUỐT trên nền trời: Play Games (.dash-widget-box) + Lộ trình JLPT
+   (.roadmap-widget) — bỏ nền/viền/bóng + hover lift (soi .dash-gallery-widget);
+   scoped body.dashboard-mode nên không đụng class dùng chung ở trang khác. */
+body.dashboard-mode .dash-widget-box,
+body.dashboard-mode .roadmap-widget {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+body.dashboard-mode .dash-widget-box:hover,
+body.dashboard-mode .roadmap-widget:hover {
+    transform: none;
+    box-shadow: none;
+}
+/* Chữ NGUYÊN TRÊN nền trời (không nằm trong pill/thẻ riêng) đổi màu theo pha —
+   soi cơ chế .dash-action-card [N24]: 3 pha sáng chữ tối, pha tối chữ sáng. */
+body.dashboard-mode:is(.hero-morning, .hero-noon, .hero-afternoon) .dash-widget-box,
+body.dashboard-mode:is(.hero-morning, .hero-noon, .hero-afternoon) .roadmap-widget { color: #1f2937; }
+body.dashboard-mode.hero-night .dash-widget-box,
+body.dashboard-mode.hero-night .roadmap-widget { color: #f1f5f9; }
 .hero-night .dash-greeting { color: #f1f5f9; }
 .hero-night .dash-subtitle { color: #94a3b8; }
 
@@ -17896,9 +17927,9 @@ body.login-mode .app-header { display: none !important; }
         <!-- 🟢 [TASK 6] WIDGET "TIẾN ĐỘ JLPT" ĐÃ XÓA THEO YÊU CẦU — Play Games tự chiếm trọn hàng nhờ auto-fit -->
 
         <!-- WIDGET 2: PLAY GAMES -->
-        <div class="dash-widget-box" style="background: #000000; border-color: #2d2d2d;">
+        <div class="dash-widget-box">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #ffffff; display: flex; align-items: center; gap: 8px;">
+                <h3 style="margin: 0; font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 8px;">
                     🎮 PLAY GAMES
                 </h3>
             </div>
@@ -24421,13 +24452,18 @@ const HERO_GREETING_TEXT = {
 window.applyHeroDayPhase = function(userName, hourOverride) {
     if (userName) window.__heroUserName = userName;
     const phase = getHeroDayPhase(hourOverride);
-    const section = document.getElementById('dashHeaderSection');
-    if (section) {
+    // [SỬA USER — toàn trang nền trời] treo pha lên CẢ body (gradient phủ viewport
+    // — rule body.dashboard-mode.hero-* trong CSS [N23]) ngoài section như cũ;
+    // mọi rule .hero-* hậu duối (mặt trời/mây/chữ theo pha) vẫn khớp vì body là
+    // tổ tiên chung của mọi phần tử dashboard.
+    const heroHosts = [document.getElementById('dashHeaderSection'), document.body];
+    heroHosts.forEach(function(el) {
+        if (!el) return;
         ['hero-morning', 'hero-noon', 'hero-afternoon', 'hero-night'].forEach(function(c) {
-            section.classList.remove(c);
+            el.classList.remove(c);
         });
-        section.classList.add('hero-' + phase);
-    }
+        el.classList.add('hero-' + phase);
+    });
     const g = document.getElementById('dashGreeting');
     if (g) g.innerText = HERO_GREETING_TEXT[phase] + ' ' + window.__heroUserName + ' \uD83D\uDC4B';
 };
@@ -45920,8 +45956,8 @@ async function renderRoadmapWidget() {
                 <div class="roadmap-widget" style="animation: fadeInChat 0.3s ease;">
                     <div class="roadmap-empty-state">
                         <span class="material-symbols-outlined" style="font-size: 48px; color: #a0aec0; margin-bottom: 10px;">calendar_month</span>
-                        <h3 style="margin: 0 0 10px 0; color: #1d1d1f; font-size: 18px;">Bạn sẽ thi JLPT vào lúc nào?</h3>
-                        <p style="margin: 0 0 20px 0; color: #718096; font-size: 14px;">Hãy thiết lập mục tiêu, hệ thống sẽ tự chia nhỏ số lượng Từ vựng / Ngữ pháp cần học mỗi ngày giúp bạn.</p>
+                        <h3 style="margin: 0 0 10px 0; font-size: 18px;">Bạn sẽ thi JLPT vào lúc nào?</h3>
+                        <p style="margin: 0 0 20px 0; opacity: 0.75; font-size: 14px;">Hãy thiết lập mục tiêu, hệ thống sẽ tự chia nhỏ số lượng Từ vựng / Ngữ pháp cần học mỗi ngày giúp bạn.</p>
                         <button onclick="openJLPTGoalModal()" class="win11-btn-primary" style="padding: 12px 24px; font-size: 15px; display: inline-flex; align-items: center; gap: 8px; border: none; border-radius: 6px;">
                             <span class="material-symbols-outlined" style="font-size: 18px;">flag</span> THIẾT LẬP MỤC TIÊU NGAY
                         </button>
@@ -45946,7 +45982,7 @@ async function renderRoadmapWidget() {
                     <div class="roadmap-empty-state">
                         <span class="material-symbols-outlined" style="font-size: 48px; color: #10b981; margin-bottom: 10px;">military_tech</span>
                         <h3 style="color:#10b981; margin: 0 0 10px 0; font-size: 18px;">🎉 Hôm nay là ngày thi JLPT!</h3>
-                        <p style="margin: 0 0 20px 0; color: #4a5568; font-size: 14px;">Chúc bạn làm bài thi thật tốt và đạt kết quả cao!</p>
+                        <p style="margin: 0 0 20px 0; opacity: 0.75; font-size: 14px;">Chúc bạn làm bài thi thật tốt và đạt kết quả cao!</p>
                         <button onclick="openJLPTGoalModal()" class="win11-btn-secondary" style="margin: 0 auto; border-radius: 6px;">Lập lộ trình mới</button>
                     </div>
                 </div>
