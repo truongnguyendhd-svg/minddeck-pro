@@ -4108,7 +4108,7 @@ body.hsp-open {
 .hsp-chat-clear.visible { display: inline-block; }
 
 /* 🟢 v7.2 — FIX lệch header/footer trên màn NGANG & rộng (>=768px):
-   rule base bản copy-2 đứng SAU @media 768px cũ đã đè mất padding 24px
+   rule base copy-2 đứng SAU @media 768px cũ đã đè mất padding 24px
    (input-row 12px / results 12px / chat-messages 14px) trong khi .hsp-tabs
    vẫn 24px; .hsp-tabs content-box + max-width 950 + padding 48 = 998px
    rộng hơn dải footer 950px -> 2 dải dài ngắn khác nhau.
@@ -4118,6 +4118,83 @@ body.hsp-open {
     .hsp-input-row { padding-left: 24px; padding-right: 24px; } /* ô nhập khớp mép tab pill */
     .hsp-results { padding-left: 24px; padding-right: 24px; }
     .hsp-chat-messages { padding-left: 24px; padding-right: 24px; }
+}
+
+/* ================= 🟢 [SỬA USER] .hsp-body — LỚP KÍNH CONTROL CENTER iOS =================
+   Thiết kế nền #headerSearchPanel > .hsp-body giống Control Center iOS: một tấm
+   kính mờ đục SÂU (không phải kính trong veo) nổi trên wallpaper trang phía dưới.
+   Công thức iOS thật (tham chiếu từ systemMaterialDark/light):
+     • backdrop-filter: blur(40px) saturate(180%) — blur dày + bão hòa tăng như iOS
+     • nền phủ sáng mờ đục rgba(255,255,255,0.72) — che 72% wallpaper, chỉ lồ lộ
+       mảng màu mờ phía sau (hiệu ứng vibrancy), KHÔNG trong suốt lồ lộ chữ
+     • viền trong sáng 1px rgba(255,255,255,0.65) (dòng sáng viền như widget iOS)
+     • bóng đổ sâu khối: 0 24px 48px rgba(0,0,0,0.12) — tấm kính "nổi" khỏi trang
+   Cách áp trong cấu trúc hiện có (panel FULL màn, root .header-search-panel nền
+   đặc #fbfbfd che kín — nếu chỉ đổi .hsp-body thì KHÔNG thấy gì vì không có gì
+   phía sau để blur):
+     (1) Root panel: ĐỔI nền đặc → trong suốt để wallpaper trang phía dưới hiện
+         qua; việc khóa cuộn body.hsp-open giữ trang nền đứng yên làm "wallpaper".
+     (2) .hsp-body: nhận backdrop-filter + nền kính + viền trong + bóng sâu. Body
+         là vùng nội dung (kết quả/chat) — chiếm gần hết màn dưới tai thỏ header.
+         Trên desktop (≥768px) body bị giới hạn max-width 950px căn giữa → tấm
+         kính thành "thẻ kính" nổi giữa wallpaper, đúng chất Control Center; mobile
+         (<768px) body tràn full-width (chưa tới @media min-width) → kính full màn.
+     (3) Làm trong suốt các dải nền ĐẶC #fbfbfd nằm TRÊN tấm kính (đè kính, phá
+         hiệu ứng): .hsp-results, .hsp-chat-messages, .hsp-input-row (footer) —
+         transparent để nội dung nằm trực tiếp trên kính. Input row giữ border-top
+         như đường phân cách mảnh trên kính (đổi sang trắng mờ cho hợp tông).
+     (4) Header notch/tai thỏ giữ nguyên nền cũ (không thuộc .hsp-body — người dùng
+         chỉ yêu cầu body) — ranh giới kính bắt đầu dưới header, cạnh trên kính
+         là viền trong sáng.
+   Nội dung bên trong giữ nền riêng (dict-card trắng, bubble bot trắng, input
+   trắng, bubble user xanh) — chúng "đặt lên" tấm kính như widget đặt lên
+   material của Control Center, tương phản với kính mờ đục phía sau.
+   !important: rule này đứng sau 2 bản copy CSS hsp (line ~1667, ~3840) nhưng
+   bản copy-2 có rule trùng nền/border — chốt !important cho backdrop-filter
+   (Safari iOS cần -webkit- prefix) và background để không bị cascade lật lại. */
+.header-search-panel {
+    background: transparent !important; /* bỏ nền đặc #fbfbfd — để wallpaper hiện qua làm nền blur */
+}
+#headerSearchPanel .hsp-body {
+    /* LỚP KÍNH Control Center iOS */
+    -webkit-backdrop-filter: blur(40px) saturate(180%) !important;
+    backdrop-filter: blur(40px) saturate(180%) !important;
+    background: linear-gradient(
+        160deg,
+        rgba(255, 255, 255, 0.78) 0%,
+        rgba(255, 255, 255, 0.66) 45%,
+        rgba(245, 248, 252, 0.72) 100%
+    ) !important; /* kính sáng mờ đục — chéo nhẹ như material iOS */
+    border-top: 1px solid rgba(255, 255, 255, 0.65) !important; /* viền trong sáng — dòng sáng viền widget iOS */
+    box-shadow:
+        0 -1px 0 rgba(255, 255, 255, 0.4) inset,   /* highlight đường mép trên */
+        0 24px 48px rgba(15, 23, 42, 0.12) !important; /* bóng sâu — tấm kính nổi trên wallpaper */
+    border-radius: 0; /* full-width trong body panel — không bo (panel full màn) */
+    position: relative; /* giữ stacking context cho backdrop-filter ổn định trên iOS */
+}
+/* Mobile <768px: body tràn full màn — kính full màn vẫn dùng chung rule trên
+   (không max-width), giữ bóng sâu 24px để kính có chiều sâu ngay cả full-width */
+/* Dải nội dung + footer: TRONG SUỐT trên tấm kính (bỏ nền đặc #fbfbfd cũ) */
+#headerSearchPanel .hsp-results,
+#headerSearchPanel .hsp-chat-messages {
+    background: transparent !important;
+}
+#headerSearchPanel .hsp-input-row {
+    background: transparent !important; /* footer hoà vào tấm kính */
+    border-top: 1px solid rgba(255, 255, 255, 0.45) !important; /* đường phân cách mảnh sáng trên kính */
+}
+/* Desktop ≥768px: tấm kính giới hạn 950px căn giữa — thêm viền trong 2 bên +
+   dưới cho trọn khung kính (canh trái viền trái, canh phải viền phải qua
+   box-shadow inset không được → dùng border 2 bên + radius dưới, cạnh trên
+   đã có border-top trắng ở rule chính; bóng sâu đã có → tấm kính 4 cạnh đủ) */
+@media (min-width: 768px) {
+    #headerSearchPanel .hsp-body {
+        border-left: 1px solid rgba(255, 255, 255, 0.65) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.65) !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.65) !important;
+        border-bottom-left-radius: 20px;
+        border-bottom-right-radius: 20px;
+    }
 }
 
 .breadcrumb-container {
