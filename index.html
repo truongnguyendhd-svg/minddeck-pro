@@ -4179,6 +4179,64 @@ body.hsp-open {
     border-top: 1px solid rgba(255, 255, 255, 0.45) !important; /* đường phân cách mảnh sáng trên kính */
 }
 
+/* ================= 🟢 [SỬA USER] .hsp-input-row RỘNG BẰNG .hsp-notch =================
+   Yêu cầu: footer thanh search (input row) trong pane active có độ rộng BẰNG ĐÚNG
+   thanh notch giữa header — 2 dải tạo thành 1 cột thẳng đứng thẳng hàng mép.
+   Phân tích độ rộng notch (header flex row, border-box):
+     notch = panel − tai thỏ TRÁI − tai thỏ PHẢI
+     tai thỏ render = max(nút 32px + padding, min-width) = 64px desktop / 56px mobile ≤600px
+     → desktop 1280px: notch = 1152px; mobile 375px: notch = 263px.
+   Trở ngại: desktop .hsp-body bị cap max-width 950px căn giữa (bản @media 768px,
+   2 bản copy line ~1675/~3858) → input row trong body không bao giờ tới 1152px.
+   Giải pháp 4 mảnh (đứng cuối cascade, id specificity cao nhất vùng hsp):
+     (1) PIN tai thỏ về biến --hsp-ear-w (flex-basis cố định, bỏ min-width): 2 tai
+         luôn đúng 64px/56px bất kể nội dung — công thức calc không bao giờ lệch.
+     (2) .hsp-input-row: width = calc(100% − 2×ear) + margin auto căn giữa +
+         box-sizing border-box (padding 24px + border-top 1px tính TRONG width —
+         không border-box thì outer = width + 49px > notch vì notch là border-box).
+         100% = chiều rộng pane = panel (body hết cap sau (3)) → = đúng notch.
+     (3) Desktop ≥768px: MỞ cap max-width .hsp-body → none; CHUYỂN cap 950px +
+         căn giữa sang .hsp-results / .hsp-chat-messages (cột nội dung cuộn) với
+         border-box — giữ NGUYÊN visuals cột kết quả/chat 950px như trước.
+     (4) Border-top của input row giờ chỉ trải đúng vùng notch — đường phân cách
+         thẳng hàng mép notch phía trên, đóng khối cột search hoàn chỉnh.
+   Mobile <768px: body vốn full-width, rule (2) tự cho input = panel − 112 = notch. */
+.header-search-panel {
+    --hsp-ear-w: 64px; /* tai thỏ desktop — khớp min-width 64px gốc */
+}
+@media (max-width: 600px) {
+    .header-search-panel {
+        --hsp-ear-w: 56px; /* khớp min-width 56px mobile của rule gốc */
+    }
+}
+/* (1) Pin tai thỏ: flex-basis cố định theo biến, bỏ min-width (nội dung nút 32px
+   luôn lọt: 64−24=40 ≥ 32 desktop, 56−16=40 ≥ 32 mobile) */
+#headerSearchPanel .hsp-ear {
+    flex: 0 0 var(--hsp-ear-w) !important;
+    min-width: 0 !important;
+}
+/* (2) Input row rộng đúng notch + căn giữa */
+#headerSearchPanel .hsp-input-row {
+    box-sizing: border-box !important;
+    width: calc(100% - 2 * var(--hsp-ear-w)) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+/* (3) Desktop: bỏ cap body, chuyển cap cột nội dung 950px (visual giữ nguyên) */
+@media (min-width: 768px) {
+    #headerSearchPanel .hsp-body {
+        max-width: none !important;
+    }
+    #headerSearchPanel .hsp-results,
+    #headerSearchPanel .hsp-chat-messages {
+        box-sizing: border-box !important;
+        width: 100%;
+        max-width: 950px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+}
+
 .breadcrumb-container {
     background: #ffffff !important;
     border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
