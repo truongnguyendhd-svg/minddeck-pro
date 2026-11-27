@@ -24,9 +24,10 @@
      • iPhone (Safari): bấm Chia sẻ → "Thêm vào Màn hình chính" → mở từ icon
        gốc chạy app FULL MÀN, không thanh địa chỉ Safari (nhờ apple-mobile-web-
        app-capable). [T118] Status bar BLACK-TRANSLUCENT trong suốt: env() báo
-       inset chuẩn — header bù padding-top + dải ::before TỐI (glyph trắng
-       đồng hồ đọc rõ), #toast-container top + env() né notch, footer kính
-       chuyển filter sang ::before + bệ đặc ::after (xem CSS [T116-T118]).
+       inset chuẩn — header bù padding-top + NỀN TINT ĐẶC cùng màu header phủ
+       vùng notch [T119] (thay dải ::before tối cũ), #toast-container top +
+       env() né notch, footer kính chuyển filter sang ::before + bệ đặc
+       ::after (xem CSS [T116-T119]).
      • Android (Chrome): menu ⋮ → "Cài đặt ứng dụng" / "Thêm vào màn hình
        chính" → mở kiểu standalone nhờ manifest.json (hiện icon 酒, không
        thanh địa chỉ). Chrome cần HTTPS (đã có Vercel).
@@ -39,10 +40,11 @@
      theme-color #fff ĐÈ lên nội dung, đồng thời env() inset = 0 → header +
      toast chui hẳn dưới thanh bị che mất — đúng 2 lỗi user vừa báo). Với
      black-translucent: thanh TRONG SUỐT + env() báo inset ĐÚNG → mọi bù trù
-     do CSS kiểm soát hoàn toàn; glyph đồng hồ TRẮNG đọc rõ nhờ dải tối
-     .app-header::before [T118]. LƯU Ý: iOS chốt meta này theo lúc bấm "Thêm
-     vào Màn hình chính" — sau lần cập nhật này phải XÓA icon app cũ trên màn
-     hình chính rồi THÊM LẠI lần cuối. -->
+     do CSS kiểm soát hoàn toàn. [T119] Vùng notch giờ phủ NỀN TINT ĐẶC cùng
+     màu header qua background của chính .app-header — thay dải ::before tối
+     [T118] bị WebKit standalone hút ra sau lớp kính (nguyên nhân "lớp trắng
+     mờ" user báo). Meta giữ nguyên từ T118 → cập nhật T119 KHÔNG cần xóa
+     icon + thêm lại màn hình chính (chỉ đổi CSS, iOS không chốt lại meta). -->
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Alcohol">
 <meta name="theme-color" content="#ffffff">
@@ -10881,29 +10883,40 @@ body.library-mode #manageDeckList {
    theme-color #fff ĐÈ lên nội dung, đồng thời env() inset = 0 → header +
    toast chui hẳn dưới thanh bị che mất — đúng 2 lỗi user vừa báo). Với
    black-translucent: thanh TRONG SUỐT + env() báo inset ĐÚNG → mọi bù trù do
-   CSS kiểm soát hoàn toàn. Dải ::before TỐI ngay dưới thanh status cho glyph
-   đồng hồ/pin TRẮNG có nền đọc rõ (hết "mờ" trắng-trên-trắng của T116). */
+   CSS kiểm soát hoàn toàn. */
+/* [T119] BỎ dải ::before TỐI [T118] — THAY BẰNG NỀN TINT ĐẶC CÙNG MÀU HEADER
+   (user: 'iPhone notch/Dynamic Island standalone vẫn có lớp phủ trắng mờ phía
+   trên header khiến header nhòe — bỏ lớp đó + bỏ luôn dải before nền tối, thay
+   bằng nền tint cùng màu header'). Nguyên nhân lớp trắng mờ: ::before
+   z-index -1 bị WebKit standalone hút ra SAU lớp kính backdrop-filter của
+   chính header (cùng họ bug footer đã ghi chú [T118]: filter + standalone +
+   viewport-fit=cover làm lệch vị trí/phủ lớp) → vùng notch thực tế nhìn thấy
+   là KÍNH TRẮNG MỜ (rgba trắng 0.85 + blur 20px) trùm lên dải tối. Giải pháp:
+   dải TINT ĐẶC #ffffff — đúng màu nền header — cao đúng env(safe-area-inset-
+   top) đặt NGAY TRONG background-image của .app-header: nền của CHÍNH phần tử
+   luôn vẽ TRÊN backdrop-filter, WebKit không trôi được như ::before → vùng
+   notch trắng đặc liền mạch màu header, hết hẳn lớp mờ; phần header dưới
+   notch vẫn kính mờ Apple như cũ. Trình duyệt thường env = 0 → dải cao 0px,
+   vô hình, không đổi gì. LƯU Ý: glyph đồng hồ/pin TRẮNG (black-translucent)
+   trên nền tint trắng sẽ nhạt màu — tradeoff user chủ động chọn lấy thẩm mỹ
+   liền màu header. */
 .app-header {
     /* CHỐT content-box: padding-top CỘNG vào chiều cao (60px nội dung + phần
        notch phía trên) — không sợ reset box-sizing global nuốt mất bù notch */
     box-sizing: content-box;
     padding-top: env(safe-area-inset-top, 0px);
-}
-.app-header::before {
-    /* [T118] Dải TỐI #0f172a cao đúng env(safe-area-inset-top) — NỀN CHO GLYPH
-       TRẮNG của thanh status black-translucent (trước đây glyph trắng nằm trên
-       nền header trắng #fff = mờ hẳn). Header sticky + z-index 1100 = stacking
-       context → ::before z-index -1 vẽ TRÊN nền trắng header, DƯỚI nội dung.
-       Trình duyệt thường env = 0 → dải cao 0, vô hình. */
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: env(safe-area-inset-top, 0px);
-    background: #0f172a;
-    z-index: -1;
-    pointer-events: none;
+    /* [T119] NỀN TINT ĐẶC CÙNG MÀU HEADER cho vùng notch: linear-gradient đặc
+       #ffffff cao đúng env(safe-area-inset-top), position top — layer đầu
+       TIÊN của background chính header, đè kín kính mờ (rgba trắng 0.85) ở
+       đúng vùng này. !important để thắng từng longhand tương ứng của
+       shorthand `background: rgba(255,255,255,0.85) !important` của block
+       glass Apple (2 bản copy ~1374 + ~3547): cùng specificity + cùng
+       !important nhưng rule này XUỐNG SAU trong file → thắng cascade;
+       background-color kính vẫn giữ cho phần header dưới notch. */
+    background-image: linear-gradient(#ffffff, #ffffff) !important;
+    background-repeat: no-repeat !important;
+    background-position: top !important;
+    background-size: 100% env(safe-area-inset-top, 0px) !important;
 }
 /* [T118] iOS standalone + 100dvh = "chin gap" (WebKit tính dvh THIẾU chiều cao
    vật lý trong standalone + cover — r/PWA đã xác nhận, đổi 100dvh -> 100vh hết
