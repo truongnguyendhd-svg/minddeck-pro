@@ -23,10 +23,10 @@
      Cách hoạt động trên ĐIỆN THOẠI:
      • iPhone (Safari): bấm Chia sẻ → "Thêm vào Màn hình chính" → mở từ icon
        gốc chạy app FULL MÀN, không thanh địa chỉ Safari (nhờ apple-mobile-web-
-       app-capable). [T117] Status bar DEFAULT (đổi từ black-translucent — glyph
-       TRẮNG đè nền header TRẮNG #fff khiến đồng hồ/pin "mờ"): webview bắt đầu
-       DƯỚI status bar đặc, glyph TỐI dễ đọc; env(safe-area-inset-top) tự về 0,
-       rule bù CSS giữ nguyên làm phòng hộ.
+       app-capable). [T118] Status bar BLACK-TRANSLUCENT trong suốt: env() báo
+       inset chuẩn — header bù padding-top + dải ::before TỐI (glyph trắng
+       đồng hồ đọc rõ), #toast-container top + env() né notch, footer kính
+       chuyển filter sang ::before + bệ đặc ::after (xem CSS [T116-T118]).
      • Android (Chrome): menu ⋮ → "Cài đặt ứng dụng" / "Thêm vào màn hình
        chính" → mở kiểu standalone nhờ manifest.json (hiện icon 酒, không
        thanh địa chỉ). Chrome cần HTTPS (đã có Vercel).
@@ -34,10 +34,16 @@
        Android/desktop (Safari iOS không hỗ trợ API này — nút tự ẩn). -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<!-- [T117] default: status bar ĐẶC theo appearance hệ thống (light: nền trắng
-     + glyph tối). black-translucent cũ khiến glyph TRẮNG nằm đè nền header
-     TRẮNG (#fff) — đồng hồ/pin mờ hẳn trên iPhone tai thỏ. -->
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<!-- [T118] QUAY LẠI black-translucent (T117 từng đổi sang default — sai hướng:
+     trên iOS standalone, default + viewport-fit=cover vẽ thanh status ĐẶC màu
+     theme-color #fff ĐÈ lên nội dung, đồng thời env() inset = 0 → header +
+     toast chui hẳn dưới thanh bị che mất — đúng 2 lỗi user vừa báo). Với
+     black-translucent: thanh TRONG SUỐT + env() báo inset ĐÚNG → mọi bù trù
+     do CSS kiểm soát hoàn toàn; glyph đồng hồ TRẮNG đọc rõ nhờ dải tối
+     .app-header::before [T118]. LƯU Ý: iOS chốt meta này theo lúc bấm "Thêm
+     vào Màn hình chính" — sau lần cập nhật này phải XÓA icon app cũ trên màn
+     hình chính rồi THÊM LẠI lần cuối. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Alcohol">
 <meta name="theme-color" content="#ffffff">
 <link rel="manifest" href="manifest.json">
@@ -49,6 +55,19 @@
 <!-- TẢI CÁC THƯ VIỆN NẶNG (Thêm DEFER để trình duyệt vẽ UI trước, tải script ngầm) -->
 <script defer src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/wanakana@5.3.1/wanakana.min.js"></script>
+<script>
+/* [T118] Bộ phát hiện iOS STANDALONE (home-screen app): navigator.standalone
+   chỉ true trên iPhone/iPad Safari khi mở từ icon màn hình chính. Gắn class
+   .ios-standalone lên <html> NGAY TRƯỚC render (script đầu tài liệu) để CSS
+   đè riêng cho standalone: body.study-mode 100dvh -> 100vh (chống "chin gap" —
+   WebKit tính dvh THIẾU chiều cao vật lý khi standalone + viewport-fit=cover).
+   Trình duyệt thường không có class -> giữ nguyên 100dvh (đúng khi có toolbar). */
+(function () {
+    if (window.navigator && window.navigator.standalone === true) {
+        document.documentElement.classList.add('ios-standalone');
+    }
+})();
+</script>
 
 <style>
 /* ================= CSS THEO ĐÚNG TIÊU CHUẨN CỦA BẠN ================= */
@@ -561,7 +580,7 @@ body.study-mode #reviewPage {
 /* ================= THÔNG BÁO TOAST (iOS 18 STYLE) ================= */
 #toast-container { 
     position: fixed; 
-    top: 10px !important; /* Đẩy lên sát mí trên màn hình */
+    top: calc(10px + env(safe-area-inset-top, 0px)) !important; /* [T118] Đẩy sát mí trên + né notch/tai thỏ khi standalone (black-translucent, env() > 0) */
     left: 50%; 
     transform: translateX(-50%); 
     z-index: 99999; /* Đảm bảo đè lên Header và mọi Modal */
@@ -2734,7 +2753,7 @@ body.study-mode #reviewPage {
 /* ================= THÔNG BÁO TOAST (iOS 18 STYLE) ================= */
 #toast-container { 
     position: fixed; 
-    top: 10px !important; /* Đẩy lên sát mí trên màn hình */
+    top: calc(10px + env(safe-area-inset-top, 0px)) !important; /* [T118] Đẩy sát mí trên + né notch/tai thỏ khi standalone (black-translucent, env() > 0) */
     left: 50%; 
     transform: translateX(-50%); 
     z-index: 99999; /* Đảm bảo đè lên Header và mọi Modal */
@@ -10857,16 +10876,44 @@ body.library-mode #manageDeckList {
    Android cài PWA) HTML tràn tới mép vật lý màn hình. Header + breadcrumb
    sticky bù env(safe-area-inset-top) kẻo nội dung chui dưới notch/đồng hồ.
    Trình duyệt thường (chưa cài) inset = 0 → KHÔNG đổi gì. */
-/* [T117] status-bar-style đã đổi sang DEFAULT → iPhone standalone webview nằm
-   DƯỚI status bar đặc, env(safe-area-inset-top) = 0 — 2 rule dưới giữ nguyên
-   làm phòng hộ (nền tảng khác vẫn inset thì vẫn bù). Chỉ inset-BOTTOM (~34px
-   home indicator) còn tác động: footer kính được ::after ĐẶC che hẳn — xem
-   .library-tab-footer::after [T117] ở block footer phía dưới. */
+/* [T118] QUAY LẠI black-translucent (T117 đổi sang default là SAI HƯỚNG: trên
+   iOS standalone, default + viewport-fit=cover vẽ thanh status ĐẶC màu
+   theme-color #fff ĐÈ lên nội dung, đồng thời env() inset = 0 → header +
+   toast chui hẳn dưới thanh bị che mất — đúng 2 lỗi user vừa báo). Với
+   black-translucent: thanh TRONG SUỐT + env() báo inset ĐÚNG → mọi bù trù do
+   CSS kiểm soát hoàn toàn. Dải ::before TỐI ngay dưới thanh status cho glyph
+   đồng hồ/pin TRẮNG có nền đọc rõ (hết "mờ" trắng-trên-trắng của T116). */
 .app-header {
     /* CHỐT content-box: padding-top CỘNG vào chiều cao (60px nội dung + phần
        notch phía trên) — không sợ reset box-sizing global nuốt mất bù notch */
     box-sizing: content-box;
     padding-top: env(safe-area-inset-top, 0px);
+}
+.app-header::before {
+    /* [T118] Dải TỐI #0f172a cao đúng env(safe-area-inset-top) — NỀN CHO GLYPH
+       TRẮNG của thanh status black-translucent (trước đây glyph trắng nằm trên
+       nền header trắng #fff = mờ hẳn). Header sticky + z-index 1100 = stacking
+       context → ::before z-index -1 vẽ TRÊN nền trắng header, DƯỚI nội dung.
+       Trình duyệt thường env = 0 → dải cao 0, vô hình. */
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: env(safe-area-inset-top, 0px);
+    background: #0f172a;
+    z-index: -1;
+    pointer-events: none;
+}
+/* [T118] iOS standalone + 100dvh = "chin gap" (WebKit tính dvh THIẾU chiều cao
+   vật lý trong standalone + cover — r/PWA đã xác nhận, đổi 100dvh -> 100vh hết
+   hở). Chỉ đè khi chạy standalone: class .ios-standalone do script đầu tài
+   liệu gắn qua navigator.standalone; trình duyệt thường giữ dvh (dvh đúng khi
+   có toolbar ẩn/hiện của Safari). Scope body.study-mode (trang học khóa
+   100dvh + overflow hidden). #loginPage đã có min-height: 100vh nên không hở. */
+.ios-standalone body.study-mode {
+    height: 100vh !important;
+    max-height: 100vh !important;
 }
 .breadcrumb-container {
     /* Sticky dính ngay dưới header đã bù notch (top cũ = var(--header-height)) */
@@ -10899,11 +10946,28 @@ body.library-mode #manageDeckList {
     gap: 10px;
     padding: 10px 15px calc(10px + env(safe-area-inset-bottom, 0px));
     box-sizing: border-box;
+    /* [T118] BỎ background + backdrop-filter khỏi CHÍNH phần tử fixed — WebKit
+       bug (standalone + viewport-fit=cover + overscroll rubber-band: wpt
+       interop #84, bugs.webkit): lớp compositing filter làm fixed footer DỊCH
+       VỊ khi cuộn tới đỉnh hết cỡ (user: "footer bị nâng lên, hở phía dưới
+       nhìn thấy lớp body"). Kính chuyển sang ::before (absolute inset 0) —
+       đúng pattern .modal::before app dùng để vá cùng họ bug cho modal. */
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.05);
+}
+.library-tab-footer::before {
+    /* [T118] Lớp kính (nền 88% + saturate 180% blur 20px) phủ toàn footer như
+       cũ nhưng là CON của phần tử fixed → không dính bug dịch vị overscroll.
+       inset 0 = padding box: viền trên 1px của footer vẫn nổi trên kính.
+       Trình duyệt không hỗ trợ backdrop-filter vẫn còn nền 88% (fallback). */
+    content: '';
+    position: absolute;
+    inset: 0;
     background: rgba(255, 255, 255, 0.88);
     backdrop-filter: saturate(180%) blur(20px);
     -webkit-backdrop-filter: saturate(180%) blur(20px);
-    border-top: 1px solid rgba(0, 0, 0, 0.08);
-    box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.05);
+    z-index: -1;
+    pointer-events: none;
 }
 /* [T117] IPHONE STANDALONE — CHỐN "HỞ ĐÁY" FOOTER (user: "footer bị hở phía
    dưới nhìn thấy lớp phía sau"): dải đệm env(safe-area-inset-bottom) ~34px
@@ -10912,9 +10976,9 @@ body.library-mode #manageDeckList {
    bug .modal đã ghi chú ở style đầu file) → lộ nội dung trang xuyên qua kính
    88%. ::after nền trắng ĐẶC đúng chiều cao inset bịt dải này: home indicator
    ngồi trên bệ đặc, không còn thấy lớp sau. Trình duyệt thường inset = 0 →
-   ::after cao 0, vô hình. z-index -1 đúng pattern .modal::before (fixed tạo
-   stacking context — vẽ TRÊN nền footer, DƯỚI nút); pointer-events none
-   khỏi chặn bấm. */
+   ::after cao 0, vô hình. [T118] cùng z-index -1 với ::before (lớp kính
+   [T118]) nhưng ĐỨNG SAU tree order → đè kính trong dải inset: bệ đặc luôn
+   thắng; pointer-events none khỏi chặn bấm. */
 .library-tab-footer::after {
     content: '';
     position: absolute;
