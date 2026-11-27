@@ -23,8 +23,10 @@
      Cách hoạt động trên ĐIỆN THOẠI:
      • iPhone (Safari): bấm Chia sẻ → "Thêm vào Màn hình chính" → mở từ icon
        gốc chạy app FULL MÀN, không thanh địa chỉ Safari (nhờ apple-mobile-web-
-       app-capable). Status bar trong suốt black-translucent: nền app tràn
-       lên dưới đồng hồ/notch (đã bù env(safe-area-inset-top) ở CSS).
+       app-capable). [T117] Status bar DEFAULT (đổi từ black-translucent — glyph
+       TRẮNG đè nền header TRẮNG #fff khiến đồng hồ/pin "mờ"): webview bắt đầu
+       DƯỚI status bar đặc, glyph TỐI dễ đọc; env(safe-area-inset-top) tự về 0,
+       rule bù CSS giữ nguyên làm phòng hộ.
      • Android (Chrome): menu ⋮ → "Cài đặt ứng dụng" / "Thêm vào màn hình
        chính" → mở kiểu standalone nhờ manifest.json (hiện icon 酒, không
        thanh địa chỉ). Chrome cần HTTPS (đã có Vercel).
@@ -32,7 +34,10 @@
        Android/desktop (Safari iOS không hỗ trợ API này — nút tự ẩn). -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- [T117] default: status bar ĐẶC theo appearance hệ thống (light: nền trắng
+     + glyph tối). black-translucent cũ khiến glyph TRẮNG nằm đè nền header
+     TRẮNG (#fff) — đồng hồ/pin mờ hẳn trên iPhone tai thỏ. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Alcohol">
 <meta name="theme-color" content="#ffffff">
 <link rel="manifest" href="manifest.json">
@@ -10852,6 +10857,11 @@ body.library-mode #manageDeckList {
    Android cài PWA) HTML tràn tới mép vật lý màn hình. Header + breadcrumb
    sticky bù env(safe-area-inset-top) kẻo nội dung chui dưới notch/đồng hồ.
    Trình duyệt thường (chưa cài) inset = 0 → KHÔNG đổi gì. */
+/* [T117] status-bar-style đã đổi sang DEFAULT → iPhone standalone webview nằm
+   DƯỚI status bar đặc, env(safe-area-inset-top) = 0 — 2 rule dưới giữ nguyên
+   làm phòng hộ (nền tảng khác vẫn inset thì vẫn bù). Chỉ inset-BOTTOM (~34px
+   home indicator) còn tác động: footer kính được ::after ĐẶC che hẳn — xem
+   .library-tab-footer::after [T117] ở block footer phía dưới. */
 .app-header {
     /* CHỐT content-box: padding-top CỘNG vào chiều cao (60px nội dung + phần
        notch phía trên) — không sợ reset box-sizing global nuốt mất bù notch */
@@ -10894,6 +10904,27 @@ body.library-mode #manageDeckList {
     -webkit-backdrop-filter: saturate(180%) blur(20px);
     border-top: 1px solid rgba(0, 0, 0, 0.08);
     box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.05);
+}
+/* [T117] IPHONE STANDALONE — CHỐN "HỞ ĐÁY" FOOTER (user: "footer bị hở phía
+   dưới nhìn thấy lớp phía sau"): dải đệm env(safe-area-inset-bottom) ~34px
+   (home indicator khi cài PWA) là KÍNH TRƠ không nút — WebKit không lấy
+   backdrop của vùng vượt mép layout-viewport cũ trên phần tử fixed (cùng họ
+   bug .modal đã ghi chú ở style đầu file) → lộ nội dung trang xuyên qua kính
+   88%. ::after nền trắng ĐẶC đúng chiều cao inset bịt dải này: home indicator
+   ngồi trên bệ đặc, không còn thấy lớp sau. Trình duyệt thường inset = 0 →
+   ::after cao 0, vô hình. z-index -1 đúng pattern .modal::before (fixed tạo
+   stacking context — vẽ TRÊN nền footer, DƯỚI nút); pointer-events none
+   khỏi chặn bấm. */
+.library-tab-footer::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: env(safe-area-inset-bottom, 0px);
+    background: #fff;
+    z-index: -1;
+    pointer-events: none;
 }
 /* Nút tab: co theo nội dung (không giãn) — personal ghim trái, topic ghim phải;
    cap 48% mỗi nút kẻo màn hẹp 320px hai nhãn đẩy nhau tràn hàng. Glass xám nhạt
