@@ -5,14 +5,37 @@
 <title>Alcohol</title>
 <!-- Dùng Emoji làm Favicon -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2280%22 fill=%22%23bc002d%22>酒</text></svg>">
-<!-- Icon dành cho iPhone khi lưu ra màn hình chính (Apple Touch Icon) -->
-<link rel="apple-touch-icon" href="https://emojicdn.elk.sh/酒?size=180">
+<!-- Icon dành cho iPhone khi lưu ra màn hình chính (Apple Touch Icon)
+     [T116] đổi từ emoji CDN ngoài sang PNG nội bộ (apple-touch-icon.png 180px,
+     nền đen + 酒 trắng đồng bộ logo in-app): không phụ thuộc CDN ngoài, load
+     chắc chắn khi offline / khi cài PWA ra màn hình chính. -->
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <!-- Nạp bộ Icon Google Material Symbols (Outlined) — [BG ARROW NEXT
      NO-VEIL] trục FILL nạp DẢI 0..1 (trước nạp tĩnh 0): nút ">" đổi nền
      dùng glyph ĐẶC FILL 1 đậm hơn icon nét mảnh — mọi icon khác giữ
      mặc định FILL 0 như cũ (không đặt font-variation-settings) -->
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0..1,0" />
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- [T116] viewport-fit=cover: HTML tràn ra tới mép vật lý màn hình (vùng
+     notch/tai thỏ iPhone) — điều kiện để chạy full màn thật sự; CSS kèm theo
+     dùng env(safe-area-inset-*) chống nội dung chui dưới notch. -->
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- ================= [T116] FULL MÀN TRÊN ĐIỆN THOẠI (PWA) =================
+     Cách hoạt động trên ĐIỆN THOẠI:
+     • iPhone (Safari): bấm Chia sẻ → "Thêm vào Màn hình chính" → mở từ icon
+       gốc chạy app FULL MÀN, không thanh địa chỉ Safari (nhờ apple-mobile-web-
+       app-capable). Status bar trong suốt black-translucent: nền app tràn
+       lên dưới đồng hồ/notch (đã bù env(safe-area-inset-top) ở CSS).
+     • Android (Chrome): menu ⋮ → "Cài đặt ứng dụng" / "Thêm vào màn hình
+       chính" → mở kiểu standalone nhờ manifest.json (hiện icon 酒, không
+       thanh địa chỉ). Chrome cần HTTPS (đã có Vercel).
+     • Nút "Toàn màn hình" trong side-menu: Fullscreen API tức thì cho
+       Android/desktop (Safari iOS không hỗ trợ API này — nút tự ẩn). -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Alcohol">
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&family=Noto+Serif+JP:wght@400;600;700&display=swap" rel="stylesheet">
@@ -10823,6 +10846,24 @@ body.library-mode #manageDeckList {
     padding: 0 25px;
 }
 
+/* ================= [T116] FULL MÀN TRÊN ĐIỆN THOẠI — SAFE AREA (NOTCH / TAI THỎ) ================= */
+/* Đi kèm meta viewport-fit=cover + apple-mobile-web-app-status-bar-style
+   black-translucent: khi chạy standalone (iOS "Thêm vào Màn hình chính" /
+   Android cài PWA) HTML tràn tới mép vật lý màn hình. Header + breadcrumb
+   sticky bù env(safe-area-inset-top) kẻo nội dung chui dưới notch/đồng hồ.
+   Trình duyệt thường (chưa cài) inset = 0 → KHÔNG đổi gì. */
+.app-header {
+    /* CHỐT content-box: padding-top CỘNG vào chiều cao (60px nội dung + phần
+       notch phía trên) — không sợ reset box-sizing global nuốt mất bù notch */
+    box-sizing: content-box;
+    padding-top: env(safe-area-inset-top, 0px);
+}
+.breadcrumb-container {
+    /* Sticky dính ngay dưới header đã bù notch (top cũ = var(--header-height)) */
+    top: calc(var(--header-height) + env(safe-area-inset-top, 0px));
+}
+/* ================= [T116] HẾT SAFE AREA ================= */
+
 /* ================= [T111] FOOTER CHUYỂN TAB KHO HỌC PHẦN (CÁ NHÂN / CHỦ ĐỀ) ================= */
 /* Trang Kho học phần tách làm 2 tab: #libraryPersonalPanel (bộ bài của học viên) và
    #libraryTopicPanel (đám mây chủ đề + tìm kiếm D1). Thanh kính mờ ghim ĐÁY viewport
@@ -18161,6 +18202,14 @@ body.login-mode .app-header { display: none !important; }
             <span class="material-symbols-outlined">draw</span> Luyện viết
         </button>
         <div style="height: 1px; background: #edf2f7; margin: 15px 0;"></div>
+        <!-- [T116] NÚT TOÀN MÀN HÌNH (Fullscreen API): bấm là ẩn/hiện thanh
+             trình duyệt ngay tức thì — Android Chrome & desktop. Safari iOS
+             KHÔNG hỗ trợ Fullscreen API → JS tự ẩn nút (iPhone đã full màn
+             sẵn qua "Thêm vào Màn hình chính" + meta apple-mobile-web-app-capable). -->
+        <button id="sideMenuFullscreenBtn" class="side-menu-btn" onclick="closeSideMenu(); toggleAppFullscreen()">
+            <span class="material-symbols-outlined" id="sideMenuFullscreenIcon">fullscreen</span>
+            <span id="sideMenuFullscreenLabel">Toàn màn hình</span>
+        </button>
         <!-- CHỈ HIỂN THỊ NÚT NÀY CHO TÀI KHOẢN ADMIN -->
         <button id="sideMenuAdminBtn" class="side-menu-btn hidden" onclick="closeSideMenu(); showAdminPage()">
             <span class="material-symbols-outlined">shield_person</span> Admin Panel
@@ -25293,7 +25342,7 @@ window.switchLibraryTab = switchLibraryTab;
      & đời sống + khối "Chủ đề tự tạo của bạn" do renderThematicTagCloud vẽ).
    - 'curriculum' → #topicSubTabCurriculum: #thematicCurriculumZone (thanh lọc
      JLPT N5-N1 + lưới giáo trình).
-   Ô tìm kiếm D1 nằm NGOÀI 2 panel → dùng chung, không bị ẩn khi đổi sub-tab.
+   [T115] Ô tìm kiếm D1 đã loại bỏ — card chỉ còn 2 panel.
    State window.currentTopicSubTab cho deep-link đọc. KHÔNG cuộn trang khi đổi
    sub-tab (nội dung nằm gọn trong 1 card, đổi footer tab mới cuộn). */
 window.currentTopicSubTab = 'general';
@@ -25322,6 +25371,52 @@ function switchTopicSubTab(tab) {
 }
 window.switchTopicSubTab = switchTopicSubTab;
 /* [T113] HẾT SUB-TAB CARD CHỦ ĐỀ ================= */
+
+/* ================= [T116] TOÀN MÀN HÌNH (FULLSCREEN API) ================= */
+/* Bổ trợ PWA: nút "Toàn màn hình" trong side-menu toggling ẩn/hiện thanh
+   trình duyệt NGAY (không cần cài app) — Android Chrome/desktop. Safari iOS
+   không có Fullscreen API cho element (chỉ video) → nút tự ẩn ở dưới.
+   Vào/ra fullscreen qua đây cập nhật icon + label theo sự kiện fullscreenchange. */
+window.toggleAppFullscreen = function () {
+    var doc = document;
+    var isFs = !!(doc.fullscreenElement || doc.webkitFullscreenElement);
+    try {
+        if (!isFs) {
+            var el = doc.documentElement;
+            if (el.requestFullscreen) {
+                var p = el.requestFullscreen({ navigationUI: 'hide' });
+                if (p && p.catch) p.catch(function () {}); // chặn unhandled rejection
+            } else if (el.webkitRequestFullscreen) {
+                el.webkitRequestFullscreen(); // Safari cũ (desktop)
+            }
+        } else {
+            if (doc.exitFullscreen) {
+                var p2 = doc.exitFullscreen();
+                if (p2 && p2.catch) p2.catch(function () {});
+            } else if (doc.webkitExitFullscreen) {
+                doc.webkitExitFullscreen();
+            }
+        }
+    } catch (e) { /* trình duyệt chặn khi không phát sinh từ tương tác người dùng */ }
+};
+function updateFullscreenBtn() {
+    var icon = document.getElementById('sideMenuFullscreenIcon');
+    var label = document.getElementById('sideMenuFullscreenLabel');
+    if (!icon || !label) return;
+    var isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    icon.textContent = isFs ? 'fullscreen_exit' : 'fullscreen';
+    label.textContent = isFs ? 'Thoát toàn màn hình' : 'Toàn màn hình';
+}
+document.addEventListener('fullscreenchange', updateFullscreenBtn);
+document.addEventListener('webkitfullscreenchange', updateFullscreenBtn); // Safari cũ
+// Trình duyệt không hỗ trợ Fullscreen API (iPhone/iPad Safari) → ẩn nút luôn
+(function () {
+    var el = document.documentElement;
+    var supported = !!(el.requestFullscreen || el.webkitRequestFullscreen);
+    var btn = document.getElementById('sideMenuFullscreenBtn');
+    if (btn && !supported) btn.classList.add('hidden');
+})();
+/* [T116] HẾT TOÀN MÀN HÌNH ================= */
 
 function showLoginPage(skipHash = false) {
     if (!skipHash) window.location.hash = 'landing';
