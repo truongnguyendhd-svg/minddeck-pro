@@ -18334,7 +18334,13 @@ html.ios-pwa #tutorialSpotlight { height: 100% !important; }
      tắt. Nhánh nào thiếu khóa cuộn (quên modal-open-lock) → rule không khớp → shell
      giữ fixed như cũ (giảm cấp, không vỡ). :has() cần iOS 15.4+; máy cũ không hỗ trợ
      → giữ nguyên hành vi cũ (fixed + dải trắng) — không hỏng gì.
-   • Footer nhận lại +20px đệm (nhóm 2b) vì giờ nằm tại đáy 926pt như footer Kanji. */
+   • Footer nhận lại +20px đệm (nhóm 2b) vì giờ nằm tại đáy 926pt như footer Kanji.
+   • [N23] JS GHIM DOCUMENT VỀ ĐỈNH (sửa user lần 5): shell absolute top:0 neo theo
+     ĐỈNH DOCUMENT — nếu trang Kho học phần còn cuộn Y>0 lúc mở modal, iOS GIỮ nguyên
+     offset cuộn (overflow:hidden trên iOS không reset; body static bỏ qua top âm
+     [N22]) → modal vẽ lệch lên đúng Y px (nửa dưới modal ở nửa trên màn, phần dưới
+     lộ trang nền). Block [N23] cuối script cuộn document về 0 ngay khi (5c) kích
+     hoạt; vị trí cuộn cũ đã do [N21] ghi và closeModal() trả lại khi đóng. */
 html.ios-pwa body.modal-open-lock:has(#studyOptionsModal[style*="display: flex"]) {
     position: static !important;       /* body fixed = lớp fixed cũng cắt tại ICB — bỏ */
     height: 100lvh !important;        /* 926pt = canvas — document bằng canvas → không cuộn */
@@ -25846,6 +25852,77 @@ window.__mdRestorePreLockScroll = function() {
     mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
 })();
 /* ============ HẾT [N22] NỀN SAU MODAL ĐỨNG YÊN KHI MODAL MỞ ============ */
+
+/* ================= [N23] [iOS PWA 5c] MODAL BẮT ĐẦU HỌC ABSOLUTE — GHIM DOCUMENT VỀ ĐỈNH ================= */
+// Sửa user (lần 5): 'trên PWA iPhone, vào Kho học phần của bạn, vuốt màn hình từ
+// dưới lên rồi bấm một học phần → modal BẮT ĐẦU HỌC bị đẩy lên nửa trên màn hình,
+// chỉ thấy nửa dưới modal; phần dưới màn vẫn hiện nội dung trang Kho học phần'.
+// Nguyên nhân: khối CSS (5c) [WebKit STANDALONE] chuyển #studyOptionsModal sang
+// position:absolute + top:0 + height:100lvh để vẽ tới đáy màn vật lý (926pt) —
+// nhưng absolute top:0 neo vào ĐỈNH DOCUMENT, KHÔNG neo theo viewport. Khi trang
+// Kho đã cuộn xuống Y>0 (vuốt lên rồi mới bấm học phần), iOS GIỮ NGUYÊN offset
+// cuộn (overflow:hidden trên iOS không reset cuộn — quirk; body khi đó đã thành
+// static nên top âm [N22] bị bỏ qua) → modal vẽ tại document [0, 926] trong khi
+// viewport đang hiện document [Y, Y+879] → modal lệch LÊN đúng Y px: nửa dưới
+// modal hiện ở nửa trên màn, phần màn còn lại lộ trang Kho phía sau. Ở Y=0 (đứng
+// đầu trang) modal vẫn đúng — vì vậy các lần sửa trước không bắt được lỗi này.
+// FIX: ngay khi trạng thái 5c kích hoạt (html.ios-pwa + body.modal-open-lock +
+// studyOptionsModal display flex + computed position:absolute) → cuộn document
+// về 0 để modal absolute top:0 khớp ĐÚNG viewport, phủ kín tới đáy 926pt như
+// thiết kế (5c) đã kiểm chứng. Vị trí cuộn cũ vẫn do [N21] ghi (__mdPreLockScrollY
+// — listener chỉ ghi khi CHƯA khóa, scrollTo(0,0) này chạy khi ĐÃ khóa nên không
+// ghi đè) và closeModal() trả lại như cũ khi đóng modal. Observer theo dõi CẢ
+// class của body LẪN style của modal → phủ đủ 3 nhánh mở modal (openStudyOptions
+// Modal / F5-restore / quay lại từ boost); rAF + 200ms xác nhận lại vì iOS còn
+// đà cuộn (momentum) lúc bấm có thể kéo scrollY bật lại ≠0; scroll-listener chốt
+// cuối cho rubber-band / cuộn chồng từ khối cuộn trong modal.
+(function() {
+    if (window.__mdStudyModalDocTopLock) return; // chống gắn observer 2 lần
+    window.__mdStudyModalDocTopLock = true;
+
+    function getModal() { return document.getElementById('studyOptionsModal'); }
+
+    // Trạng thái (5c) đang chạy? Chỉ đo computed position ĐÚNG lúc observer chạy
+    // (modal vừa mở/đóng) — không đốt getComputedStyle trong từng scroll event.
+    var active = false;
+    function refreshActive() {
+        var el = getModal();
+        active = !!el
+            && document.documentElement.classList.contains('ios-pwa')
+            && document.body.classList.contains('modal-open-lock')
+            && /display:\s*flex/i.test(el.getAttribute('style') || '')
+            && window.getComputedStyle(el).position === 'absolute';
+    }
+
+    // Đưa document về đỉnh — modal absolute top:0 sẽ khớp viewport.
+    function forceDocTop() {
+        if (!active) return;
+        var y = Math.max(0, window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0);
+        if (y <= 0) return;
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0; // WebKit cũ: body là scroller
+        window.scrollTo(0, 0);
+    }
+
+    var mo = new MutationObserver(function() {
+        refreshActive();
+        if (!active) return;
+        forceDocTop();
+        requestAnimationFrame(forceDocTop); // đà cuộn iOS có thể bật scrollY lại sau microtask
+        setTimeout(forceDocTop, 200);       // chốt lại sau 200ms (rAF không chạy khi tab background)
+    });
+    mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    var el = getModal();
+    if (el) mo.observe(el, { attributes: true, attributeFilter: ['style'] });
+
+    // Modal đang mở (absolute) mà window bị kéo lệch (rubber-band / overscroll
+    // chaining từ #studyCardBody) → ghim document trả về đỉnh, modal không lệch.
+    window.addEventListener('scroll', function() {
+        if (!active) return;
+        if ((window.pageYOffset || document.documentElement.scrollTop || 0) > 0) forceDocTop();
+    }, { passive: true });
+})();
+/* ============ HẾT [N23] GHIM DOCUMENT VỀ ĐỈNH KHI MODAL ABSOLUTE MỞ ============ */
 
 function closeModal(id) { 
     document.getElementById(id).style.display = 'none'; 
