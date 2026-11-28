@@ -18131,10 +18131,11 @@ html.ios-pwa #studyOptionsModal .study-toolbar {
     padding-top: var(--ios-header-extra) !important;
 }
 html.ios-pwa #studyOptionsModal .study-modal-footer {
-    /* 8px phẳng cho MỌI khổ màn (bỏ media 480px): dải trắng dưới ICB ~47px (nền
-       cửa sổ, xem nhóm 5b) đã là vùng đệm home-indicator sẵn — +20px như footer
-       các trang FLOW là THỪA với shell FIXED, chỉ đẩy nút lên cao khỏi footer */
-    padding-bottom: 8px !important;
+    /* Nhóm (5c): shell giờ vẽ tới đáy màn vật lý (926pt) như footer trang Kanji
+       → cần đệm home-indicator TRONG footer: dùng --ios-footer-extra (20px) đúng
+       pattern .kanji-footer-bar — nút TIẾP kết thúc ~906pt, home indicator
+       (~913pt) nằm trong vùng đệm trắng của footer, đúng chuẩn app native */
+    padding-bottom: var(--ios-footer-extra) !important;
 }
 html.ios-pwa #studyOptionsModal.memory-test-fullscreen .modal-content {
     padding-top: var(--ios-header-extra) !important;
@@ -18311,6 +18312,41 @@ html.ios-pwa #tutorialSpotlight { height: 100% !important; }
    Shell FLOW (body.study-mode, #boostSummaryPage, #loginPage, .jlpt-root,
    .story-root, #reviewPage...) GIỮ 100lvh — nội dung flow cuộn được tới đáy
    màn vật lý, không dính cơ chế cắt của fixed. */
+
+/* ---------- (5c) [WebKit STANDALONE] MODAL BẮT ĐẦU HỌC RỜI LỚP FIXED → VẼ TỚI ĐÁY MÀN VẬT LÝ ----------
+   Sửa user lần 4: 'remove hẳn cái ~47pt nền cửa sổ trắng làm vùng đệm home-indicator,
+   tăng chiều cao footer bù vào — tương tự footer các trang kho dữ liệu / bộ sưu tập
+   Kanji'. Footer trang Kanji (.kanji-footer-bar, position: sticky bottom:0) nằm trong
+   LUỒNG FLOW nên vẽ được tới đáy màn vật lý (926pt) — home indicator nằm TRONG vùng
+   đệm trắng của footer (padding-bottom var(--ios-footer-extra)). Ngược lại shell .modal
+   là position:fixed → lớp fixed BỊ CẮT tại đáy ICB (879pt, xem nhóm 5b) → dưới footer
+   luôn lộ ~47pt nền cửa sổ trắng KHÔNG VẼ ĐƯỢC — không đơn vị viewport nào cứu được.
+   FIX: đưa shell sang LUỒNG TÀI LIỆU (cùng họ với sticky/flow đang chạy tốt trên máy):
+   • #studyOptionsModal khi modal đang mở: position fixed → absolute + height 100%
+     → 100lvh (926pt). absolute vẽ theo canvas đầy màn vật lý, không dính cơ chế cắt
+     của lớp fixed — footer chạm 926pt, home indicator nằm TRONG footer (như Kanji).
+   • body.modal-open-lock khi (và chỉ khi) modal này mở: bỏ position:fixed (body fixed
+     cũng là lớp fixed — con cháu trong nó bị kéo theo cắt tại ICB), thay bằng
+     height:100lvh + overflow:hidden — document đúng bằng canvas 926pt → KHÔNG cuộn
+     được, nền đứng yên (đúng pattern các shell flow body.study-mode đang dùng).
+   • Matcher [style*="display: flex"]: đúng chuỗi JS mở modal set (openStudyOptionsModal
+     + nhánh F5-restore + nhánh quay lại từ boost); closeModal() set 'none' → rule tự
+     tắt. Nhánh nào thiếu khóa cuộn (quên modal-open-lock) → rule không khớp → shell
+     giữ fixed như cũ (giảm cấp, không vỡ). :has() cần iOS 15.4+; máy cũ không hỗ trợ
+     → giữ nguyên hành vi cũ (fixed + dải trắng) — không hỏng gì.
+   • Footer nhận lại +20px đệm (nhóm 2b) vì giờ nằm tại đáy 926pt như footer Kanji. */
+html.ios-pwa body.modal-open-lock:has(#studyOptionsModal[style*="display: flex"]) {
+    position: static !important;       /* body fixed = lớp fixed cũng cắt tại ICB — bỏ */
+    height: 100lvh !important;        /* 926pt = canvas — document bằng canvas → không cuộn */
+    overflow: hidden !important;
+    width: 100% !important;
+}
+html.ios-pwa body.modal-open-lock:has(#studyOptionsModal[style*="display: flex"]) #studyOptionsModal {
+    position: absolute !important;    /* rời lớp fixed → vẽ theo canvas tới đáy màn vật lý */
+    top: 0 !important;
+    left: 0 !important;
+    height: 100lvh !important;        /* 926pt — shell phủ kín tới đáy, footer chạm 926pt */
+}
 /* ================= HẾT [iOS PWA] BỔ SUNG CHIỀU CAO HEADER + GIẢM MAX-HEIGHT MODAL ================= */
 </style>
 </head>
@@ -28467,6 +28503,10 @@ window.handleBoostIntroClose = function() {
     // 🟢 QUAY LẠI MODAL STUDY nếu đang từ sidebar (study modal đã bị đóng trước đó)
     const studyModal = document.getElementById('studyOptionsModal');
     if (studyModal && studyModal.style.display !== 'flex' && pendingModalReturn) {
+        // [iOS 5c] đồng bộ với 2 đường mở còn lại (openStudyOptionsModal / F5-restore):
+        // nhánh này thiếu modal-open-lock (nền sau modal cuộn được) — giờ càng cần
+        // để shell absolute (nhóm 5c) đứng yên canvas đầy.
+        document.body.classList.add('modal-open-lock');
         document.getElementById('studyOptionsModal').style.display = 'flex';
         return;
     }
