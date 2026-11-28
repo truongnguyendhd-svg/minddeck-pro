@@ -17,14 +17,14 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0..1,0" />
 <!-- [T116] viewport-fit=cover: HTML tràn ra tới mép vật lý màn hình (vùng
      notch/tai thỏ iPhone) — điều kiện để chạy full màn thật sự; CSS kèm theo
-     dùng env(safe-area-inset-*) chống nội dung chui dưới notch. -->
+     chống đè thanh trạng thái bằng chiều cao header cố định (+16px). -->
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <!-- ================= [T116] FULL MÀN TRÊN ĐIỆN THOẠI (PWA) =================
      Cách hoạt động trên ĐIỆN THOẠI:
      • iPhone (Safari): bấm Chia sẻ → "Thêm vào Màn hình chính" → mở từ icon
        gốc chạy app FULL MÀN, không thanh địa chỉ Safari (nhờ apple-mobile-web-
        app-capable). Status bar trong suốt black-translucent: nền app tràn
-       lên dưới đồng hồ/notch (đã bù env(safe-area-inset-top) ở CSS).
+       lên dưới đồng hồ/notch (bù bằng chiều cao header cố định +16px — khối [iOS PWA]).
      • Android (Chrome): menu ⋮ → "Cài đặt ứng dụng" / "Thêm vào màn hình
        chính" → mở kiểu standalone nhờ manifest.json (hiện icon 酒, không
        thanh địa chỉ). Chrome cần HTTPS (đã có Vercel).
@@ -34,6 +34,23 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Alcohol">
+<script>
+/* ================= [iOS PWA] GẮN CỜ .ios-pwa CHO IPHONE CHẠY STANDALONE =================
+   Điều kiện: thiết bị iOS (iPhone/iPad) VÀ đang chạy dạng app cài ("Thêm vào Màn hình chính",
+   matchMedia display-mode: standalone / navigator.standalone cũ).
+   Khối CSS "[iOS PWA] BỔ SUNG CHIỀU CAO HEADER..." cuối <style> chỉ áp trong scope
+   html.ios-pwa → Safari thường / Android / desktop KHÔNG bị ảnh hưởng.
+   Chiều cao bổ sung là số px CỐ ĐỊNH (--ios-header-extra, mặc định 16px), KHÔNG dùng
+   env(safe-area-inset-*) theo yêu cầu user. */
+(function () {
+    var ua = navigator.userAgent || '';
+    var isIOS = /iPad|iPhone|iPod/.test(ua) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    var isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+        window.navigator.standalone === true;
+    if (isIOS && isStandalone) document.documentElement.classList.add('ios-pwa');
+})();
+</script>
 <meta name="theme-color" content="#ffffff">
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1486,14 +1503,13 @@ body.hsp-open {
 
 /* ================= HSP HEADER — NOTCH IPHONE + TAI THỎ (đồng bộ Task 39/43 trang study/review/cram) ================= */
 /* Khung header TRONG SUỐT — nền + viền thuộc về NOTCH giữa; 2 TAI THỎ chạm 2 mép màn.
-   Cao 51px desktop / 45px mobile (khớp .study-header-row trang study); padding-top safe-area
-   cho iPhone có tai thỏ thật (notch ảo treo ngay dưới physical notch khi panel full màn). */
+   Cao 51px desktop / 45px mobile (khớp .study-header-row trang study). ĐÃ GỠ bù safe-area
+   theo yêu cầu user — thay bằng +16px cố định (khối [iOS PWA] cuối <style>). */
 .hsp-notch-header {
     display: flex;
     align-items: stretch;
     width: 100%;
-    height: calc(51px + env(safe-area-inset-top, 0px));
-    padding-top: env(safe-area-inset-top, 0px);
+    height: 51px;
     box-sizing: border-box;
     background: transparent;
     flex-shrink: 0;
@@ -1590,7 +1606,7 @@ body.hsp-open {
 .hsp-history-dropdown {
     display: none;
     position: absolute;
-    top: calc(51px + env(safe-area-inset-top, 0px) + 8px);
+    top: calc(51px + 8px);
     left: 12px;
     width: min(340px, calc(100vw - 24px));
     max-height: min(420px, 60dvh);
@@ -1681,10 +1697,10 @@ body.hsp-open {
 
 /* Mobile <=600px: tai thỏ thu hẹp 56px + padding mép 8px, notch bo góc dưới 16px — khớp study */
 @media (max-width: 600px) {
-    .hsp-notch-header { height: calc(45px + env(safe-area-inset-top, 0px)); }
+    .hsp-notch-header { height: 45px; }
     .hsp-ear { min-width: 56px; padding: 0 8px; }
     .hsp-notch { border-radius: 0 0 16px 16px; }
-    .hsp-history-dropdown { top: calc(45px + env(safe-area-inset-top, 0px) + 8px); }
+    .hsp-history-dropdown { top: calc(45px + 8px); }
 }
 
 .hsp-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
@@ -1719,9 +1735,9 @@ body.hsp-open {
     display: flex;
     gap: 8px;
     /* 🟢 v6.2: FOOTER đáy pane — border-top tách khỏi vùng nội dung;
-       padding-bottom max(12px, safe-area-inset-bottom) chống đè home bar iPhone;
+       padding-bottom 12px (đã gỡ bù safe-area theo yêu cầu user);
        nền #fbfbfd TRÙNG HỀT body panel — footer hoà liền vùng nội dung, không còn dải màu riêng */
-    padding: 10px 12px max(12px, env(safe-area-inset-bottom)) 12px;
+    padding: 10px 12px 12px 12px;
     border-top: 1px solid #edf2f7;
     border-bottom: none;
     background: #fbfbfd;
@@ -3659,14 +3675,13 @@ body.hsp-open {
 
 /* ================= HSP HEADER — NOTCH IPHONE + TAI THỎ (đồng bộ Task 39/43 trang study/review/cram) ================= */
 /* Khung header TRONG SUỐT — nền + viền thuộc về NOTCH giữa; 2 TAI THỎ chạm 2 mép màn.
-   Cao 51px desktop / 45px mobile (khớp .study-header-row trang study); padding-top safe-area
-   cho iPhone có tai thỏ thật (notch ảo treo ngay dưới physical notch khi panel full màn). */
+   Cao 51px desktop / 45px mobile (khớp .study-header-row trang study). ĐÃ GỠ bù safe-area
+   theo yêu cầu user — thay bằng +16px cố định (khối [iOS PWA] cuối <style>). */
 .hsp-notch-header {
     display: flex;
     align-items: stretch;
     width: 100%;
-    height: calc(51px + env(safe-area-inset-top, 0px));
-    padding-top: env(safe-area-inset-top, 0px);
+    height: 51px;
     box-sizing: border-box;
     background: transparent;
     flex-shrink: 0;
@@ -3763,7 +3778,7 @@ body.hsp-open {
 .hsp-history-dropdown {
     display: none;
     position: absolute;
-    top: calc(51px + env(safe-area-inset-top, 0px) + 8px);
+    top: calc(51px + 8px);
     left: 12px;
     width: min(340px, calc(100vw - 24px));
     max-height: min(420px, 60dvh);
@@ -3854,10 +3869,10 @@ body.hsp-open {
 
 /* Mobile <=600px: tai thỏ thu hẹp 56px + padding mép 8px, notch bo góc dưới 16px — khớp study */
 @media (max-width: 600px) {
-    .hsp-notch-header { height: calc(45px + env(safe-area-inset-top, 0px)); }
+    .hsp-notch-header { height: 45px; }
     .hsp-ear { min-width: 56px; padding: 0 8px; }
     .hsp-notch { border-radius: 0 0 16px 16px; }
-    .hsp-history-dropdown { top: calc(45px + env(safe-area-inset-top, 0px) + 8px); }
+    .hsp-history-dropdown { top: calc(45px + 8px); }
 }
 
 .hsp-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
@@ -3892,9 +3907,9 @@ body.hsp-open {
     display: flex;
     gap: 8px;
     /* 🟢 v6.2: FOOTER đáy pane — border-top tách khỏi vùng nội dung;
-       padding-bottom max(12px, safe-area-inset-bottom) chống đè home bar iPhone;
+       padding-bottom 12px (đã gỡ bù safe-area theo yêu cầu user);
        nền #fbfbfd TRÙNG HỀT body panel — footer hoà liền vùng nội dung, không còn dải màu riêng */
-    padding: 10px 12px max(12px, env(safe-area-inset-bottom)) 12px;
+    padding: 10px 12px 12px 12px;
     border-top: 1px solid #edf2f7;
     border-bottom: none;
     background: #fbfbfd;
@@ -10846,23 +10861,9 @@ body.library-mode #manageDeckList {
     padding: 0 25px;
 }
 
-/* ================= [T116] FULL MÀN TRÊN ĐIỆN THOẠI — SAFE AREA (NOTCH / TAI THỎ) ================= */
-/* Đi kèm meta viewport-fit=cover + apple-mobile-web-app-status-bar-style
-   black-translucent: khi chạy standalone (iOS "Thêm vào Màn hình chính" /
-   Android cài PWA) HTML tràn tới mép vật lý màn hình. Header + breadcrumb
-   sticky bù env(safe-area-inset-top) kẻo nội dung chui dưới notch/đồng hồ.
-   Trình duyệt thường (chưa cài) inset = 0 → KHÔNG đổi gì. */
-.app-header {
-    /* CHỐT content-box: padding-top CỘNG vào chiều cao (60px nội dung + phần
-       notch phía trên) — không sợ reset box-sizing global nuốt mất bù notch */
-    box-sizing: content-box;
-    padding-top: env(safe-area-inset-top, 0px);
-}
-.breadcrumb-container {
-    /* Sticky dính ngay dưới header đã bù notch (top cũ = var(--header-height)) */
-    top: calc(var(--header-height) + env(safe-area-inset-top, 0px));
-}
-/* ================= [T116] HẾT SAFE AREA ================= */
+/* ================= [T116] FULL MÀN TRÊN ĐIỆN THOẠI — ĐÃ GỠ SAFE AREA (THEO YÊU CẦU USER) =================
+   Gỡ toàn bộ bù env(safe-area-inset-*): thay bằng chiều cao header cố định
+   (+16px, scope html.ios-pwa — xem khối "[iOS PWA] BỔ SUNG CHIỀU CAO HEADER..." cuối <style>). */
 
 /* ================= [T111] FOOTER CHUYỂN TAB KHO HỌC PHẦN (CÁ NHÂN / CHỦ ĐỀ) ================= */
 /* Trang Kho học phần tách làm 2 tab: #libraryPersonalPanel (bộ bài của học viên) và
@@ -10887,7 +10888,7 @@ body.library-mode #manageDeckList {
     align-items: center;
     justify-content: space-between;   /* [T114] personal trái — topic phải */
     gap: 10px;
-    padding: 10px 15px calc(10px + env(safe-area-inset-bottom, 0px));
+    padding: 10px 15px 10px;
     box-sizing: border-box;
     background: rgba(255, 255, 255, 0.88);
     backdrop-filter: saturate(180%) blur(20px);
@@ -10964,7 +10965,7 @@ body.library-mode #homePage {
 }
 /* Mobile ≤600px: nút thấp hơn, chữ 13px, icon 18px — khớp hệ nút footer Kanji */
 @media (max-width: 600px) {
-    .library-tab-footer { gap: 8px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); }
+    .library-tab-footer { gap: 8px; padding: 8px 12px 8px; }
     .library-tab-btn { height: 42px; font-size: 13px; gap: 6px; padding: 0 10px; border-radius: 10px; }
     .library-tab-btn .material-symbols-outlined { font-size: 18px; }
 }
@@ -15109,7 +15110,7 @@ body.qbg-dark #boostQuestion.kb-washi-bg .scramble-zone {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     z-index: 9999; background: #0f172a;
     display: flex; flex-direction: column; align-items: center;
-    padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+    padding: 0;
     box-sizing: border-box; overflow: hidden;
 }
 .kd-game-hud {
@@ -15656,7 +15657,7 @@ body.qbg-dark #boostQuestion.kb-washi-bg .scramble-zone {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: env(safe-area-inset-top, 4px) 6px env(safe-area-inset-bottom, 4px);
+    padding: 4px 6px 4px;
     box-sizing: border-box;
     overflow: hidden;
 }
@@ -17861,9 +17862,9 @@ body.login-mode .app-header { display: none !important; }
     right: 0;
     bottom: 0;
     z-index: 20;
-    height: calc(60px + env(safe-area-inset-bottom, 0px)); /* V3.2b: 51 -> 60 */
+    height: 60px; /* V3.2b: 51 -> 60 */
     box-sizing: border-box;
-    padding: 0 15px env(safe-area-inset-bottom, 0px);
+    padding: 0 15px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -18020,8 +18021,8 @@ body.login-mode .app-header { display: none !important; }
 @media (max-width: 600px) {
     #boostSummaryPage .summary-header { height: 54px; padding: 0 12px; }
     #boostSummaryPage .summary-footer {
-        height: calc(54px + env(safe-area-inset-bottom, 0px));
-        padding: 0 12px env(safe-area-inset-bottom, 0px);
+        height: 54px;
+        padding: 0 12px;
     }
     #boostSummaryPage .summary-close-x { right: 12px; }
     #boostSummaryPage .summary-header .summary-title { font-size: 18px; max-width: calc(100% - 100px); }
@@ -18031,6 +18032,129 @@ body.login-mode .app-header { display: none !important; }
     background: rgba(255, 255, 255, 0.94) !important;
 }
 /* Hết================= [SUMMARY V2→V3] TRANG TỔNG KẾT — NỀN ẢNH #boostArea + KÍNH VUÔNG VỨC + HEADER/FOOTER ================= */
+/* ================= [iOS PWA] BỔ SUNG CHIỀU CAO HEADER + GIẢM MAX-HEIGHT MODAL (iPhone, KHÔNG dùng safe-area) =================
+   Sửa user: 'Trong PWA trên iPhone: thêm chiều cao cho header các trang + modal full màn
+   (trang boostarea +16px); giữ padding-bottom của header; modal cao gần full màn giảm max-height.'
+   • KHÔNG dùng env(safe-area-inset-*): chiều cao thêm là số px CỐ ĐỊNH qua biến
+     --ios-header-extra (mặc định 16px) — muốn bù cao hơn/thấp hơn chỉ sửa 1 giá trị này.
+   • Scope: html.ios-pwa (JS đầu <head> gắn cờ khi iPhone/iPad chạy standalone) — Safari
+     thường / Android / desktop KHÔNG đổi gì.
+   • Mọi rule chỉ THÊM phần chiều cao PHÍA TRÊN header (padding-top) — padding-bottom
+     và các khoảng cách dưới của header giữ nguyên. */
+html.ios-pwa { --ios-header-extra: 16px; }
+
+/* ---------- (1) HEADER CÁC TRANG: cao thêm 16px ở ĐỈNH ---------- */
+/* Header chính (dashboard, kho học phần, trang học...) — sticky; nội dung bên trong giữ nguyên */
+html.ios-pwa .app-header {
+    /* content-box: padding-top CỘNG thẳng vào chiều cao (60px + 16px) —
+       base .app-header là border-box + height cố định, không chốt lại sẽ bị nuốt */
+    box-sizing: content-box !important;
+    padding-top: var(--ios-header-extra) !important;
+}
+/* Breadcrumb sticky dính ngay ĐÁY header vừa cao thêm (không đè lên header) */
+html.ios-pwa .breadcrumb-container { top: calc(var(--header-height) + var(--ios-header-extra)) !important; }
+
+/* Trang BOOST / ASSESSMENT (app-header đã ẩn — header game nằm sát đỉnh màn):
+   +16px đúng như yêu cầu user; chiều cao nội dung 51px (mobile 45px) và padding-bottom = 0 giữ nguyên */
+html.ios-pwa .boost-header {
+    height: calc(51px + var(--ios-header-extra)) !important;
+    padding-top: var(--ios-header-extra) !important;
+}
+@media (max-width: 600px) {
+    html.ios-pwa .boost-header {
+        height: calc(45px + var(--ios-header-extra)) !important;
+        padding-top: var(--ios-header-extra) !important;
+    }
+}
+
+/* Trang TỔNG KẾT sau boost (overlay full màn trong #boostArea): header kính fixed đỉnh +16px
+   (padding-bottom của trang 86px/74px giữ nguyên) */
+html.ios-pwa #boostSummaryPage .summary-header {
+    height: calc(60px + var(--ios-header-extra)) !important;
+    padding-top: var(--ios-header-extra) !important;
+}
+html.ios-pwa #boostSummaryPage { padding-top: calc(82px + var(--ios-header-extra)) !important; }
+@media (max-width: 600px) {
+    html.ios-pwa #boostSummaryPage .summary-header {
+        height: calc(54px + var(--ios-header-extra)) !important;
+        padding-top: var(--ios-header-extra) !important;
+    }
+    html.ios-pwa #boostSummaryPage { padding-top: calc(70px + var(--ios-header-extra)) !important; }
+}
+
+/* Trang JLPT: home head + appbar (tests/quiz) cao thêm 16px trên đỉnh */
+html.ios-pwa .jlpt-home-head { padding-top: calc(22px + var(--ios-header-extra)) !important; }
+html.ios-pwa .jlpt-appbar { padding-top: calc(16px + var(--ios-header-extra)) !important; }
+@media (max-width: 768px) {
+    html.ios-pwa .jlpt-home-head { padding-top: calc(18px + var(--ios-header-extra)) !important; }
+    html.ios-pwa .jlpt-appbar { padding-top: calc(13px + var(--ios-header-extra)) !important; }
+}
+
+/* Trang TRUYỆN ĐỌC: home head + appbar (đang đọc) — mirror JLPT */
+html.ios-pwa .story-home-head { padding-top: calc(22px + var(--ios-header-extra)) !important; }
+html.ios-pwa .story-appbar { padding-top: calc(16px + var(--ios-header-extra)) !important; }
+@media (max-width: 768px) {
+    html.ios-pwa .story-home-head { padding-top: calc(18px + var(--ios-header-extra)) !important; }
+    html.ios-pwa .story-appbar { padding-top: calc(13px + var(--ios-header-extra)) !important; }
+}
+
+/* Side menu (drawer full màn trượt từ trái): header menu cao thêm 16px */
+html.ios-pwa .side-menu-header { padding-top: calc(20px + var(--ios-header-extra)) !important; }
+
+/* ---------- (2) MODAL FULL MÀN (100dvh): đẩy nội dung xuống 16px — header riêng của từng modal giữ nguyên padding-bottom ---------- */
+html.ios-pwa #xrayModal .modal-content,
+html.ios-pwa #grammarDetailModal .modal-content,
+html.ios-pwa #infoModal .modal-content,
+html.ios-pwa #remedialReviewModal .modal-content,
+html.ios-pwa #studyOptionsModal .modal-content,
+html.ios-pwa #aiStoryModal .modal-content,
+html.ios-pwa #quickEditModal .modal-content {
+    padding-top: var(--ios-header-extra) !important;
+    max-height: 100dvh !important; /* giữ full màn — không bị nhóm (3) dưới ép thấp */
+}
+
+/* Panel Tìm kiếm + Chat AI (header-search-panel full màn): header notch cao thêm 16px,
+   dropdown lịch sử hạ xuống đúng ngay dưới header mới */
+html.ios-pwa .hsp-notch-header {
+    height: calc(51px + var(--ios-header-extra)) !important;
+    padding-top: var(--ios-header-extra) !important;
+}
+html.ios-pwa .hsp-history-dropdown { top: calc(51px + var(--ios-header-extra) + 8px) !important; }
+@media (max-width: 600px) {
+    html.ios-pwa .hsp-notch-header { height: calc(45px + var(--ios-header-extra)) !important; }
+    html.ios-pwa .hsp-history-dropdown { top: calc(45px + var(--ios-header-extra) + 8px) !important; }
+}
+
+/* ---------- (3) MODAL CAO GẦN FULL MÀN: giảm max-height ~4vh (≈34px trên iPhone) để mép trên không chạm thanh trạng thái ---------- */
+html.ios-pwa .modal-content { max-height: 81vh !important; }                             /* 85vh → 81vh */
+@media (max-width: 600px) {
+    html.ios-pwa .modal-content { max-height: 86vh !important; }                         /* mobile 90vh → 86vh */
+}
+html.ios-pwa .bst-card { max-height: 82vh !important; }                                  /* 86vh → 82vh */
+@media (max-width: 480px) {
+    html.ios-pwa .bst-card { max-height: 86vh !important; }                             /* mobile 90vh → 86vh */
+    html.ios-pwa .rem-set-card { max-height: 86vh !important; }                         /* mobile 90vh → 86vh */
+}
+html.ios-pwa .rem-set-card { max-height: 82vh !important; }                              /* 86vh → 82vh */
+html.ios-pwa #quickDictModal .qd-modal-content { max-height: 81vh !important; }          /* 85vh → 81vh */
+html.ios-pwa .kb-fp-card { max-height: 82vh !important; }                                /* 86vh → 82vh */
+html.ios-pwa .kd-zcodex-modal { max-height: 84vh !important; }                           /* 88vh → 84vh */
+html.ios-pwa .kd-picker-modal { max-height: 84vh !important; }                          /* 88vh → 84vh */
+html.ios-pwa .kd-gameover-card { max-height: 81vh !important; }                         /* 85vh → 81vh */
+html.ios-pwa .kh-gameover-card { max-height: 81vh !important; }                         /* 85vh → 81vh */
+@media (max-width: 600px) {
+    html.ios-pwa .ai-modal-apple { max-height: 88vh !important; }                       /* mobile 92vh → 88vh */
+}
+html.ios-pwa #cloudExampleModal .ce-modal-box { max-height: calc(100dvh - 72px) !important; }  /* 100dvh-40px → -72px */
+@media (max-width: 600px) {
+    html.ios-pwa #cloudExampleModal .ce-modal-box { max-height: calc(100dvh - 56px) !important; } /* mobile 100dvh-24px → -56px */
+}
+html.ios-pwa .dgw-lb-card { max-height: calc(100dvh - 80px) !important; }               /* lightbox 100dvh-48px → -80px */
+/* 3 modal render bằng JS (inline style): CSS !important thắng inline — 85vh/90vh → 81vh/86vh */
+html.ios-pwa .ai-modal-box { max-height: 81vh !important; }
+html.ios-pwa .modal-content.win11-modal { max-height: 86vh !important; }
+html.ios-pwa .win11-modal-body { max-height: 81vh !important; }
+/* ================= HẾT [iOS PWA] BỔ SUNG CHIỀU CAO HEADER + GIẢM MAX-HEIGHT MODAL ================= */
 </style>
 </head>
 <body>
