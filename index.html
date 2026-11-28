@@ -18351,7 +18351,12 @@ html.ios-pwa body.modal-open-lock:has(#studyOptionsModal[style*="display: flex"]
     position: absolute !important;    /* rời lớp fixed → vẽ theo canvas tới đáy màn vật lý */
     top: 0 !important;
     left: 0 !important;
-    height: 100lvh !important;        /* 926pt — shell phủ kín tới đáy, footer chạm 926pt */
+    /* [N24] mặc định 100lvh (926pt, đã kiểm chứng — footer chạm đáy màn). Khi bàn
+       phím iOS mở (focus ô nhập trong modal), JS [N24] gán --md-study-shell-h =
+       calc(100lvh - kbDrop) lên <html> → shell co ĐÚNG vùng nhìn thấy phía TRÊN
+       bàn phím; .modal-content height:100% (nhóm 5b) + flex column co theo →
+       hàng input + nút Kiểm tra không còn bị bàn phím che. Không var = mặc định cũ. */
+    height: var(--md-study-shell-h, 100lvh) !important;
 }
 /* ================= HẾT [iOS PWA] BỔ SUNG CHIỀU CAO HEADER + GIẢM MAX-HEIGHT MODAL ================= */
 </style>
@@ -25923,6 +25928,121 @@ window.__mdRestorePreLockScroll = function() {
     }, { passive: true });
 })();
 /* ============ HẾT [N23] GHIM DOCUMENT VỀ ĐỈNH KHI MODAL ABSOLUTE MỞ ============ */
+
+/* ================= [N24] [iOS PWA] BÀN PHÍM iOS — CO SHELL MODAL BẮT ĐẦU HỌC THEO VISUAL VIEWPORT ================= */
+// Sửa user (lần 6): 'nhấn nút test trong khối ví dụ → trang test hiện ra, không
+// trượt lên nửa trên màn hình và bị bàn phím che mất một phần dưới'.
+// Nguyên nhân: startMemoryTest gọi input.focus() ngay khi mở test → bàn phím iOS
+// bật lên phủ ~300pt ĐÁY màn. Shell #studyOptionsModal là absolute height 100lvh
+// (926pt, nhóm 5c) và [N23] ghim document về đỉnh (đúng thiết kế) → shell KHÔNG
+// co theo vùng nhìn thấy: hàng input + nút Kiểm tra nằm trong ~300pt bị bàn phím
+// che mất. (Trước [N23], WebKit từng tự pan document lên để lộ input — lớp pan
+// đó giờ bị ghim về 0, nên phải CO shell thay vì dựa pan.)
+// FIX: theo dõi focus vào ô nhập bên trong modal + visualViewport (WebKit):
+// • focusin (INPUT/TEXTAREA/contenteditable thuộc #studyOptionsModal): mở cổng
+//   kbGate; vvRest = chiều cao visualViewport lúc bàn phím CHƯA mở (cache cập
+//   nhật ở mỗi sự kiện vv khi cổng ĐÓNG — nạp trang / xoay máy đều đo lại đúng).
+// • visualViewport 'resize' khi cổng mở: kbDrop = vvRest − vv.height (≥0) →
+//   gán --md-study-shell-h: calc(100lvh − kbDrop px) lên <html> → shell co đúng
+//   vùng nhìn thấy PHÍA TRÊN bàn phím. Dùng calc TRỪ từ 100lvh (giá trị đã kiểm
+//   chứng 926pt) để không phụ thuộc vv trả 879 hay 926 trên standalone.
+// • focusout (debounce 250ms — focus CHUYỂN giữa các input trong modal không
+//   nhá shell): gỡ var → shell trả về 100lvh theo cùng nhịp bàn phím đóng; gọi
+//   lại __positionMtBar (thanh candidates IME position:fixed cần tái định vị
+//   theo input sau khi layout co/giãn).
+// • Đóng modal khi còn focus: MutationObserver style modal → dọn var + cổng.
+// • WebKit pan document lộ input (nếu có) → applyKb ghim scrollTo(0,0) ĐÚNG lúc
+//   set var để 2 thay đổi tính chung 1 layout (không nhá khung lệch).
+// Scope: html.ios-pwa + đúng trạng thái 5c (như [N23]) — Safari thường /
+// Android / desktop / iOS không có visualViewport: không chạy, giữ hành vi cũ.
+(function() {
+    if (window.__mdStudyKbViewport) return; // chống gắn 2 lần
+    window.__mdStudyKbViewport = true;
+    var vv = window.visualViewport;
+    if (!vv || !vv.addEventListener) return; // môi trường không hỗ trợ → bỏ qua an toàn
+
+    function getModal() { return document.getElementById('studyOptionsModal'); }
+    function is5cActive() {
+        var el = getModal();
+        return !!el
+            && document.documentElement.classList.contains('ios-pwa')
+            && document.body.classList.contains('modal-open-lock')
+            && /display:\s*flex/i.test(el.getAttribute('style') || '')
+            && window.getComputedStyle(el).position === 'absolute';
+    }
+    function isEditable(node) {
+        if (!node || node.nodeType !== 1) return false;
+        var tag = node.tagName;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || node.isContentEditable === true;
+    }
+    function inModal(node) {
+        var el = getModal();
+        return !!el && node && node.nodeType === 1 && el.contains(node);
+    }
+
+    var kbGate = false;     // đang focus ô nhập trong modal → bàn phím có thể mở
+    var vvRest = vv.height; // chiều cao visualViewport khi bàn phím CHƯA mở
+    var focusOutTimer = null;
+
+    function clearShellVar() {
+        if (document.documentElement.style.getPropertyValue('--md-study-shell-h')) {
+            document.documentElement.style.removeProperty('--md-study-shell-h');
+        }
+    }
+    function applyKb() {
+        if (!kbGate || !is5cActive()) { clearShellVar(); return; }
+        var drop = Math.max(0, Math.round(vvRest - vv.height));
+        var cap = Math.round(vvRest * 0.6);   // bàn phím iOS tối đa ~45% màn — chặn đo lệch
+        if (drop > cap) drop = cap;
+        if (drop > 60) {                      // ≤60pt = không có bàn phím (hardware kb / rung nhẹ)
+            document.documentElement.style.setProperty('--md-study-shell-h', 'calc(100lvh - ' + drop + 'px)');
+        } else {
+            clearShellVar();
+        }
+        // Ghim document về 0 đồng bộ với lần set var (chống khung lệch do WebKit
+        // pan lộ input), rồi tái định vị thanh candidates IME sau khi layout co.
+        window.scrollTo(0, 0);
+        requestAnimationFrame(function() {
+            if (typeof window.__positionMtBar === 'function') window.__positionMtBar();
+        });
+    }
+
+    vv.addEventListener('resize', function() {
+        if (!kbGate) vvRest = vv.height; // bàn phím đóng → cập nhật chuẩn đo mới
+        applyKb();
+    });
+
+    document.addEventListener('focusin', function(ev) {
+        if (!isEditable(ev.target) || !inModal(ev.target)) return;
+        if (focusOutTimer) { clearTimeout(focusOutTimer); focusOutTimer = null; }
+        kbGate = true;
+        applyKb(); // bàn phím chưa kịp mở → drop 0, chưa làm gì; chờ vv resize
+    }, true);
+
+    document.addEventListener('focusout', function(ev) {
+        if (!isEditable(ev.target) || !inModal(ev.target)) return;
+        if (focusOutTimer) clearTimeout(focusOutTimer);
+        focusOutTimer = setTimeout(function() {
+            kbGate = false;
+            clearShellVar(); // shell giãn về 100lvh theo cùng nhịp bàn phím đóng
+            if (typeof window.__positionMtBar === 'function') window.__positionMtBar();
+        }, 250); // focus chuyển sang ô nhập khác trong modal → focusin tới TRƯỚC timer
+    }, true);
+
+    // Đóng modal khi còn focus (display:none làm mất focus, focusout có thể tới
+    // muộn) → dọn var + cổng NGAY khi modal tắt để lần mở sau không kế thừa.
+    var el0 = getModal();
+    if (el0) {
+        new MutationObserver(function() {
+            if (!/display:\s*flex/i.test(el0.getAttribute('style') || '')) {
+                kbGate = false;
+                if (focusOutTimer) { clearTimeout(focusOutTimer); focusOutTimer = null; }
+                clearShellVar();
+            }
+        }).observe(el0, { attributes: true, attributeFilter: ['style'] });
+    }
+})();
+/* ============ HẾT [N24] CO SHELL THEO BÀN PHÍM iOS (VISUAL VIEWPORT) ============ */
 
 function closeModal(id) { 
     document.getElementById(id).style.display = 'none'; 
