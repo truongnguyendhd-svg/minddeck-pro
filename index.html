@@ -18278,7 +18278,13 @@ html.ios-pwa #loginPage { min-height: 100lvh !important; height: 100lvh !importa
 html.ios-pwa body.study-mode #reviewPage { height: calc(100lvh - var(--header-height) - 50px) !important; }
 html.ios-pwa body.game-fullscreen-mode #reviewPage { height: 100lvh !important; }
 html.ios-pwa #boostSummaryPage { height: 100lvh !important; }
-html.ios-pwa .header-search-panel { height: 100% !important; }
+/* [N25] var(--md-hsp-shell-h, 100%): khi bàn phím iOS mở và user đang focus ô
+   nhập trong panel, JS [N25] gán --md-hsp-shell-h = calc(100% − kbDrop px) lên
+   <html> → panel fixed (top:0, height thắng bottom trong cặp over-constrained)
+   co đúng vùng nhìn thấy PHÍA TRÊN bàn phím — hàng .hsp-input-row nằm đáy panel
+   được nâng lên khỏi bàn phím. Var trống → 100% (= ICB) y như trước, không đổi
+   hành vi gì khi bàn phím đóng. */
+html.ios-pwa .header-search-panel { height: var(--md-hsp-shell-h, 100%) !important; }
 html.ios-pwa body.study-mode .main-content { height: calc(100lvh - var(--header-height) - 34px) !important; }
 /* Modal full màn (x-ray/grammar/info/remedial/studyOptions/aiStory/quickEdit):
    height/max-height 100lvh → 100% — bằng đúng backdrop .modal cha (height:100%
@@ -26058,6 +26064,119 @@ window.__mdRestorePreLockScroll = function() {
     }
 })();
 /* ============ HẾT [N24] CO SHELL THEO BÀN PHÍM iOS (VISUAL VIEWPORT) ============ */
+
+/* ================= [N25] [iOS PWA] BÀN PHÍM iOS — CO PANEL TÌM KIẾM THEO VISUAL VIEWPORT ================= */
+// Sửa user: 'search panel trên điện thoại, khi nhấn vào ô input thì nó không
+// trượt lên phía trên bàn phím mà bị bàn phím che mất thì còn nhập gì được'.
+// Nguyên nhân: #headerSearchPanel là shell FIXED full màn (height 100% = ICB
+// 879pt trên standalone — nhóm 5b), hàng nhập .hsp-input-row nằm ĐÁY flex
+// column. Bàn phím iOS chỉ co VISUAL viewport — ICB và mọi phần tử fixed
+// KHÔNG di chuyển; body.hsp-open khóa cuộn nên WebKit cũng không pan document
+// lên được → ô nhập nằm trong ~340pt đáy bị bàn phím che. Việc
+// openHeaderSearchPanel còn tự focus ô nhập sau 120ms → bàn phím bật NGAY KHI
+// MỞ panel → lỗi càng lộ rõ (mở panel là đã bị che).
+// FIX: đúng pattern [N24] (modal Bắt đầu học — đã chạy tốt trên máy user):
+// • focusin ô nhập (INPUT/TEXTAREA/contenteditable thuộc #headerSearchPanel):
+//   mở cổng kbGate; vvRest = chiều cao visualViewport khi bàn phím CHƯA mở
+//   (cache cập nhật ở mỗi sự kiện vv khi cổng ĐÓNG).
+// • visualViewport 'resize' khi cổng mở: kbDrop = vvRest − vv.height (≥0) →
+//   gán --md-hsp-shell-h: calc(100% − kbDrop px) lên <html> → CSS ios-pwa cho
+//   panel height var (nhóm 5b) → đáy panel nâng lên đúng mép TRÊN bàn phím.
+//   100% = ICB (không đổi khi bàn phím mở trên iOS) nên phép trừ khớp đúng.
+// • focusout (debounce 250ms — chuyển focus giữa ô dict/chat không nhá panel):
+//   gỡ var → panel giãn về 100% theo cùng nhịp bàn phím đóng.
+// • Đóng panel khi còn focus (display:none làm mất focus, focusout tới muộn)
+//   → MutationObserver class 'hidden' dọn var + cổng NGAY khi panel tắt.
+// • Bàn phím mở → ẩn #globalSearchCandidatesBar: bar position:fixed định vị
+//   theo rect ô nhập CŨ — panel vừa co làm bar lạc chỗ; bar tự tái định vị
+//   theo rect MỚI mỗi lần hiện lại (hàm show gọi getBoundingClientRect).
+// Scope: html.ios-pwa — Android Chrome tự co layout viewport khi bàn phím mở
+// (height 100% panel = đúng vùng thấy được); Safari thường / desktop không dính.
+(function() {
+    if (window.__mdHspKbViewport) return; // chống gắn 2 lần
+    window.__mdHspKbViewport = true;
+    var vv = window.visualViewport;
+    if (!vv || !vv.addEventListener) return; // môi trường không hỗ trợ → bỏ qua an toàn
+
+    function getPanel() { return document.getElementById('headerSearchPanel'); }
+    function isHspActive() {
+        var el = getPanel();
+        return !!el
+            && document.documentElement.classList.contains('ios-pwa')
+            && !el.classList.contains('hidden');
+    }
+    function isEditable(node) {
+        if (!node || node.nodeType !== 1) return false;
+        var tag = node.tagName;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || node.isContentEditable === true;
+    }
+    function inPanel(node) {
+        var el = getPanel();
+        return !!el && node && node.nodeType === 1 && el.contains(node);
+    }
+    function hideCandidatesBar() {
+        var bar = document.getElementById('globalSearchCandidatesBar');
+        if (bar && bar.style.display !== 'none') bar.style.display = 'none';
+    }
+
+    var kbGate = false;     // đang focus ô nhập trong panel → bàn phím có thể mở
+    var vvRest = vv.height; // chiều cao visualViewport khi bàn phím CHƯA mở
+    var focusOutTimer = null;
+
+    function clearShellVar() {
+        if (document.documentElement.style.getPropertyValue('--md-hsp-shell-h')) {
+            document.documentElement.style.removeProperty('--md-hsp-shell-h');
+        }
+    }
+    function applyKb() {
+        if (!kbGate || !isHspActive()) { clearShellVar(); return; }
+        var drop = Math.max(0, Math.round(vvRest - vv.height));
+        var cap = Math.round(vvRest * 0.6);   // bàn phím iOS tối đa ~45% màn — chặn đo lệch
+        if (drop > cap) drop = cap;
+        if (drop > 60) {                      // ≤60pt = không có bàn phím (hardware kb / rung nhẹ)
+            document.documentElement.style.setProperty('--md-hsp-shell-h', 'calc(100% - ' + drop + 'px)');
+            hideCandidatesBar(); // fixed-bar định vị theo ô nhập cũ — panel vừa co, ẩn tránh lạc chỗ
+        } else {
+            clearShellVar();
+        }
+        window.scrollTo(0, 0); // body.hsp-open khóa cuộn — ghim WebKit pan (nếu có) về đỉnh
+    }
+
+    vv.addEventListener('resize', function() {
+        if (!kbGate) vvRest = vv.height; // bàn phím đóng → cập nhật chuẩn đo mới
+        applyKb();
+    });
+
+    document.addEventListener('focusin', function(ev) {
+        if (!isEditable(ev.target) || !inPanel(ev.target)) return;
+        if (focusOutTimer) { clearTimeout(focusOutTimer); focusOutTimer = null; }
+        kbGate = true;
+        applyKb(); // bàn phím chưa kịp mở → drop 0, chưa làm gì; chờ vv resize
+    }, true);
+
+    document.addEventListener('focusout', function(ev) {
+        if (!isEditable(ev.target) || !inPanel(ev.target)) return;
+        if (focusOutTimer) clearTimeout(focusOutTimer);
+        focusOutTimer = setTimeout(function() {
+            kbGate = false;
+            clearShellVar(); // panel giãn về 100% theo cùng nhịp bàn phím đóng
+        }, 250); // focus chuyển sang ô nhập khác trong panel → focusin tới TRƯỚC timer
+    }, true);
+
+    // Đóng panel khi còn focus → dọn var + cổng NGAY khi panel tắt để lần mở sau
+    // không kế thừa (focusout do display:none có thể tới muộn).
+    var panel0 = getPanel();
+    if (panel0) {
+        new MutationObserver(function() {
+            if (panel0.classList.contains('hidden')) {
+                kbGate = false;
+                if (focusOutTimer) { clearTimeout(focusOutTimer); focusOutTimer = null; }
+                clearShellVar();
+            }
+        }).observe(panel0, { attributes: true, attributeFilter: ['class'] });
+    }
+})();
+/* ============ HẾT [N25] CO PANEL TÌM KIẾM THEO BÀN PHÍM iOS (VISUAL VIEWPORT) ============ */
 
 function closeModal(id) { 
     document.getElementById(id).style.display = 'none'; 
